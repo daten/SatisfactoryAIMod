@@ -5,6 +5,7 @@
 #include "DocModFunctionLibrary.h"
 #include "DocModHotkey.h"
 #include "Engine/World.h"
+#include "UObject/UObjectGlobals.h"
 #include "HAL/IConsoleManager.h"
 
 DEFINE_LOG_CATEGORY(LogDocModAI);
@@ -23,6 +24,7 @@ void FDocModModule::StartupModule()
 	// commands below are separate - they only run when someone explicitly
 	// types one, so they stay available in all configs.
 	WorldInitializedActorsHandle = FWorldDelegates::OnWorldInitializedActors.AddRaw(this, &FDocModModule::OnWorldInitializedActors);
+	PostLoadMapWithWorldHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddRaw(this, &FDocModModule::OnPostLoadMapWithWorld);
 #endif
 
 	RegisterConsoleCommands();
@@ -36,6 +38,7 @@ void FDocModModule::ShutdownModule()
 
 #if !UE_BUILD_SHIPPING
 	FWorldDelegates::OnWorldInitializedActors.Remove(WorldInitializedActorsHandle);
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapWithWorldHandle);
 #endif
 
 	UE_LOG(LogDocModAI, Display, TEXT("DocMod AI interface module shutting down"));
@@ -44,20 +47,34 @@ void FDocModModule::ShutdownModule()
 #if !UE_BUILD_SHIPPING
 void FDocModModule::OnWorldInitializedActors(const FActorsInitializedParams& Params)
 {
+	RunPerWorldSetup(Params.World);
+}
+
+void FDocModModule::OnPostLoadMapWithWorld(UWorld* World)
+{
+	RunPerWorldSetup(World);
+}
+
+void FDocModModule::RunPerWorldSetup(UWorld* World)
+{
 	// Fires for every world load, including menu/editor-preview worlds -
 	// skip anything that isn't an actual game world. DocModSelfTest's
 	// checks all tolerate "0 found" gracefully, so this is safe to run
-	// even on a bare level with no resource nodes/buildings.
-	if (Params.World && Params.World->IsGameWorld())
+	// even on a bare level with no resource nodes/buildings. De-duplicate
+	// since two delegates feed this (see DocMod.h's comment on why).
+	if (!World || !World->IsGameWorld() || LastSetupWorld == World)
 	{
-		DocModSelfTest::RunAll(Params.World);
-
-		// DocModHotkey (F11) performs a REAL mutation when pressed (see
-		// its own header comment) - kept behind this same
-		// !UE_BUILD_SHIPPING gate as the self-test, deliberately, so it
-		// can never fire for a real player of a released mod.
-		DocModHotkey::SetupForWorld(Params.World);
+		return;
 	}
+	LastSetupWorld = World;
+
+	DocModSelfTest::RunAll(World);
+
+	// DocModHotkey performs a REAL mutation when pressed (see its own
+	// header comment) - kept behind this same !UE_BUILD_SHIPPING gate as
+	// the self-test, deliberately, so it can never fire for a real
+	// player of a released mod.
+	DocModHotkey::SetupForWorld(World);
 }
 #endif
 
