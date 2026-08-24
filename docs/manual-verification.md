@@ -67,6 +67,17 @@ Swap `"method"` for `world.buildables` / `world.manufacturers` /
 code as the equivalent Blueprint node, so for most read-only items below
 it's the faster path.
 
+**Python** (fastest, scriptable, no manual PowerShell/Blueprint steps —
+this is what Claude uses to self-check without asking you to click
+through the Editor):
+
+```powershell
+python controller/live_check.py
+```
+
+Calls every RPC method and reports PASS/FAIL — see
+`controller/README.md`'s "Live integration check" section.
+
 ---
 
 ## Pending
