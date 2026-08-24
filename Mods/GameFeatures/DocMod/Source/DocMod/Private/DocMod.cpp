@@ -180,6 +180,54 @@ void FDocModModule::RegisterConsoleCommands()
 				}
 			}),
 		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.TargetNode"),
+		TEXT("Prints info about the resource node the local player is currently looking at, if any (PLAN.md Phase 13)."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World)
+				{
+					Ar.Log(TEXT("DocMod: no world available - load a level first"));
+					return;
+				}
+				const FDocModResourceNodeTelemetry Target = UDocModFunctionLibrary::GetTargetedResourceNode(World);
+				if (Target.Id.IsEmpty())
+				{
+					Ar.Log(TEXT("DocMod: not currently looking at a resource node"));
+				}
+				else
+				{
+					Ar.Log(FString::Printf(TEXT("DocMod: %s purity=%s occupied=%s id=%s"),
+						*Target.Resource, *Target.Purity, Target.bOccupied ? TEXT("true") : TEXT("false"), *Target.Id));
+				}
+			}),
+		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.TestExtractorPlacement"),
+		TEXT("Dry-run only (never calls Construct(), never touches the save): spawns a Miner Mk1 hologram at the currently-targeted resource node and reports CanConstruct()'s real disqualifier list. See docs/extractor-placement-research.md."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World)
+				{
+					Ar.Log(TEXT("DocMod: no world available - load a level first"));
+					return;
+				}
+				Ar.Log(TEXT("DocMod: running extractor placement dry-run, see LogDocModAI for full detail..."));
+				const FDocModOperationResult Result = UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTargetedNode(World);
+				if (Result.bSuccess)
+				{
+					Ar.Log(TEXT("DocMod: CanConstruct() = true - placement would succeed (hologram destroyed, nothing was built)"));
+				}
+				else
+				{
+					Ar.Log(FString::Printf(TEXT("DocMod: CanConstruct() = false - %s: %s"), *Result.ErrorCode, *Result.ErrorMessage));
+				}
+			}),
+		ECVF_Default));
 }
 
 void FDocModModule::UnregisterConsoleCommands()

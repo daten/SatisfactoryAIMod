@@ -163,4 +163,41 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult SetManufacturerRecipe(UObject* WorldContextObject, const FString& BuildableId, const FString& RecipeClassPath);
+
+	/**
+	 * Returns telemetry for the resource node the local player is
+	 * currently aiming at. Unlike GetTargetedManufacturer,
+	 * AFGResourceNode implements no IFGUsableInterface, so
+	 * GetBestUsableActor() can't find it - and this repo's stub .cpp
+	 * bodies mean the real build-gun trace's collision-channel behavior
+	 * is unverified (see docs/extractor-placement-research.md). Uses a
+	 * geometry heuristic instead: the resource node nearest the center of
+	 * a tight view-angle cone from the camera, within a max distance.
+	 * NOT occlusion-aware - a node behind a wall could still "win". An
+	 * empty-Id struct means nothing is in range/cone right now.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModResourceNodeTelemetry GetTargetedResourceNode(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13 (extractor placement), stage 2 of the staged
+	 * verification plan in docs/manual-verification.md: a dry-run only,
+	 * no-mutation experiment. Spawns a real AFGResourceExtractorHologram
+	 * (via AFGHologram::SpawnHologramFromRecipe(Recipe_MinerMk1)) at the
+	 * currently-targeted resource node (GetTargetedResourceNode), feeds
+	 * it a synthetic FHitResult pointing at that node, and reports
+	 * CanConstruct()'s real disqualifier list - then destroys the
+	 * hologram before returning. Never calls Construct() - this function
+	 * cannot place a real building or touch the save. Scoped to solid
+	 * resources only (Miner Mk1) for this first experiment; liquid/gas
+	 * nodes (Water/Oil Extractor) are out of scope and return
+	 * UNSUPPORTED_RESOURCE_FORM. See docs/extractor-placement-research.md
+	 * for why this stops at CanConstruct() rather than also calling
+	 * Construct() - two load-bearing assumptions (synthetic-hit-result
+	 * snapping, and hologram construction without a real AFGBuildGun) are
+	 * still unverified against real runtime behavior, and this function
+	 * exists specifically to gather that evidence safely.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult DebugCheckExtractorPlacementOnTargetedNode(UObject* WorldContextObject);
 };

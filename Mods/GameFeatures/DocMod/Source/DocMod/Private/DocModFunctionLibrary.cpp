@@ -19,6 +19,12 @@
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Policies/CondensedJsonPrintPolicy.h"
+#include "Hologram/FGHologram.h"
+#include "FGConstructDisqualifier.h"
+#include "Components/PrimitiveComponent.h"
+#include "Engine/HitResult.h"
+#include "Engine/ActorInstanceHandle.h"
+#include "Misc/ScopeExit.h"
 
 namespace
 {
@@ -41,6 +47,21 @@ namespace
 		}
 	}
 
+	FDocModResourceNodeTelemetry MakeResourceNodeTelemetry(AFGResourceNode* Node)
+	{
+		const TSubclassOf<UFGResourceDescriptor> ResourceClass = Node->GetResourceClass();
+
+		FDocModResourceNodeTelemetry Telemetry;
+		// Session-local only - see FDocModResourceNodeTelemetry's comment.
+		Telemetry.Id = Node->GetPathName();
+		Telemetry.Resource = ResourceClass ? UFGItemDescriptor::GetItemName(ResourceClass).ToString() : TEXT("Unknown");
+		Telemetry.ResourceClass = ResourceClass ? ResourceClass->GetPathName() : FString();
+		Telemetry.Purity = ResourcePurityToString(Node->GetResourcePurity());
+		Telemetry.Position = Node->GetActorLocation();
+		Telemetry.bOccupied = Node->IsOccupied();
+		return Telemetry;
+	}
+
 	// AFGResourceNodeManager exists but its node array has no public
 	// getter and its .cpp is a stub (see docs/resource-node-research.md),
 	// so a plain actor-iterator world scan is the only evidenced way to
@@ -57,19 +78,7 @@ namespace
 			{
 				continue;
 			}
-
-			const TSubclassOf<UFGResourceDescriptor> ResourceClass = Node->GetResourceClass();
-
-			FDocModResourceNodeTelemetry Telemetry;
-			// Session-local only - see FDocModResourceNodeTelemetry's comment.
-			Telemetry.Id = Node->GetPathName();
-			Telemetry.Resource = ResourceClass ? UFGItemDescriptor::GetItemName(ResourceClass).ToString() : TEXT("Unknown");
-			Telemetry.ResourceClass = ResourceClass ? ResourceClass->GetPathName() : FString();
-			Telemetry.Purity = ResourcePurityToString(Node->GetResourcePurity());
-			Telemetry.Position = Node->GetActorLocation();
-			Telemetry.bOccupied = Node->IsOccupied();
-
-			Nodes.Add(MoveTemp(Telemetry));
+			Nodes.Add(MakeResourceNodeTelemetry(Node));
 		}
 		return Nodes;
 	}
@@ -754,6 +763,225 @@ FDocModOperationResult UDocModFunctionLibrary::SetManufacturerRecipe(UObject* Wo
 	Manufacturer->SetRecipe(RecipeClass);
 
 	UE_LOG(LogDocModAI, Display, TEXT("SetManufacturerRecipe: %s -> %s"), *BuildableId, *RecipeClassPath);
+
+	return FDocModOperationResult::Success();
+}
+
+FDocModResourceNodeTelemetry UDocModFunctionLibrary::GetTargetedResourceNode(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("GetTargetedResourceNode: no valid world context"));
+		return FDocModResourceNodeTelemetry();
+	}
+
+	// Player index 0 only - single-player/local session scope, per
+	// PLAN.md/CLAUDE.md's multiplayer stance (same as GetTargetedManufacturer).
+	const AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("GetTargetedResourceNode: no local AFGCharacterPlayer (player index 0)"));
+		return FDocModResourceNodeTelemetry();
+	}
+
+	const FVector CameraLocation = Character->GetCameraComponentWorldLocation();
+	const FVector CameraForward = Character->GetCameraComponentForwardVector().GetSafeNormal();
+
+	// See this function's header comment: no IFGUsableInterface on
+	// AFGResourceNode, and the real build-gun trace's collision channel
+	// is unverified from this repo's stub .cpp bodies, so a view-angle-
+	// cone-plus-distance heuristic stands in for a physics trace. NOT
+	// occlusion-aware.
+	constexpr float MaxDistanceUnits = 5000.0f; // ~50m
+	constexpr float MaxAngleDegrees = 3.0f;
+	const float MinDot = FMath::Cos(FMath::DegreesToRadians(MaxAngleDegrees));
+
+	AFGResourceNode* BestNode = nullptr;
+	float BestDot = MinDot;
+	int32 CandidateCount = 0;
+
+	for (TActorIterator<AFGResourceNode> It(World); It; ++It)
+	{
+		AFGResourceNode* Node = *It;
+		if (!IsValid(Node))
+		{
+			continue;
+		}
+
+		const FVector ToNode = Node->GetActorLocation() - CameraLocation;
+		const float Distance = ToNode.Size();
+		if (Distance > MaxDistanceUnits || Distance < KINDA_SMALL_NUMBER)
+		{
+			continue;
+		}
+
+		const float Dot = FVector::DotProduct(CameraForward, ToNode / Distance);
+		if (Dot < MinDot)
+		{
+			continue;
+		}
+
+		++CandidateCount;
+		if (Dot > BestDot)
+		{
+			BestDot = Dot;
+			BestNode = Node;
+		}
+	}
+
+	if (!BestNode)
+	{
+		UE_LOG(LogDocModAI, Verbose, TEXT("GetTargetedResourceNode: no resource node within %.0f units / %.1f degrees of the camera"), MaxDistanceUnits, MaxAngleDegrees);
+		return FDocModResourceNodeTelemetry();
+	}
+
+	UE_LOG(LogDocModAI, Display, TEXT("GetTargetedResourceNode: %d candidate(s) in cone, picked closest-to-center at %.2f degrees off camera axis"),
+		CandidateCount, FMath::RadiansToDegrees(FMath::Acos(BestDot)));
+	return MakeResourceNodeTelemetry(BestNode);
+}
+
+FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTargetedNode(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	const FDocModResourceNodeTelemetry TargetTelemetry = GetTargetedResourceNode(WorldContextObject);
+	if (TargetTelemetry.Id.IsEmpty())
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_TARGET_NODE"), TEXT("Not currently looking at a resource node"));
+	}
+
+	// GetTargetedResourceNode returns normalized telemetry, not a
+	// pointer (CLAUDE.md: no raw AActor*/UObject* across the
+	// external-facing data model) - re-find the actual actor by id.
+	AFGResourceNode* TargetNode = nullptr;
+	for (TActorIterator<AFGResourceNode> It(World); It; ++It)
+	{
+		if (IsValid(*It) && It->GetPathName() == TargetTelemetry.Id)
+		{
+			TargetNode = *It;
+			break;
+		}
+	}
+	if (!TargetNode)
+	{
+		return FDocModOperationResult::Failure(TEXT("NODE_NOT_FOUND"), TEXT("Targeted node id could not be re-resolved"));
+	}
+
+	if (TargetNode->IsOccupied())
+	{
+		return FDocModOperationResult::Failure(TEXT("NODE_OCCUPIED"), TEXT("Targeted node is already occupied"));
+	}
+
+	// Scoped to solid-resource extraction (Miner Mk1) only for this first
+	// experiment - see this function's header comment. Liquid/gas nodes
+	// need a different buildable/recipe (Water/Oil Extractor) and are
+	// deliberately out of scope here.
+	const EResourceForm Form = UFGItemDescriptor::GetForm(TargetNode->GetResourceClass());
+	if (Form != EResourceForm::RF_SOLID)
+	{
+		return FDocModOperationResult::Failure(TEXT("UNSUPPORTED_RESOURCE_FORM"),
+			TEXT("This experiment only supports solid resource nodes (Miner Mk1) so far"));
+	}
+
+	// Verified to exist as a real asset in Content/FactoryGame/Recipes/Buildings/
+	// (not guessed from memory - see docs/extractor-placement-research.md).
+	// This is the building's BUILD-COST recipe (what it costs to
+	// construct), not a production recipe - Miner Mk1 has no production
+	// recipe, it extracts automatically based on the node's purity.
+	UClass* MinerRecipeClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_MinerMk1.Recipe_MinerMk1_C"));
+	if (!MinerRecipeClass || !MinerRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("RECIPE_LOAD_FAILED"), TEXT("Failed to load Recipe_MinerMk1 as a UFGRecipe"));
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = MinerRecipeClass;
+
+	// AFGHologram::SpawnHologramFromRecipe resolves the descriptor's
+	// hologram class internally and spawns it - the one real "spawn a
+	// hologram correctly" API found in docs/building-placement-research.md.
+	AFGHologram* Hologram = AFGHologram::SpawnHologramFromRecipe(RecipeClass, Character, TargetNode->GetActorLocation(), Character);
+	if (!Hologram)
+	{
+		return FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"), TEXT("SpawnHologramFromRecipe returned null"));
+	}
+
+	// This function only ever dry-runs CanConstruct() - Construct() is
+	// never called (see header comment) - so the spawned hologram is
+	// always just a scratch preview actor to be cleaned up before
+	// returning, on every exit path.
+	ON_SCOPE_EXIT
+	{
+		if (IsValid(Hologram))
+		{
+			Hologram->Destroy();
+		}
+	};
+
+	Hologram->SetConstructionInstigator(Character);
+
+	// Synthetic FHitResult - see docs/extractor-placement-research.md §2:
+	// no direct "set target node" setter exists on the hologram, only
+	// FHitResult-driven entry points. This is the single most
+	// load-bearing unverified assumption in this whole experiment -
+	// whether a synthetic (non-traced) hit result produces correct
+	// snapping is exactly what this function exists to find out.
+	FHitResult SyntheticHit;
+	SyntheticHit.Location = TargetNode->GetActorLocation();
+	SyntheticHit.ImpactPoint = TargetNode->GetActorLocation();
+	SyntheticHit.Normal = FVector::UpVector;
+	SyntheticHit.ImpactNormal = FVector::UpVector;
+	SyntheticHit.HitObjectHandle = FActorInstanceHandle(TargetNode);
+	SyntheticHit.bBlockingHit = true;
+	if (UPrimitiveComponent* NodePrimitive = Cast<UPrimitiveComponent>(TargetNode->GetRootComponent()))
+	{
+		SyntheticHit.Component = NodePrimitive;
+	}
+	else
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("DebugCheckExtractorPlacementOnTargetedNode: resource node's root component is not a UPrimitiveComponent - synthetic hit result has no Component set"));
+	}
+
+	if (!Hologram->IsValidHitResult(SyntheticHit))
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_HIT_RESULT"), TEXT("Hologram::IsValidHitResult rejected the synthetic hit result"));
+	}
+
+	// The single external trigger point for placement updates
+	// (docs/extractor-placement-research.md §2) - handles snapping
+	// internally rather than calling TrySnapToActor/SetHologramLocationAndRotation
+	// separately.
+	Hologram->UpdateHologramPlacement(SyntheticHit);
+
+	const bool bCanConstruct = Hologram->CanConstruct();
+	TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+	Hologram->GetConstructDisqualifiers(Disqualifiers);
+
+	TArray<FString> DisqualifierTexts;
+	for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+	{
+		DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+			*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+			UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+	}
+	const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+	UE_LOG(LogDocModAI, Display, TEXT("DebugCheckExtractorPlacementOnTargetedNode: node=%s canConstruct=%s disqualifiers=[%s]"),
+		*TargetTelemetry.Id, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+	if (!bCanConstruct)
+	{
+		return FDocModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary);
+	}
 
 	return FDocModOperationResult::Success();
 }
