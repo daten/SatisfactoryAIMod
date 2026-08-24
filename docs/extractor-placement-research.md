@@ -194,8 +194,25 @@ The recommended small experiment above is now written:
 `DebugCheckExtractorPlacementOnTargetedNode`
 (`Mods/GameFeatures/DocMod/Source/DocMod/{Public,Private}/DocModFunctionLibrary.{h,cpp}`,
 commit `796a74818a`), console commands `DocMod.TargetNode` /
-`DocMod.TestExtractorPlacement`. Compiled clean, **not yet run against a
-real game session**.
+`DocMod.TestExtractorPlacement`.
+
+**`GetTargetedResourceNode` correction, found live (2026-08-24):** the
+first version used a hand-rolled view-angle-cone + distance heuristic,
+based on a research gap - this document's original research (before this
+correction) searched for `IFGUsableInterface` and found zero matches,
+concluding resource nodes have no usable-interface support the way
+manufacturers do. First live test proved this wrong in the most direct
+way possible: while clearly aiming at a Limestone node with the game's
+own "Press E to start mining Limestone (Pure)" prompt on screen, the
+heuristic reported nothing targeted. Real cause: FactoryGame spells it
+`IFGUseableInterface`, and `AFGResourceNodeBase`
+(`FGResourceNodeBase.h:93`) does implement it - confirmed live, the same
+`AFGCharacterPlayer::GetBestUsableActor()` `GetTargetedManufacturer`
+already trusts also correctly finds resource nodes. The heuristic was
+deleted entirely and replaced with the same `GetBestUsableActor()`
+pattern (commit `be67de68d4`). **Lesson for future header searches in
+this repo: FactoryGame is not consistent about "Usable" vs "Useable"
+spelling - grep both when a class doesn't turn up an expected interface.**
 
 One correction to §2 above found while implementing: `AFGHologram` does
 expose one real "spawn correctly" API this research pass missed —

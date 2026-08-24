@@ -323,12 +323,15 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
   Coal/Limestone/etc - not Crude Oil/Water/SAM, which are out of scope
   for this first pass) from a normal build-range distance, close enough
   that you're clearly aiming at it, not just nearby.
-- Run `DocMod.TargetNode` first to confirm the heuristic actually found
-  the node you're looking at (prints resource/purity/occupied/id, or
-  "not currently looking at a resource node" - if you get the latter,
-  try centering the node more precisely in your view, or move a bit
-  closer; the heuristic uses a tight 3-degree cone and 50m max range, see
-  `docs/extractor-placement-research.md`'s implementation status note).
+- Run `DocMod.TargetNode` first to confirm it found the node you're
+  looking at (prints resource/purity/occupied/id, or "not currently
+  looking at a resource node"). This now uses
+  `AFGCharacterPlayer::GetBestUsableActor()` - the same game-truth
+  targeting `DocMod.Target` uses for manufacturers - so it should agree
+  with whatever the game's own "Press E to start mining..." prompt shows
+  (see `docs/extractor-placement-research.md`'s correction note: an
+  earlier heuristic-based version failed this exact check live and was
+  replaced).
 - Once `DocMod.TargetNode` finds it, run `DocMod.TestExtractorPlacement`.
   **This never calls `Construct()` and never touches your save** - it
   spawns a temporary hologram, checks it, and destroys it before
