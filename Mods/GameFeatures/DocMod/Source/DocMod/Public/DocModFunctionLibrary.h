@@ -7,10 +7,10 @@
 #include "DocModFunctionLibrary.generated.h"
 
 /**
- * Smallest possible C++ -> Blueprint smoke test for the DocMod AI
- * interface (PLAN.md Phase 3). Exposes only a static version string;
- * no world access, no game state, nothing that could be mistaken for
- * part of the actual telemetry/control protocol.
+ * DocMod AI interface: minimal Blueprint entry points. PLAN.md Phase 3/4 -
+ * a version smoke test plus a debug resource-node enumeration/logging
+ * entry point. Read-only, log-only; no telemetry protocol or JSON exists
+ * yet (Phases 5/6).
  */
 UCLASS()
 class DOCMOD_API UDocModFunctionLibrary : public UBlueprintFunctionLibrary
@@ -21,4 +21,14 @@ public:
 	/** Returns the DocMod AI interface version string. */
 	UFUNCTION(BlueprintPure, Category = "DocMod|AI Interface", meta = (BlueprintThreadSafe))
 	static FString GetInterfaceVersion();
+
+	/**
+	 * Debug entry point (PLAN.md Phase 4): enumerates all AFGResourceNode
+	 * actors in the world via TActorIterator and logs resource type,
+	 * purity, world position, and occupied state to LogDocModAI. No
+	 * normalized telemetry struct or stable identifier exists yet
+	 * (Phases 5/7) - this only proves the data is reachable and correct.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogResourceNodes(UObject* WorldContextObject);
 };
