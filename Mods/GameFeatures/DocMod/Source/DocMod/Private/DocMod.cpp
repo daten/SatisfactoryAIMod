@@ -1,11 +1,10 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "DocMod.h"
-
-#if !UE_BUILD_SHIPPING
 #include "DocModSelfTest.h"
+#include "DocModFunctionLibrary.h"
 #include "Engine/World.h"
-#endif
+#include "HAL/IConsoleManager.h"
 
 DEFINE_LOG_CATEGORY(LogDocModAI);
 
@@ -19,15 +18,21 @@ void FDocModModule::StartupModule()
 #if !UE_BUILD_SHIPPING
 	// Development-time convenience only (see DocModSelfTest.h) - compiled
 	// out of Shipping entirely, not just disabled at runtime, so it can
-	// never run for players of a released mod.
+	// never run automatically for players of a released mod. The console
+	// commands below are separate - they only run when someone explicitly
+	// types one, so they stay available in all configs.
 	WorldInitializedActorsHandle = FWorldDelegates::OnWorldInitializedActors.AddRaw(this, &FDocModModule::OnWorldInitializedActors);
 #endif
+
+	RegisterConsoleCommands();
 }
 
 void FDocModModule::ShutdownModule()
 {
 	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
 	// we call this function before unloading the module.
+	UnregisterConsoleCommands();
+
 #if !UE_BUILD_SHIPPING
 	FWorldDelegates::OnWorldInitializedActors.Remove(WorldInitializedActorsHandle);
 #endif
@@ -48,6 +53,96 @@ void FDocModModule::OnWorldInitializedActors(const FActorsInitializedParams& Par
 	}
 }
 #endif
+
+namespace
+{
+	// Shared by all DocMod.* console command handlers below: reports how
+	// many records a telemetry getter found, or a clear message if there's
+	// no world to query yet (e.g. invoked from -ExecCmds before any level
+	// has loaded).
+	template <typename GetterFunc>
+	void PrintTelemetryCount(const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar, const TCHAR* Noun, GetterFunc&& Getter)
+	{
+		if (!World)
+		{
+			Ar.Log(TEXT("DocMod: no world available - load a level first"));
+			return;
+		}
+		const int32 Count = Getter(World).Num();
+		Ar.Log(FString::Printf(TEXT("DocMod: %d %s found"), Count, Noun));
+	}
+}
+
+void FDocModModule::RegisterConsoleCommands()
+{
+	IConsoleManager& ConsoleManager = IConsoleManager::Get();
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.SelfTest"),
+		TEXT("Runs the DocMod self-test against the current world and logs PASS/FAIL results to LogDocModAI."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World)
+				{
+					Ar.Log(TEXT("DocMod: no world available - load a level first"));
+					return;
+				}
+				Ar.Log(TEXT("DocMod: running self-test, see LogDocModAI for full detail..."));
+				DocModSelfTest::RunAll(World);
+			}),
+		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.ResourceNodes"),
+		TEXT("Prints how many resource nodes DocMod currently finds in the world."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				PrintTelemetryCount(Args, World, Ar, TEXT("resource node(s)"), &UDocModFunctionLibrary::GetResourceNodeTelemetry);
+			}),
+		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.Buildables"),
+		TEXT("Prints how many buildables DocMod currently finds in the world."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				PrintTelemetryCount(Args, World, Ar, TEXT("buildable(s)"), &UDocModFunctionLibrary::GetBuildableTelemetry);
+			}),
+		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.Manufacturers"),
+		TEXT("Prints how many manufacturers DocMod currently finds in the world."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				PrintTelemetryCount(Args, World, Ar, TEXT("manufacturer(s)"), &UDocModFunctionLibrary::GetManufacturerTelemetry);
+			}),
+		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.Connections"),
+		TEXT("Prints how many factory connection points DocMod currently finds in the world."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				PrintTelemetryCount(Args, World, Ar, TEXT("factory connection point(s)"), &UDocModFunctionLibrary::GetFactoryConnectionTelemetry);
+			}),
+		ECVF_Default));
+}
+
+void FDocModModule::UnregisterConsoleCommands()
+{
+	IConsoleManager& ConsoleManager = IConsoleManager::Get();
+	for (IConsoleCommand* Command : ConsoleCommands)
+	{
+		ConsoleManager.UnregisterConsoleObject(Command);
+	}
+	ConsoleCommands.Empty();
+}
 
 #undef LOCTEXT_NAMESPACE
 	

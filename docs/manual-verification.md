@@ -55,6 +55,12 @@ equivalent, e.g. `LogResourceNodes`'s human-readable log format):
 8. Check **Window → Developer Tools → Output Log** for the
    `LogDocModAI` lines.
 
+**Console command** (no Blueprint editing, works immediately — see
+[chat-and-console-commands.md](chat-and-console-commands.md)): open the
+in-game/PIE console (`~`) and type e.g. `DocMod.SelfTest` or
+`DocMod.ResourceNodes`. Also usable via `/docmod <subcommand>` in chat,
+but that needs a one-time Editor wiring step first — see the same doc.
+
 **RPC endpoint** (Phase 9+, no Blueprint editing — works for anything
 with a `*AsJson`/`world.*` RPC method, with the game already running):
 
