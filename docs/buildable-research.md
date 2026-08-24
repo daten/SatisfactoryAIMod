@@ -188,3 +188,28 @@ see `controller/satisfactory_ai/graph.py`.
 | Productivity | `GetProductivity()` | `FGBuildableFactory.h:213` |
 | Input/output inventory | `GetInputInventory()`/`GetOutputInventory()` → `GetInventoryStacks()` | `FGBuildableManufacturer.h:157,161`, `FGInventoryComponent.h:451` |
 | Stable ID | **Not available** — same Phase 7 stopgap as resource nodes | §1 |
+
+## Correction found live (2026-08-24): conveyor belts/lifts are a separate hierarchy
+
+The original §6 enumeration (`TActorIterator<AFGBuildableFactory>` +
+`GetConnectionComponents()`) missed conveyor belts and lifts entirely.
+Confirmed directly: `AFGBuildableConveyorBase` (base of
+`AFGBuildableConveyorBelt` and `AFGBuildableConveyorLift`,
+`Source/FactoryGame/Public/Buildables/FGBuildableConveyorBase.h:97`)
+derives straight from `AFGBuildable` — **not** `AFGBuildableFactory` — so
+the `TActorIterator<AFGBuildableFactory>` scan could never find them.
+They expose their two connection points via named accessors instead of
+an array: `GetConnection0()`/`GetConnection1()`
+(`FGBuildableConveyorBase.h:163-164`, both `UFGFactoryConnectionComponent*`
+— same component type as the factory side).
+
+Found via live data, not static reading: a real save's
+`FactoryConnectionTelemetry.reciprocity` self-test check failed
+(435/1265 connection points unmatched). Pulling and analyzing the live
+`world.connections` RPC data showed every single unmatched `"Output"` row
+pointed at a `ConveyorBeltMk5`/`ConveyorBeltMk2` peer that had **zero**
+connection rows of its own in the enumeration — i.e. belts were never
+being visited at all, not a subtler direction-matching issue. Fixed by
+adding a second `TActorIterator<AFGBuildableConveyorBase>` pass. See the
+matching fix commit and `docs/manual-verification.md`'s Confirmed
+section for the full incident writeup.

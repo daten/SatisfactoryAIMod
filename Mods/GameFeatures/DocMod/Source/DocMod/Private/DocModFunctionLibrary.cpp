@@ -10,6 +10,7 @@
 #include "Buildables/FGBuildable.h"
 #include "Buildables/FGBuildableFactory.h"
 #include "Buildables/FGBuildableManufacturer.h"
+#include "Buildables/FGBuildableConveyorBase.h"
 #include "FGRecipe.h"
 #include "FGInventoryComponent.h"
 #include "FGFactoryConnectionComponent.h"
@@ -205,9 +206,41 @@ namespace
 		}
 	}
 
+	FDocModFactoryConnectionTelemetry MakeConnectionTelemetry(const FString& OwnerId, UFGFactoryConnectionComponent* Connection)
+	{
+		FDocModFactoryConnectionTelemetry Telemetry;
+		Telemetry.OwnerBuildableId = OwnerId;
+		Telemetry.Direction = FactoryConnectionDirectionToString(Connection->GetDirection());
+		Telemetry.bConnected = Connection->IsConnected();
+
+		if (Telemetry.bConnected)
+		{
+			if (const UFGFactoryConnectionComponent* Peer = Connection->GetConnection())
+			{
+				if (const AFGBuildable* PeerOwner = Cast<AFGBuildable>(Peer->GetOwner()))
+				{
+					Telemetry.ConnectedBuildableId = PeerOwner->GetPathName();
+				}
+			}
+		}
+		return Telemetry;
+	}
+
 	TArray<FDocModFactoryConnectionTelemetry> CollectFactoryConnectionTelemetry(UWorld* World)
 	{
 		TArray<FDocModFactoryConnectionTelemetry> Result;
+
+		// Two separate class hierarchies both expose UFGFactoryConnectionComponent
+		// but neither derives from the other: AFGBuildableFactory
+		// (machines, splitters, mergers - via GetConnectionComponents())
+		// and AFGBuildableConveyorBase (belts/lifts - both derive
+		// directly from AFGBuildable, via named GetConnection0()/
+		// GetConnection1(), not an array). Missing the conveyor half was
+		// a real bug found live (2026-08-24): every connection pointing
+		// AT a belt showed the belt as having zero connection rows of
+		// its own, failing the reciprocity self-test (435/1265
+		// mismatched) - confirmed by iterating the live world.connections
+		// data and finding every unmatched peer was a ConveyorBelt/Lift.
 		for (TActorIterator<AFGBuildableFactory> It(World); It; ++It)
 		{
 			AFGBuildableFactory* Factory = *It;
@@ -223,26 +256,29 @@ namespace
 				{
 					continue;
 				}
-
-				FDocModFactoryConnectionTelemetry Telemetry;
-				Telemetry.OwnerBuildableId = OwnerId;
-				Telemetry.Direction = FactoryConnectionDirectionToString(Connection->GetDirection());
-				Telemetry.bConnected = Connection->IsConnected();
-
-				if (Telemetry.bConnected)
-				{
-					if (const UFGFactoryConnectionComponent* Peer = Connection->GetConnection())
-					{
-						if (const AFGBuildable* PeerOwner = Cast<AFGBuildable>(Peer->GetOwner()))
-						{
-							Telemetry.ConnectedBuildableId = PeerOwner->GetPathName();
-						}
-					}
-				}
-
-				Result.Add(MoveTemp(Telemetry));
+				Result.Add(MakeConnectionTelemetry(OwnerId, Connection));
 			}
 		}
+
+		for (TActorIterator<AFGBuildableConveyorBase> It(World); It; ++It)
+		{
+			AFGBuildableConveyorBase* Conveyor = *It;
+			if (!IsValid(Conveyor))
+			{
+				continue;
+			}
+
+			const FString OwnerId = Conveyor->GetPathName();
+			if (UFGFactoryConnectionComponent* Connection0 = Conveyor->GetConnection0())
+			{
+				Result.Add(MakeConnectionTelemetry(OwnerId, Connection0));
+			}
+			if (UFGFactoryConnectionComponent* Connection1 = Conveyor->GetConnection1())
+			{
+				Result.Add(MakeConnectionTelemetry(OwnerId, Connection1));
+			}
+		}
+
 		return Result;
 	}
 

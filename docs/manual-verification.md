@@ -339,3 +339,47 @@ actual launched-game session. Real findings, not a synthetic test:
   misleading on a PASS). Fixed to show a size/byte-count message on pass.
 - Session ended with a clean `LogExit: Exiting.` — no crash, no
   exception.
+
+### 2026-08-24 (later same day) — second playtest, established save, live HTTP
+
+This session used a save with real buildings (**10,114 buildables, 352
+manufacturers, 1,265 connection points** — clearly not the fresh game
+from the first session above; the earlier 0/0/0 result was consistent
+with a genuinely empty save, not a bug). Two things got exercised for
+the first time ever:
+
+- **Item 5 (HTTP transport) — now fully confirmed, live and over the
+  actual network.** With the game running, `python controller/live_check.py`
+  connected from *outside* the game process to `http://127.0.0.1:51902/rpc`
+  and got real responses for `world.resourceNodes` (628 nodes),
+  `world.buildables` (10,114), `world.manufacturers` (352),
+  `world.connections` (1,265), plus both negative-path checks
+  (`UNKNOWN_METHOD`, `TARGET_NOT_FOUND`) — 6/6 passed. One bug found and
+  fixed in the process, in the *test script*, not the mod:
+  `urllib.request.urlopen` raises `HTTPError` on any non-2xx status
+  instead of returning it, so the script was treating the mod's correct
+  404 responses (with valid structured JSON error bodies) as connection
+  failures. Fixed `rpc_call()` in `live_check.py` to catch `HTTPError`
+  and read its body like a normal response. **The `netstat`
+  loopback-binding check itself is still not done** — worth doing next.
+- **A second real bug found, this time via the self-test's
+  `FactoryConnectionTelemetry.reciprocity` check** (item 7): 435 of 1,265
+  connection points had no matching reciprocal row. Investigated using
+  the live connection (pulled real `world.connections` data and analyzed
+  it in Python) rather than guessing — found every single unmatched
+  `"Output"` row pointed at a `ConveyorBeltMk5`/`ConveyorBeltMk2` peer
+  that had zero connection rows of its own. Root cause: conveyor
+  belts/lifts (`AFGBuildableConveyorBase`) derive from `AFGBuildable`
+  directly, not `AFGBuildableFactory`, so the original
+  `TActorIterator<AFGBuildableFactory>` scan structurally could never
+  find them. Fixed by adding a second iteration pass over
+  `AFGBuildableConveyorBase` using its `GetConnection0()`/
+  `GetConnection1()` accessors — see
+  `docs/buildable-research.md`'s correction note. **Not yet re-verified**
+  — needs another self-test run to confirm the reciprocity count drops
+  to 0.
+- Item 8's negative path re-confirmed again in this session
+  (`TARGET_NOT_FOUND` for both write operations, now also confirmed
+  reachable *over real HTTP*, not just in-process). Positive-path
+  mutation testing on a disposable save is still the one thing from the
+  original checklist that hasn't been attempted at all yet.

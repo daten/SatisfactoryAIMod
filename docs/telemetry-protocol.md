@@ -149,14 +149,18 @@ Source: `docs/buildable-research.md` §2-4.
 }
 ```
 
-One row per connection point on every `AFGBuildableFactory` actor (belts,
-splitters, mergers, machines — anything that moves items), **not** a
-constructed graph. A single physical belt/pipe link between two buildings
-produces two rows: an `"Output"` row on the source and an `"Input"` row on
-the destination, each naming the other via `connectedBuildableId`.
-`direction` is one of `"Input"`, `"Output"`, `"Any"`, `"SnapOnly"`
-(`EFactoryConnectionDirection`). `connectedBuildableId` is `""` when
-`connected` is `false`. Source: `docs/buildable-research.md` §6.
+One row per connection point on every `AFGBuildableFactory` actor
+(splitters, mergers, machines) **and** every `AFGBuildableConveyorBase`
+actor (belts, lifts — a separate class hierarchy with its own connection
+accessors; missing this was a real bug found and fixed live on
+2026-08-24, see `docs/buildable-research.md`'s correction note), **not**
+a constructed graph. A single physical belt/pipe link between two
+buildings produces two rows: an `"Output"` row on the source and an
+`"Input"` row on the destination, each naming the other via
+`connectedBuildableId`. `direction` is one of `"Input"`, `"Output"`,
+`"Any"`, `"SnapOnly"` (`EFactoryConnectionDirection`).
+`connectedBuildableId` is `""` when `connected` is `false`. Source:
+`docs/buildable-research.md` §6.
 
 **Building the actual graph from these rows is PLAN.md Phase 11's job,
 and belongs on the external controller, not the mod** — see

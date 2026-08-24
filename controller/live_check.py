@@ -68,8 +68,19 @@ def rpc_call(
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # DocMod returns a real JSON body with a structured error even on
+        # non-2xx status (see docs/operations-protocol.md -
+        # UNKNOWN_METHOD/TARGET_NOT_FOUND map to 404, etc.) - urllib
+        # otherwise treats any non-2xx as a hard failure and discards the
+        # body. Read it the same way a 2xx response would be read. Found
+        # this bug live: the mod was correctly returning 404 with a valid
+        # error body, and this function was wrongly reporting it as
+        # "request failed" instead of parsing it.
+        return json.loads(exc.read().decode("utf-8"))
 
 
 def _check_read_method(url: str, method: str, parser: Callable[[str], Any], describe: Callable[[Any], str]) -> CheckResult:
