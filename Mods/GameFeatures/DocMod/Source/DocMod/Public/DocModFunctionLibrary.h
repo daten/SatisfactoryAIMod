@@ -166,15 +166,15 @@ public:
 
 	/**
 	 * Returns telemetry for the resource node the local player is
-	 * currently aiming at. Unlike GetTargetedManufacturer,
-	 * AFGResourceNode implements no IFGUsableInterface, so
-	 * GetBestUsableActor() can't find it - and this repo's stub .cpp
-	 * bodies mean the real build-gun trace's collision-channel behavior
-	 * is unverified (see docs/extractor-placement-research.md). Uses a
-	 * geometry heuristic instead: the resource node nearest the center of
-	 * a tight view-angle cone from the camera, within a max distance.
-	 * NOT occlusion-aware - a node behind a wall could still "win". An
-	 * empty-Id struct means nothing is in range/cone right now.
+	 * currently aiming at, via the same
+	 * AFGCharacterPlayer::GetBestUsableActor() GetTargetedManufacturer
+	 * uses - AFGResourceNodeBase implements IFGUseableInterface
+	 * (FGResourceNodeBase.h:93, note the spelling), confirmed live to be
+	 * the same game state that drives the "Press E to start mining..."
+	 * prompt. (An earlier version of this function used a hand-rolled
+	 * view-angle heuristic based on a research gap that missed this -
+	 * see docs/extractor-placement-research.md's correction note.) An
+	 * empty-Id struct means nothing/non-node is targeted right now.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModResourceNodeTelemetry GetTargetedResourceNode(UObject* WorldContextObject);

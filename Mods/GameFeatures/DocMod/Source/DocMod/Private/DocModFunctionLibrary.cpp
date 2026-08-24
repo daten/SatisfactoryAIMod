@@ -785,60 +785,23 @@ FDocModResourceNodeTelemetry UDocModFunctionLibrary::GetTargetedResourceNode(UOb
 		return FDocModResourceNodeTelemetry();
 	}
 
-	const FVector CameraLocation = Character->GetCameraComponentWorldLocation();
-	const FVector CameraForward = Character->GetCameraComponentForwardVector().GetSafeNormal();
-
-	// See this function's header comment: no IFGUsableInterface on
-	// AFGResourceNode, and the real build-gun trace's collision channel
-	// is unverified from this repo's stub .cpp bodies, so a view-angle-
-	// cone-plus-distance heuristic stands in for a physics trace. NOT
-	// occlusion-aware.
-	constexpr float MaxDistanceUnits = 5000.0f; // ~50m
-	constexpr float MaxAngleDegrees = 3.0f;
-	const float MinDot = FMath::Cos(FMath::DegreesToRadians(MaxAngleDegrees));
-
-	AFGResourceNode* BestNode = nullptr;
-	float BestDot = MinDot;
-	int32 CandidateCount = 0;
-
-	for (TActorIterator<AFGResourceNode> It(World); It; ++It)
+	// Corrected 2026-08-24: an earlier pass here used a hand-rolled
+	// view-angle-cone heuristic based on a research gap - searched for
+	// "IFGUsableInterface" (zero hits) and concluded resource nodes have
+	// no usable interface at all. FactoryGame actually spells it
+	// "IFGUseableInterface", and AFGResourceNodeBase (FGResourceNodeBase.h:93)
+	// does implement it - confirmed live: the same GetBestUsableActor()
+	// GetTargetedManufacturer already trusts also finds resource nodes,
+	// exactly matching the game's own "Press E to start mining" prompt.
+	AFGResourceNode* Node = Cast<AFGResourceNode>(Character->GetBestUsableActor());
+	if (!Node)
 	{
-		AFGResourceNode* Node = *It;
-		if (!IsValid(Node))
-		{
-			continue;
-		}
-
-		const FVector ToNode = Node->GetActorLocation() - CameraLocation;
-		const float Distance = ToNode.Size();
-		if (Distance > MaxDistanceUnits || Distance < KINDA_SMALL_NUMBER)
-		{
-			continue;
-		}
-
-		const float Dot = FVector::DotProduct(CameraForward, ToNode / Distance);
-		if (Dot < MinDot)
-		{
-			continue;
-		}
-
-		++CandidateCount;
-		if (Dot > BestDot)
-		{
-			BestDot = Dot;
-			BestNode = Node;
-		}
-	}
-
-	if (!BestNode)
-	{
-		UE_LOG(LogDocModAI, Verbose, TEXT("GetTargetedResourceNode: no resource node within %.0f units / %.1f degrees of the camera"), MaxDistanceUnits, MaxAngleDegrees);
+		// Not an error - the player just isn't looking at a resource
+		// node right now. Empty Id signals "none" to the caller.
 		return FDocModResourceNodeTelemetry();
 	}
 
-	UE_LOG(LogDocModAI, Display, TEXT("GetTargetedResourceNode: %d candidate(s) in cone, picked closest-to-center at %.2f degrees off camera axis"),
-		CandidateCount, FMath::RadiansToDegrees(FMath::Acos(BestDot)));
-	return MakeResourceNodeTelemetry(BestNode);
+	return MakeResourceNodeTelemetry(Node);
 }
 
 FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTargetedNode(UObject* WorldContextObject)
