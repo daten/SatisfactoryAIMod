@@ -78,6 +78,37 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
   itself is confirmed working: verified it both passes on valid data and
   fails when a field is corrupted).
 
+### 5. Localhost HTTP transport (Phase 9)
+
+- Launch the Editor or Satisfactory with the mod loaded.
+- Check `LogDocModAI` for:
+  ```
+  LogDocModAI: Display: DocMod HTTP server listening on http://127.0.0.1:51902/rpc (loopback only - see Config/DefaultEngine.ini ListenerOverrides)
+  ```
+- **Critical safety check — do this before anything else with the server:**
+  run `netstat -an | findstr 51902` (Windows) while the game is running.
+  **Expected:** a line showing `127.0.0.1:51902` in `LISTENING` state.
+  **If instead it shows `0.0.0.0:51902`,** the loopback override in
+  `Config/DefaultEngine.ini` (`[HTTPServer.Listeners]` `ListenerOverrides`)
+  did not take effect and the server is reachable from the LAN — stop
+  using it and tell Claude immediately; see
+  [networking-research.md](networking-research.md) for why this override
+  exists and how it's supposed to work.
+- Once loopback-only is confirmed, test the endpoint itself, e.g. from
+  PowerShell:
+  ```powershell
+  Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:51902/rpc" -ContentType "application/json" -Body '{"protocolVersion":1,"requestId":"1","method":"world.resourceNodes"}'
+  ```
+- **Expected:** a JSON response with `"success":true` and a `"result"`
+  object containing `"resourceNodes"` (same shape as item 4 above, just
+  wrapped in the RPC envelope from
+  [telemetry-protocol.md](telemetry-protocol.md)'s sibling doc,
+  [networking-research.md](networking-research.md)).
+- Also worth testing the error paths: an unknown `method`, a missing
+  `protocolVersion`, and malformed JSON should each return
+  `"success":false` with a structured `"error":{"code":...,"message":...}`
+  rather than a raw HTTP 500 or a crash.
+
 ---
 
 ## Confirmed

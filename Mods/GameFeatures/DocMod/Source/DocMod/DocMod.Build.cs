@@ -41,7 +41,15 @@ public class DocMod : ModuleRules
 			//"TemplateSequence",
 			"NetCore",
 			"GameplayTags",
-			"Json", "JsonUtilities"
+			"Json", "JsonUtilities",
+			// PLAN.md Phase 9 (localhost transport): the engine's own HTTPServer
+			// runtime module. Its route handlers already execute on the game
+			// thread (ticked via FTSTickerObjectBase - see
+			// docs/networking-research.md), so no raw Sockets/Networking
+			// module + manual thread-marshaling is needed for this. HTTP and
+			// Sockets are HTTPServer's own private dependencies, not needed
+			// directly here.
+			"HTTPServer"
 		});
 
 		// FactoryGame plugins
