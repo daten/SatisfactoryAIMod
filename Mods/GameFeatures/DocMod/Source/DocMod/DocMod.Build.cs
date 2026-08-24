@@ -36,7 +36,7 @@ public class DocMod : ModuleRules
 			"CinematicCamera",
 			"Foliage",
 			//"Niagara",
-			//"EnhancedInput",
+			"EnhancedInput",
 			//"GameplayCameras",
 			//"TemplateSequence",
 			"NetCore",

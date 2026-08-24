@@ -3,6 +3,7 @@
 #include "DocMod.h"
 #include "DocModSelfTest.h"
 #include "DocModFunctionLibrary.h"
+#include "DocModHotkey.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 
@@ -50,6 +51,12 @@ void FDocModModule::OnWorldInitializedActors(const FActorsInitializedParams& Par
 	if (Params.World && Params.World->IsGameWorld())
 	{
 		DocModSelfTest::RunAll(Params.World);
+
+		// DocModHotkey (F11) performs a REAL mutation when pressed (see
+		// its own header comment) - kept behind this same
+		// !UE_BUILD_SHIPPING gate as the self-test, deliberately, so it
+		// can never fire for a real player of a released mod.
+		DocModHotkey::SetupForWorld(Params.World);
 	}
 }
 #endif

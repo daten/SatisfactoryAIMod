@@ -243,6 +243,16 @@ against a save you don't mind corrupting — duplicate your save file
 first, or use a throwaway creative-mode save — not your main
 progression save,** until it's been exercised enough to trust.
 
+**Fastest way to try this:** walk up to a machine and press **F11** — see
+[hotkey.md](hotkey.md). It prints the targeted machine and attempts a
+real +10%-clock-speed change in one keypress, reporting success/failure
+both in the log and as an in-game chat message. Entirely untested so far
+(added after these playtest sessions) — if it works, it's also the
+fastest way to confirm chat messages actually reach the screen, which
+none of the RPC/console testing above can show. The manual steps below
+still apply if you want to test specific values/edge cases (out-of-range
+percent, bad recipe path, etc.) that the hotkey doesn't exercise.
+
 - Find a manufacturer's `buildableId` either via `world.manufacturers`
   (item 6 above), or — easier — stand in front of the specific machine
   you want to test on in-game and use `world.targetedManufacturer` /
