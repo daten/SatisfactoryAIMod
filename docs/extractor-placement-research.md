@@ -186,3 +186,41 @@ result) rather than committing to the full validated RPC method first —
 this is exactly the kind of case CLAUDE.md's "make a small test, compile,
 verify" guidance is for, rather than building the complete feature in one
 pass.
+
+## Implementation status (2026-08-24)
+
+The recommended small experiment above is now written:
+`UDocModFunctionLibrary::GetTargetedResourceNode` and
+`DebugCheckExtractorPlacementOnTargetedNode`
+(`Mods/GameFeatures/DocMod/Source/DocMod/{Public,Private}/DocModFunctionLibrary.{h,cpp}`,
+commit `796a74818a`), console commands `DocMod.TargetNode` /
+`DocMod.TestExtractorPlacement`. Compiled clean, **not yet run against a
+real game session**.
+
+One correction to §2 above found while implementing: `AFGHologram` does
+expose one real "spawn correctly" API this research pass missed —
+`static AFGHologram* SpawnHologramFromRecipe(TSubclassOf<UFGRecipe>
+inRecipe, AActor* hologramOwner, const FVector& spawnLocation, APawn*
+hologramInstigator, ...)` (`FGHologram.h:95`) — it resolves the
+descriptor's hologram class and spawns it correctly, removing one
+smaller unknown (§2's "how do I even construct the right hologram
+instance" question is answered; the two bigger unknowns in this
+section's opening paragraph are unchanged and still what the experiment
+exists to test). Takes a **recipe**, not a buildable/descriptor class
+directly — used `Recipe_MinerMk1` (verified as a real asset in
+`Content/FactoryGame/Recipes/Buildings/`, the building's *build-cost*
+recipe, not a production recipe — Miner Mk1 has none).
+
+`GetConstructDisqualifiers`/`UFGConstructDisqualifier::GetDisqualifyingText`/
+`GetIsSoftDisqualifier` (`FGConstructDisqualifier.h:31,35`) turn
+`CanConstruct()`'s bool into the actual class-based disqualifier list
+with human-readable text — used to log *why* placement would fail, not
+just whether.
+
+**Deliberately stops at `CanConstruct()`.** `Construct()` is never
+called — the function destroys the scratch hologram actor on every exit
+path (`ON_SCOPE_EXIT`). This can't place a real building or touch the
+save, so it carries a read-only risk profile despite spawning a real
+(temporary) `AFGHologram` actor. First live run is what actually answers
+whether the synthetic-hit-result-snapping and buildgun-free-construction
+assumptions hold — see docs/manual-verification.md's new pending item.

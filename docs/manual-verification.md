@@ -317,6 +317,54 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
 - **Not yet runtime-verified at all** — this is new, added after the two
   playtest sessions above.
 
+### 10. Extractor placement dry-run (Phase 13, first experiment)
+
+- Stand facing a real, unoccupied **solid** resource node (Iron/Copper/
+  Coal/Limestone/etc - not Crude Oil/Water/SAM, which are out of scope
+  for this first pass) from a normal build-range distance, close enough
+  that you're clearly aiming at it, not just nearby.
+- Run `DocMod.TargetNode` first to confirm the heuristic actually found
+  the node you're looking at (prints resource/purity/occupied/id, or
+  "not currently looking at a resource node" - if you get the latter,
+  try centering the node more precisely in your view, or move a bit
+  closer; the heuristic uses a tight 3-degree cone and 50m max range, see
+  `docs/extractor-placement-research.md`'s implementation status note).
+- Once `DocMod.TargetNode` finds it, run `DocMod.TestExtractorPlacement`.
+  **This never calls `Construct()` and never touches your save** - it
+  spawns a temporary hologram, checks it, and destroys it before
+  returning, regardless of outcome.
+- **Expected, and what we're actually trying to learn:**
+  - `DocMod: CanConstruct() = true - placement would succeed` — the best
+    outcome: confirms both the synthetic `FHitResult` snapping and
+    buildgun-free hologram construction assumptions hold for the happy
+    path. This is the strongest possible signal to move forward with an
+    actual `Construct()` call next.
+  - `DocMod: CanConstruct() = false - ...` with a **specific, sensible**
+    disqualifier (e.g. "Too close to another building", "Resource node
+    is occupied") — also a good outcome: means the flow up through
+    `UpdateHologramPlacement`/`CanConstruct` genuinely works and is
+    correctly evaluating real placement rules, just not on this
+    particular spot/node. Try a different unobstructed node if this
+    happens on a clearly-valid spot.
+  - `DocMod: CanConstruct() = false - <none>` (empty disqualifier list)
+    or a disqualifier that reads as clearly wrong for what you're
+    looking at (e.g. `UFGCDNeedsResourceNode` while aiming directly at a
+    node) — **this is the signal that the synthetic hit result isn't
+    snapping correctly** (the risk flagged in
+    `docs/extractor-placement-research.md` §2) - report the exact
+    disqualifier text back, this is exactly the evidence needed to
+    debug it further.
+  - `HOLOGRAM_SPAWN_FAILED` or a crash — would mean
+    `SpawnHologramFromRecipe` doesn't work the way its header signature
+    implies from a non-buildgun caller (§5's risk). A crash specifically
+    should be reported immediately with the exact log output leading up
+    to it.
+- Check `LogDocModAI` regardless of the console output shown - it logs
+  the full disqualifier list with each one's soft/hard status, more
+  detail than the one-line console summary.
+- **Not yet attempted at all** - this is the first real test of any
+  Phase 13 code.
+
 ---
 
 ## Confirmed
