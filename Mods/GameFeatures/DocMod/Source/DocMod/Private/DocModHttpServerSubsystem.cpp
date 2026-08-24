@@ -118,19 +118,29 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		return true;
 	}
 
-	if (Method != TEXT("world.resourceNodes"))
+	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
+	// not implement GetWorld(); UGameInstance does.
+	FString MethodResultJson;
+	if (Method == TEXT("world.resourceNodes"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogResourceNodesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.buildables"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogBuildablesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.manufacturers"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogManufacturersAsJson(GetGameInstance());
+	}
+	else
 	{
 		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::NotFound, RequestId, TEXT("UNKNOWN_METHOD"), FString::Printf(TEXT("Unknown method '%s'"), *Method)));
 		return true;
 	}
 
-	// world.resourceNodes: the only method implemented so far (read-only).
-	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
-	// not implement GetWorld(); UGameInstance does.
-	const FString NodesJson = UDocModFunctionLibrary::LogResourceNodesAsJson(GetGameInstance());
-
 	TSharedPtr<FJsonObject> ResultObject;
-	const TSharedRef<TJsonReader<>> ResultReader = TJsonReaderFactory<>::Create(NodesJson);
+	const TSharedRef<TJsonReader<>> ResultReader = TJsonReaderFactory<>::Create(MethodResultJson);
 	FJsonSerializer::Deserialize(ResultReader, ResultObject);
 
 	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();

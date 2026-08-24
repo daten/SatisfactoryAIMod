@@ -41,9 +41,47 @@ public:
 	/**
 	 * Serializes resource node telemetry to the Phase 6 JSON protocol
 	 * shape ({"protocolVersion":1,"resourceNodes":[...]}), logs it via
-	 * LogDocModAI, and returns the JSON string. For local debug testing
-	 * only - no network transport sends this anywhere yet (Phase 9).
+	 * LogDocModAI, and returns the JSON string. Used internally by the
+	 * "world.resourceNodes" RPC method (UDocModHttpServerSubsystem).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogResourceNodesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Enumerates all placed AFGBuildable actors (PLAN.md Phase 10,
+	 * "buildings"). Tries AFGBuildableSubsystem::GetAllBuildablesRef()
+	 * first (a real public getter exists, per
+	 * docs/buildable-research.md) and falls back to a TActorIterator
+	 * scan if the subsystem isn't available - its .cpp is a stub in
+	 * this repo, so whether it's actually populated at runtime is
+	 * unverified.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDocModBuildableTelemetry> GetBuildableTelemetry(UObject* WorldContextObject);
+
+	/** Debug entry point: logs one line per buildable via LogDocModAI. */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogBuildables(UObject* WorldContextObject);
+
+	/** Serializes buildable telemetry to {"protocolVersion":1,"buildables":[...]}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogBuildablesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Enumerates all AFGBuildableManufacturer actors and reads their
+	 * current recipe, clock speed, production status/progress/
+	 * productivity, and input/output inventory contents (PLAN.md
+	 * Phase 10, "machine recipes" / "machine inventories" / "machine
+	 * production status"). Read-only.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDocModManufacturerTelemetry> GetManufacturerTelemetry(UObject* WorldContextObject);
+
+	/** Debug entry point: logs one line per manufacturer via LogDocModAI. */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogManufacturers(UObject* WorldContextObject);
+
+	/** Serializes manufacturer telemetry to {"protocolVersion":1,"manufacturers":[...]}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogManufacturersAsJson(UObject* WorldContextObject);
 };

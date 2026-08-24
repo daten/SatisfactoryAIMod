@@ -109,6 +109,36 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
   `"success":false` with a structured `"error":{"code":...,"message":...}`
   rather than a raw HTTP 500 or a crash.
 
+### 6. Buildings / manufacturers telemetry (Phase 10)
+
+- Load a save with actual buildings placed (constructors, smelters, etc).
+- Call **Log Buildables** and **Log Manufacturers** (category
+  `DocMod | AI Interface`) from any Blueprint.
+- Check `LogDocModAI` for plausible output, e.g.:
+  ```
+  LogDocModAI: Display: Buildable: id=... class=.../Build_ConstructorMk1.Build_ConstructorMk1_C pos=(...) rot=(...)
+  LogDocModAI: Display: LogBuildables: enumerated 83 buildable(s)
+  LogDocModAI: Display: Manufacturer: id=... class=... recipe="Iron Plate" clock=100% status=Producing progress=0.42 productivity=1.00 inputItems=1 outputItems=1
+  LogDocModAI: Display: LogManufacturers: enumerated 12 manufacturer(s)
+  ```
+- **Expected:** buildable count is plausible for the map (not 0, not
+  absurd), classes look like real building asset paths, and for
+  manufacturers specifically: recipe names match what's actually set in
+  the game, clock speed matches the in-game slider, and production status
+  matches what you can see in-game (a machine you can see actively
+  producing should report `status=Producing`, not `status=None`).
+- **Specifically worth noting if it happens:** if `AFGBuildableSubsystem`
+  turns out to be populated (see
+  [buildable-research.md](buildable-research.md) §1), `LogBuildables`
+  should still enumerate correctly since it's the primary path already —
+  no special test needed beyond confirming a plausible count. But if the
+  count comes back as **zero** even on a save with visible buildings,
+  that's a sign the subsystem fallback logic needs attention.
+- Also call **Log Buildables As Json** / **Log Manufacturers As Json** (or
+  hit `/rpc` with `"method":"world.buildables"` /
+  `"world.manufacturers"`) and validate the JSON shape against
+  [telemetry-protocol.md](telemetry-protocol.md).
+
 ---
 
 ## Confirmed
