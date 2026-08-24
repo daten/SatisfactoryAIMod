@@ -1,16 +1,30 @@
 # Manual verification checklist (running document)
 
-This is a living checklist of everything that has been implemented and
-compile-verified from the CLI, but still needs a human to confirm at
-runtime (Unreal Editor and/or Satisfactory). Updated as each phase adds
-new things to check. Nothing in this file should be treated as done until
-you've actually run it and it's been checked off here.
+This is a living checklist of everything that still needs a human to
+confirm at runtime (Unreal Editor and/or Satisfactory), beyond what runs
+automatically now.
+
+**Most of the "does it crash / is the returned data well-formed" checking
+below is now automatic** — see
+[self-test.md](self-test.md). Every time a game world loads (Editor PIE,
+standalone, or a packaged build), `DocModSelfTest::RunAll` exercises every
+read-only telemetry function and the write operations' validation logic,
+and logs a `PASS`/`FAIL` summary block to `LogDocModAI` with no manual
+Blueprint work or HTTP calls needed. **Check that summary block first** —
+if everything in it passes, most of the "shape/doesn't-crash" items below
+are already covered, and what's left is the things a fixed self-test
+genuinely can't judge: whether *specific* values are plausible for the
+map you're looking at, whether a positive-path mutation actually changed
+the game correctly, and whether the HTTP server is really loopback-only
+(the self-test runs in-process, so it can't observe the network binding
+from outside).
 
 **How to use this:** open `FactoryGame.uproject` in Unreal Editor
-(Development Editor — already built via `.\tools\build-editor.ps1`), and
-work through the "Pending" items in order — later ones tend to build on
-earlier ones being confirmed working. Update this file (or tell Claude the
-results) once you've checked something, so future sessions don't re-ask.
+(Development Editor — already built via `.\tools\build-editor.ps1`), load
+a real map, and press Play — check the self-test summary in the Output
+Log first, then work through whichever "Pending" items below it didn't
+cover. Update this file (or tell Claude the results) once you've checked
+something, so future sessions don't re-ask.
 
 ### What "Call **Some Function**" actually means
 
