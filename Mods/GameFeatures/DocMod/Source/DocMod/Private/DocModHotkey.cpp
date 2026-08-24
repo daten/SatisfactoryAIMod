@@ -5,6 +5,7 @@
 #include "DocModFunctionLibrary.h"
 #include "DocModOperationTypes.h"
 #include "DocModTelemetryTypes.h"
+#include "DocModDeveloperSettings.h"
 #include "FGPlayerController.h"
 #include "Player/SMLRemoteCallObject.h"
 #include "Kismet/GameplayStatics.h"
@@ -102,9 +103,18 @@ namespace DocModHotkey
 
 		if (!GHotkeyAction.IsValid())
 		{
+			// Read once at first bind, not re-read on later world loads -
+			// a live Project Settings change won't take effect until the
+			// next full session. Config-file edits need a relaunch for
+			// the same reason. Acceptable for a dev-time tool; not worth
+			// the complexity of live rebinding.
+			const FKey Key = GetDefault<UDocModDeveloperSettings>()->HotkeyKey;
+
 			GHotkeyAction = TStrongObjectPtr<UInputAction>(NewObject<UInputAction>());
 			GHotkeyMappingContext = TStrongObjectPtr<UInputMappingContext>(NewObject<UInputMappingContext>());
-			GHotkeyMappingContext->MapKey(GHotkeyAction.Get(), EKeys::F11);
+			GHotkeyMappingContext->MapKey(GHotkeyAction.Get(), Key);
+
+			UE_LOG(LogDocModAI, Display, TEXT("DocMod hotkey configured: %s (see Project Settings > Plugins > DocMod, or Config/DefaultDocMod.ini, to change)"), *Key.ToString());
 		}
 
 		PlayerController->AddMappingContextImmediately(GHotkeyMappingContext.Get());
@@ -116,6 +126,6 @@ namespace DocModHotkey
 				OnHotkeyPressed(WeakPlayerController);
 			});
 
-		UE_LOG(LogDocModAI, Display, TEXT("DocMod hotkey bound: F11 -> print targeted manufacturer + test clock speed change"));
+		UE_LOG(LogDocModAI, Display, TEXT("DocMod hotkey bound: print targeted manufacturer + test clock speed change"));
 	}
 }

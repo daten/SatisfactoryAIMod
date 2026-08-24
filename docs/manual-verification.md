@@ -243,8 +243,10 @@ against a save you don't mind corrupting — duplicate your save file
 first, or use a throwaway creative-mode save — not your main
 progression save,** until it's been exercised enough to trust.
 
-**Fastest way to try this:** walk up to a machine and press **F11** — see
-[hotkey.md](hotkey.md). It prints the targeted machine and attempts a
+**Fastest way to try this:** walk up to a machine and press the DocMod
+hotkey (**F6** by default — F11 was tried first and found to collide
+with the engine's fullscreen toggle; configurable, see
+[hotkey.md](hotkey.md)). It prints the targeted machine and attempts a
 real +10%-clock-speed change in one keypress, reporting success/failure
 both in the log and as an in-game chat message. Entirely untested so far
 (added after these playtest sessions) — if it works, it's also the

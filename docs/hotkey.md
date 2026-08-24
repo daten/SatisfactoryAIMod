@@ -1,4 +1,4 @@
-# F11 hotkey — targeted manufacturer + live clock-speed test
+# Configurable hotkey — targeted manufacturer + live clock-speed test
 
 **This performs a real game-state mutation when pressed.** Only active
 while testing against a disposable save — see the Shipping-gating note
@@ -6,7 +6,8 @@ below.
 
 ## What it does
 
-Press **F11** in-game:
+Press the configured key (**F6** by default — see Configurability below)
+in-game:
 
 1. Looks up the manufacturer the local player is currently aiming
    at/can interact with (`GetTargetedManufacturer` —
@@ -30,11 +31,35 @@ This exists specifically to make the Phase 12 positive-path write test
 walking up to a machine and pressing a key, rather than hand-typing
 `Invoke-RestMethod` calls with a copy-pasted buildable id.
 
+## Configurability — why F6, not F11
+
+**F11 was the original default and was found, in actual play, to
+collide with the engine's own fullscreen toggle**
+(`Config/DefaultInput.ini:157`, `bF11TogglesFullscreen=True`) — an
+engine-level shortcut that intercepts the key before it ever reaches
+Enhanced Input gameplay bindings, so there was no way to "win" the
+conflict by binding priority, only by picking a different key.
+
+Since a real collision surfaced on the first pick, the key is now
+configurable rather than hardcoded a second time — see
+`UDocModDeveloperSettings::HotkeyKey`
+(`Mods/GameFeatures/DocMod/Source/DocMod/Public/DocModDeveloperSettings.h`).
+Change it either way, no rebuild required:
+
+- **In the Editor:** Project Settings → Plugins → DocMod → Hotkey.
+- **By hand:** `Config/DefaultDocMod.ini`,
+  `[/Script/DocMod.DocModDeveloperSettings]` section, e.g.
+  `HotkeyKey=(KeyName="F6")`.
+
+Both require relaunching the session to take effect — the key is only
+read once, at the first world load per session (see the code comment at
+the read site), not live-reloaded if changed mid-session.
+
 ## How it's built (no Content/Blueprint asset needed)
 
 Unlike the chat command (`docs/chat-and-console-commands.md`), this
-needed no Editor step at all — the whole input action + mapping context +
-key binding is constructed in pure C++ at runtime
+needed no Editor step at all to exist — the whole input action + mapping
+context + key binding is constructed in pure C++ at runtime
 (`Mods/GameFeatures/DocMod/Source/DocMod/Private/DocModHotkey.cpp`):
 
 - `AFGPlayerController::AddMappingContextImmediately(UInputMappingContext*)`
@@ -42,7 +67,8 @@ key binding is constructed in pure C++ at runtime
   registering an Enhanced Input mapping context at runtime, found by
   reading the header rather than assumed.
 - `UInputMappingContext::MapKey(const UInputAction*, FKey)` — builds the
-  key mapping programmatically.
+  key mapping programmatically, using whatever `FKey` came from
+  `UDocModDeveloperSettings::HotkeyKey`.
 - Both the `UInputAction` and `UInputMappingContext` are constructed via
   `NewObject<>()` and held for the module's lifetime via
   `TStrongObjectPtr` (since the owning code isn't itself a `UObject`, so
@@ -66,28 +92,22 @@ The binding call (`DocModHotkey::SetupForWorld`) sits behind the same
 console/chat commands (which stay available in all configs since they
 only run on explicit invocation with no side effects), this one
 *mutates real game state* on a keypress — a real player of a released
-mod pressing F11 by accident and having a random machine's clock speed
-changed would be a bad, confusing experience for what's explicitly a
-developer testing aid, not a feature. The underlying
+mod pressing the hotkey by accident and having a random machine's clock
+speed changed would be a bad, confusing experience for what's explicitly
+a developer testing aid, not a feature. The underlying
 `DocModHotkey.cpp`/`GetTargetedManufacturer`/`SetManufacturerClockSpeed`
 code all still compiles and exists in Shipping — only the automatic
 binding is skipped.
 
-## Configurability
-
-Currently hardcoded to F11 (`EKeys::F11` in `DocModHotkey.cpp`), matching
-how the HTTP server's port is hardcoded rather than config-driven.
-Straightforward to move to a `UDeveloperSettings`-derived config class
-(DocMod already depends on the `DeveloperSettings` module) if a
-per-install-configurable key becomes worth the extra complexity — not
-done here since nobody's asked for it yet.
-
 ## Status
 
-**Not yet runtime-verified at all** — entirely new. Needs, at minimum:
-confirming F11 actually triggers it (proving the Enhanced Input wiring
-worked), confirming the chat messages actually appear on-screen (not
-just in the log), and confirming the clock speed change is real and
+**Not yet runtime-verified at all.** F11 was tried and confirmed to
+conflict with the engine's fullscreen toggle before any of the rest of
+the feature (targeting lookup, clock-speed change, chat delivery) could
+be observed working — none of that has been confirmed yet. Needs, at
+minimum: confirming F6 actually triggers it without colliding with
+anything else, confirming the chat messages actually appear on-screen
+(not just in the log), and confirming the clock speed change is real and
 visible in-game afterward. See
 [manual-verification.md](manual-verification.md) item 8, which this
 directly helps exercise.
