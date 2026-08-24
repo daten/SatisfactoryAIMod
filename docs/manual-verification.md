@@ -12,6 +12,47 @@ work through the "Pending" items in order — later ones tend to build on
 earlier ones being confirmed working. Update this file (or tell Claude the
 results) once you've checked something, so future sessions don't re-ask.
 
+### What "Call **Some Function**" actually means
+
+Every item below that says "Call **X**" means one of two things — pick
+whichever's less friction for that item:
+
+**Blueprint** (needed for item 2, and for anything with no JSON/RPC
+equivalent, e.g. `LogResourceNodes`'s human-readable log format):
+
+1. Load a level that actually has the game state you're checking (an
+   in-game map — `RootGameWorld_DocMod` is a bare test level, likely
+   empty).
+2. **Blueprints** menu → **Open Level Blueprint**.
+3. Right-click empty graph space → search **"BeginPlay"** → add
+   `Event BeginPlay` if it's not already there.
+4. Drag off its exec pin, release, search for the function's display
+   name (e.g. **"Log Resource Nodes"**) — it's filed under the
+   `DocMod | AI Interface` category. Click to add it, wired to
+   `BeginPlay`.
+5. Functions taking a world-context object auto-hide that pin and wire
+   it to the graph's implicit **Self** (the Level Blueprint actor) — you
+   shouldn't need to fill anything in. If a "World Context Object" pin
+   *is* visible, connect a **Self** node to it.
+6. **Compile** (toolbar button in the Blueprint editor).
+7. Press **Play** in the main editor toolbar — the log only fires once
+   `BeginPlay` actually runs, i.e. once you're playing, not just after
+   compiling.
+8. Check **Window → Developer Tools → Output Log** for the
+   `LogDocModAI` lines.
+
+**RPC endpoint** (Phase 9+, no Blueprint editing — works for anything
+with a `*AsJson`/`world.*` RPC method, with the game already running):
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:51902/rpc" -ContentType "application/json" -Body '{"protocolVersion":1,"requestId":"1","method":"world.resourceNodes"}'
+```
+
+Swap `"method"` for `world.buildables` / `world.manufacturers` /
+`world.connections` etc. This exercises the same underlying collection
+code as the equivalent Blueprint node, so for most read-only items below
+it's the faster path.
+
 ---
 
 ## Pending
