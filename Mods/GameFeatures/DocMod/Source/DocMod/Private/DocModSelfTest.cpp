@@ -40,6 +40,19 @@ namespace DocModSelfTest
 			return FJsonSerializer::Deserialize(Reader, Parsed) && Parsed.IsValid();
 		}
 
+		// The Detail message must depend on the actual result - a bug
+		// caught on the first real run against a save (2026-08-24): all
+		// four .json checks previously passed the same hardcoded
+		// "did not parse as JSON" string as Detail regardless of
+		// bPassed, so a PASS line read as if it had failed.
+		void RecordJsonValid(const FString& Name, const FString& Json)
+		{
+			const bool bValid = IsValidJson(Json);
+			Record(Name, bValid, bValid
+				? FString::Printf(TEXT("%d bytes"), Json.Len())
+				: TEXT("output did not parse as JSON"));
+		}
+
 		void CheckInterfaceVersion()
 		{
 			const FString Version = UDocModFunctionLibrary::GetInterfaceVersion();
@@ -67,7 +80,7 @@ namespace DocModSelfTest
 				bAllValid ? FString::Printf(TEXT("%d node(s)"), Nodes.Num()) : FirstIssue);
 
 			const FString Json = UDocModFunctionLibrary::LogResourceNodesAsJson(World);
-			Record(TEXT("ResourceNodeTelemetry.json"), IsValidJson(Json), TEXT("LogResourceNodesAsJson output did not parse as JSON"));
+			RecordJsonValid(TEXT("ResourceNodeTelemetry.json"), Json);
 		}
 
 		void CheckBuildables(UWorld* World)
@@ -86,7 +99,7 @@ namespace DocModSelfTest
 			Record(TEXT("BuildableTelemetry.shape"), bAllValid, FString::Printf(TEXT("%d buildable(s)"), Buildables.Num()));
 
 			const FString Json = UDocModFunctionLibrary::LogBuildablesAsJson(World);
-			Record(TEXT("BuildableTelemetry.json"), IsValidJson(Json), TEXT("LogBuildablesAsJson output did not parse as JSON"));
+			RecordJsonValid(TEXT("BuildableTelemetry.json"), Json);
 		}
 
 		void CheckManufacturers(UWorld* World)
@@ -112,7 +125,7 @@ namespace DocModSelfTest
 				bAllValid ? FString::Printf(TEXT("%d manufacturer(s)"), Manufacturers.Num()) : FirstIssue);
 
 			const FString Json = UDocModFunctionLibrary::LogManufacturersAsJson(World);
-			Record(TEXT("ManufacturerTelemetry.json"), IsValidJson(Json), TEXT("LogManufacturersAsJson output did not parse as JSON"));
+			RecordJsonValid(TEXT("ManufacturerTelemetry.json"), Json);
 		}
 
 		void CheckFactoryConnections(UWorld* World)
@@ -158,7 +171,7 @@ namespace DocModSelfTest
 				FString::Printf(TEXT("%d Output connection(s) with no matching Input row on the peer"), UnmatchedCount));
 
 			const FString Json = UDocModFunctionLibrary::LogFactoryConnectionsAsJson(World);
-			Record(TEXT("FactoryConnectionTelemetry.json"), IsValidJson(Json), TEXT("LogFactoryConnectionsAsJson output did not parse as JSON"));
+			RecordJsonValid(TEXT("FactoryConnectionTelemetry.json"), Json);
 		}
 
 		void CheckWriteOperationValidation(UWorld* World)

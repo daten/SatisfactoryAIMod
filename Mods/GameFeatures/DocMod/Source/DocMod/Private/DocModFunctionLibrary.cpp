@@ -16,9 +16,29 @@
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
 
 namespace
 {
+	// GetResourcePurityText() looked like a plain display string but is
+	// actually Slate rich-text markup meant for on-screen UI (its own doc
+	// comment says "For UI") - confirmed against a real save, it returned
+	// literal "<Bold>(Normal)</>" instead of "Normal", caught by
+	// DocModSelfTest on its first real run. Use the raw enum
+	// (GetResourcePurity(), also "For UI" per its comment but returns the
+	// actual EResourcePurity value) and map it ourselves, consistent with
+	// ProductionStatusToString/FactoryConnectionDirectionToString below.
+	FString ResourcePurityToString(EResourcePurity Purity)
+	{
+		switch (Purity)
+		{
+		case EResourcePurity::RP_Inpure: return TEXT("Impure");
+		case EResourcePurity::RP_Normal: return TEXT("Normal");
+		case EResourcePurity::RP_Pure: return TEXT("Pure");
+		default: return TEXT("Unknown");
+		}
+	}
+
 	// AFGResourceNodeManager exists but its node array has no public
 	// getter and its .cpp is a stub (see docs/resource-node-research.md),
 	// so a plain actor-iterator world scan is the only evidenced way to
@@ -43,7 +63,7 @@ namespace
 			Telemetry.Id = Node->GetPathName();
 			Telemetry.Resource = ResourceClass ? UFGItemDescriptor::GetItemName(ResourceClass).ToString() : TEXT("Unknown");
 			Telemetry.ResourceClass = ResourceClass ? ResourceClass->GetPathName() : FString();
-			Telemetry.Purity = Node->GetResourcePurityText().ToString();
+			Telemetry.Purity = ResourcePurityToString(Node->GetResourcePurity());
 			Telemetry.Position = Node->GetActorLocation();
 			Telemetry.bOccupied = Node->IsOccupied();
 
@@ -307,7 +327,11 @@ FString UDocModFunctionLibrary::LogResourceNodesAsJson(UObject* WorldContextObje
 	RootObject->SetArrayField(TEXT("resourceNodes"), NodeJsonArray);
 
 	FString JsonString;
-	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+	// Condensed, not the default TPrettyJsonPrintPolicy - a real save's
+	// resourceNodes payload pretty-printed to over 8000 log lines for one
+	// call (631 nodes), confirmed against an actual FactoryGame.log.
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogResourceNodesAsJson: %s"), *JsonString);
@@ -374,7 +398,11 @@ FString UDocModFunctionLibrary::LogBuildablesAsJson(UObject* WorldContextObject)
 	RootObject->SetArrayField(TEXT("buildables"), BuildableJsonArray);
 
 	FString JsonString;
-	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+	// Condensed, not the default TPrettyJsonPrintPolicy - a real save's
+	// resourceNodes payload pretty-printed to over 8000 log lines for one
+	// call (631 nodes), confirmed against an actual FactoryGame.log.
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogBuildablesAsJson: %s"), *JsonString);
@@ -468,7 +496,11 @@ FString UDocModFunctionLibrary::LogManufacturersAsJson(UObject* WorldContextObje
 	RootObject->SetArrayField(TEXT("manufacturers"), ManufacturerJsonArray);
 
 	FString JsonString;
-	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+	// Condensed, not the default TPrettyJsonPrintPolicy - a real save's
+	// resourceNodes payload pretty-printed to over 8000 log lines for one
+	// call (631 nodes), confirmed against an actual FactoryGame.log.
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogManufacturersAsJson: %s"), *JsonString);
@@ -525,7 +557,11 @@ FString UDocModFunctionLibrary::LogFactoryConnectionsAsJson(UObject* WorldContex
 	RootObject->SetArrayField(TEXT("connections"), ConnectionJsonArray);
 
 	FString JsonString;
-	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+	// Condensed, not the default TPrettyJsonPrintPolicy - a real save's
+	// resourceNodes payload pretty-printed to over 8000 log lines for one
+	// call (631 nodes), confirmed against an actual FactoryGame.log.
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogFactoryConnectionsAsJson: %s"), *JsonString);

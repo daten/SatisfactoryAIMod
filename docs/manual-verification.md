@@ -283,5 +283,59 @@ progression save,** until it's been exercised enough to trust.
 
 ## Confirmed
 
-*(nothing yet — move items here, with the date and what you observed, once
-verified)*
+### 2026-08-24 — first real playtest (fresh game, `GameLevel01`)
+
+Reviewed `%LOCALAPPDATA%\FactoryGame\Saved\Logs\FactoryGame.log` from an
+actual launched-game session. Real findings, not a synthetic test:
+
+- **Item 1 (module startup) — confirmed.** `DocMod AI interface module
+  initialized` and `DocMod AI interface module shutting down` both fired
+  correctly at session start/end.
+- **Item 5 (HTTP transport) — partially confirmed.** `DocMod HTTP server
+  listening on http://127.0.0.1:51902/rpc...` fired correctly. **Still
+  not done:** the `netstat` loopback-binding check, and an actual HTTP
+  round-trip request (the self-test calls the underlying functions
+  in-process, not over HTTP) — still genuinely pending.
+- **Items 3/4 (resource node enumeration + JSON) — confirmed working,
+  with one real bug found and fixed.** The self-test (see
+  [self-test.md](self-test.md)) ran automatically and found **631 real
+  resource nodes** across all 14 real Satisfactory resource types (Iron
+  Ore, Copper Ore, Crude Oil, Geyser, SAM, Uranium, etc.) with real
+  coordinates and class paths — `TActorIterator<AFGResourceNode>` and
+  `UFGItemDescriptor::GetItemName()` work correctly against the actual
+  game. **Bug found:** the `purity` field returned Slate rich-text UI
+  markup (`"<Bold>(Normal)</>"`) instead of plain text — traced to
+  `GetResourcePurityText()`, whose own doc comment says "For UI" and
+  which I used anyway. Fixed: now uses the raw `GetResourcePurity()`
+  enum, mapped manually (matching how production status and connection
+  direction were already handled). **Also fixed as a result of this
+  run:** JSON output was pretty-printed by default
+  (`TJsonWriterFactory`'s default policy), which turned one `resourceNodes`
+  call into ~8,200 log lines for 631 nodes — switched to
+  `TCondensedJsonPrintPolicy` (compact, single-line) for all JSON output.
+  **Needs a fresh test run** to confirm both fixes actually resolve the
+  issue — not yet re-verified against a real game session.
+- **Items 6/7 (buildings/manufacturers/connections) — inconclusive, needs
+  your input.** All three came back empty (0 buildables, 0 manufacturers,
+  0 connections). A `LogUI: UpdateFocusHighlights [mCreateNewGame]` line
+  appeared shortly after in the log, suggesting this may have been a
+  freshly created game with nothing built yet — in which case 0 is
+  correct, not a bug. **Unconfirmed until you tell Claude whether
+  anything was actually built before this test ran.** If yes and it
+  still came back empty, that needs real investigation (see
+  [buildable-research.md](buildable-research.md) §1's note about
+  `AFGBuildableSubsystem`'s unverified population).
+- **Item 8 (write operations), negative path only — confirmed.** Both
+  `SetManufacturerClockSpeed` and `SetManufacturerRecipe`, called
+  automatically by the self-test against a deliberately bogus buildable
+  id, correctly returned `TARGET_NOT_FOUND` rather than crashing or
+  silently succeeding. **The positive path (an actual successful
+  mutation) is still unverified** — still needs the disposable-save
+  testing described below.
+- Self-test itself had one cosmetic bug, also fixed: all four `*.json`
+  checks printed the same hardcoded "did not parse as JSON" message
+  regardless of whether they passed or failed (the pass/fail
+  determination itself was correct — just the printed detail text was
+  misleading on a PASS). Fixed to show a size/byte-count message on pass.
+- Session ended with a clean `LogExit: Exiting.` — no crash, no
+  exception.

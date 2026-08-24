@@ -43,12 +43,14 @@ envelope itself (`{"protocolVersion","requestId","method"}` request →
 - `resourceClass` — the resource descriptor's full object path
   (`UClass::GetPathName()`), for callers that want the actual asset
   reference rather than the display string.
-- `purity` — one of `"Impure"`, `"Normal"`, `"Pure"` (FactoryGame's
-  `EResourcePurity` display text via `GetResourcePurityText()`). Note this
-  is the *display string*, not the raw enum name (`RP_Pure` etc.) — chosen
-  because it's what `GetResourcePurityText()` actually returns and avoids
-  inventing a second naming scheme; revisit if a controller would rather
-  parse the raw enum token.
+- `purity` — one of `"Impure"`, `"Normal"`, `"Pure"`, mapped manually from
+  the raw `EResourcePurity` enum (`GetResourcePurity()`). **Not**
+  `GetResourcePurityText()`, despite that looking like the obvious choice
+  — confirmed against a real save (2026-08-24) that it returns Slate rich
+  -text UI markup, not plain text (`"<Bold>(Normal)</>"`), caught by
+  `docs/self-test.md`'s automatic self-test on its first real run. See
+  the fix commit and `ResourcePurityToString()` in
+  `DocModFunctionLibrary.cpp`.
 - `position` — world-space `{x, y, z}` in Unreal units (centimeters), from
   `AActor::GetActorLocation()`.
 - `occupied` — whether an extractor currently occupies the node
@@ -185,12 +187,14 @@ resourceNodes-specific:
 - `resourceClass` — the resource descriptor's full object path
   (`UClass::GetPathName()`), for callers that want the actual asset
   reference rather than the display string.
-- `purity` — one of `"Impure"`, `"Normal"`, `"Pure"` (FactoryGame's
-  `EResourcePurity` display text via `GetResourcePurityText()`). Note this
-  is the *display string*, not the raw enum name (`RP_Pure` etc.) — chosen
-  because it's what `GetResourcePurityText()` actually returns and avoids
-  inventing a second naming scheme; revisit if a controller would rather
-  parse the raw enum token.
+- `purity` — one of `"Impure"`, `"Normal"`, `"Pure"`, mapped manually from
+  the raw `EResourcePurity` enum (`GetResourcePurity()`). **Not**
+  `GetResourcePurityText()`, despite that looking like the obvious choice
+  — confirmed against a real save (2026-08-24) that it returns Slate rich
+  -text UI markup, not plain text (`"<Bold>(Normal)</>"`), caught by
+  `docs/self-test.md`'s automatic self-test on its first real run. See
+  the fix commit and `ResourcePurityToString()` in
+  `DocModFunctionLibrary.cpp`.
 - `occupied` — whether an extractor currently occupies the node
   (`IFGExtractableResourceInterface::IsOccupied()`). Does **not** identify
   *which* extractor — see resource-node-research.md §5; that requires a

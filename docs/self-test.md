@@ -72,19 +72,19 @@ called from `FDocModModule::OnWorldInitializedActors`
 Look for `LogDocModAI` output bracketed by `=====` lines:
 
 ```
-LogDocModAI: Display: ===== DocMod self-test: 9 passed, 0 failed (of 9) =====
-LogDocModAI: Display:   [PASS] GetInterfaceVersion
-LogDocModAI: Display:   [PASS] ResourceNodeTelemetry.shape - 47 node(s)
-LogDocModAI: Display:   [PASS] ResourceNodeTelemetry.json
+LogDocModAI: Display: ===== DocMod self-test: 12 passed, 0 failed (of 12) =====
+LogDocModAI: Display:   [PASS] GetInterfaceVersion - expected "0.1.0", got "0.1.0"
+LogDocModAI: Display:   [PASS] ResourceNodeTelemetry.shape - 631 node(s)
+LogDocModAI: Display:   [PASS] ResourceNodeTelemetry.json - 118392 bytes
 LogDocModAI: Display:   [PASS] BuildableTelemetry.shape - 83 buildable(s)
-LogDocModAI: Display:   [PASS] BuildableTelemetry.json
+LogDocModAI: Display:   [PASS] BuildableTelemetry.json - 6104 bytes
 LogDocModAI: Display:   [PASS] ManufacturerTelemetry.shape - 12 manufacturer(s)
-LogDocModAI: Display:   [PASS] ManufacturerTelemetry.json
+LogDocModAI: Display:   [PASS] ManufacturerTelemetry.json - 2841 bytes
 LogDocModAI: Display:   [PASS] FactoryConnectionTelemetry.shape - 156 connection point(s)
-LogDocModAI: Display:   [PASS] FactoryConnectionTelemetry.reciprocity
-LogDocModAI: Display:   [PASS] FactoryConnectionTelemetry.json
-LogDocModAI: Display:   [PASS] SetManufacturerClockSpeed.rejectsUnknownTarget
-LogDocModAI: Display:   [PASS] SetManufacturerRecipe.rejectsUnknownTarget
+LogDocModAI: Display:   [PASS] FactoryConnectionTelemetry.reciprocity - 0 Output connection(s) with no matching Input row on the peer
+LogDocModAI: Display:   [PASS] FactoryConnectionTelemetry.json - 9210 bytes
+LogDocModAI: Display:   [PASS] SetManufacturerClockSpeed.rejectsUnknownTarget - success=false code="TARGET_NOT_FOUND"
+LogDocModAI: Display:   [PASS] SetManufacturerRecipe.rejectsUnknownTarget - success=false code="TARGET_NOT_FOUND"
 LogDocModAI: Display: ============================================================
 ```
 
@@ -92,10 +92,24 @@ A `[FAIL]` line also logs at `Error` level individually (so it's visible
 even if you're filtering the log by severity, not just scrolling for the
 summary block).
 
-**This has not been run against a real game session yet** — like
-everything else, it needs the Editor open and a real map loaded at least
-once before it can be trusted. See
-[manual-verification.md](manual-verification.md).
+## Proven in practice, not just in theory
+
+The first real run against an actual launched game (2026-08-24,
+`GameLevel01`) found a real bug on the first try: `ResourceNodeTelemetry.shape`
+failed because `purity` was `"<Bold>(Normal)</>"` (Slate rich-text UI
+markup) instead of `"Normal"` — `GetResourcePurityText()` looked like a
+plain accessor but its own doc comment says "For UI." Fixed to use the
+raw `GetResourcePurity()` enum instead, mapped manually. That same run
+also surfaced two lower-stakes issues worth knowing about even though
+they wouldn't have failed a check: JSON output defaulted to
+pretty-printed (turning one 631-node `resourceNodes` call into ~8,200 log
+lines — switched to `TCondensedJsonPrintPolicy`), and the `*.json` checks'
+detail text was hardcoded to a failure message regardless of actual
+pass/fail (harmless, just confusing to read — fixed to depend on the
+result). See `docs/manual-verification.md`'s Confirmed section for the
+full writeup. This is exactly why the self-test exists — all three were
+found without anyone hand-testing anything, just by having the checks run
+automatically the first time a real save loaded.
 
 ## Extending it
 
