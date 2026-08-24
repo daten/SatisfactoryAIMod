@@ -82,7 +82,11 @@ public class DocMod : ModuleRules
 		});
 		
 		PrivateDependencyModuleNames.AddRange(new string[] {
-			// ... add private dependencies that you statically link with here ...	
+			// FInternetAddr (IPAddress.h) for DocModHttpServerSubsystem's
+			// loopback-peer check - HTTPServer depends on this privately
+			// already, but that doesn't propagate to us, so it needs its
+			// own explicit dependency here.
+			"Sockets"
 		});
 		
 		DynamicallyLoadedModuleNames.AddRange(new string[] {

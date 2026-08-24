@@ -16,13 +16,20 @@ struct FHttpServerRequest;
  * interface. See docs/networking-research.md for the API research this
  * is built on.
  *
- * Binds to 127.0.0.1 only. The project-wide HTTPServer default
+ * Intended to bind to 127.0.0.1 only. The project-wide HTTPServer default
  * (Config/DefaultEngine.ini, [HTTPServer.Listeners] DefaultBindAddress)
  * is "any" (0.0.0.0) - NOT safe on its own - so this subsystem's port has
  * an explicit per-port ListenerOverrides entry forcing BindAddress=localhost.
- * Verify at runtime (docs/manual-verification.md) that the listening
- * socket is actually 127.0.0.1, not 0.0.0.0 - config parsing mistakes
- * would silently defeat this and aren't detectable from source alone.
+ *
+ * That ini override alone is NOT trustworthy: confirmed live (2026-08-24)
+ * that the actual Steam-launched (packaged Shipping) game still binds
+ * 0.0.0.0, because the override lives in this dev workspace's
+ * project-level Config/DefaultEngine.ini, which doesn't propagate to the
+ * separately Alpakit-deployed package. Root-cause packaging fix still
+ * pending - see docs/networking-research.md. Until then, and as
+ * defense-in-depth even after it's fixed, HandleRpcRequest itself rejects
+ * any request whose FHttpServerRequest::PeerAddress isn't loopback,
+ * regardless of what the socket is actually bound to.
  *
  * Single POST /rpc endpoint accepting
  * {"protocolVersion":1,"requestId":"...","method":"..."} and dispatching

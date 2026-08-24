@@ -14,9 +14,30 @@
 #include "Serialization/JsonSerializer.h"
 #include "Policies/CondensedJsonPrintPolicy.h"
 #include "Engine/GameInstance.h"
+#include "IPAddress.h"
 
 namespace
 {
+	// Defense-in-depth: don't rely solely on the socket-level
+	// Config/DefaultEngine.ini ListenerOverrides loopback binding. Found
+	// live (2026-08-24) that it does NOT take effect in the actual
+	// Steam-launched (packaged Shipping) game - netstat showed
+	// 0.0.0.0:51902 LISTENING, not 127.0.0.1:51902 - because that ini
+	// override lives in this dev workspace's project-level
+	// Config/DefaultEngine.ini, which only applies to Development Editor
+	// sessions run from here, not the separately-deployed Alpakit
+	// package. Until the packaging-side fix is in place, this check is
+	// the only thing actually enforcing "loopback only" for real players.
+	bool IsLoopbackPeer(const FHttpServerRequest& Request)
+	{
+		if (!Request.PeerAddress.IsValid())
+		{
+			return false;
+		}
+		const FString PeerIp = Request.PeerAddress->ToString(/*bAppendPort=*/false);
+		return PeerIp == TEXT("127.0.0.1") || PeerIp == TEXT("::1") || PeerIp.StartsWith(TEXT("127."));
+	}
+
 	TUniquePtr<FHttpServerResponse> MakeJsonResponse(EHttpServerResponseCodes Code, const TSharedRef<FJsonObject>& Body)
 	{
 		FString JsonString;
@@ -113,6 +134,14 @@ void UDocModHttpServerSubsystem::Deinitialize()
 
 bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
 {
+	if (!IsLoopbackPeer(Request))
+	{
+		const FString PeerDescription = Request.PeerAddress.IsValid() ? Request.PeerAddress->ToString(/*bAppendPort=*/true) : TEXT("<unknown>");
+		UE_LOG(LogDocModAI, Warning, TEXT("DocMod HTTP server: rejected non-loopback request from %s"), *PeerDescription);
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::Forbidden, TEXT(""), TEXT("FORBIDDEN"), TEXT("DocMod RPC only accepts loopback connections")));
+		return true;
+	}
+
 	if (Request.Body.Num() > MaxRequestBodyBytes)
 	{
 		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::RequestTooLarge, TEXT(""), TEXT("PAYLOAD_TOO_LARGE"),
