@@ -416,3 +416,46 @@ the first time ever:
   reachable *over real HTTP*, not just in-process). Positive-path
   mutation testing on a disposable save is still the one thing from the
   original checklist that hasn't been attempted at all yet.
+
+### 2026-08-24 (later still) — third playtest: F6 diagnosed as a missed hook, plus a third connection bug
+
+The user reported "F6 has no obvious in-game effect" after a save-load
+session. Log review showed something more specific than a hotkey bug:
+**neither the self-test summary nor the hotkey-binding message appeared
+at all** for that session, even though item 1's module-startup line was
+present. The user then manually ran `DocMod.SelfTest` and `DocMod.Target`
+from the console mid-session specifically to generate fresh log output
+for diagnosis — both worked perfectly (self-test produced a normal
+PASS/FAIL summary; `DocMod.Target` correctly reported the manufacturer
+being looked at), proving the underlying self-test/hotkey/targeting logic
+was never the problem.
+
+Root cause: this session's map load happened via a save-load
+(`ProcessServerTravel` → `LoadMap` with `loadgame=moved power` visible in
+the log), and `FWorldDelegates::OnWorldInitializedActors` — the only
+delegate driving the automatic self-test/hotkey setup — apparently never
+fired for that specific load path, even though it had worked for a fresh
+"New Game" load in the first playtest session above. **Fixed** by adding
+`FCoreUObjectDelegates::PostLoadMapWithWorld` as a second, complementary
+hook feeding the same `RunPerWorldSetup()` (de-duplicated via a
+`LastSetupWorld` weak pointer, since both delegates can fire for the same
+world). **Not yet re-verified against a real save-load** — needs another
+playtest to confirm the self-test/hotkey messages now appear
+automatically after loading a save, not just after a fresh game.
+
+While investigating, the reciprocity self-test check (item 7) was
+re-checked against this session's live data and found **still failing,
+worse than before**: 920 of 6,791 connection points unmatched (up in
+absolute count from 435/1,265, though the connection total grew
+correctly from 1,265→6,791, confirming the earlier belt/lift fix was
+active). Live analysis showed every unmatched peer's `buildableClass` was
+`Build_ConveyorAttachmentMerger`/`Build_ConveyorAttachmentSplitter` (and
+Lift/Smart variants) — a **third** sibling hierarchy
+(`AFGBuildableConveyorAttachment`) neither existing enumeration pass
+could reach (see `docs/buildable-research.md`'s second correction note).
+Rather than add a third specific-class pass, `CollectFactoryConnectionTelemetry`
+was redesigned around generic `AActor::GetComponents<UFGFactoryConnectionComponent>()`
+discovery, which finds connection components regardless of which
+`AFGBuildable` subclass owns them. **Not yet re-verified** — needs
+another self-test run to confirm the reciprocity count drops to 0 this
+time.

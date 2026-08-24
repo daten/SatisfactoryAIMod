@@ -23,10 +23,16 @@ placeholder code.
 ## What it checks
 
 `Mods/GameFeatures/DocMod/Source/DocMod/Private/DocModSelfTest.cpp`,
-called from `FDocModModule::OnWorldInitializedActors`
-(`Mods/GameFeatures/DocMod/Source/DocMod/Private/DocMod.cpp`) whenever
-`FWorldDelegates::OnWorldInitializedActors` fires for a real game world
-(`World->IsGameWorld()` — menu/editor-preview worlds are skipped):
+called from `FDocModModule::RunPerWorldSetup`
+(`Mods/GameFeatures/DocMod/Source/DocMod/Private/DocMod.cpp`) whenever a
+real game world finishes loading (`World->IsGameWorld()` —
+menu/editor-preview worlds are skipped). Two delegates feed
+`RunPerWorldSetup`, de-duplicated via a `LastSetupWorld` weak pointer:
+`FWorldDelegates::OnWorldInitializedActors` alone was found, live
+(2026-08-24), to not fire for a save-load via `ProcessServerTravel` —
+`FCoreUObjectDelegates::PostLoadMapWithWorld` was added as a
+complementary hook to cover that gap (see `docs/manual-verification.md`'s
+Confirmed section for the incident writeup).
 
 - `GetInterfaceVersion` returns exactly `"0.1.0"`.
 - Resource node / buildable / manufacturer / factory-connection
@@ -122,10 +128,11 @@ against real game state.
 
 ## Why it's compiled out of Shipping builds
 
-`FDocModModule`'s binding of `FWorldDelegates::OnWorldInitializedActors`
-is wrapped in `#if !UE_BUILD_SHIPPING` (`DocMod.cpp`/`DocMod.h`) — the
-self-test code doesn't exist at all in a Shipping build, not merely
-disabled at runtime. This is a development-time convenience; it has no
-reason to run for players of a released mod, and per CLAUDE.md's
-Safety and Stability Boundary, dev-only capabilities shouldn't linger
-into a shipped build even in dormant form.
+`FDocModModule`'s binding of both `FWorldDelegates::OnWorldInitializedActors`
+and `FCoreUObjectDelegates::PostLoadMapWithWorld` is wrapped in
+`#if !UE_BUILD_SHIPPING` (`DocMod.cpp`/`DocMod.h`) — the self-test code
+doesn't exist at all in a Shipping build, not merely disabled at runtime.
+This is a development-time convenience; it has no reason to run for
+players of a released mod, and per CLAUDE.md's Safety and Stability
+Boundary, dev-only capabilities shouldn't linger into a shipped build
+even in dormant form.

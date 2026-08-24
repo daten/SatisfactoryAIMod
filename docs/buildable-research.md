@@ -213,3 +213,38 @@ being visited at all, not a subtler direction-matching issue. Fixed by
 adding a second `TActorIterator<AFGBuildableConveyorBase>` pass. See the
 matching fix commit and `docs/manual-verification.md`'s Confirmed
 section for the full incident writeup.
+
+## Second correction found live (2026-08-24): conveyor attachments are a THIRD hierarchy — switched to generic discovery
+
+The two-pass fix above (`AFGBuildableFactory` + `AFGBuildableConveyorBase`)
+was still insufficient. Re-running the reciprocity check against a real
+save showed 920/6791 unmatched — worse in absolute terms than before,
+though the connection count grew from 1265→6791, confirming the belt fix
+was working. Live analysis of `world.connections` showed every unmatched
+peer's `buildableClass` was `Build_ConveyorAttachmentMerger` /
+`Build_ConveyorAttachmentSplitter` (and the Lift/Smart variants).
+
+Confirmed directly: `AFGBuildableConveyorAttachment`
+(`Source/FactoryGame/Public/Buildables/FGBuildableConveyorAttachment.h`)
+is a **third** sibling hierarchy deriving straight from `AFGBuildable` —
+not `AFGBuildableFactory`, not `AFGBuildableConveyorBase`. Its connection
+points live in protected `mInputs`/`mOutputs` arrays with **no public
+getter at all**, so neither existing enumeration pass could ever reach
+them.
+
+Rather than add a third per-class pass (and risk missing a fourth
+sibling class later), `CollectFactoryConnectionTelemetry` was redesigned
+around generic component discovery: a single
+`TActorIterator<AFGBuildable>` pass calling
+`Buildable->GetComponents<UFGFactoryConnectionComponent>(Connections)`
+(`AActor::GetComponents<T>()`, a standard Unreal component-lookup
+template — works for any actor regardless of which `AFGBuildable`
+subclass it is, since `UFGFactoryConnectionComponent` is always a real
+`UActorComponent` attached to the owning actor even when the owning
+class exposes no public getter for it). This is now the sole enumeration
+path — the `AFGBuildableFactory`/`AFGBuildableConveyorBase`-specific
+passes and the `GetConnectionComponents()`/`GetConnection0()`/
+`GetConnection1()` accessors are no longer used by this code, though
+they remain valid APIs for other purposes. See the matching fix commit
+and `docs/manual-verification.md`'s Confirmed section for the full
+incident writeup.

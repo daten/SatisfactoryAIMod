@@ -149,11 +149,13 @@ Source: `docs/buildable-research.md` §2-4.
 }
 ```
 
-One row per connection point on every `AFGBuildableFactory` actor
-(splitters, mergers, machines) **and** every `AFGBuildableConveyorBase`
-actor (belts, lifts — a separate class hierarchy with its own connection
-accessors; missing this was a real bug found and fixed live on
-2026-08-24, see `docs/buildable-research.md`'s correction note), **not**
+One row per connection point on every `AFGBuildable` actor that has any
+`UFGFactoryConnectionComponent` attached (machines, belts/lifts,
+splitters/mergers — discovered generically via `AActor::GetComponents<>()`
+rather than a per-class-hierarchy enumeration list, after two separate
+live-found gaps in the class-specific approach: belts/lifts and then
+splitters/mergers each turned out to be their own sibling hierarchy —
+see `docs/buildable-research.md`'s correction notes), **not**
 a constructed graph. A single physical belt/pipe link between two
 buildings produces two rows: an `"Output"` row on the source and an
 `"Input"` row on the destination, each naming the other via
