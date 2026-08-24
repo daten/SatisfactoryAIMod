@@ -90,6 +90,31 @@ public:
 	static FString LogManufacturersAsJson(UObject* WorldContextObject);
 
 	/**
+	 * Returns telemetry for the manufacturer the local player is
+	 * currently looking at / can interact with
+	 * (AFGCharacterPlayer::GetBestUsableActor() - the same game-owned
+	 * "what am I aiming at" state that drives the "Press E to interact"
+	 * prompt, not a reimplemented line trace). An empty-Id struct
+	 * (Id.IsEmpty()) means nothing is targeted or the targeted actor
+	 * isn't a manufacturer. Player index 0 only - single-player/local
+	 * session scope, per PLAN.md/CLAUDE.md. Meant to let a caller target
+	 * write operations (SetManufacturerClockSpeed/SetManufacturerRecipe)
+	 * at whatever the player is currently looking at, instead of picking
+	 * an id out of the full GetManufacturerTelemetry list.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModManufacturerTelemetry GetTargetedManufacturer(UObject* WorldContextObject);
+
+	/**
+	 * Serializes GetTargetedManufacturer's result to
+	 * {"protocolVersion":1,"manufacturer":null|{...}}, logs it, and
+	 * returns it. "manufacturer" is JSON null when nothing/non-manufacturer
+	 * is targeted, not an error.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTargetedManufacturerAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Enumerates factory connection points on every AFGBuildableFactory
 	 * actor (PLAN.md Phase 10, "conveyor connection components"). One row
 	 * per connection point, not a constructed graph - see

@@ -132,6 +132,30 @@ void FDocModModule::RegisterConsoleCommands()
 				PrintTelemetryCount(Args, World, Ar, TEXT("factory connection point(s)"), &UDocModFunctionLibrary::GetFactoryConnectionTelemetry);
 			}),
 		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.Target"),
+		TEXT("Prints info about the manufacturer the local player is currently looking at, if any."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World)
+				{
+					Ar.Log(TEXT("DocMod: no world available - load a level first"));
+					return;
+				}
+				const FDocModManufacturerTelemetry Target = UDocModFunctionLibrary::GetTargetedManufacturer(World);
+				if (Target.Id.IsEmpty())
+				{
+					Ar.Log(TEXT("DocMod: not currently looking at a manufacturer"));
+				}
+				else
+				{
+					Ar.Log(FString::Printf(TEXT("DocMod: %s recipe=\"%s\" clock=%.0f%% status=%s id=%s"),
+						*Target.BuildableClass, *Target.Recipe, Target.ClockSpeedPercent, *Target.ProductionStatus, *Target.Id));
+				}
+			}),
+		ECVF_Default));
 }
 
 void FDocModModule::UnregisterConsoleCommands()

@@ -169,6 +169,45 @@ takes the `buildables` and `connections` payloads and produces a directed
 graph (one edge per connected `"Output"` row, since `"Input"` rows are
 the same physical link seen from the other end).
 
+## targetedManufacturer (`method: "world.targetedManufacturer"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "manufacturer": null
+}
+```
+
+or, if the local player is currently looking at a manufacturer (via
+`AFGCharacterPlayer::GetBestUsableActor()` — the game's own "what can I
+press E on" state, the same one driving the interact prompt, not a
+reimplemented line trace):
+
+```json
+{
+  "protocolVersion": 1,
+  "manufacturer": {
+    "id": "...", "buildableClass": "...", "position": {...}, "recipe": "...",
+    "clockSpeedPercent": 100.0, "productionStatus": "Producing",
+    "productionProgress": 0.42, "productivity": 1.0,
+    "inputInventory": [...], "outputInventory": [...]
+  }
+}
+```
+
+Same object shape as one entry in `manufacturers` (above).
+`"manufacturer": null` means nothing is targeted or the targeted actor
+isn't a manufacturer — not an error. Player index 0 only (single-player/
+local session scope, per PLAN.md/CLAUDE.md). Added specifically so a
+caller can target `world.setClockSpeed`/`world.setRecipe` at whatever the
+player is currently looking at instead of picking a `buildableId` out of
+the full `world.manufacturers` list — see
+[chat-and-console-commands.md](chat-and-console-commands.md) for the
+matching `DocMod.Target` console command / `/docmod target` chat
+subcommand. Source:
+`UDocModFunctionLibrary::GetTargetedManufacturer`/`LogTargetedManufacturerAsJson`
+in `DocModFunctionLibrary.cpp`.
+
 ## Common field notes
 
 - `protocolVersion` — currently always `1`. Bump when a shape changes,

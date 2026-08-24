@@ -17,6 +17,15 @@ involvement at all):
   [self-test.md](self-test.md)) against the current world.
 - `DocMod.ResourceNodes` / `DocMod.Buildables` / `DocMod.Manufacturers` /
   `DocMod.Connections` — prints how many of each DocMod currently finds.
+- `DocMod.Target` — prints recipe/clock speed/status/id for whichever
+  manufacturer the local player is currently looking at (via
+  `AFGCharacterPlayer::GetBestUsableActor()` — the game's own "what can I
+  press E on" state, not a reimplemented trace), or a "not looking at a
+  manufacturer" message. Added to answer "can I target the machine I'm
+  currently looking at instead of picking one from a list?" — yes, both
+  as a standalone lookup here and as `GetTargetedManufacturer()`/
+  `"world.targetedManufacturer"` for Blueprint/RPC callers (see
+  [telemetry-protocol.md](telemetry-protocol.md)).
 
 Available in **all build configurations**, not just non-Shipping — unlike
 the automatic self-test hook, these only run when someone explicitly
@@ -48,6 +57,7 @@ implements SML's real in-game chat command framework
 /docmod buildables       - replies with the current buildable count
 /docmod manufacturers    - replies with the current manufacturer count
 /docmod connections      - replies with the current connection count
+/docmod target           - replies with info about the manufacturer you're currently looking at
 ```
 
 (alias: `/dm`)
@@ -96,3 +106,11 @@ this pass. If wanted, the natural extension is `/docmod setclockspeed
 <id> <percent>` etc., reusing the same
 `UDocModFunctionLibrary::SetManufacturer*` functions and their existing
 validation — but that's a future addition, not implemented here.
+
+Now that `GetTargetedManufacturer()`/`DocMod.Target` exist, a nicer
+version of that future command wouldn't need an id argument at all -
+`/docmod setclockspeed <percent>` could operate on whatever the player is
+currently looking at, exactly like the in-game build gun operates on
+whatever's under the crosshair. Worth keeping in mind if/when write
+commands get added, since typing a full buildable-id path in chat is
+real friction `GetTargetedManufacturer` already solves for reads.

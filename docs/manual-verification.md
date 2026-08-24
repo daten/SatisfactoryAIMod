@@ -243,8 +243,12 @@ against a save you don't mind corrupting — duplicate your save file
 first, or use a throwaway creative-mode save — not your main
 progression save,** until it's been exercised enough to trust.
 
-- Find a manufacturer's `buildableId` via `world.manufacturers` (item 6
-  above) first — ids are session-local, so re-fetch this every session.
+- Find a manufacturer's `buildableId` either via `world.manufacturers`
+  (item 6 above), or — easier — stand in front of the specific machine
+  you want to test on in-game and use `world.targetedManufacturer` /
+  `DocMod.Target` / `/docmod target` (item 9 below) instead of picking
+  one out of a potentially huge list. Ids are session-local either way,
+  so re-fetch every session.
 - **Clock speed:** call `world.setClockSpeed` with a valid percent (e.g.
   the current value, or 150 if the building supports overclocking).
   - **Expected:** `success:true`, empty `result`. Because
@@ -278,6 +282,23 @@ progression save,** until it's been exercised enough to trust.
   and report it before using these operations again** — that's exactly
   the kind of gap CLAUDE.md's validation requirements exist to catch, and
   finding one now (on a disposable save) is the point of this checklist.
+
+### 9. Targeted manufacturer (added in response to "can I target what I'm looking at?")
+
+- Look directly at a manufacturing machine in-game (close enough that
+  you'd normally see the interact prompt).
+- Call `world.targetedManufacturer`, `DocMod.Target`, or `/docmod target`
+  (all equivalent — see [chat-and-console-commands.md](chat-and-console-commands.md)).
+- **Expected:** returns that specific machine's telemetry (recipe, clock
+  speed, id, etc.) — not some other, arbitrary machine. Look away from
+  any machine (e.g. at open sky) and confirm it correctly reports
+  "nothing targeted" (`"manufacturer": null` over RPC) rather than
+  returning stale data from the last thing you looked at or crashing.
+- Look at something that isn't a manufacturer (a resource node, a
+  foundation, a belt) and confirm it also correctly reports "nothing
+  targeted" rather than misidentifying it as a manufacturer.
+- **Not yet runtime-verified at all** — this is new, added after the two
+  playtest sessions above.
 
 ---
 

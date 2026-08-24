@@ -30,8 +30,10 @@ struct FHttpServerRequest;
  * versioned protocol, structured errors, reject unknown methods, reject
  * malformed JSON, enforce a message-size limit, never deserialize
  * arbitrary executable objects. Read-only methods: "world.resourceNodes",
- * "world.buildables", "world.manufacturers", "world.connections". Write
- * methods (PLAN.md Phase 12, take a "params" object): "world.setClockSpeed"
+ * "world.buildables", "world.manufacturers", "world.connections",
+ * "world.targetedManufacturer" (whatever manufacturer the local player
+ * is currently looking at - "manufacturer":null if none). Write methods
+ * (PLAN.md Phase 12, take a "params" object): "world.setClockSpeed"
  * ({"buildableId","clockSpeedPercent"}), "world.setRecipe"
  * ({"buildableId","recipeClass"}) - both delegate all validation to
  * UDocModFunctionLibrary's SetManufacturer* functions and only translate

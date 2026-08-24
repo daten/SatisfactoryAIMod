@@ -14,6 +14,8 @@
 #include "FGRecipe.h"
 #include "FGInventoryComponent.h"
 #include "FGFactoryConnectionComponent.h"
+#include "FGCharacterPlayer.h"
+#include "Kismet/GameplayStatics.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
@@ -160,33 +162,34 @@ namespace
 		return Result;
 	}
 
+	FDocModManufacturerTelemetry MakeManufacturerTelemetry(AFGBuildableManufacturer* Manufacturer)
+	{
+		FDocModManufacturerTelemetry Telemetry;
+		Telemetry.Id = Manufacturer->GetPathName();
+		Telemetry.BuildableClass = Manufacturer->GetClass()->GetPathName();
+		Telemetry.Position = Manufacturer->GetActorLocation();
+
+		const TSubclassOf<UFGRecipe> Recipe = Manufacturer->GetCurrentRecipe();
+		Telemetry.Recipe = Recipe ? UFGRecipe::GetRecipeName(Recipe).ToString() : FString();
+
+		Telemetry.ClockSpeedPercent = Manufacturer->GetCurrentPotential() * 100.0f;
+		Telemetry.ProductionStatus = ProductionStatusToString(Manufacturer->GetProductionIndicatorStatus());
+		Telemetry.ProductionProgress = Manufacturer->GetProductionProgress();
+		Telemetry.Productivity = Manufacturer->GetProductivity();
+		Telemetry.InputInventory = CollectInventoryTelemetry(Manufacturer->GetInputInventory());
+		Telemetry.OutputInventory = CollectInventoryTelemetry(Manufacturer->GetOutputInventory());
+		return Telemetry;
+	}
+
 	TArray<FDocModManufacturerTelemetry> CollectManufacturerTelemetry(UWorld* World)
 	{
 		TArray<FDocModManufacturerTelemetry> Result;
 		for (TActorIterator<AFGBuildableManufacturer> It(World); It; ++It)
 		{
-			AFGBuildableManufacturer* Manufacturer = *It;
-			if (!IsValid(Manufacturer))
+			if (IsValid(*It))
 			{
-				continue;
+				Result.Add(MakeManufacturerTelemetry(*It));
 			}
-
-			FDocModManufacturerTelemetry Telemetry;
-			Telemetry.Id = Manufacturer->GetPathName();
-			Telemetry.BuildableClass = Manufacturer->GetClass()->GetPathName();
-			Telemetry.Position = Manufacturer->GetActorLocation();
-
-			const TSubclassOf<UFGRecipe> Recipe = Manufacturer->GetCurrentRecipe();
-			Telemetry.Recipe = Recipe ? UFGRecipe::GetRecipeName(Recipe).ToString() : FString();
-
-			Telemetry.ClockSpeedPercent = Manufacturer->GetCurrentPotential() * 100.0f;
-			Telemetry.ProductionStatus = ProductionStatusToString(Manufacturer->GetProductionIndicatorStatus());
-			Telemetry.ProductionProgress = Manufacturer->GetProductionProgress();
-			Telemetry.Productivity = Manufacturer->GetProductivity();
-			Telemetry.InputInventory = CollectInventoryTelemetry(Manufacturer->GetInputInventory());
-			Telemetry.OutputInventory = CollectInventoryTelemetry(Manufacturer->GetOutputInventory());
-
-			Result.Add(MoveTemp(Telemetry));
 		}
 		return Result;
 	}
@@ -495,16 +498,8 @@ namespace
 		}
 		return Array;
 	}
-}
 
-FString UDocModFunctionLibrary::LogManufacturersAsJson(UObject* WorldContextObject)
-{
-	const TArray<FDocModManufacturerTelemetry> Manufacturers = GetManufacturerTelemetry(WorldContextObject);
-
-	TArray<TSharedPtr<FJsonValue>> ManufacturerJsonArray;
-	ManufacturerJsonArray.Reserve(Manufacturers.Num());
-
-	for (const FDocModManufacturerTelemetry& Manufacturer : Manufacturers)
+	TSharedRef<FJsonObject> ManufacturerToJson(const FDocModManufacturerTelemetry& Manufacturer)
 	{
 		const TSharedRef<FJsonObject> ManufacturerObject = MakeShared<FJsonObject>();
 		ManufacturerObject->SetStringField(TEXT("id"), Manufacturer.Id);
@@ -523,23 +518,62 @@ FString UDocModFunctionLibrary::LogManufacturersAsJson(UObject* WorldContextObje
 		ManufacturerObject->SetNumberField(TEXT("productivity"), Manufacturer.Productivity);
 		ManufacturerObject->SetArrayField(TEXT("inputInventory"), InventoryToJsonArray(Manufacturer.InputInventory));
 		ManufacturerObject->SetArrayField(TEXT("outputInventory"), InventoryToJsonArray(Manufacturer.OutputInventory));
+		return ManufacturerObject;
+	}
 
-		ManufacturerJsonArray.Add(MakeShared<FJsonValueObject>(ManufacturerObject));
+	FString WriteCondensedJson(const TSharedRef<FJsonObject>& RootObject)
+	{
+		FString JsonString;
+		const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+			TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+		FJsonSerializer::Serialize(RootObject, Writer);
+		return JsonString;
+	}
+}
+
+FString UDocModFunctionLibrary::LogManufacturersAsJson(UObject* WorldContextObject)
+{
+	const TArray<FDocModManufacturerTelemetry> Manufacturers = GetManufacturerTelemetry(WorldContextObject);
+
+	TArray<TSharedPtr<FJsonValue>> ManufacturerJsonArray;
+	ManufacturerJsonArray.Reserve(Manufacturers.Num());
+	for (const FDocModManufacturerTelemetry& Manufacturer : Manufacturers)
+	{
+		ManufacturerJsonArray.Add(MakeShared<FJsonValueObject>(ManufacturerToJson(Manufacturer)));
 	}
 
 	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
 	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
 	RootObject->SetArrayField(TEXT("manufacturers"), ManufacturerJsonArray);
 
-	FString JsonString;
 	// Condensed, not the default TPrettyJsonPrintPolicy - a real save's
 	// resourceNodes payload pretty-printed to over 8000 log lines for one
 	// call (631 nodes), confirmed against an actual FactoryGame.log.
-	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
-		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
-	FJsonSerializer::Serialize(RootObject, Writer);
+	const FString JsonString = WriteCondensedJson(RootObject);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogManufacturersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+FString UDocModFunctionLibrary::LogTargetedManufacturerAsJson(UObject* WorldContextObject)
+{
+	const FDocModManufacturerTelemetry Manufacturer = GetTargetedManufacturer(WorldContextObject);
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	if (Manufacturer.Id.IsEmpty())
+	{
+		RootObject->SetField(TEXT("manufacturer"), MakeShared<FJsonValueNull>());
+	}
+	else
+	{
+		RootObject->SetObjectField(TEXT("manufacturer"), ManufacturerToJson(Manufacturer));
+	}
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogTargetedManufacturerAsJson: %s"), *JsonString);
 
 	return JsonString;
 }
@@ -603,6 +637,38 @@ FString UDocModFunctionLibrary::LogFactoryConnectionsAsJson(UObject* WorldContex
 	UE_LOG(LogDocModAI, Display, TEXT("LogFactoryConnectionsAsJson: %s"), *JsonString);
 
 	return JsonString;
+}
+
+FDocModManufacturerTelemetry UDocModFunctionLibrary::GetTargetedManufacturer(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("GetTargetedManufacturer: no valid world context"));
+		return FDocModManufacturerTelemetry();
+	}
+
+	// Player index 0 only - single-player/local session scope, per
+	// PLAN.md/CLAUDE.md's multiplayer stance.
+	const AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("GetTargetedManufacturer: no local AFGCharacterPlayer (player index 0)"));
+		return FDocModManufacturerTelemetry();
+	}
+
+	// GetBestUsableActor() is the game's own "what am I looking at / can
+	// interact with" state (drives the "Press E to interact" prompt) -
+	// not a reimplemented line trace.
+	AFGBuildableManufacturer* Manufacturer = Cast<AFGBuildableManufacturer>(Character->GetBestUsableActor());
+	if (!Manufacturer)
+	{
+		// Not an error - the player just isn't looking at a manufacturer
+		// right now. Empty Id signals "none" to the caller.
+		return FDocModManufacturerTelemetry();
+	}
+
+	return MakeManufacturerTelemetry(Manufacturer);
 }
 
 FDocModOperationResult UDocModFunctionLibrary::SetManufacturerClockSpeed(UObject* WorldContextObject, const FString& BuildableId, float ClockSpeedPercent)
