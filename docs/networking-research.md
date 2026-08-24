@@ -87,6 +87,43 @@ the game is running, confirming the listening socket shows `127.0.0.1:51902`
 and not `0.0.0.0:51902`. Config parsing bugs or a mistyped port number would
 silently defeat this and are not detectable from source alone.
 
+## Confirmed broken live (2026-08-24): the project-level ini override doesn't reach the packaged deploy
+
+The `netstat` check above was finally run for the first time against a
+real Steam-launched session and **failed**: `0.0.0.0:51902 LISTENING`,
+not `127.0.0.1:51902`. Root cause: the `+ListenerOverrides` entry above
+lives in this dev workspace's project-level `Config/DefaultEngine.ini`,
+which only applies to sessions run *from this project* (Development
+Editor Play-In-Editor). The actual game the user plays is a separate,
+already-installed Steam copy of Satisfactory
+(`ExecutableName: FactoryGameSteam-Win64-Shipping.exe`, confirmed from
+`FactoryGame.log`) that DocMod gets deployed *into* via Alpakit — Alpakit
+packages the plugin, not this project's own top-level `Config/` folder,
+so the override never reached the running game at all.
+
+**Two-layer fix applied:**
+
+1. **Defense-in-depth (verified as the real safety net, not
+   config-dependent):** `UDocModHttpServerSubsystem::HandleRpcRequest`
+   now checks `FHttpServerRequest::PeerAddress` directly and rejects
+   anything that isn't `127.0.0.1`/`::1` with `403 FORBIDDEN`, before
+   doing anything else with the request — regardless of what the socket
+   is actually bound to. This is the fix to trust.
+2. **Attempted root-cause fix, NOT yet verified:** added
+   `Mods/GameFeatures/DocMod/Config/DefaultEngine.ini` with the same
+   `+ListenerOverrides` entry — UE plugins can ship their own
+   `Config/Default*.ini` files that get merged into the corresponding
+   project config at startup, which (unlike the project-level file)
+   should be part of what Alpakit packages and deploys with the plugin.
+   **This is a hypothesis, not a confirmed fix** — GameFeature plugins
+   specifically (DocMod is one) may have different config-merge timing
+   than a regular always-on plugin, since they're designed to be
+   activated/deactivated at runtime, potentially after the engine's
+   normal startup ini-merging pass has already run. Needs another live
+   `netstat` check after the next Alpakit deploy to confirm the socket
+   itself now binds to `127.0.0.1`. Even if it works, item 1 above
+   should stay in place as defense-in-depth.
+
 ## API surface used
 
 All confirmed directly by reading headers (not relying solely on

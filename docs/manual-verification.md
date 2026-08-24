@@ -157,15 +157,20 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
   ```
   LogDocModAI: Display: DocMod HTTP server listening on http://127.0.0.1:51902/rpc (loopback only - see Config/DefaultEngine.ini ListenerOverrides)
   ```
-- **Critical safety check — do this before anything else with the server:**
-  run `netstat -an | findstr 51902` (Windows) while the game is running.
-  **Expected:** a line showing `127.0.0.1:51902` in `LISTENING` state.
-  **If instead it shows `0.0.0.0:51902`,** the loopback override in
-  `Config/DefaultEngine.ini` (`[HTTPServer.Listeners]` `ListenerOverrides`)
-  did not take effect and the server is reachable from the LAN — stop
-  using it and tell Claude immediately; see
-  [networking-research.md](networking-research.md) for why this override
-  exists and how it's supposed to work.
+- **Critical safety check:** run `netstat -an | findstr 51902` (Windows)
+  while the game is running. **Expected:** a line showing `127.0.0.1:51902`
+  in `LISTENING` state. **This check was finally run live on 2026-08-24
+  and failed** — the real Steam session showed `0.0.0.0:51902`, not
+  loopback — see the Confirmed section below and
+  [networking-research.md](networking-research.md)'s "Confirmed broken
+  live" note for the root cause and the two-layer fix applied
+  (application-layer `PeerAddress` check + a new
+  `Mods/GameFeatures/DocMod/Config/DefaultEngine.ini`). **Re-run this
+  exact `netstat` check after the next session** to confirm: (a) the
+  socket itself now shows `127.0.0.1:51902` (tests the ini fix), and
+  separately (b) that a request from another machine on the LAN
+  genuinely gets rejected with `403 FORBIDDEN` (tests the app-layer fix,
+  which should hold even if (a) still fails).
 - Once loopback-only is confirmed, test the endpoint itself, e.g. from
   PowerShell:
   ```powershell
@@ -459,3 +464,65 @@ discovery, which finds connection components regardless of which
 `AFGBuildable` subclass owns them. **Not yet re-verified** — needs
 another self-test run to confirm the reciprocity count drops to 0 this
 time.
+
+### 2026-08-24 (fourth playtest) — reciprocity fix confirmed, F6 root cause found, and a real security gap found and fixed
+
+User launched a fresh session, tried F6 (no effect), then manually ran
+`DocMod.SelfTest`/`DocMod.Target` from the console. Reviewing
+`FactoryGame.log`:
+
+- **Reciprocity fix (Bug A from the third playtest) — confirmed working.**
+  `FactoryConnectionTelemetry.reciprocity` now reads **0 unmatched out of
+  10,667 connection points** (up from 6,791 the prior session — more got
+  built). The generic `GetComponents<UFGFactoryConnectionComponent>()`
+  redesign is proven correct against real, larger live data.
+- **F6/self-test root cause was not the dual-hook fix at all — it was
+  never going to run in this build.** The log's `ExecutableName` line
+  confirms the session runs `FactoryGameSteam-Win64-Shipping.exe`, a
+  genuine Shipping build. `DocMod.cpp`'s automatic self-test hook and
+  `DocModHotkey::SetupForWorld` are both wrapped in `#if
+  !UE_BUILD_SHIPPING` (a deliberate choice, citing CLAUDE.md's "dev-only
+  capabilities shouldn't linger into a shipped build") — that code
+  doesn't exist at all in this binary, so the previous session's
+  dual-hook fix (correct in itself, and still valuable for Development
+  Editor PIE sessions) could never have fixed F6 here regardless. Console
+  commands still work because `RegisterConsoleCommands()` sits outside
+  that gate. **User decision: the hotkey isn't needed — prioritize
+  driving progress through the RPC API directly instead of fixing/testing
+  the hotkey further.** No code change made for this specifically; it's
+  documented as expected behavior, not a bug.
+- **First-ever positive-path write mutation test, live.** Used
+  `world.targetedManufacturer` to find a real Constructor Mk1 the user
+  was looking at (`Power Shard (1)` recipe, 250% clock, Standby), then
+  called `world.setClockSpeed` on it — first with the same value (250%,
+  proving the write path executes cleanly against a real target:
+  `success:true`), then with a different value (200%) to test whether it
+  actually takes effect. **Read-back still showed 250%,** consistent with
+  the already-documented `SetPendingPotential`-takes-effect-next-cycle
+  behavior (`docs/operations-protocol.md`) — the machine was in
+  `Standby`, not actively cycling, so the pending change had no
+  production cycle to apply on. Restored to 250% afterward. **Not a bug,
+  but the positive-path test wasn't fully conclusive** — still don't have
+  a confirmed case of a `clockSpeedPercent` read-back actually changing
+  after a `setClockSpeed` call. Worth repeating against a machine that's
+  actively `Producing`, where a cycle will complete during the test.
+- **A real security gap found and fixed.** Ran the long-pending `netstat`
+  loopback check for the first time ever — it failed:
+  `0.0.0.0:51902 LISTENING`, not `127.0.0.1:51902`. The DocMod RPC API
+  (including write operations) was reachable from the LAN, not just this
+  machine, this entire time the mod has been in use. Root cause and fix
+  documented in detail in
+  [networking-research.md](networking-research.md)'s "Confirmed broken
+  live" section: the loopback-forcing ini override lived only in this
+  dev workspace's project-level config, which doesn't reach the
+  Alpakit-packaged, Steam-deployed mod. Fixed with two layers: (1)
+  `UDocModHttpServerSubsystem::HandleRpcRequest` now rejects any request
+  whose `PeerAddress` isn't loopback, regardless of socket binding — this
+  is the fix to trust; (2) added
+  `Mods/GameFeatures/DocMod/Config/DefaultEngine.ini` with the same
+  override, hypothesized to actually reach the packaged deploy via UE's
+  plugin-config-merging mechanism — **unverified, may not work for a
+  GameFeature plugin specifically.** **Next session must re-run
+  `netstat -an | findstr 51902`** to check whether the socket itself is
+  now loopback-only, and ideally test an actual request from another
+  device on the LAN to confirm it gets `403 FORBIDDEN`.
