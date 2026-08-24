@@ -22,13 +22,13 @@ data still passes.
 
 ## Running
 
-No dependencies beyond the Python 3 standard library. Run the test module
-directly (plain `unittest discover` needs a package `__init__.py` this
-directory intentionally doesn't have):
+No dependencies beyond the Python 3 standard library:
 
 ```powershell
-python tests/test_resource_node_telemetry.py -v
+python -m unittest discover -s tests -t . -v
 ```
+
+(or run the module directly: `python tests/test_resource_node_telemetry.py -v`)
 
 ## What it checks
 
