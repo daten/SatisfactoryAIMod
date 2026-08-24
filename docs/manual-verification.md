@@ -73,8 +73,10 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
   `tests/fixtures/resource_nodes.json`, which currently holds
   **synthetic, hand-written placeholder data** (see that file and
   `tests/README.md`) — it was never captured from a real game session.
-  Once replaced, re-run `python -m unittest discover tests` to confirm the
-  real data still passes the same schema checks.
+  Once replaced, re-run `python tests/test_resource_node_telemetry.py -v`
+  to confirm the real data still passes the same schema checks (the test
+  itself is confirmed working: verified it both passes on valid data and
+  fails when a field is corrupted).
 
 ---
 
