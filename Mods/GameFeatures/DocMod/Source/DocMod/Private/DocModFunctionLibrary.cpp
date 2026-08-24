@@ -10,7 +10,6 @@
 #include "Buildables/FGBuildable.h"
 #include "Buildables/FGBuildableFactory.h"
 #include "Buildables/FGBuildableManufacturer.h"
-#include "Buildables/FGBuildableConveyorBase.h"
 #include "FGRecipe.h"
 #include "FGInventoryComponent.h"
 #include "FGFactoryConnectionComponent.h"
@@ -233,52 +232,46 @@ namespace
 	{
 		TArray<FDocModFactoryConnectionTelemetry> Result;
 
-		// Two separate class hierarchies both expose UFGFactoryConnectionComponent
-		// but neither derives from the other: AFGBuildableFactory
-		// (machines, splitters, mergers - via GetConnectionComponents())
-		// and AFGBuildableConveyorBase (belts/lifts - both derive
-		// directly from AFGBuildable, via named GetConnection0()/
-		// GetConnection1(), not an array). Missing the conveyor half was
-		// a real bug found live (2026-08-24): every connection pointing
-		// AT a belt showed the belt as having zero connection rows of
-		// its own, failing the reciprocity self-test (435/1265
-		// mismatched) - confirmed by iterating the live world.connections
-		// data and finding every unmatched peer was a ConveyorBelt/Lift.
-		for (TActorIterator<AFGBuildableFactory> It(World); It; ++It)
+		// Discover UFGFactoryConnectionComponents generically via
+		// AActor::GetComponents<>() rather than maintaining a per-class-
+		// hierarchy enumeration list. Found the hard way, twice, live
+		// (2026-08-24): AFGBuildableFactory (machines), AFGBuildableConveyorBase
+		// (belts/lifts, via named GetConnection0()/GetConnection1()), and
+		// AFGBuildableConveyorAttachment (splitters/mergers, via protected
+		// mInputs/mOutputs arrays with no public getter at all) are THREE
+		// separate sibling hierarchies, none deriving from another, each
+		// with its own connection storage and accessor (or none). The
+		// first fix (adding AFGBuildableConveyorBase) only dropped the
+		// self-test's reciprocity failure from 435/1265 to a still-broken
+		// 920/6791 - every remaining unmatched peer was a
+		// Build_ConveyorAttachmentMerger/Splitter (confirmed by pulling
+		// live world.connections/world.buildables data and cross-
+		// referencing peer buildableClass). Generic component discovery
+		// is robust against any other sibling hierarchy not yet found,
+		// since UFGFactoryConnectionComponent is always a component on
+		// the owning AFGBuildable regardless of which subclass it is.
+		for (TActorIterator<AFGBuildable> It(World); It; ++It)
 		{
-			AFGBuildableFactory* Factory = *It;
-			if (!IsValid(Factory))
+			AFGBuildable* Buildable = *It;
+			if (!IsValid(Buildable))
 			{
 				continue;
 			}
 
-			const FString OwnerId = Factory->GetPathName();
-			for (UFGFactoryConnectionComponent* Connection : Factory->GetConnectionComponents())
+			TArray<UFGFactoryConnectionComponent*> Connections;
+			Buildable->GetComponents<UFGFactoryConnectionComponent>(Connections);
+			if (Connections.Num() == 0)
 			{
-				if (!IsValid(Connection))
+				continue;
+			}
+
+			const FString OwnerId = Buildable->GetPathName();
+			for (UFGFactoryConnectionComponent* Connection : Connections)
+			{
+				if (IsValid(Connection))
 				{
-					continue;
+					Result.Add(MakeConnectionTelemetry(OwnerId, Connection));
 				}
-				Result.Add(MakeConnectionTelemetry(OwnerId, Connection));
-			}
-		}
-
-		for (TActorIterator<AFGBuildableConveyorBase> It(World); It; ++It)
-		{
-			AFGBuildableConveyorBase* Conveyor = *It;
-			if (!IsValid(Conveyor))
-			{
-				continue;
-			}
-
-			const FString OwnerId = Conveyor->GetPathName();
-			if (UFGFactoryConnectionComponent* Connection0 = Conveyor->GetConnection0())
-			{
-				Result.Add(MakeConnectionTelemetry(OwnerId, Connection0));
-			}
-			if (UFGFactoryConnectionComponent* Connection1 = Conveyor->GetConnection1())
-			{
-				Result.Add(MakeConnectionTelemetry(OwnerId, Connection1));
 			}
 		}
 
