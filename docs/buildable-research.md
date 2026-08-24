@@ -140,6 +140,42 @@ different concern (which recipe classes mods registered) from reading a
 live machine's active recipe. Nothing to build on for buildables,
 manufacturers, runtime recipe state, or inventories.
 
+## 6. Factory connection components (conveyor topology facts)
+
+Found and verified directly (not part of the original delegated research
+pass, needed later for Phase 10's "conveyor connection components" /
+Phase 11's world graph):
+
+- **`UFGFactoryConnectionComponent`** —
+  `Source/FactoryGame/Public/FGFactoryConnectionComponent.h:41`, base
+  `UFGConnectionComponent` (itself a plain `UActorComponent`, so
+  `GetOwner()` returns the owning `AActor`).
+  - `GetDirection() const` → `EFactoryConnectionDirection` (`:122`).
+    `EFactoryConnectionDirection` **is** a real `UENUM(BlueprintType)`
+    (`:27-34`, confirmed directly) — unlike `EProductionStatus` — with
+    values `FCD_INPUT`, `FCD_OUTPUT`, `FCD_ANY`, `FCD_SNAP_ONLY`
+    ("Special case for conveyor poles"), `FCD_MAX` (hidden). Mapped to
+    strings manually in code anyway, for consistency with
+    `ProductionStatusToString` and to avoid `StaticEnum<>()` boilerplate
+    for four values.
+  - `GetConnection() const` → `UFGFactoryConnectionComponent*`, the
+    connected peer component, or `nullptr` if unconnected (`:96`).
+  - `IsConnected() const` (`:111`).
+- **`AFGBuildableFactory::GetConnectionComponents() const`** →
+  `TArray<UFGFactoryConnectionComponent*>` — `Source/FactoryGame/Public/Buildables/FGBuildableFactory.h:78`,
+  public, `BlueprintCallable`. This is the entry point: every
+  `AFGBuildableFactory` (belts, splitters, mergers, and all machines -
+  anything that moves items) exposes its connection points this way.
+
+**Fact exposed, not a graph:** one row per connection point
+(`FDocModFactoryConnectionTelemetry` — owner buildable id, direction,
+connected bool, connected-to buildable id). A single physical belt/pipe
+link between two buildings therefore produces **two** rows (an Output row
+on the source, an Input row on the destination), each naming the other.
+Building the actual graph from these rows is Phase 11's job, and PLAN.md
+is explicit that belongs on the **external controller**, not the mod —
+see `controller/satisfactory_ai/graph.py`.
+
 ## Summary for Phase 10 implementation
 
 | Need | API | Citation |

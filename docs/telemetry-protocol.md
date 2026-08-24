@@ -131,6 +131,38 @@ Field notes:
 
 Source: `docs/buildable-research.md` §2-4.
 
+## connections (`method: "world.connections"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "connections": [
+    {
+      "ownerBuildableId": "/Game/Maps/.../Build_ConstructorMk1_C_1",
+      "direction": "Output",
+      "connected": true,
+      "connectedBuildableId": "/Game/Maps/.../Build_ConveyorBeltMk1_C_1"
+    }
+  ]
+}
+```
+
+One row per connection point on every `AFGBuildableFactory` actor (belts,
+splitters, mergers, machines — anything that moves items), **not** a
+constructed graph. A single physical belt/pipe link between two buildings
+produces two rows: an `"Output"` row on the source and an `"Input"` row on
+the destination, each naming the other via `connectedBuildableId`.
+`direction` is one of `"Input"`, `"Output"`, `"Any"`, `"SnapOnly"`
+(`EFactoryConnectionDirection`). `connectedBuildableId` is `""` when
+`connected` is `false`. Source: `docs/buildable-research.md` §6.
+
+**Building the actual graph from these rows is PLAN.md Phase 11's job,
+and belongs on the external controller, not the mod** — see
+`controller/satisfactory_ai/graph.py`'s `build_world_graph()`, which
+takes the `buildables` and `connections` payloads and produces a directed
+graph (one edge per connected `"Output"` row, since `"Input"` rows are
+the same physical link seen from the other end).
+
 ## Common field notes
 
 - `protocolVersion` — currently always `1`. Bump when a shape changes,

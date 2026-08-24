@@ -12,6 +12,7 @@
 #include "Buildables/FGBuildableManufacturer.h"
 #include "FGRecipe.h"
 #include "FGInventoryComponent.h"
+#include "FGFactoryConnectionComponent.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
@@ -165,6 +166,62 @@ namespace
 			Telemetry.OutputInventory = CollectInventoryTelemetry(Manufacturer->GetOutputInventory());
 
 			Result.Add(MoveTemp(Telemetry));
+		}
+		return Result;
+	}
+
+	// EFactoryConnectionDirection IS a real UENUM (unlike EProductionStatus),
+	// but a manual switch keeps this consistent with ProductionStatusToString
+	// and avoids pulling in StaticEnum<> boilerplate for four values.
+	FString FactoryConnectionDirectionToString(EFactoryConnectionDirection Direction)
+	{
+		switch (Direction)
+		{
+		case EFactoryConnectionDirection::FCD_INPUT: return TEXT("Input");
+		case EFactoryConnectionDirection::FCD_OUTPUT: return TEXT("Output");
+		case EFactoryConnectionDirection::FCD_ANY: return TEXT("Any");
+		case EFactoryConnectionDirection::FCD_SNAP_ONLY: return TEXT("SnapOnly");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	TArray<FDocModFactoryConnectionTelemetry> CollectFactoryConnectionTelemetry(UWorld* World)
+	{
+		TArray<FDocModFactoryConnectionTelemetry> Result;
+		for (TActorIterator<AFGBuildableFactory> It(World); It; ++It)
+		{
+			AFGBuildableFactory* Factory = *It;
+			if (!IsValid(Factory))
+			{
+				continue;
+			}
+
+			const FString OwnerId = Factory->GetPathName();
+			for (UFGFactoryConnectionComponent* Connection : Factory->GetConnectionComponents())
+			{
+				if (!IsValid(Connection))
+				{
+					continue;
+				}
+
+				FDocModFactoryConnectionTelemetry Telemetry;
+				Telemetry.OwnerBuildableId = OwnerId;
+				Telemetry.Direction = FactoryConnectionDirectionToString(Connection->GetDirection());
+				Telemetry.bConnected = Connection->IsConnected();
+
+				if (Telemetry.bConnected)
+				{
+					if (const UFGFactoryConnectionComponent* Peer = Connection->GetConnection())
+					{
+						if (const AFGBuildable* PeerOwner = Cast<AFGBuildable>(Peer->GetOwner()))
+						{
+							Telemetry.ConnectedBuildableId = PeerOwner->GetPathName();
+						}
+					}
+				}
+
+				Result.Add(MoveTemp(Telemetry));
+			}
 		}
 		return Result;
 	}
@@ -398,6 +455,63 @@ FString UDocModFunctionLibrary::LogManufacturersAsJson(UObject* WorldContextObje
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogManufacturersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+TArray<FDocModFactoryConnectionTelemetry> UDocModFunctionLibrary::GetFactoryConnectionTelemetry(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("GetFactoryConnectionTelemetry: no valid world context"));
+		return {};
+	}
+
+	return CollectFactoryConnectionTelemetry(World);
+}
+
+void UDocModFunctionLibrary::LogFactoryConnections(UObject* WorldContextObject)
+{
+	const TArray<FDocModFactoryConnectionTelemetry> Connections = GetFactoryConnectionTelemetry(WorldContextObject);
+
+	for (const FDocModFactoryConnectionTelemetry& Connection : Connections)
+	{
+		UE_LOG(LogDocModAI, Display, TEXT("Connection: owner=%s direction=%s connected=%s connectedTo=%s"),
+			*Connection.OwnerBuildableId, *Connection.Direction, Connection.bConnected ? TEXT("true") : TEXT("false"),
+			*Connection.ConnectedBuildableId);
+	}
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogFactoryConnections: enumerated %d connection point(s)"), Connections.Num());
+}
+
+FString UDocModFunctionLibrary::LogFactoryConnectionsAsJson(UObject* WorldContextObject)
+{
+	const TArray<FDocModFactoryConnectionTelemetry> Connections = GetFactoryConnectionTelemetry(WorldContextObject);
+
+	TArray<TSharedPtr<FJsonValue>> ConnectionJsonArray;
+	ConnectionJsonArray.Reserve(Connections.Num());
+
+	for (const FDocModFactoryConnectionTelemetry& Connection : Connections)
+	{
+		const TSharedRef<FJsonObject> ConnectionObject = MakeShared<FJsonObject>();
+		ConnectionObject->SetStringField(TEXT("ownerBuildableId"), Connection.OwnerBuildableId);
+		ConnectionObject->SetStringField(TEXT("direction"), Connection.Direction);
+		ConnectionObject->SetBoolField(TEXT("connected"), Connection.bConnected);
+		ConnectionObject->SetStringField(TEXT("connectedBuildableId"), Connection.ConnectedBuildableId);
+
+		ConnectionJsonArray.Add(MakeShared<FJsonValueObject>(ConnectionObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("connections"), ConnectionJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogFactoryConnectionsAsJson: %s"), *JsonString);
 
 	return JsonString;
 }

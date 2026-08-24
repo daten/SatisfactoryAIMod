@@ -146,3 +146,37 @@ struct FDocModManufacturerTelemetry
 	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
 	TArray<FDocModInventoryItemTelemetry> OutputInventory;
 };
+
+/**
+ * One factory connection point (PLAN.md Phase 10, "conveyor connection
+ * components" - and, combined with FDocModBuildableTelemetry, the raw
+ * material for Phase 11's "conveyor topology"/world graph, which PLAN.md
+ * says the EXTERNAL CONTROLLER should build - this struct only exposes
+ * the facts, one row per connection point, not a constructed graph).
+ *
+ * A physical belt/pipe link between two buildings shows up as two rows:
+ * one Output-direction row on the source buildable and one Input-direction
+ * row on the destination, each pointing at the other via
+ * ConnectedBuildableId. Id fields have the same session-local-only caveat
+ * as the rest of this file's structs.
+ */
+USTRUCT(BlueprintType)
+struct FDocModFactoryConnectionTelemetry
+{
+	GENERATED_BODY()
+
+	/** Id of the AFGBuildable that owns this connection component. Session-local only. */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FString OwnerBuildableId;
+
+	/** "Input" / "Output" / "Any" / "SnapOnly" (EFactoryConnectionDirection). */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FString Direction;
+
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	bool bConnected = false;
+
+	/** Id of the AFGBuildable on the other end, or empty if bConnected is false. Session-local only. */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FString ConnectedBuildableId;
+};

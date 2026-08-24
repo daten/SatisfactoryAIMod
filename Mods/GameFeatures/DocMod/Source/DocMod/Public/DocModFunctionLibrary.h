@@ -84,4 +84,23 @@ public:
 	/** Serializes manufacturer telemetry to {"protocolVersion":1,"manufacturers":[...]}, logs it, and returns it. */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogManufacturersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Enumerates factory connection points on every AFGBuildableFactory
+	 * actor (PLAN.md Phase 10, "conveyor connection components"). One row
+	 * per connection point, not a constructed graph - see
+	 * FDocModFactoryConnectionTelemetry's comment. This is the raw
+	 * material Phase 11's external-controller-side world graph is built
+	 * from, alongside GetBuildableTelemetry.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDocModFactoryConnectionTelemetry> GetFactoryConnectionTelemetry(UObject* WorldContextObject);
+
+	/** Debug entry point: logs one line per connection point via LogDocModAI. */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogFactoryConnections(UObject* WorldContextObject);
+
+	/** Serializes connection telemetry to {"protocolVersion":1,"connections":[...]}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogFactoryConnectionsAsJson(UObject* WorldContextObject);
 };

@@ -1,0 +1,23 @@
+{
+  "protocolVersion": 1,
+  "buildables": [
+    {
+      "id": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_1",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+      "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "rotation": { "pitch": 0.0, "yaw": 0.0, "roll": 0.0 }
+    },
+    {
+      "id": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+      "position": { "x": 400.0, "y": 0.0, "z": 0.0 },
+      "rotation": { "pitch": 0.0, "yaw": 0.0, "roll": 0.0 }
+    },
+    {
+      "id": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_2",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+      "position": { "x": 800.0, "y": 0.0, "z": 0.0 },
+      "rotation": { "pitch": 0.0, "yaw": 180.0, "roll": 0.0 }
+    }
+  ]
+}

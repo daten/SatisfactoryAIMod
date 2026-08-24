@@ -139,6 +139,31 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
   `"world.manufacturers"`) and validate the JSON shape against
   [telemetry-protocol.md](telemetry-protocol.md).
 
+### 7. Factory connections / world graph (Phase 10 connections + Phase 11)
+
+- Call **Log Factory Connections** (or hit `/rpc` with
+  `"method":"world.connections"`) on a save with an actual belt line
+  running between machines.
+- **Expected:** for two machines you know are physically linked by a
+  belt, you should see matching rows — an `Output` row on the source
+  buildable's id pointing at the belt (or directly at the destination, if
+  belts themselves aren't separately enumerated as connection owners —
+  check both), and an `Input` row on the destination side pointing back.
+  `connected=false` rows are normal for connection points nothing is
+  plugged into (e.g. an idle machine's unused output).
+- This one doesn't need the game running to partially verify: run
+  `cd controller && python -m unittest discover -s tests -t . -v` — the
+  `test_graph.py` suite already confirms `build_world_graph()` correctly
+  turns synthetic buildable+connection fixtures into edges (verified
+  passing: 9/9 tests). What still needs real game data is confirming the
+  *mod's* connection telemetry matches real in-game belt topology, not
+  just that the Python graph-building logic is internally consistent.
+- Once `world.buildables`/`world.connections` output has been captured
+  from a real save, replace `tests/fixtures/buildables.json` and
+  `tests/fixtures/connections.json` (currently hand-written synthetic
+  data, same caveat as `resource_nodes.json`) and re-run both the
+  mod-side and controller-side test suites.
+
 ---
 
 ## Confirmed

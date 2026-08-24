@@ -30,10 +30,10 @@ struct FHttpServerRequest;
  * versioned protocol, structured errors, reject unknown methods, reject
  * malformed JSON, enforce a message-size limit, never deserialize
  * arbitrary executable objects. Read-only for now - "world.resourceNodes",
- * "world.buildables", and "world.manufacturers" are implemented. Phase
- * 12+ will add mutation methods with their own explicit validation; this
- * class must not grow a generic "call any function by name" method
- * (CLAUDE.md's Safety and Stability Boundary).
+ * "world.buildables", "world.manufacturers", and "world.connections" are
+ * implemented. Phase 12+ will add mutation methods with their own
+ * explicit validation; this class must not grow a generic "call any
+ * function by name" method (CLAUDE.md's Safety and Stability Boundary).
  *
  * A UGameInstanceSubsystem's HTTPServer route handler executes on the
  * game thread already (the module ticks via FTSTickerObjectBase on the

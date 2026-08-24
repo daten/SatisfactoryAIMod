@@ -1,0 +1,35 @@
+{
+  "protocolVersion": 1,
+  "connections": [
+    {
+      "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_1",
+      "direction": "Output",
+      "connected": true,
+      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1"
+    },
+    {
+      "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1",
+      "direction": "Input",
+      "connected": true,
+      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_1"
+    },
+    {
+      "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1",
+      "direction": "Output",
+      "connected": true,
+      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_2"
+    },
+    {
+      "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_2",
+      "direction": "Input",
+      "connected": true,
+      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1"
+    },
+    {
+      "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_2",
+      "direction": "Output",
+      "connected": false,
+      "connectedBuildableId": ""
+    }
+  ]
+}

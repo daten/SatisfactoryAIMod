@@ -1,11 +1,12 @@
 """Envelope parsing for the DocMod telemetry protocol.
 
 See docs/telemetry-protocol.md at the repo root for the authoritative
-schema. Only protocolVersion 1 / the resourceNodes payload exists on the
-mod side so far (Phase 6). No request/response RPC envelope exists yet
-since no transport exists yet (Phase 9) - this only parses the
-logged/captured JSON blob DocMod currently produces via
-LogResourceNodesAsJson.
+schema. This parses the payload shapes DocMod's Log*AsJson functions
+produce (and what the "world.*" RPC methods on the Phase 9 /rpc endpoint
+return in their "result" field) - not the RPC request/response envelope
+itself, which this package doesn't have a client for yet (see
+controller/README.md - no network client until there's a reason to add
+one beyond parsing already-captured JSON).
 """
 
 from __future__ import annotations
@@ -13,13 +14,22 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from .models import ResourceNode
+from .models import Buildable, FactoryConnection, ResourceNode
 
 SUPPORTED_PROTOCOL_VERSION = 1
 
 
 class UnsupportedProtocolVersionError(ValueError):
     """Raised when telemetry declares a protocolVersion this package doesn't understand."""
+
+
+def _check_protocol_version(data: dict) -> int:
+    version = data["protocolVersion"]
+    if version != SUPPORTED_PROTOCOL_VERSION:
+        raise UnsupportedProtocolVersionError(
+            f"protocolVersion {version} not supported (expected {SUPPORTED_PROTOCOL_VERSION})"
+        )
+    return version
 
 
 @dataclass(frozen=True)
@@ -29,14 +39,42 @@ class ResourceNodeTelemetry:
 
     @classmethod
     def from_dict(cls, data: dict) -> "ResourceNodeTelemetry":
-        version = data["protocolVersion"]
-        if version != SUPPORTED_PROTOCOL_VERSION:
-            raise UnsupportedProtocolVersionError(
-                f"protocolVersion {version} not supported (expected {SUPPORTED_PROTOCOL_VERSION})"
-            )
+        version = _check_protocol_version(data)
         nodes = tuple(ResourceNode.from_dict(n) for n in data["resourceNodes"])
         return cls(protocol_version=version, resource_nodes=nodes)
 
 
+@dataclass(frozen=True)
+class BuildableTelemetry:
+    protocol_version: int
+    buildables: tuple[Buildable, ...]
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "BuildableTelemetry":
+        version = _check_protocol_version(data)
+        buildables = tuple(Buildable.from_dict(b) for b in data["buildables"])
+        return cls(protocol_version=version, buildables=buildables)
+
+
+@dataclass(frozen=True)
+class FactoryConnectionTelemetry:
+    protocol_version: int
+    connections: tuple[FactoryConnection, ...]
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FactoryConnectionTelemetry":
+        version = _check_protocol_version(data)
+        connections = tuple(FactoryConnection.from_dict(c) for c in data["connections"])
+        return cls(protocol_version=version, connections=connections)
+
+
 def parse_resource_node_telemetry(json_text: str) -> ResourceNodeTelemetry:
     return ResourceNodeTelemetry.from_dict(json.loads(json_text))
+
+
+def parse_buildable_telemetry(json_text: str) -> BuildableTelemetry:
+    return BuildableTelemetry.from_dict(json.loads(json_text))
+
+
+def parse_factory_connection_telemetry(json_text: str) -> FactoryConnectionTelemetry:
+    return FactoryConnectionTelemetry.from_dict(json.loads(json_text))
