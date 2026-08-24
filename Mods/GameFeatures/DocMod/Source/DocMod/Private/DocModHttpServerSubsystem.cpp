@@ -3,6 +3,7 @@
 #include "DocModHttpServerSubsystem.h"
 #include "DocMod.h"
 #include "DocModFunctionLibrary.h"
+#include "DocModOperationTypes.h"
 #include "HttpServerModule.h"
 #include "IHttpRouter.h"
 #include "HttpServerRequest.h"
@@ -41,6 +42,33 @@ namespace
 		UE_LOG(LogDocModAI, Warning, TEXT("DocMod HTTP server: request %s failed - %s: %s"), *RequestId, *ErrorCode, *Message);
 
 		return MakeJsonResponse(Code, Root);
+	}
+
+	// Maps FDocModOperationResult::ErrorCode (DocModFunctionLibrary.cpp's
+	// write operations) to an HTTP status. Defaults to BadRequest for any
+	// code not explicitly listed, rather than guessing at codes that
+	// don't exist yet.
+	EHttpServerResponseCodes HttpCodeForOperationError(const FString& ErrorCode)
+	{
+		if (ErrorCode == TEXT("TARGET_NOT_FOUND")) { return EHttpServerResponseCodes::NotFound; }
+		if (ErrorCode == TEXT("OPERATION_NOT_PERMITTED")) { return EHttpServerResponseCodes::Forbidden; }
+		if (ErrorCode == TEXT("INTERNAL_ERROR")) { return EHttpServerResponseCodes::ServerError; }
+		return EHttpServerResponseCodes::BadRequest;
+	}
+
+	TUniquePtr<FHttpServerResponse> MakeOperationResponse(const FDocModOperationResult& OperationResult, const FString& RequestId)
+	{
+		if (!OperationResult.bSuccess)
+		{
+			return MakeErrorResponse(HttpCodeForOperationError(OperationResult.ErrorCode), RequestId, OperationResult.ErrorCode, OperationResult.ErrorMessage);
+		}
+
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetNumberField(TEXT("protocolVersion"), 1);
+		Root->SetStringField(TEXT("requestId"), RequestId);
+		Root->SetBoolField(TEXT("success"), true);
+		Root->SetObjectField(TEXT("result"), MakeShared<FJsonObject>());
+		return MakeJsonResponse(EHttpServerResponseCodes::Ok, Root);
 	}
 }
 
@@ -116,6 +144,56 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	{
 		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'method' field")));
 		return true;
+	}
+
+	// PLAN.md Phase 12 write methods take a "params" object. Handled
+	// first and returns directly - they don't share the read methods'
+	// "wrap a Log*AsJson string as the result" shape below.
+	if (Method == TEXT("world.setClockSpeed") || Method == TEXT("world.setRecipe"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		// GetGameInstance(), not `this` - UGameInstanceSubsystem itself
+		// does not implement GetWorld(); UGameInstance does.
+		if (Method == TEXT("world.setClockSpeed"))
+		{
+			double ClockSpeedPercent = 0.0;
+			if (!ParamsObject->TryGetNumberField(TEXT("clockSpeedPercent"), ClockSpeedPercent))
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.clockSpeedPercent must be a number")));
+				return true;
+			}
+
+			const FDocModOperationResult Result = UDocModFunctionLibrary::SetManufacturerClockSpeed(GetGameInstance(), BuildableId, static_cast<float>(ClockSpeedPercent));
+			OnComplete(MakeOperationResponse(Result, RequestId));
+			return true;
+		}
+		else
+		{
+			FString RecipeClassPath;
+			if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+				return true;
+			}
+
+			const FDocModOperationResult Result = UDocModFunctionLibrary::SetManufacturerRecipe(GetGameInstance(), BuildableId, RecipeClassPath);
+			OnComplete(MakeOperationResponse(Result, RequestId));
+			return true;
+		}
 	}
 
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does

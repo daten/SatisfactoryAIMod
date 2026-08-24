@@ -164,6 +164,49 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
   data, same caveat as `resource_nodes.json`) and re-run both the
   mod-side and controller-side test suites.
 
+### 8. First write operations (Phase 12) — use a disposable save
+
+**This is the first capability that actually changes game state. Test it
+against a save you don't mind corrupting — duplicate your save file
+first, or use a throwaway creative-mode save — not your main
+progression save,** until it's been exercised enough to trust.
+
+- Find a manufacturer's `buildableId` via `world.manufacturers` (item 6
+  above) first — ids are session-local, so re-fetch this every session.
+- **Clock speed:** call `world.setClockSpeed` with a valid percent (e.g.
+  the current value, or 150 if the building supports overclocking).
+  - **Expected:** `success:true`, empty `result`. Because
+    `SetPendingPotential` takes effect next cycle (not instantly — see
+    [operations-protocol.md](operations-protocol.md)), the change may
+    not be visible in `world.manufacturers`' `clockSpeedPercent` until
+    the machine finishes its current production cycle — wait and
+    re-check rather than assuming failure.
+  - Also test an out-of-range value (e.g. `9999`) and confirm you get
+    `INVALID_CLOCK_SPEED` with the real valid range in the message, not
+    a crash or a silently-clamped value.
+  - Test a bogus `buildableId` and confirm `TARGET_NOT_FOUND`.
+- **Recipe:** call `world.setRecipe` with a real recipe class path (get
+  one from the game's own data, or from `UFGRecipe::GetProducedIn`
+  research — a wiki/community recipe path list works too) that's valid
+  for the target building, **with both inventories empty** (an idle,
+  freshly-placed machine works).
+  - **Expected:** `success:true`; the building now shows the new recipe
+    in-game and in a follow-up `world.manufacturers` call.
+  - Test with a non-empty inventory (put an item in the input) and
+    confirm you get `INVENTORY_NOT_EMPTY` rather than the game silently
+    accepting it and doing something undefined.
+  - Test with a recipe that's real but not valid for that building class
+    (e.g. a Smelter recipe on a Constructor) and confirm
+    `RECIPE_NOT_COMPATIBLE`.
+  - Test with a garbage class path (e.g. `"/Game/DoesNotExist.Foo_C"`)
+    and confirm `INVALID_RECIPE`, not a crash.
+- **If any of these produces a crash, a silent no-op where success:true
+  was returned, or a state the game itself considers invalid (visual
+  glitches, being unable to interact with the building afterward), stop
+  and report it before using these operations again** — that's exactly
+  the kind of gap CLAUDE.md's validation requirements exist to catch, and
+  finding one now (on a disposable save) is the point of this checklist.
+
 ---
 
 ## Confirmed

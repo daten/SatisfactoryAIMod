@@ -29,11 +29,15 @@ struct FHttpServerRequest;
  * by method name, per CLAUDE.md's protocol design/networking rules:
  * versioned protocol, structured errors, reject unknown methods, reject
  * malformed JSON, enforce a message-size limit, never deserialize
- * arbitrary executable objects. Read-only for now - "world.resourceNodes",
- * "world.buildables", "world.manufacturers", and "world.connections" are
- * implemented. Phase 12+ will add mutation methods with their own
- * explicit validation; this class must not grow a generic "call any
- * function by name" method (CLAUDE.md's Safety and Stability Boundary).
+ * arbitrary executable objects. Read-only methods: "world.resourceNodes",
+ * "world.buildables", "world.manufacturers", "world.connections". Write
+ * methods (PLAN.md Phase 12, take a "params" object): "world.setClockSpeed"
+ * ({"buildableId","clockSpeedPercent"}), "world.setRecipe"
+ * ({"buildableId","recipeClass"}) - both delegate all validation to
+ * UDocModFunctionLibrary's SetManufacturer* functions and only translate
+ * FDocModOperationResult into the HTTP/JSON response shape here. This
+ * class must not grow a generic "call any function by name" method
+ * (CLAUDE.md's Safety and Stability Boundary).
  *
  * A UGameInstanceSubsystem's HTTPServer route handler executes on the
  * game thread already (the module ticks via FTSTickerObjectBase on the

@@ -5,14 +5,18 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "DocModTelemetryTypes.h"
+#include "DocModOperationTypes.h"
 #include "DocModFunctionLibrary.generated.h"
 
 /**
- * DocMod AI interface: minimal Blueprint entry points. PLAN.md Phase 3-6 -
- * a version smoke test, read-only resource-node telemetry, and JSON
- * serialization for local debug testing. Read-only, log-only; no network
- * transport exists yet (Phase 9) and no game state mutation exists yet
- * (Phase 12+).
+ * DocMod AI interface Blueprint entry points. PLAN.md Phase 3-12: a
+ * version smoke test, read-only world telemetry (resource nodes,
+ * buildables, manufacturers, factory connections) with JSON
+ * serialization, and - as of Phase 12 - the first two controlled write
+ * operations (SetManufacturerClockSpeed, SetManufacturerRecipe), each
+ * with explicit validation per CLAUDE.md's Safety and Stability Boundary.
+ * This class must never grow a generic "call any function by name" or
+ * "set any property by name" method.
  */
 UCLASS()
 class DOCMOD_API UDocModFunctionLibrary : public UBlueprintFunctionLibrary
@@ -103,4 +107,35 @@ public:
 	/** Serializes connection telemetry to {"protocolVersion":1,"connections":[...]}, logs it, and returns it. */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogFactoryConnectionsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 12: first controlled write operation. Sets the clock
+	 * speed (FactoryGame's "potential") on an existing manufacturing
+	 * building, identified by the session-local id from
+	 * GetManufacturerTelemetry. Validates, in order: buildable exists and
+	 * is a manufacturer (TARGET_NOT_FOUND), the building actually allows
+	 * changing potential (OPERATION_NOT_PERMITTED), and the requested
+	 * percent is within [GetCurrentMinPotential(),GetCurrentMaxPotential()]
+	 * (INVALID_CLOCK_SPEED, message includes the valid range). Uses
+	 * SetPendingPotential() - per FactoryGame's own doc comment, the
+	 * change takes effect at the NEXT production cycle, not instantly.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult SetManufacturerClockSpeed(UObject* WorldContextObject, const FString& BuildableId, float ClockSpeedPercent);
+
+	/**
+	 * PLAN.md Phase 12: sets the recipe on an existing manufacturing
+	 * building. Validates, in order: buildable exists and is a
+	 * manufacturer (TARGET_NOT_FOUND), recipeClassPath resolves to an
+	 * actual UFGRecipe subclass - this rejects any other class path, it
+	 * is NOT a generic "load any class" capability, per CLAUDE.md's
+	 * Safety and Stability Boundary (INVALID_RECIPE), the recipe is
+	 * actually producible in this building's class via
+	 * UFGRecipe::IsProducedIn (RECIPE_NOT_COMPATIBLE), and both input and
+	 * output inventories are empty - FactoryGame's own SetRecipe doc
+	 * comment: "It is up to the caller to make sure input and output
+	 * inventories are empty before changing recipe" (INVENTORY_NOT_EMPTY).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult SetManufacturerRecipe(UObject* WorldContextObject, const FString& BuildableId, const FString& RecipeClassPath);
 };

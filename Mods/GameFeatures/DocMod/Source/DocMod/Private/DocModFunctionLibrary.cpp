@@ -225,6 +225,23 @@ namespace
 		}
 		return Result;
 	}
+
+	// Id is the session-local GetPathName() (see DocModTelemetryTypes.h) -
+	// no stable/indexed lookup exists, so resolving one back to an actor
+	// means scanning. Fine at this scale (dozens/hundreds of
+	// manufacturers per save, and this only runs on an explicit write
+	// request, not every frame).
+	AFGBuildableManufacturer* FindManufacturerById(UWorld* World, const FString& BuildableId)
+	{
+		for (TActorIterator<AFGBuildableManufacturer> It(World); It; ++It)
+		{
+			if (IsValid(*It) && It->GetPathName() == BuildableId)
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
 }
 
 FString UDocModFunctionLibrary::GetInterfaceVersion()
@@ -514,4 +531,98 @@ FString UDocModFunctionLibrary::LogFactoryConnectionsAsJson(UObject* WorldContex
 	UE_LOG(LogDocModAI, Display, TEXT("LogFactoryConnectionsAsJson: %s"), *JsonString);
 
 	return JsonString;
+}
+
+FDocModOperationResult UDocModFunctionLibrary::SetManufacturerClockSpeed(UObject* WorldContextObject, const FString& BuildableId, float ClockSpeedPercent)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildableManufacturer* Manufacturer = FindManufacturerById(World, BuildableId);
+	if (!Manufacturer)
+	{
+		return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+			FString::Printf(TEXT("No manufacturer found with id '%s'"), *BuildableId));
+	}
+
+	if (!Manufacturer->GetCanChangePotential())
+	{
+		return FDocModOperationResult::Failure(TEXT("OPERATION_NOT_PERMITTED"),
+			TEXT("This building does not allow changing clock speed"));
+	}
+
+	const float RequestedPotential = ClockSpeedPercent / 100.0f;
+	const float MinPotential = Manufacturer->GetCurrentMinPotential();
+	const float MaxPotential = Manufacturer->GetCurrentMaxPotential();
+	if (RequestedPotential < MinPotential || RequestedPotential > MaxPotential)
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_CLOCK_SPEED"),
+			FString::Printf(TEXT("clockSpeedPercent %.1f is outside the valid range [%.1f, %.1f]"),
+				ClockSpeedPercent, MinPotential * 100.0f, MaxPotential * 100.0f));
+	}
+
+	// Takes effect at the next production cycle, not instantly - see
+	// AFGBuildableFactory::SetPendingPotential's doc comment.
+	Manufacturer->SetPendingPotential(RequestedPotential);
+
+	UE_LOG(LogDocModAI, Display, TEXT("SetManufacturerClockSpeed: %s -> %.1f%% (pending)"), *BuildableId, ClockSpeedPercent);
+
+	return FDocModOperationResult::Success();
+}
+
+FDocModOperationResult UDocModFunctionLibrary::SetManufacturerRecipe(UObject* WorldContextObject, const FString& BuildableId, const FString& RecipeClassPath)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildableManufacturer* Manufacturer = FindManufacturerById(World, BuildableId);
+	if (!Manufacturer)
+	{
+		return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+			FString::Printf(TEXT("No manufacturer found with id '%s'"), *BuildableId));
+	}
+
+	// Resolve the path to a class and require it to actually be a
+	// UFGRecipe subclass before doing anything else with it. This is
+	// deliberately narrow - not a generic "load any class by path"
+	// capability - per CLAUDE.md's Safety and Stability Boundary.
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_RECIPE"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath));
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
+
+	if (!UFGRecipe::IsProducedIn(RecipeClass, Manufacturer->GetClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("RECIPE_NOT_COMPATIBLE"),
+			FString::Printf(TEXT("Recipe '%s' is not producible in '%s'"), *RecipeClassPath, *Manufacturer->GetClass()->GetPathName()));
+	}
+
+	// FGBuildableManufacturer::SetRecipe's own doc comment: "It is up to
+	// the caller to make sure input and output inventories are empty
+	// before changing recipe." Enforce it rather than trusting the
+	// caller/engine to handle a non-empty swap gracefully.
+	UFGInventoryComponent* InputInventory = Manufacturer->GetInputInventory();
+	UFGInventoryComponent* OutputInventory = Manufacturer->GetOutputInventory();
+	const bool bInputEmpty = !InputInventory || InputInventory->IsEmpty();
+	const bool bOutputEmpty = !OutputInventory || OutputInventory->IsEmpty();
+	if (!bInputEmpty || !bOutputEmpty)
+	{
+		return FDocModOperationResult::Failure(TEXT("INVENTORY_NOT_EMPTY"),
+			TEXT("Input and output inventories must be empty before changing recipe"));
+	}
+
+	Manufacturer->SetRecipe(RecipeClass);
+
+	UE_LOG(LogDocModAI, Display, TEXT("SetManufacturerRecipe: %s -> %s"), *BuildableId, *RecipeClassPath);
+
+	return FDocModOperationResult::Success();
 }
