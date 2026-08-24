@@ -31,7 +31,14 @@ Mods/**/Metadata/Crypto.json
 !Mods/WwisePatches/
 !Mods/SML/
 !Mods/SMLEditor/
+
+# GameFeatures is excluded by Mods/* above; re-open it so specific mods can
+# be un-ignored by name below (a bare nested "!" pattern can't rescue a path
+# whose parent directory is itself excluded).
+!Mods/GameFeatures/
+Mods/GameFeatures/*
 !Mods/GameFeatures/ExampleMod/
+!Mods/GameFeatures/DocMod/
 
 # Mods binaries
 Mods/**/Binaries/*
