@@ -458,4 +458,28 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DebugCheckConveyorSnap(UObject* WorldContextObject, const FString& SourceBuildableId);
+
+	/**
+	 * PLAN.md Phase 13/14: builds on DebugCheckConveyorSnap's finding
+	 * (2026-08-25, live) that a belt's start point genuinely snaps via
+	 * TrySnapToActor() + a single DoMultiStepPlacement(true) "click"
+	 * together - neither alone was sufficient, but combined the build
+	 * step advanced from SHBS_FindStart straight to
+	 * SHBS_PlacePoleOrSnapEnding and GetAnyConnectedBuildables() went
+	 * from empty to containing the source buildable. This repeats that
+	 * same TrySnapToActor+click pair a second time at the destination's
+	 * free Input connection, then polls real ticks for the same
+	 * UFGCDInitializing disqualifier seen on the first click to clear
+	 * (identical pattern to every other build-gun-driven function in
+	 * this file) before checking CanConstruct(). Same bDryRun switch and
+	 * real-construction posture as ConstructPowerConnection - only calls
+	 * InternalConstructHologram() once CanConstruct() genuinely resolves
+	 * true. Whether the second click actually completes the sequence
+	 * (DoMultiStepPlacement returning true) is itself still an open
+	 * question this function's first live run will answer - if it
+	 * doesn't, the real result will report exactly that rather than
+	 * guessing further blindly. Not a UFUNCTION - same reason as the
+	 * other async entry points.
+	 */
+	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 };

@@ -363,6 +363,42 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		return true;
 	}
 
+	// Genuinely asynchronous, same shape as "world.testPowerConnection"/
+	// "world.connectPower" above. "world.testConveyorBelt" (dry run) and
+	// "world.connectConveyor" (real) share UDocModFunctionLibrary::
+	// ConstructConveyorBelt, differing only in the bDryRun argument. Params
+	// use sourceBuildableId/destBuildableId (not A/B) to match the belt's
+	// directional Output->Input semantics - see ConstructConveyorBelt's doc
+	// comment for the two-click TrySnapToActor/DoMultiStepPlacement
+	// mechanism this drives.
+	if (Method == TEXT("world.testConveyorBelt") || Method == TEXT("world.connectConveyor"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			return true;
+		}
+
+		const bool bDryRun = Method == TEXT("world.testConveyorBelt");
+		UDocModFunctionLibrary::ConstructConveyorBelt(GetGameInstance(), SourceBuildableId, DestBuildableId, bDryRun,
+			[OnComplete, RequestId](const FDocModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
 	// not implement GetWorld(); UGameInstance does.
 	FString MethodResultJson;
