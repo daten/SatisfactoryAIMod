@@ -339,9 +339,24 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		double ReferenceZ = -1000000.0;
 		ParamsObject->TryGetNumberField(TEXT("z"), ReferenceZ);
 
+		// Optional, all default false (today's strict behavior) - see
+		// ConstructBuildingAtPosition's doc comment. Named, scoped
+		// bypasses of specific UX-only disqualifiers, per explicit user
+		// direction that these gates don't scale for large autonomous
+		// layouts and the user accepts the resulting collision risk.
+		bool bIgnoreAimLocation = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreAimLocation"), bIgnoreAimLocation);
+		bool bIgnorePlayerEncroachment = false;
+		ParamsObject->TryGetBoolField(TEXT("ignorePlayerEncroachment"), bIgnorePlayerEncroachment);
+		bool bIgnoreClearance = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreClearance"), bIgnoreClearance);
+		bool bIgnoreInvalidFloor = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreInvalidFloor"), bIgnoreInvalidFloor);
+
 		// FHttpResultCallback is a TFunction, safe to copy - captured by
 		// value so it stays alive until the deferred poll actually calls it.
 		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta), static_cast<float>(GridSnapSize), static_cast<float>(ReferenceZ),
+			bIgnoreAimLocation, bIgnorePlayerEncroachment, bIgnoreClearance, bIgnoreInvalidFloor,
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

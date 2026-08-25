@@ -447,8 +447,29 @@ public:
 	 * rather than relying on player position at every step. Sentinel
 	 * -1000000 (an unrealistic in-game Z) means "not provided", which
 	 * preserves the prior player-Z-anchored behavior.
+	 *
+	 * bIgnoreAimLocation/bIgnorePlayerEncroachment/bIgnoreClearance/
+	 * bIgnoreInvalidFloor (2026-08-25, all default false = today's
+	 * strict behavior): per explicit user direction - player-proximity/
+	 * camera-direction gates don't scale for large, autonomous,
+	 * multi-building layouts, and the user explicitly accepts the risk
+	 * of invalid terrain collisions in exchange. When set, the
+	 * corresponding UFGCDInvalidAimLocation/UFGCDEncroachingPlayer/
+	 * UFGCDEncroachingClearance/UFGCDInvalidFloor disqualifier class is
+	 * excluded from DocMod's own "does this block construction" gate
+	 * (which replicates the documented "any non-soft disqualifier
+	 * blocks" rule itself here, rather than calling the real
+	 * AFGHologram::CanConstruct() - see this function's .cpp for why:
+	 * that function's actual logic is unreadable, stub source). Every
+	 * OTHER disqualifier (structural validity, resource requirements,
+	 * snap requirements, etc.) still applies normally - this is a
+	 * scoped, named bypass of specific UX-only gates, not a generic
+	 * "ignore everything" switch. Still calls the real
+	 * InternalConstructHologram() either way - FactoryGame's own
+	 * server-side validation inside that function, if any, is
+	 * unverified from source and not bypassed by these flags.
 	 */
-	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * PLAN.md Phase 13/14: dry-run only, no-mutation experiment toward

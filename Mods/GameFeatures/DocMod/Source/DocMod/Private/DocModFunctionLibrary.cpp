@@ -1821,7 +1821,7 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, the building WILL be constructed; see LogDocModAI for the real result"));
 }
 
-void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -2002,6 +2002,10 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 		TFunction<void(const FDocModOperationResult&)> OnComplete;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
+		bool bIgnoreAimLocation = false;
+		bool bIgnorePlayerEncroachment = false;
+		bool bIgnoreClearance = false;
+		bool bIgnoreInvalidFloor = false;
 	};
 	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
 	PollState->Hologram = Hologram;
@@ -2009,6 +2013,10 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	PollState->World = World;
 	PollState->RecipeClassPath = RecipeClassPath;
 	PollState->SyntheticHit = SyntheticHit;
+	PollState->bIgnoreAimLocation = bIgnoreAimLocation;
+	PollState->bIgnorePlayerEncroachment = bIgnorePlayerEncroachment;
+	PollState->bIgnoreClearance = bIgnoreClearance;
+	PollState->bIgnoreInvalidFloor = bIgnoreInvalidFloor;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -2040,13 +2048,37 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 			return;
 		}
 
-		const bool bCanConstruct = PollHologram->CanConstruct();
+		// Real CanConstruct() (whatever its internal logic actually is -
+		// stub source, unreadable) is intentionally NOT used as the gate
+		// here when any bIgnore* flag is set. Instead: replicate the
+		// documented "any non-soft (hard) disqualifier blocks" rule
+		// ourselves via the same GetIsSoftDisqualifier() query used for
+		// logging everywhere else in this file, skipping specific
+		// disqualifier classes the caller explicitly opted to ignore.
+		// Added 2026-08-25 per explicit user direction: player-proximity/
+		// camera-direction/clearance gates don't scale for large,
+		// autonomous, multi-building layouts, and the user explicitly
+		// accepts the risk of invalid terrain collisions in exchange.
+		// This does NOT bypass FactoryGame's OWN validation inside
+		// InternalConstructHologram() itself (unknown/unverified from
+		// source) - only DocMod's decision to attempt construction.
+		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+			const bool bIgnoredByFlag =
+				(PollState->bIgnoreAimLocation && DisqualifierClass == UFGCDInvalidAimLocation::StaticClass()) ||
+				(PollState->bIgnorePlayerEncroachment && DisqualifierClass == UFGCDEncroachingPlayer::StaticClass()) ||
+				(PollState->bIgnoreClearance && DisqualifierClass == UFGCDEncroachingClearance::StaticClass()) ||
+				(PollState->bIgnoreInvalidFloor && DisqualifierClass == UFGCDInvalidFloor::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredByFlag && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
 				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
-				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredByFlag ? TEXT(", ignored") : TEXT("")));
 		}
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 

@@ -56,10 +56,14 @@ struct FHttpServerRequest;
  *
  * "world.placeBuilding" ({"recipeClass","x","y"}, plus optional
  * "rotationScrollDelta" (default 0), "gridSnapSize" (default 100,
- * i.e. snap-to-1m-grid by default - pass 0 to disable), and "z"
+ * i.e. snap-to-1m-grid by default - pass 0 to disable), "z"
  * (anchors the ground-trace search to this Z instead of the player's
- * current Z - recommended for any multi-step layout; see
- * ConstructBuildingAtPosition's doc comment for all three)), "world.placeExtractor"
+ * current Z - recommended for any multi-step layout), and
+ * "ignoreAimLocation"/"ignorePlayerEncroachment"/"ignoreClearance"/
+ * "ignoreInvalidFloor" (all default false - named, scoped bypasses of
+ * specific UX-only placement gates for large autonomous layouts,
+ * accepting collision risk in exchange; see
+ * ConstructBuildingAtPosition's doc comment for all of these)), "world.placeExtractor"
  * ({"nodeId"}), "world.testPowerConnection" (dry run, never touches the
  * save) and "world.connectPower" (real - both
  * {"buildableIdA","buildableIdB"}), "world.testConveyorBelt" (dry run) and
