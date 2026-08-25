@@ -388,3 +388,39 @@ player attention. **Not yet confirmed live** - written and compiled
 while the user had stepped away and redeploying needs them at Alpakit;
 next session should verify this actually resolves the failures
 reproduced above before trusting it.
+
+## §6 Named, scoped bypasses for UX-only disqualifiers - 2026-08-25
+
+Explicit user direction after §5: player-proximity/camera-direction
+gates fundamentally don't scale for the long-term goal (large,
+autonomous, multi-building layouts with no human in the loop) - other
+mods are known to disable equivalent barriers, and the user explicitly
+accepts the risk of invalid terrain collisions in exchange for not
+being gated on player position/aim at all.
+
+`ConstructBuildingAtPosition`/`world.placeBuilding` gained four
+independent opt-in flags, all defaulting to `false` (today's strict
+behavior preserved): `ignoreAimLocation`, `ignorePlayerEncroachment`,
+`ignoreClearance`, `ignoreInvalidFloor` - mapping to the real
+FactoryGame disqualifier classes `UFGCDInvalidAimLocation`,
+`UFGCDEncroachingPlayer`, `UFGCDEncroachingClearance`,
+`UFGCDInvalidFloor` (found via `FGConstructDisqualifier.h`, which lists
+~70 disqualifier classes total - the full catalog for future scoped
+bypasses if needed). Deliberately narrow, named flags per class - not
+a generic "ignore everything" switch - every other disqualifier
+(structural validity, resource requirements, snap-to requirements,
+etc.) still applies.
+
+**Implementation note:** `AFGHologram::CanConstruct()`'s real logic is
+unreadable (stub source, like most of this SDK) and can't be
+selectively overridden from outside the class - so DocMod no longer
+calls it at all for this function. Instead it replicates the
+documented "any non-soft (hard) disqualifier blocks construction" rule
+directly, using the same `UFGConstructDisqualifier::GetIsSoftDisqualifier()`
+static query already used for logging everywhere else in this file,
+skipping whichever classes the caller opted to ignore. This still
+calls the real `InternalConstructHologram()` to actually build -
+whatever validation FactoryGame performs server-side inside that
+function, if any, is unverified from source and NOT bypassed by these
+flags; they only change DocMod's own decision about whether to attempt
+construction. **Not yet live-tested** - same redeploy dependency as §5.
