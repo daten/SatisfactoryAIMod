@@ -592,14 +592,25 @@ public:
 	 * before this): any of Recipe_ConveyorBeltMk1..Mk6 (all six exist on
 	 * disk, confirmed) resolve the same way ConstructBuildingAtPosition's
 	 * recipe param does - loaded and required to be a real UFGRecipe.
-	 * Belt tier selection by desired throughput is deliberately NOT done
-	 * here or anywhere in DocMod - see GetConveyorBeltSpeed/
-	 * "world.conveyorBeltSpeed" for the real, per-tier
-	 * AFGBuildableConveyorBase::GetSpeed() value (queried live from each
-	 * class's CDO, not a hardcoded/assumed items-per-minute table) and
-	 * controller/satisfactory_ai/layout.py for where a rate->tier
-	 * decision should live instead, per this project's established
-	 * toolkit-not-solver direction.
+	 * Belt tier selection by desired throughput, or a too-far-apart
+	 * source/dest needing multiple chained segments, is deliberately NOT
+	 * done here or anywhere in DocMod - see LogConveyorBeltTiersAsJson/
+	 * "world.conveyorBeltTiers" for each tier's real queried speed/
+	 * maxSplineLength/bendRadius/maxInclineDegrees, and
+	 * controller/satisfactory_ai/layout.py and
+	 * controller/satisfactory_ai/conveyors.py for where a rate->tier or
+	 * routing decision should live instead, per this project's
+	 * established toolkit-not-solver direction. This function connects
+	 * exactly one source connector to one dest connector in a single
+	 * belt segment - SourceBuildableId/DestBuildableId are NOT required
+	 * to be machines: any AFGBuildable with a free
+	 * UFGFactoryConnectionComponent works, which includes belts
+	 * themselves (AFGBuildableConveyorBase::GetConnection0()/
+	 * GetConnection1() are UFGFactoryConnectionComponents too) - chaining
+	 * multiple calls (machine -> belt, belt -> belt, belt -> machine)
+	 * should therefore let an agent build multi-segment routes, though
+	 * this has NOT been live-tested, only every machine-to-machine
+	 * single-segment case has.
 	 */
 	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
@@ -624,6 +635,24 @@ public:
 	 * items-per-minute figures confirms the exact conversion - a recipe
 	 * whose class fails to load is simply omitted from the result, not
 	 * a hard error, so this still reports on whichever tiers succeed.
+	 *
+	 * Also reports, per tier (2026-08-25, all via
+	 * ResolveConveyorBeltHologramClassForRecipe -> the HOLOGRAM class's
+	 * CDO, a different descriptor accessor - UFGBuildDescriptor::
+	 * GetHologramClass - than the buildable class GetSpeed() reads
+	 * off): "maxSplineLength"/"bendRadius"
+	 * (AFGConveyorBeltHologram::GetMaxSplineLength()/GetBendRadius(),
+	 * public getters) and "maxInclineDegrees" (mMaxIncline, degrees per
+	 * its own doc comment - no public getter exists, read via
+	 * FindFProperty<FFloatProperty> reflection instead, a single
+	 * hardcoded read-only field lookup, not a generic property-access
+	 * capability). Added so an agent can tell BEFORE attempting a
+	 * connection whether two connectors are too far apart or the
+	 * required incline is too steep for a single belt segment, and
+	 * needs either a taller/shorter platform or multiple chained
+	 * segments instead - see ConstructConveyorBelt's doc comment on
+	 * chaining. These three fields are omitted (not a hard error) for
+	 * any tier whose hologram class doesn't resolve.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogConveyorBeltTiersAsJson(UObject* WorldContextObject);

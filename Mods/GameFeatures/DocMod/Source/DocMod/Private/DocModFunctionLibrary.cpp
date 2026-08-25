@@ -34,6 +34,7 @@
 #include "FGDismantleInterface.h"
 #include "FGLightweightBuildableSubsystem.h"
 #include "Resources/FGBuildingDescriptor.h"
+#include "Resources/FGBuildDescriptor.h"
 
 namespace
 {
@@ -186,7 +187,11 @@ namespace
 	// real actor - see docs/lightweight-buildable-research.md. Returns
 	// nullptr (not an error) if the recipe's first product isn't a
 	// building descriptor.
-	TSubclassOf<AFGBuildable> ResolveBuildableClassForRecipe(const FString& RecipeClassPath)
+	// Shared by ResolveBuildableClassForRecipe and
+	// ResolveConveyorBeltHologramClassForRecipe - both need the recipe's
+	// product descriptor class, just call a different static getter on
+	// it afterward (GetBuildableClass vs GetHologramClass).
+	TSubclassOf<UFGBuildingDescriptor> ResolveBuildingDescriptorClassForRecipe(const FString& RecipeClassPath)
 	{
 		UClass* RecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
 		if (!RecipeClass || !RecipeClass->IsChildOf(UFGRecipe::StaticClass()))
@@ -198,8 +203,38 @@ namespace
 		{
 			return nullptr;
 		}
-		const TSubclassOf<UFGBuildingDescriptor> BuildingDescriptorClass = Products[0].ItemClass.Get();
+		return TSubclassOf<UFGBuildingDescriptor>(Products[0].ItemClass.Get());
+	}
+
+	TSubclassOf<AFGBuildable> ResolveBuildableClassForRecipe(const FString& RecipeClassPath)
+	{
+		const TSubclassOf<UFGBuildingDescriptor> BuildingDescriptorClass = ResolveBuildingDescriptorClassForRecipe(RecipeClassPath);
+		if (!BuildingDescriptorClass)
+		{
+			return nullptr;
+		}
 		return UFGBuildingDescriptor::GetBuildableClass(BuildingDescriptorClass);
+	}
+
+	// UFGBuildDescriptor::GetHologramClass (UFGBuildingDescriptor's base
+	// class) - a different static accessor on the same descriptor class
+	// ResolveBuildableClassForRecipe resolves, giving the HOLOGRAM class
+	// (which owns mBendRadius/mMaxSplineLength) rather than the buildable
+	// class. Used for LogConveyorBeltTiersAsJson - these limits are
+	// EditDefaultsOnly Blueprint-configured class defaults, so the CDO
+	// has the real per-tier value without ever spawning an instance or
+	// needing a player.
+	TSubclassOf<AFGConveyorBeltHologram> ResolveConveyorBeltHologramClassForRecipe(const FString& RecipeClassPath)
+	{
+		const TSubclassOf<UFGBuildingDescriptor> BuildingDescriptorClass = ResolveBuildingDescriptorClassForRecipe(RecipeClassPath);
+		if (!BuildingDescriptorClass)
+		{
+			return nullptr;
+		}
+		UClass* HologramClass = UFGBuildDescriptor::GetHologramClass(BuildingDescriptorClass);
+		return (HologramClass && HologramClass->IsChildOf(AFGConveyorBeltHologram::StaticClass()))
+			? TSubclassOf<AFGConveyorBeltHologram>(HologramClass)
+			: nullptr;
 	}
 
 	TArray<FDocModBuildableTelemetry> CollectLightweightBuildableTelemetry(UWorld* World)
@@ -3085,6 +3120,40 @@ FString UDocModFunctionLibrary::LogConveyorBeltTiersAsJson(UObject* WorldContext
 		TierObject->SetStringField(TEXT("recipeClass"), RecipePath);
 		TierObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
 		TierObject->SetNumberField(TEXT("speed"), BeltCDO->GetSpeed());
+
+		// bendRadius/maxSplineLength (2026-08-25): read off the HOLOGRAM
+		// class's CDO (a different descriptor accessor,
+		// UFGBuildDescriptor::GetHologramClass, than the buildable class
+		// above) - both are EditDefaultsOnly Blueprint-configured class
+		// defaults (AFGConveyorBeltHologram.h), so this works without
+		// spawning anything. Added so an agent can tell BEFORE attempting
+		// a connection whether two points are too far apart for a single
+		// belt segment, rather than discovering it via a failed
+		// world.testConveyorBelt.
+		if (const TSubclassOf<AFGConveyorBeltHologram> HologramClass = ResolveConveyorBeltHologramClassForRecipe(RecipePath))
+		{
+			if (const AFGConveyorBeltHologram* HologramCDO = Cast<AFGConveyorBeltHologram>(HologramClass->GetDefaultObject()))
+			{
+				TierObject->SetNumberField(TEXT("maxSplineLength"), HologramCDO->GetMaxSplineLength());
+				TierObject->SetNumberField(TEXT("bendRadius"), HologramCDO->GetBendRadius());
+
+				// mMaxIncline (degrees) has no public C++ getter, but is a
+				// real UPROPERTY (EditDefaultsOnly) with a documented
+				// meaning ("What is the maximum incline of the conveyor
+				// belt (degrees)") - read via reflection, a single
+				// hardcoded read-only field lookup, not a generic
+				// property-access capability (CLAUDE.md's Safety and
+				// Stability Boundary is about not exposing arbitrary
+				// property get/set to external commands; this is neither
+				// arbitrary - the field name is fixed in this file - nor
+				// a write).
+				if (const FFloatProperty* MaxInclineProperty = FindFProperty<FFloatProperty>(HologramClass, TEXT("mMaxIncline")))
+				{
+					TierObject->SetNumberField(TEXT("maxInclineDegrees"), MaxInclineProperty->GetPropertyValue_InContainer(HologramCDO));
+				}
+			}
+		}
+
 		TierJsonArray.Add(MakeShared<FJsonValueObject>(TierObject));
 	}
 
