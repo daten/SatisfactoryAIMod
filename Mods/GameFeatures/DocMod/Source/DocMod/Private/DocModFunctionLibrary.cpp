@@ -2765,6 +2765,28 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		return Hit;
 	};
 
+	// Diagnostic evidence-gathering (2026-08-25): the "Invalid aim
+	// location! (hard)"/"Invalid Conveyor Belt shape! (hard)"
+	// disqualifiers have been observed to flip depending solely on
+	// Hit.Normal, at fixed player/buildable positions - log everything
+	// relevant to correlate. This block never changes behavior, only logs.
+	auto SummarizeDisqualifiers = [](AFGConveyorBeltHologram* H) -> FString
+	{
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		H->GetConstructDisqualifiers(Disqualifiers);
+		TArray<FString> Texts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+		{
+			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
+		}
+		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
+	};
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorBelt diagnostic: playerLoc=%s playerRot=%s sourceConnectorLoc=%s sourceConnectorNormal=%s sourceConnectorClearanceLoc=%s destConnectorLoc=%s destConnectorNormal=%s destConnectorClearanceLoc=%s"),
+		*Character->GetActorLocation().ToString(), *Character->GetActorRotation().ToString(),
+		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(), *SourceConnection->GetConnectorLocation(true).ToString(),
+		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString(), *DestConnection->GetConnectorLocation(true).ToString());
+
 	// Step 1 of the flow found live via DebugCheckConveyorSnap - fix the
 	// start point on the source's Output connection. UpdateHologramPlacement()
 	// before TrySnapToActor() is not optional: DebugCheckConveyorSnap's
@@ -2779,8 +2801,8 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 	const bool bStartStepComplete = BeltHologram->DoMultiStepPlacement(true);
 	const ESplineHologramBuildStep StepAfterStart = BeltHologram->GetCurrentBuildStep();
 
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorBelt: source=%s dest=%s after start click: stepComplete=%s step=%d"),
-		*SourceBuildableId, *DestBuildableId, bStartStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterStart));
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorBelt: source=%s dest=%s after start click: stepComplete=%s step=%d disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bStartStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterStart), *SummarizeDisqualifiers(BeltHologram));
 
 	if (bStartStepComplete)
 	{
@@ -2803,8 +2825,8 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 	const ESplineHologramBuildStep StepAfterEnd = BeltHologram->GetCurrentBuildStep();
 	const TArray<AFGBuildable*> ConnectedBuildables = BeltHologram->GetAnyConnectedBuildables();
 
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorBelt: source=%s dest=%s after end click: stepComplete=%s step=%d connectedCount=%d"),
-		*SourceBuildableId, *DestBuildableId, bEndStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterEnd), ConnectedBuildables.Num());
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorBelt: source=%s dest=%s after end click: stepComplete=%s step=%d connectedCount=%d disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bEndStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterEnd), ConnectedBuildables.Num(), *SummarizeDisqualifiers(BeltHologram));
 
 	if (!bEndStepComplete)
 	{
