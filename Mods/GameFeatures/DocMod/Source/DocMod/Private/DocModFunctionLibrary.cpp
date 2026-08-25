@@ -24,7 +24,6 @@
 #include "Components/PrimitiveComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
-#include "Misc/ScopeExit.h"
 
 namespace
 {
@@ -878,18 +877,6 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTar
 		return FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"), TEXT("SpawnHologramFromRecipe returned null"));
 	}
 
-	// This function only ever dry-runs CanConstruct() - Construct() is
-	// never called (see header comment) - so the spawned hologram is
-	// always just a scratch preview actor to be cleaned up before
-	// returning, on every exit path.
-	ON_SCOPE_EXIT
-	{
-		if (IsValid(Hologram))
-		{
-			Hologram->Destroy();
-		}
-	};
-
 	Hologram->SetConstructionInstigator(Character);
 
 	// Synthetic FHitResult - see docs/extractor-placement-research.md §2:
@@ -916,6 +903,7 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTar
 
 	if (!Hologram->IsValidHitResult(SyntheticHit))
 	{
+		Hologram->Destroy();
 		return FDocModOperationResult::Failure(TEXT("INVALID_HIT_RESULT"), TEXT("Hologram::IsValidHitResult rejected the synthetic hit result"));
 	}
 
@@ -925,41 +913,74 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTar
 	// separately.
 	Hologram->UpdateHologramPlacement(SyntheticHit);
 
-	// Found live (2026-08-24): a freshly-spawned hologram checked
-	// CanConstruct() within the same synchronous call reported a hard
-	// UFGCDInitializing disqualifier ("Initializing") - this function
-	// never lets a real World Tick reach the hologram between spawn and
-	// the check, so testing the hypothesis that some per-tick setup
-	// hasn't run yet by simulating a few ticks directly before checking.
-	for (int32 TickIndex = 0; TickIndex < 5 && IsValid(Hologram); ++TickIndex)
+	// Found live (2026-08-24): checking CanConstruct() immediately, and
+	// even after 5 manually-invoked Hologram->Tick(0.1f) calls, both
+	// reported a hard UFGCDInitializing ("Initializing") disqualifier.
+	// FGHologram.h's InitializeClearanceData()/PostInitializeClearanceData()
+	// split (:535-536) suggests clearance checking kicks off a world
+	// query - most plausibly an async overlap - that doesn't resolve
+	// within the same frame it starts in. A manually-invoked Tick() call
+	// never gives an actual engine frame boundary a chance to complete
+	// that query; polling across real World Tick cycles (via
+	// SetTimerForNextTick) does. Poll every real tick rather than
+	// blind-waiting a fixed duration, so this resolves in as few real
+	// frames as the engine actually needs - MaxPollAttempts is only a
+	// safety cap, not the expected case.
+	struct FPollState
 	{
-		Hologram->Tick(0.1f);
-	}
-	if (!IsValid(Hologram))
+		TWeakObjectPtr<AFGHologram> Hologram;
+		TWeakObjectPtr<UWorld> World;
+		FString NodeId;
+		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = Hologram;
+	PollState->World = World;
+	PollState->NodeId = TargetTelemetry.Id;
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
 	{
-		return FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram became invalid while simulating ticks"));
-	}
+		++PollState->AttemptsTaken;
 
-	const bool bCanConstruct = Hologram->CanConstruct();
-	TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
-	Hologram->GetConstructDisqualifiers(Disqualifiers);
+		AFGHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("DebugCheckExtractorPlacementOnTargetedNode (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			return;
+		}
 
-	TArray<FString> DisqualifierTexts;
-	for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
-	{
-		DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
-			*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
-			UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
-	}
-	const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
 
-	UE_LOG(LogDocModAI, Display, TEXT("DebugCheckExtractorPlacementOnTargetedNode: node=%s canConstruct=%s disqualifiers=[%s]"),
-		*TargetTelemetry.Id, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
 
-	if (!bCanConstruct)
-	{
-		return FDocModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary);
-	}
+		const bool bCanConstruct = PollHologram->CanConstruct();
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 
-	return FDocModOperationResult::Success();
+		UE_LOG(LogDocModAI, Display, TEXT("DebugCheckExtractorPlacementOnTargetedNode (deferred, resolved after %d real tick(s)): node=%s canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, *PollState->NodeId, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		PollHologram->Destroy();
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+
+	return FDocModOperationResult::Failure(TEXT("PENDING"),
+		TEXT("Scheduled - polling real ticks until UFGCDInitializing clears (or a safety cap is hit); see LogDocModAI for the real result"));
 }

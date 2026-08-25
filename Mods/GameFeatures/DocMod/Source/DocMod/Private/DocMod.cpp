@@ -207,7 +207,7 @@ void FDocModModule::RegisterConsoleCommands()
 
 	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
 		TEXT("DocMod.TestExtractorPlacement"),
-		TEXT("Dry-run only (never calls Construct(), never touches the save): spawns a Miner Mk1 hologram at the currently-targeted resource node and reports CanConstruct()'s real disqualifier list. See docs/extractor-placement-research.md."),
+		TEXT("Dry-run only (never calls Construct(), never touches the save): spawns a Miner Mk1 hologram at the currently-targeted resource node and reports CanConstruct()'s real disqualifier list. Polls real ticks until ready, then logs the result to LogDocModAI - see docs/extractor-placement-research.md."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
 			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 			{
@@ -216,11 +216,15 @@ void FDocModModule::RegisterConsoleCommands()
 					Ar.Log(TEXT("DocMod: no world available - load a level first"));
 					return;
 				}
-				Ar.Log(TEXT("DocMod: running extractor placement dry-run, see LogDocModAI for full detail..."));
+				Ar.Log(TEXT("DocMod: running extractor placement dry-run..."));
 				const FDocModOperationResult Result = UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTargetedNode(World);
 				if (Result.bSuccess)
 				{
 					Ar.Log(TEXT("DocMod: CanConstruct() = true - placement would succeed (hologram destroyed, nothing was built)"));
+				}
+				else if (Result.ErrorCode == TEXT("PENDING"))
+				{
+					Ar.Log(TEXT("DocMod: scheduled - waiting on real ticks, check LogDocModAI in a moment for the actual result"));
 				}
 				else
 				{

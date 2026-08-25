@@ -185,18 +185,31 @@ public:
 	 * no-mutation experiment. Spawns a real AFGResourceExtractorHologram
 	 * (via AFGHologram::SpawnHologramFromRecipe(Recipe_MinerMk1)) at the
 	 * currently-targeted resource node (GetTargetedResourceNode), feeds
-	 * it a synthetic FHitResult pointing at that node, and reports
+	 * it a synthetic FHitResult pointing at that node, then reports
 	 * CanConstruct()'s real disqualifier list - then destroys the
-	 * hologram before returning. Never calls Construct() - this function
-	 * cannot place a real building or touch the save. Scoped to solid
-	 * resources only (Miner Mk1) for this first experiment; liquid/gas
-	 * nodes (Water/Oil Extractor) are out of scope and return
-	 * UNSUPPORTED_RESOURCE_FORM. See docs/extractor-placement-research.md
-	 * for why this stops at CanConstruct() rather than also calling
-	 * Construct() - two load-bearing assumptions (synthetic-hit-result
-	 * snapping, and hologram construction without a real AFGBuildGun) are
-	 * still unverified against real runtime behavior, and this function
-	 * exists specifically to gather that evidence safely.
+	 * hologram. Never calls Construct() - this function cannot place a
+	 * real building or touch the save. Scoped to solid resources only
+	 * (Miner Mk1) for this first experiment; liquid/gas nodes (Water/Oil
+	 * Extractor) are out of scope and return UNSUPPORTED_RESOURCE_FORM.
+	 *
+	 * PARTIALLY ASYNCHRONOUS: all validation up through spawning the
+	 * hologram and snapping it happens synchronously and returns
+	 * immediately on failure. If that all succeeds, the actual
+	 * CanConstruct() check is deferred and polled across real engine
+	 * ticks (found live, 2026-08-24: a freshly-spawned hologram reports
+	 * a hard UFGCDInitializing disqualifier that neither an immediate
+	 * check nor several manually-invoked Tick() calls clear - it appears
+	 * to depend on a real per-frame engine cycle, plausibly an async
+	 * clearance/overlap query per FGHologram.h's
+	 * InitializeClearanceData()/PostInitializeClearanceData() split).
+	 * In that case this function returns immediately with
+	 * ErrorCode="PENDING" and the real result is logged to LogDocModAI
+	 * once polling resolves (or a safety-cap number of ticks is hit).
+	 * See docs/extractor-placement-research.md for the full trail of
+	 * evidence this function exists to gather - the two load-bearing
+	 * assumptions (synthetic-hit-result snapping, and hologram
+	 * construction without a real AFGBuildGun) are still unverified
+	 * against real runtime behavior.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DebugCheckExtractorPlacementOnTargetedNode(UObject* WorldContextObject);
