@@ -2744,13 +2744,22 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		return;
 	}
 
+	// Using FVector::UpVector for Normal/ImpactNormal here (as an
+	// arbitrary placeholder) previously produced a live
+	// "Invalid Conveyor Belt shape! (hard)" CanConstruct() failure even
+	// though both endpoints snapped cleanly (stepComplete/connectedCount
+	// looked correct) - the spline's arrive/leave tangent is evidently
+	// derived from the hit normal, so an UpVector normal on a
+	// horizontally-facing connector produced a degenerate tangent.
+	// UFGFactoryConnectionComponent::GetConnectorNormal() (GetComponentRotation().Vector())
+	// is the connector's real outward-facing direction - use that instead.
 	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection) -> FHitResult
 	{
 		FHitResult Hit;
 		Hit.Location = Connection->GetConnectorLocation();
 		Hit.ImpactPoint = Hit.Location;
-		Hit.Normal = FVector::UpVector;
-		Hit.ImpactNormal = FVector::UpVector;
+		Hit.Normal = Connection->GetConnectorNormal();
+		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
 		return Hit;
