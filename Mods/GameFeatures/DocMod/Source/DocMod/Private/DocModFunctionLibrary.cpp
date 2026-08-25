@@ -24,6 +24,8 @@
 #include "Equipment/FGBuildGun.h"
 #include "Equipment/FGBuildGunBuild.h"
 #include "CollisionQueryParams.h"
+#include "Hologram/FGWireHologram.h"
+#include "FGPowerConnectionComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
@@ -1828,4 +1830,205 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+namespace
+{
+	AFGBuildable* FindBuildableById(UWorld* World, const FString& BuildableId)
+	{
+		if (AFGBuildableSubsystem* Subsystem = AFGBuildableSubsystem::Get(World))
+		{
+			for (AFGBuildable* Candidate : Subsystem->GetAllBuildablesRef())
+			{
+				if (IsValid(Candidate) && Candidate->GetPathName() == BuildableId)
+				{
+					return Candidate;
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	// Same generic-discovery pattern CollectFactoryConnectionTelemetry
+	// uses for UFGFactoryConnectionComponent, mirrored here for power -
+	// see docs/conveyor-power-connection-research.md.
+	UFGPowerConnectionComponent* FindFreePowerConnection(AFGBuildable* Buildable)
+	{
+		TArray<UFGPowerConnectionComponent*> PowerConnections;
+		Buildable->GetComponents<UFGPowerConnectionComponent>(PowerConnections);
+		for (UFGPowerConnectionComponent* Connection : PowerConnections)
+		{
+			if (IsValid(Connection) && Connection->GetNumFreeConnections() > 0)
+			{
+				return Connection;
+			}
+		}
+		return nullptr;
+	}
+}
+
+FDocModOperationResult UDocModFunctionLibrary::DebugCheckPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	AFGBuildable* BuildableA = FindBuildableById(World, BuildableIdA);
+	if (!BuildableA)
+	{
+		return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableIdA));
+	}
+	AFGBuildable* BuildableB = FindBuildableById(World, BuildableIdB);
+	if (!BuildableB)
+	{
+		return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableIdB));
+	}
+
+	UFGPowerConnectionComponent* ConnectionA = FindFreePowerConnection(BuildableA);
+	if (!ConnectionA)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_POWER_CONNECTION"), FString::Printf(TEXT("'%s' has no free power connection component"), *BuildableIdA));
+	}
+	UFGPowerConnectionComponent* ConnectionB = FindFreePowerConnection(BuildableB);
+	if (!ConnectionB)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_POWER_CONNECTION"), FString::Printf(TEXT("'%s' has no free power connection component"), *BuildableIdB));
+	}
+
+	// Verified to exist as a real asset in Content/FactoryGame/Recipes/Buildings/
+	// (see docs/conveyor-power-connection-research.md) - the build-cost
+	// recipe for a plain power line/wire, not guessed from memory.
+	UClass* PowerLineRecipeClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PowerLine.Recipe_PowerLine_C"));
+	if (!PowerLineRecipeClass || !PowerLineRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("RECIPE_LOAD_FAILED"), TEXT("Failed to load Recipe_PowerLine as a UFGRecipe"));
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = PowerLineRecipeClass;
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null"));
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun"));
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	AFGWireHologram* WireHologram = Cast<AFGWireHologram>(Hologram);
+	if (!WireHologram)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(Recipe_PowerLine) did not result in an AFGWireHologram (got %s)"),
+				Hologram ? *Hologram->GetClass()->GetName() : TEXT("null")));
+	}
+
+	// Untested assumption being probed here (docs/conveyor-power-connection-research.md):
+	// whether SetConnection() alone is enough, or whether the real
+	// multi-step TrySnapToActor/DoMultiStepPlacement flow needs to run
+	// first. Feed a synthetic hit result at ConnectionA's location first,
+	// same pattern as every other build-gun-driven function, in case
+	// UpdateHologramPlacement is a precondition CanConstruct() depends on.
+	FHitResult SyntheticHit;
+	SyntheticHit.Location = ConnectionA->GetComponentLocation();
+	SyntheticHit.ImpactPoint = SyntheticHit.Location;
+	SyntheticHit.Normal = FVector::UpVector;
+	SyntheticHit.ImpactNormal = FVector::UpVector;
+	SyntheticHit.HitObjectHandle = FActorInstanceHandle(BuildableA);
+	// UFGPowerConnectionComponent derives from USceneComponent (via
+	// UFGCircuitConnectionComponent/UFGConnectionComponent), not
+	// UPrimitiveComponent - FHitResult::Component can't reference it
+	// directly, so it's left unset here.
+	SyntheticHit.bBlockingHit = true;
+	BuildGun->GetHitResult() = SyntheticHit;
+
+	WireHologram->SetConnection(0, ConnectionA);
+	WireHologram->SetConnection(1, ConnectionB);
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGWireHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FHitResult SyntheticHit;
+		FString BuildableIdA;
+		FString BuildableIdB;
+		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = WireHologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->SyntheticHit = SyntheticHit;
+	PollState->BuildableIdA = BuildableIdA;
+	PollState->BuildableIdB = BuildableIdB;
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGWireHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("DebugCheckPowerConnection (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			return;
+		}
+
+		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bCanConstruct = PollHologram->CanConstruct();
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogDocModAI, Display, TEXT("DebugCheckPowerConnection (deferred, resolved after %d real tick(s)): a=%s b=%s canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, *PollState->BuildableIdA, *PollState->BuildableIdB, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+
+	return FDocModOperationResult::Failure(TEXT("PENDING"),
+		TEXT("Scheduled via the real build gun - dry-run only, never constructs; see LogDocModAI for the real result"));
 }

@@ -351,4 +351,33 @@ public:
 	 * wire.
 	 */
 	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, TFunction<void(const FDocModOperationResult&)> OnComplete);
+
+	/**
+	 * PLAN.md Phase 13/14: dry-run only, no-mutation experiment toward
+	 * conveyor/power connections (see docs/conveyor-power-connection-research.md).
+	 * Given two ALREADY-PLACED buildables (by session-local id, e.g. from
+	 * ConstructBuildingAtPosition's result.buildableId), finds a free
+	 * UFGPowerConnectionComponent on each (via generic
+	 * Buildable->GetComponents<>(), the same pattern already proven for
+	 * factory connections), spawns a real AFGWireHologram (via
+	 * HotKeyRecipe(Recipe_PowerLine)), calls its public
+	 * SetConnection(0/1, ...) with both components, and reports
+	 * CanConstruct()'s real disqualifier list. Never calls Construct() -
+	 * this cannot place a real wire or touch the save, same safety
+	 * posture as DebugCheckExtractorPlacementOnTargetedNode.
+	 *
+	 * Exists specifically to test the untested assumption in
+	 * docs/conveyor-power-connection-research.md: whether SetConnection()
+	 * alone is sufficient, or whether AFGWireHologram's private
+	 * CheckValidSnap()/CheckLength() need the real multi-step
+	 * TrySnapToActor/DoMultiStepPlacement flow to have run first to
+	 * populate some other internal state SetConnection() alone doesn't.
+	 *
+	 * Same PARTIALLY ASYNCHRONOUS behavior as the other build-gun-driven
+	 * dry-run functions (ErrorCode="PENDING" while polling, real result
+	 * logged to LogDocModAI once resolved) and the same visible
+	 * build-gun-equip side effect.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult DebugCheckPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB);
 };

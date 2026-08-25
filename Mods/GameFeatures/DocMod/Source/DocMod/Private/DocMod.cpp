@@ -313,6 +313,35 @@ void FDocModModule::RegisterConsoleCommands()
 				}
 			}),
 		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.TestPowerConnection"),
+		TEXT("Dry-run only (never constructs, never touches the save): args <buildableIdA> <buildableIdB> (session-local ids, e.g. from a prior placement's result.buildableId). Attempts to wire their power connections and reports CanConstruct(). See docs/conveyor-power-connection-research.md."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World)
+				{
+					Ar.Log(TEXT("DocMod: no world available - load a level first"));
+					return;
+				}
+				if (Args.Num() < 2 || Args[0].IsEmpty() || Args[1].IsEmpty())
+				{
+					Ar.Log(TEXT("DocMod: usage - DocMod.TestPowerConnection <buildableIdA> <buildableIdB>"));
+					return;
+				}
+				Ar.Log(TEXT("DocMod: running power connection dry-run via the real build gun (will briefly equip it)..."));
+				const FDocModOperationResult Result = UDocModFunctionLibrary::DebugCheckPowerConnection(World, Args[0], Args[1]);
+				if (Result.ErrorCode == TEXT("PENDING"))
+				{
+					Ar.Log(TEXT("DocMod: scheduled - check LogDocModAI in a moment for the actual result"));
+				}
+				else
+				{
+					Ar.Log(FString::Printf(TEXT("DocMod: not attempted - %s: %s"), *Result.ErrorCode, *Result.ErrorMessage));
+				}
+			}),
+		ECVF_Default));
 }
 
 void FDocModModule::UnregisterConsoleCommands()
