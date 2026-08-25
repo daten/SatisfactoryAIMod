@@ -925,6 +925,21 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTar
 	// separately.
 	Hologram->UpdateHologramPlacement(SyntheticHit);
 
+	// Found live (2026-08-24): a freshly-spawned hologram checked
+	// CanConstruct() within the same synchronous call reported a hard
+	// UFGCDInitializing disqualifier ("Initializing") - this function
+	// never lets a real World Tick reach the hologram between spawn and
+	// the check, so testing the hypothesis that some per-tick setup
+	// hasn't run yet by simulating a few ticks directly before checking.
+	for (int32 TickIndex = 0; TickIndex < 5 && IsValid(Hologram); ++TickIndex)
+	{
+		Hologram->Tick(0.1f);
+	}
+	if (!IsValid(Hologram))
+	{
+		return FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram became invalid while simulating ticks"));
+	}
+
 	const bool bCanConstruct = Hologram->CanConstruct();
 	TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 	Hologram->GetConstructDisqualifiers(Disqualifiers);
