@@ -221,7 +221,10 @@ the same physical link seen from the other end).
     {
       "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C",
       "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
-      "speed": 0.0
+      "speed": 0.0,
+      "maxSplineLength": 5600.1,
+      "bendRadius": 0.0,
+      "maxInclineDegrees": 0.0
     }
   ]
 }
@@ -242,11 +245,25 @@ until a live comparison against the game's own displayed
 items-per-minute figures confirms the exact conversion. A tier whose
 class fails to resolve is simply omitted, not a hard error.
 
-`controller/satisfactory_ai/conveyors.py`'s `select_cheapest_sufficient_tier()`
-is a small toolkit function (not a solver) for picking the cheapest
-tier meeting a minimum speed from an already-queried tier list — the
-caller decides what the minimum should be and validates the chosen
-recipe live, same posture as `satisfactory_ai.layout`.
+`maxSplineLength`/`bendRadius` (`AFGConveyorBeltHologram`'s public
+`GetMaxSplineLength()`/`GetBendRadius()`) and `maxInclineDegrees`
+(`mMaxIncline`, degrees — no public getter, read via a single
+hardcoded reflection lookup) come from the belt's **hologram** class
+CDO, a different descriptor accessor than the buildable class `speed`
+is read from. A field is simply omitted (not a hard error) for any
+tier whose hologram class doesn't resolve.
+
+`controller/satisfactory_ai/conveyors.py` has three small toolkit
+functions (not a solver) built on this data: `select_cheapest_sufficient_tier()`
+picks the cheapest tier meeting a minimum speed;
+`is_straight_segment_feasible()` checks a candidate straight segment's
+distance/incline against a tier's limits before attempting it;
+`compute_waypoint_positions()` computes evenly-spaced candidate anchor
+points for chaining multiple belt segments (via intermediate
+`Recipe_ConveyorPole` placements — confirmed present on disk, not yet
+live-tested) when a route is too long or steep for one segment. The
+caller decides all thresholds and validates the result live — same
+posture as `satisfactory_ai.layout`.
 
 ## targetedManufacturer (`method: "world.targetedManufacturer"`)
 

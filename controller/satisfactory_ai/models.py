@@ -9,6 +9,7 @@ Kept in sync by hand for now; there is no schema-generation step.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 VALID_PURITIES = frozenset({"Impure", "Normal", "Pure"})
 VALID_CONNECTION_DIRECTIONS = frozenset({"Input", "Output", "Any", "SnapOnly"})
@@ -144,11 +145,23 @@ class ConveyorBeltTier:
     own displayed items-per-minute numbers confirms the exact
     conversion. See docs/telemetry-protocol.md's conveyorBeltTiers
     section.
+
+    max_spline_length/bend_radius/max_incline_degrees (added
+    2026-08-25, may be None if the mod couldn't resolve that tier's
+    hologram class) are the real per-tier limits
+    (AFGConveyorBeltHologram::GetMaxSplineLength()/GetBendRadius(), and
+    mMaxIncline read via reflection since it has no public getter) -
+    use these with satisfactory_ai.conveyors to check whether a
+    straight single-segment belt can reach between two connectors
+    before attempting it.
     """
 
     recipe_class: str
     buildable_class: str
     speed: float
+    max_spline_length: Optional[float] = None
+    bend_radius: Optional[float] = None
+    max_incline_degrees: Optional[float] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "ConveyorBeltTier":
@@ -156,4 +169,7 @@ class ConveyorBeltTier:
             recipe_class=data["recipeClass"],
             buildable_class=data["buildableClass"],
             speed=float(data["speed"]),
+            max_spline_length=float(data["maxSplineLength"]) if "maxSplineLength" in data else None,
+            bend_radius=float(data["bendRadius"]) if "bendRadius" in data else None,
+            max_incline_degrees=float(data["maxInclineDegrees"]) if "maxInclineDegrees" in data else None,
         )

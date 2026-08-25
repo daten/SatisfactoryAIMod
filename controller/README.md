@@ -30,11 +30,16 @@ contains:
   Smelter/Constructor belt-routing session, not synthetic numbers — see
   `tests/test_layout.py`.
 - `satisfactory_ai/conveyors.py` — same toolkit posture, for belt tier
-  selection: `select_cheapest_sufficient_tier()` picks the cheapest of
-  an already-queried `ConveyorBeltTier` list meeting a minimum speed.
-  Does not fetch telemetry or call any RPC - the caller decides the
-  minimum and validates the chosen recipe live. See
-  `ConveyorBeltTier`'s doc comment (`models.py`) for why `speed` is
+  selection and multi-segment routing: `select_cheapest_sufficient_tier()`
+  picks the cheapest of an already-queried `ConveyorBeltTier` list
+  meeting a minimum speed; `is_straight_segment_feasible()` checks a
+  candidate segment's distance/incline against a tier's real limits;
+  `compute_waypoint_positions()` computes candidate anchor points for
+  chaining segments (via intermediate `Recipe_ConveyorPole`
+  placements) when a route is too long or steep for one segment. None
+  of these fetch telemetry, call any RPC, or choose a route on their
+  own - the caller decides thresholds and validates the result live.
+  See `ConveyorBeltTier`'s doc comment (`models.py`) for why `speed` is
   FactoryGame's own raw queried value, not an assumed items-per-minute
   figure.
 
