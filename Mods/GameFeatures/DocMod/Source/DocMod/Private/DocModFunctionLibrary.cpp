@@ -26,6 +26,7 @@
 #include "CollisionQueryParams.h"
 #include "Hologram/FGWireHologram.h"
 #include "FGPowerConnectionComponent.h"
+#include "Hologram/FGConveyorBeltHologram.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
@@ -1915,6 +1916,23 @@ namespace
 		}
 		return nullptr;
 	}
+
+	// Same pattern as FindFreePowerConnection, for the conveyor-belt
+	// snap-target experiment - matches the given direction (Output for
+	// the belt's start point) and isn't already connected.
+	UFGFactoryConnectionComponent* FindFreeFactoryConnection(AFGBuildable* Buildable, EFactoryConnectionDirection Direction)
+	{
+		TArray<UFGFactoryConnectionComponent*> Connections;
+		Buildable->GetComponents<UFGFactoryConnectionComponent>(Connections);
+		for (UFGFactoryConnectionComponent* Connection : Connections)
+		{
+			if (IsValid(Connection) && Connection->GetDirection() == Direction && !Connection->IsConnected())
+			{
+				return Connection;
+			}
+		}
+		return nullptr;
+	}
 }
 
 FDocModOperationResult UDocModFunctionLibrary::DebugCheckPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB)
@@ -2519,4 +2537,100 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+FDocModOperationResult UDocModFunctionLibrary::DebugCheckConveyorSnap(UObject* WorldContextObject, const FString& SourceBuildableId)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	AFGBuildable* SourceBuildable = FindBuildableById(World, SourceBuildableId);
+	if (!SourceBuildable)
+	{
+		return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *SourceBuildableId));
+	}
+
+	UFGFactoryConnectionComponent* SourceConnection = FindFreeFactoryConnection(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT);
+	if (!SourceConnection)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"), FString::Printf(TEXT("'%s' has no free Output factory connection component"), *SourceBuildableId));
+	}
+
+	UClass* BeltRecipeClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C"));
+	if (!BeltRecipeClass || !BeltRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("RECIPE_LOAD_FAILED"), TEXT("Failed to load Recipe_ConveyorBeltMk1 as a UFGRecipe"));
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = BeltRecipeClass;
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null"));
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun"));
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	AFGConveyorBeltHologram* BeltHologram = Cast<AFGConveyorBeltHologram>(Hologram);
+	if (!BeltHologram)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(Recipe_ConveyorBeltMk1) did not result in an AFGConveyorBeltHologram (got %s)"),
+				Hologram ? *Hologram->GetClass()->GetName() : TEXT("null")));
+	}
+
+	const ESplineHologramBuildStep StepBefore = BeltHologram->GetCurrentBuildStep();
+
+	// The single, isolated experiment - see this function's header
+	// comment for why this stops here rather than driving the full
+	// multi-step sequence.
+	FHitResult SyntheticHit;
+	SyntheticHit.Location = SourceConnection->GetConnectorLocation();
+	SyntheticHit.ImpactPoint = SyntheticHit.Location;
+	SyntheticHit.Normal = FVector::UpVector;
+	SyntheticHit.ImpactNormal = FVector::UpVector;
+	SyntheticHit.HitObjectHandle = FActorInstanceHandle(SourceBuildable);
+	SyntheticHit.bBlockingHit = true;
+
+	const bool bSnapped = BeltHologram->TrySnapToActor(SyntheticHit);
+	const ESplineHologramBuildStep StepAfter = BeltHologram->GetCurrentBuildStep();
+	const bool bConnectionSnapped = BeltHologram->IsConnectionSnapped(false);
+	const TArray<AFGBuildable*> ConnectedBuildables = BeltHologram->GetAnyConnectedBuildables();
+
+	UE_LOG(LogDocModAI, Display, TEXT("DebugCheckConveyorSnap: source=%s connectorLocation=%s TrySnapToActor()=%s stepBefore=%d stepAfter=%d IsConnectionSnapped(false)=%s connectedBuildableCount=%d"),
+		*SourceBuildableId, *SyntheticHit.Location.ToString(),
+		bSnapped ? TEXT("true") : TEXT("false"),
+		static_cast<int32>(StepBefore), static_cast<int32>(StepAfter),
+		bConnectionSnapped ? TEXT("true") : TEXT("false"),
+		ConnectedBuildables.Num());
+
+	// Never calls DoMultiStepPlacement/CanConstruct/Construct - this
+	// hologram is just a scratch actor to be cleaned up now.
+	Character->UnequipBuildGun();
+
+	if (!bSnapped)
+	{
+		return FDocModOperationResult::Failure(TEXT("SNAP_FAILED"), TEXT("TrySnapToActor() returned false"));
+	}
+
+	return FDocModOperationResult::Success();
 }

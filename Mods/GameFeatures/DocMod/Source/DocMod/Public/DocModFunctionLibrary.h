@@ -436,4 +436,24 @@ public:
 	 * may correctly reflect that, not indicate a bug.
 	 */
 	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
+
+	/**
+	 * PLAN.md Phase 13/14: the smallest possible conveyor belt
+	 * experiment - deliberately NOT a full placement attempt. Per
+	 * docs/conveyor-power-connection-research.md's plan ("start even
+	 * smaller: confirm a single TrySnapToActor call can fix a start
+	 * point before attempting the full sequence"), this spawns a real
+	 * AFGConveyorBeltHologram (via HotKeyRecipe(Recipe_ConveyorBeltMk1)),
+	 * finds a free Output UFGFactoryConnectionComponent on
+	 * SourceBuildableId, feeds a synthetic FHitResult at that
+	 * connection's location, calls TrySnapToActor() ONCE, and reports
+	 * whether it returned true and what GetCurrentBuildStep() is
+	 * afterward - unlike belts/wires/buildings elsewhere in this file,
+	 * this does NOT drive DoMultiStepPlacement or check CanConstruct(),
+	 * because whether a single snap even works at all is the open
+	 * question being tested. No polling, no construction, nothing
+	 * deferred - reports synchronously. Never touches the save.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult DebugCheckConveyorSnap(UObject* WorldContextObject, const FString& SourceBuildableId);
 };

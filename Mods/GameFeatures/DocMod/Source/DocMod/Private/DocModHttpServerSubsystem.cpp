@@ -235,6 +235,30 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		}
 	}
 
+	// Synchronous, unlike the placement/power methods below - DebugCheckConveyorSnap
+	// never polls, it's a single-call experiment (see its own doc comment).
+	if (Method == TEXT("world.testConveyorSnap"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId must be a non-empty string")));
+			return true;
+		}
+
+		const FDocModOperationResult Result = UDocModFunctionLibrary::DebugCheckConveyorSnap(GetGameInstance(), SourceBuildableId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// PLAN.md Phase 13/14: genuinely asynchronous - ConstructBuildingAtPosition's
 	// OnComplete may fire well after this function returns (real-tick
 	// polling, typically 1 tick but up to a ~2s safety cap). Per
