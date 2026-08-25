@@ -387,11 +387,17 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
   flag flip. A `Build_MinerMk1` genuinely exists on the targeted node
   now. See `docs/buildgun-driven-placement-research.md`'s "First real
   building placement" section.
-- **Still not verified**: whether the constructed Miner survives a save/
-  reload, whether it shows up correctly in `world.buildables`/
-  `world.connections` telemetry (run `DocMod.Buildables` or hit
-  `world.buildables` to check), and whether it's actually producing (not
-  just occupying the node) once it has power/is otherwise eligible.
+- **Save/reload survival and telemetry visibility CONFIRMED (2026-08-25).**
+  A `ConstructBuildingNearPlayer`-built Constructor Mk1 survived a full
+  save/exit/reload and correctly appeared in `world.buildables` at its
+  exact built position (`X=-54853.1 Y=160796.7 Z=3341.4`, matched to the
+  fractional unit) - confirms proper `AddBuildable` registration, not a
+  floating unregistered actor. (Tested via the generalized command, not
+  the Miner specifically, but exercises the identical
+  `InternalConstructHologram` path both share.) Still not checked:
+  whether a placed extractor is actually producing (not just occupying
+  the node) once powered - lower priority, registration/persistence was
+  the real open question.
 
 ### 11. Generalized building placement (`DocMod.PlaceBuildingNearPlayer`)
 
@@ -412,7 +418,12 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
   are explicitly out of scope for this function - if tried, expect
   either `HOLOGRAM_SPAWN_FAILED` or genuinely undefined behavior, not a
   supported case.
-- **Not yet tested at all** - first real test of this generalized path.
+- **CONFIRMED WORKING (2026-08-25)**, including the placement-accuracy
+  fix (`docs/buildgun-driven-placement-research.md`'s "§3 correction"):
+  a Constructor Mk1 built via this command matched its computed
+  ground-trace candidate to within a unit, then survived save/reload and
+  showed up correctly in `world.buildables`. See the Confirmed section
+  below.
 
 ---
 
@@ -623,3 +634,28 @@ User launched a fresh session, tried F6 (no effect), then manually ran
   `netstat -an | findstr 51902`** to check whether the socket itself is
   now loopback-only, and ideally test an actual request from another
   device on the LAN to confirm it gets `403 FORBIDDEN`.
+
+### 2026-08-25 — placement-override fix confirmed, netstat re-checked, save/reload confirmed
+
+Three follow-ups from the prior session, all resolved:
+
+- **Placement-override fix confirmed live.** `DocMod.PlaceBuildingNearPlayer`
+  (Constructor Mk1): ground-trace candidate `X=-54853.050 Y=160796.653
+  Z=3337.826`, actual constructed location `X=-54853.103 Y=160796.700
+  Z=3341.401` - matching to within a unit. Every pre-fix test had
+  diverged by hundreds to thousands of units (up to ~4000/40m), so this
+  is strong confirmation `AFGHologram::UpdateHologramPlacement()`
+  re-asserted every poll tick genuinely overrides the build gun's own
+  live-aim trace. See `docs/buildgun-driven-placement-research.md`'s
+  "Confirmed live (2026-08-25)" note.
+- **`netstat` re-checked - still `0.0.0.0:51902`.** The plugin-level ini
+  fix from the prior session (item (2) above) does **not** work - root
+  cause still unknown. Item (1), the application-layer `PeerAddress`
+  check, is unaffected and remains the real protection. Still not
+  tested: an actual cross-machine LAN request to confirm `403 FORBIDDEN`.
+- **Save/reload survival and telemetry visibility confirmed.** The
+  Constructor Mk1 built above survived a full save/exit/reload and
+  appeared correctly in `world.buildables` at its exact built position
+  (`X=-54853.1 Y=160796.7 Z=3341.4`, matching to the fractional unit) -
+  confirms proper `AddBuildable` registration via the real
+  `InternalConstructHologram` path, not a floating unregistered actor.
