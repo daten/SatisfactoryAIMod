@@ -28,6 +28,7 @@
 #include "FGPowerConnectionComponent.h"
 #include "Hologram/FGConveyorBeltHologram.h"
 #include "Buildables/FGBuildableConveyorBase.h"
+#include "Buildables/FGBuildableWire.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
@@ -3167,6 +3168,43 @@ FString UDocModFunctionLibrary::LogConveyorBeltTiersAsJson(UObject* WorldContext
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogConveyorBeltTiersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+FString UDocModFunctionLibrary::LogPowerLineLimitsAsJson(UObject* WorldContextObject)
+{
+	// Read-only telemetry, no World/player needed - see this function's
+	// header doc comment for why mMaxLength/mMaxPowerTowerLength/
+	// mLengthPerCost are plain public member reads (real, documented-unit
+	// UPROPERTYs), unlike the belt tier data's reflection-based
+	// mMaxIncline read.
+	static const TCHAR* PowerLineRecipePath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PowerLine.Recipe_PowerLine_C");
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+
+	const TSubclassOf<AFGBuildable> BuildableClass = ResolveBuildableClassForRecipe(PowerLineRecipePath);
+	const AFGBuildableWire* WireCDO = BuildableClass ? Cast<AFGBuildableWire>(BuildableClass->GetDefaultObject()) : nullptr;
+	if (WireCDO)
+	{
+		RootObject->SetStringField(TEXT("recipeClass"), PowerLineRecipePath);
+		RootObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
+		RootObject->SetNumberField(TEXT("maxLength"), WireCDO->mMaxLength);
+		RootObject->SetNumberField(TEXT("maxPowerTowerLength"), WireCDO->mMaxPowerTowerLength);
+		RootObject->SetNumberField(TEXT("lengthPerCost"), WireCDO->mLengthPerCost);
+	}
+	else
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("LogPowerLineLimitsAsJson: could not resolve a AFGBuildableWire CDO for '%s'"), PowerLineRecipePath);
+	}
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogPowerLineLimitsAsJson: %s"), *JsonString);
 
 	return JsonString;
 }

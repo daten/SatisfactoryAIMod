@@ -656,4 +656,38 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogConveyorBeltTiersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Telemetry, not a mutation - same LogXAsJson convention as
+	 * LogConveyorBeltTiersAsJson.
+	 *
+	 * Returns Recipe_PowerLine's buildable class (AFGBuildableWire) CDO's
+	 * mMaxLength/mMaxPowerTowerLength/mLengthPerCost - all three are
+	 * PUBLIC EditDefaultsOnly UPROPERTYs with a documented unit ("[cm]"
+	 * per FGBuildableWire.h's own doc comments), unlike the belt tier
+	 * data's ambiguous-unit GetSpeed() - no reflection needed, this is a
+	 * plain public member read. Added 2026-08-25 directly motivated by
+	 * the user's question about whether power (like conveyors) needs
+	 * distance-limit/intermediate-pole handling - it does, and this is
+	 * the real number to check a candidate connection's distance
+	 * against. Only one power line tier exists in this game (no Mk1..N
+	 * like belts), so this returns a single flat object, not an array.
+	 *
+	 * ConstructPowerConnection/world.connectPower's source/dest were
+	 * already generic (FindFreePowerConnection searches any AFGBuildable
+	 * for a free UFGPowerConnectionComponent via GetComponents<>(), not
+	 * hardcoded to machines) - a real power pole
+	 * (Recipe_PowerPoleMk1/Mk2/Mk3, confirmed present on disk) should
+	 * therefore already work as an intermediate relay for a connection
+	 * exceeding mMaxLength, chaining multiple world.connectPower calls,
+	 * with NO C++ changes needed for that part - only untested live
+	 * (every power connection built so far has been one direct
+	 * machine-to-machine segment). See docs/conveyor-power-connection-research.md's
+	 * pole-vs-daisy-chain note: a machine's default single power slot
+	 * may require routing through a pole even for a SHORT connection if
+	 * the daisy-chain unlock isn't active in the current save, separate
+	 * from the mMaxLength distance question entirely.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPowerLineLimitsAsJson(UObject* WorldContextObject);
 };

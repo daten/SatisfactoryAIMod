@@ -41,8 +41,10 @@ struct FHttpServerRequest;
  * "world.conveyorBeltTiers" (each of Recipe_ConveyorBeltMk1..Mk6's real
  * queried AFGBuildableConveyorBase::GetSpeed() - see
  * LogConveyorBeltTiersAsJson's doc comment on why this is NOT a hardcoded
- * items-per-minute table), "world.targetedManufacturer" (whatever
- * manufacturer the local player
+ * items-per-minute table), "world.powerLineLimits" (Recipe_PowerLine's
+ * real mMaxLength/mMaxPowerTowerLength/mLengthPerCost, in cm - see
+ * LogPowerLineLimitsAsJson's doc comment), "world.targetedManufacturer"
+ * (whatever manufacturer the local player
  * is currently looking at - "manufacturer":null if none). Write methods
  * (PLAN.md Phase 12, take a "params" object): "world.setClockSpeed"
  * ({"buildableId","clockSpeedPercent"}), "world.setRecipe"

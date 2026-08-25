@@ -495,6 +495,10 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogConveyorBeltTiersAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.powerLineLimits"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogPowerLineLimitsAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.targetedManufacturer"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogTargetedManufacturerAsJson(GetGameInstance());
