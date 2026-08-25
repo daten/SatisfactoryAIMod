@@ -856,6 +856,18 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTar
 			TEXT("This experiment only supports solid resource nodes (Miner Mk1) so far"));
 	}
 
+	// Diagnostic: IFGExtractableResourceInterface (FGExtractableResourceInterface.h,
+	// which AFGResourceNodeBase implements - same interface IsOccupied()
+	// above already calls) exposes a node-level "can an extractor even go
+	// here" check, independent of the hologram's own clearance system
+	// (already confirmed working - see the clearanceDetector diagnostic
+	// added earlier). If this reports false, the real answer is here, not
+	// in anything hologram-related.
+	UE_LOG(LogDocModAI, Display, TEXT("DebugCheckExtractorPlacementOnTargetedNode: node diagnostics - CanPlaceResourceExtractor=%s HasAnyResources=%s CanBecomeOccupied=%s"),
+		TargetNode->CanPlaceResourceExtractor() ? TEXT("true") : TEXT("false"),
+		TargetNode->HasAnyResources() ? TEXT("true") : TEXT("false"),
+		TargetNode->CanBecomeOccupied() ? TEXT("true") : TEXT("false"));
+
 	// Verified to exist as a real asset in Content/FactoryGame/Recipes/Buildings/
 	// (not guessed from memory - see docs/extractor-placement-research.md).
 	// This is the building's BUILD-COST recipe (what it costs to
@@ -885,11 +897,24 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTar
 	// load-bearing unverified assumption in this whole experiment -
 	// whether a synthetic (non-traced) hit result produces correct
 	// snapping is exactly what this function exists to find out.
+	// Use the interface's own placement helpers rather than the node's
+	// raw actor location/no rotation - FGExtractableResourceInterface.h's
+	// own doc comments say these are "used by holograms to get the
+	// correct location/rotation for snapping when placed on this
+	// extractable resource," which is a closer match to what a real
+	// AFGBuildGun-produced hit result would carry than a raw actor
+	// transform.
+	const FVector RawLocation = TargetNode->GetActorLocation();
+	const FVector PlacementLocation = TargetNode->GetPlacementLocation(RawLocation);
+	const FRotator PlacementRotation = TargetNode->GetPlacementRotation(RawLocation);
+	UE_LOG(LogDocModAI, Display, TEXT("DebugCheckExtractorPlacementOnTargetedNode: rawLocation=%s placementLocation=%s placementRotation=%s"),
+		*RawLocation.ToString(), *PlacementLocation.ToString(), *PlacementRotation.ToString());
+
 	FHitResult SyntheticHit;
-	SyntheticHit.Location = TargetNode->GetActorLocation();
-	SyntheticHit.ImpactPoint = TargetNode->GetActorLocation();
-	SyntheticHit.Normal = FVector::UpVector;
-	SyntheticHit.ImpactNormal = FVector::UpVector;
+	SyntheticHit.Location = PlacementLocation;
+	SyntheticHit.ImpactPoint = PlacementLocation;
+	SyntheticHit.Normal = PlacementRotation.RotateVector(FVector::UpVector);
+	SyntheticHit.ImpactNormal = SyntheticHit.Normal;
 	SyntheticHit.HitObjectHandle = FActorInstanceHandle(TargetNode);
 	SyntheticHit.bBlockingHit = true;
 	if (UPrimitiveComponent* NodePrimitive = Cast<UPrimitiveComponent>(TargetNode->GetRootComponent()))
