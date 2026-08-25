@@ -587,6 +587,44 @@ public:
 	 * doesn't, the real result will report exactly that rather than
 	 * guessing further blindly. Not a UFUNCTION - same reason as the
 	 * other async entry points.
+	 *
+	 * RecipeClassPath (2026-08-25, was hardcoded to Recipe_ConveyorBeltMk1
+	 * before this): any of Recipe_ConveyorBeltMk1..Mk6 (all six exist on
+	 * disk, confirmed) resolve the same way ConstructBuildingAtPosition's
+	 * recipe param does - loaded and required to be a real UFGRecipe.
+	 * Belt tier selection by desired throughput is deliberately NOT done
+	 * here or anywhere in DocMod - see GetConveyorBeltSpeed/
+	 * "world.conveyorBeltSpeed" for the real, per-tier
+	 * AFGBuildableConveyorBase::GetSpeed() value (queried live from each
+	 * class's CDO, not a hardcoded/assumed items-per-minute table) and
+	 * controller/satisfactory_ai/layout.py for where a rate->tier
+	 * decision should live instead, per this project's established
+	 * toolkit-not-solver direction.
 	 */
-	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
+
+	/**
+	 * Telemetry, not a mutation - follows the LogXAsJson return-a-JSON-
+	 * string convention used elsewhere in this file (world.resourceNodes/
+	 * world.buildables/etc.), not FDocModOperationResult.
+	 *
+	 * Returns AFGBuildableConveyorBase::GetSpeed() for the buildable
+	 * class each of Recipe_ConveyorBeltMk1..Mk6 produces, read live from
+	 * each class's CDO (LoadObject + GetDefaultObject) - not a hardcoded
+	 * or assumed table. Added 2026-08-25 so belt-tier selection can be
+	 * based on real queried data instead of remembered/assumed
+	 * items-per-minute figures. NOTE: GetSpeed() is FactoryGame's own
+	 * internal conveyor simulation speed (unit unconfirmed from source -
+	 * AFGBuildableConveyorBase.h only comments it as "Speed of this
+	 * conveyor", no unit given) - this is NOT necessarily
+	 * items-per-minute directly. Treat the returned values as
+	 * relative/comparable across tiers (useful for "pick the belt whose
+	 * speed is at least this multiple of Mk1's" reasoning) until/unless
+	 * a live comparison against the game's own displayed
+	 * items-per-minute figures confirms the exact conversion - a recipe
+	 * whose class fails to load is simply omitted from the result, not
+	 * a hard error, so this still reports on whichever tiers succeed.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogConveyorBeltTiersAsJson(UObject* WorldContextObject);
 };

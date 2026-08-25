@@ -27,6 +27,7 @@
 #include "Hologram/FGWireHologram.h"
 #include "FGPowerConnectionComponent.h"
 #include "Hologram/FGConveyorBeltHologram.h"
+#include "Buildables/FGBuildableConveyorBase.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
@@ -3053,7 +3054,55 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckConveyorSnap(UObject* W
 	return FDocModOperationResult::Success();
 }
 
-void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete)
+FString UDocModFunctionLibrary::LogConveyorBeltTiersAsJson(UObject* WorldContextObject)
+{
+	// Read-only telemetry, no World/player needed - just resolves each
+	// recipe -> buildable class -> CDO and reads GetSpeed() off it.
+	// Reuses ResolveBuildableClassForRecipe (anonymous namespace above),
+	// the same recipe->buildable-class resolution
+	// ConstructBuildingAtPosition's lightweight-instance fallback uses.
+	static const TCHAR* TierRecipePaths[] = {
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk2.Recipe_ConveyorBeltMk2_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk3.Recipe_ConveyorBeltMk3_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk4.Recipe_ConveyorBeltMk4_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk5.Recipe_ConveyorBeltMk5_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk6.Recipe_ConveyorBeltMk6_C"),
+	};
+
+	TArray<TSharedPtr<FJsonValue>> TierJsonArray;
+	for (const TCHAR* RecipePath : TierRecipePaths)
+	{
+		const TSubclassOf<AFGBuildable> BuildableClass = ResolveBuildableClassForRecipe(RecipePath);
+		const AFGBuildableConveyorBase* BeltCDO = BuildableClass ? Cast<AFGBuildableConveyorBase>(BuildableClass->GetDefaultObject()) : nullptr;
+		if (!BeltCDO)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("LogConveyorBeltTiersAsJson: could not resolve a AFGBuildableConveyorBase CDO for '%s' - omitting"), RecipePath);
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> TierObject = MakeShared<FJsonObject>();
+		TierObject->SetStringField(TEXT("recipeClass"), RecipePath);
+		TierObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
+		TierObject->SetNumberField(TEXT("speed"), BeltCDO->GetSpeed());
+		TierJsonArray.Add(MakeShared<FJsonValueObject>(TierObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("tiers"), TierJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogConveyorBeltTiersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -3095,10 +3144,15 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		return;
 	}
 
-	UClass* BeltRecipeClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C"));
+	// Caller-chosen belt tier (2026-08-25) - was hardcoded to
+	// Recipe_ConveyorBeltMk1 before this; any of Recipe_ConveyorBeltMk1..Mk6
+	// resolve the same way. Same validation posture as
+	// ConstructBuildingAtPosition's RecipeClassPath - not a generic
+	// "load any class" capability, just requires a real UFGRecipe.
+	UClass* BeltRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
 	if (!BeltRecipeClass || !BeltRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
 	{
-		OnComplete(FDocModOperationResult::Failure(TEXT("RECIPE_LOAD_FAILED"), TEXT("Failed to load Recipe_ConveyorBeltMk1 as a UFGRecipe")));
+		OnComplete(FDocModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
 		return;
 	}
 	const TSubclassOf<UFGRecipe> RecipeClass = BeltRecipeClass;
@@ -3127,8 +3181,8 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 	{
 		Character->UnequipBuildGun();
 		OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
-			FString::Printf(TEXT("HotKeyRecipe(Recipe_ConveyorBeltMk1) did not result in an AFGConveyorBeltHologram (got %s)"),
-				Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
+			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGConveyorBeltHologram (got %s)"),
+				*RecipeClassPath, Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
 		return;
 	}
 

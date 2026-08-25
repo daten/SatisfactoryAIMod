@@ -38,7 +38,11 @@ struct FHttpServerRequest;
  * malformed JSON, enforce a message-size limit, never deserialize
  * arbitrary executable objects. Read-only methods: "world.resourceNodes",
  * "world.buildables", "world.manufacturers", "world.connections",
- * "world.targetedManufacturer" (whatever manufacturer the local player
+ * "world.conveyorBeltTiers" (each of Recipe_ConveyorBeltMk1..Mk6's real
+ * queried AFGBuildableConveyorBase::GetSpeed() - see
+ * LogConveyorBeltTiersAsJson's doc comment on why this is NOT a hardcoded
+ * items-per-minute table), "world.targetedManufacturer" (whatever
+ * manufacturer the local player
  * is currently looking at - "manufacturer":null if none). Write methods
  * (PLAN.md Phase 12, take a "params" object): "world.setClockSpeed"
  * ({"buildableId","clockSpeedPercent"}), "world.setRecipe"
@@ -68,7 +72,9 @@ struct FHttpServerRequest;
  * save) and "world.connectPower" (real - both
  * {"buildableIdA","buildableIdB"}), "world.testConveyorBelt" (dry run) and
  * "world.connectConveyor" (real - both
- * {"sourceBuildableId","destBuildableId"}) (PLAN.md Phase 13/14) are
+ * {"sourceBuildableId","destBuildableId"}, plus optional "recipeClass"
+ * (default Recipe_ConveyorBeltMk1 - any of Mk1..Mk6, see
+ * "world.conveyorBeltTiers" above to pick by real queried speed)) (PLAN.md Phase 13/14) are
  * GENUINELY ASYNCHRONOUS methods - UDocModFunctionLibrary::ConstructBuildingAtPosition/
  * ConstructExtractorOnNode/ConstructPowerConnection/ConstructConveyorBelt's completion callback may fire well after
  * HandleRpcRequest returns (real-tick polling to resolve

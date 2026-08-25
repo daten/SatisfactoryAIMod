@@ -453,8 +453,18 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 			return true;
 		}
 
+		// Optional, defaults to Mk1 (the prior hardcoded-only behavior) -
+		// see ConstructConveyorBelt's doc comment. Any of
+		// Recipe_ConveyorBeltMk1..Mk6 - see world.conveyorBeltTiers for
+		// each tier's real queried GetSpeed().
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C");
+		}
+
 		const bool bDryRun = Method == TEXT("world.testConveyorBelt");
-		UDocModFunctionLibrary::ConstructConveyorBelt(GetGameInstance(), SourceBuildableId, DestBuildableId, bDryRun,
+		UDocModFunctionLibrary::ConstructConveyorBelt(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRun,
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));
@@ -480,6 +490,10 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	else if (Method == TEXT("world.connections"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogFactoryConnectionsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.conveyorBeltTiers"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogConveyorBeltTiersAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.targetedManufacturer"))
 	{
