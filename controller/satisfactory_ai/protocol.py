@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Optional
 
-from .models import Buildable, ConveyorBeltTier, FactoryConnection, ResourceNode
+from .models import Buildable, ConveyorBeltTier, FactoryConnection, PowerLineLimits, ResourceNode
 
 SUPPORTED_PROTOCOL_VERSION = 1
 
@@ -94,3 +95,15 @@ def parse_factory_connection_telemetry(json_text: str) -> FactoryConnectionTelem
 
 def parse_conveyor_belt_tier_telemetry(json_text: str) -> ConveyorBeltTierTelemetry:
     return ConveyorBeltTierTelemetry.from_dict(json.loads(json_text))
+
+
+def parse_power_line_limits(json_text: str) -> Optional[PowerLineLimits]:
+    """Returns None if the mod couldn't resolve Recipe_PowerLine's
+    buildable CDO (the JSON then has only "protocolVersion", no other
+    fields) - matches LogPowerLineLimitsAsJson's C++ behavior of
+    omitting all fields rather than erroring in that case."""
+    data = json.loads(json_text)
+    _check_protocol_version(data)
+    if "maxLength" not in data:
+        return None
+    return PowerLineLimits.from_dict(data)

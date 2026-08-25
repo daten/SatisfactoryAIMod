@@ -258,12 +258,58 @@ functions (not a solver) built on this data: `select_cheapest_sufficient_tier()`
 picks the cheapest tier meeting a minimum speed;
 `is_straight_segment_feasible()` checks a candidate straight segment's
 distance/incline against a tier's limits before attempting it;
-`compute_waypoint_positions()` computes evenly-spaced candidate anchor
-points for chaining multiple belt segments (via intermediate
+`satisfactory_ai.layout.compute_waypoint_positions()` (re-exported
+here, generic geometry) computes evenly-spaced candidate anchor points
+for chaining multiple belt segments (via intermediate
 `Recipe_ConveyorPole` placements — confirmed present on disk, not yet
 live-tested) when a route is too long or steep for one segment. The
 caller decides all thresholds and validates the result live — same
 posture as `satisfactory_ai.layout`.
+
+## powerLineLimits (`method: "world.powerLineLimits"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_PowerLine.Recipe_PowerLine_C",
+  "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+  "maxLength": 0.0,
+  "maxPowerTowerLength": 0.0,
+  "lengthPerCost": 0.0
+}
+```
+
+Added 2026-08-25, directly motivated by the user asking whether power
+cables (like conveyors) need distance-limit/intermediate-pole
+handling — they do. Unlike `conveyorBeltTiers`' `speed`, these ARE
+documented-unit values: `AFGBuildableWire::mMaxLength`/
+`mMaxPowerTowerLength`/`mLengthPerCost` are plain **public**
+`EditDefaultsOnly` `UPROPERTY`s commented `"[cm]"` in
+`FGBuildableWire.h` — a straight member read off `Recipe_PowerLine`'s
+buildable CDO, no reflection needed, and `maxLength` is directly
+comparable to a computed 3D distance with no unknown-conversion
+caveat. Only one power line tier exists (no Mk1..N like belts), so
+this is a flat object, not an array — all fields are omitted (just
+`protocolVersion` remains) if the mod couldn't resolve the CDO.
+
+`ConstructPowerConnection`/`world.connectPower`'s source/dest were
+already generic before this addition — `FindFreePowerConnection`
+searches any `AFGBuildable` for a free `UFGPowerConnectionComponent`,
+not hardcoded to machines — so a real power pole
+(`Recipe_PowerPoleMk1`/`Mk2`/`Mk3`, confirmed present on disk) placed
+at each waypoint should already work as an intermediate relay for a
+connection exceeding `maxLength`, chaining multiple
+`world.connectPower` calls, with **no C++ changes needed for that
+part** — only untested live, same as belt chaining.
+`controller/satisfactory_ai/power.py`'s `is_direct_connection_feasible()`
+checks a candidate connection's distance against `maxLength`; it
+re-exports `compute_waypoint_positions()` for the same chaining
+pattern. Separately, per the user's own earlier note this session
+(`docs/conveyor-power-connection-research.md`): a machine's default
+single power connection slot may require routing through a pole even
+for a *short* connection if the later-game daisy-chain unlock isn't
+active in the current save — a real constraint distinct from the
+`maxLength` distance question this section addresses.
 
 ## targetedManufacturer (`method: "world.targetedManufacturer"`)
 

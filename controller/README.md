@@ -34,14 +34,29 @@ contains:
   picks the cheapest of an already-queried `ConveyorBeltTier` list
   meeting a minimum speed; `is_straight_segment_feasible()` checks a
   candidate segment's distance/incline against a tier's real limits;
-  `compute_waypoint_positions()` computes candidate anchor points for
-  chaining segments (via intermediate `Recipe_ConveyorPole`
-  placements) when a route is too long or steep for one segment. None
-  of these fetch telemetry, call any RPC, or choose a route on their
-  own - the caller decides thresholds and validates the result live.
-  See `ConveyorBeltTier`'s doc comment (`models.py`) for why `speed` is
-  FactoryGame's own raw queried value, not an assumed items-per-minute
-  figure.
+  `compute_waypoint_positions()` (re-exported from `layout.py`, see
+  below) computes candidate anchor points for chaining segments (via
+  intermediate `Recipe_ConveyorPole` placements) when a route is too
+  long or steep for one segment. None of these fetch telemetry, call
+  any RPC, or choose a route on their own - the caller decides
+  thresholds and validates the result live. See `ConveyorBeltTier`'s
+  doc comment (`models.py`) for why `speed` is FactoryGame's own raw
+  queried value, not an assumed items-per-minute figure.
+- `satisfactory_ai/power.py` — the same pattern for power lines,
+  motivated by the user asking whether power (like conveyors) needs
+  distance-limit/pole handling: `is_direct_connection_feasible()`
+  checks a candidate connection's distance against `PowerLineLimits.max_length`
+  (a documented-`"[cm]"`-unit value, unlike belt `speed` - directly
+  comparable to a computed 3D distance, no conversion caveat). Chaining
+  through a real power pole (`Recipe_PowerPoleMk1`/`Mk2`/`Mk3`,
+  confirmed on disk) should already work with the existing
+  `world.connectPower` (its source/dest were already generic, not
+  machine-only) - not yet live-tested.
+- `satisfactory_ai/layout.py`'s `compute_waypoint_positions()` (moved
+  here 2026-08-25 from `conveyors.py` since it's generic geometry, not
+  belt-specific) computes evenly-spaced anchor points between two
+  positions respecting a max segment length - shared by both
+  `conveyors.py` and `power.py`'s chaining patterns.
 
 - `live_check.py` — a network client, but a diagnostic one, not part of
   the "controller" proper: connects to a **running** DocMod `/rpc`

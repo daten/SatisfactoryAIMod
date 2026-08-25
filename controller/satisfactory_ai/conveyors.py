@@ -26,9 +26,11 @@ type), so a real Recipe_ConveyorPole (confirmed present on disk,
 placed at each waypoint via world.placeBuilding, then a
 world.connectConveyor call between each consecutive pair, should work
 - NOT yet live-verified (only machine-to-machine single-segment
-connections have been tested so far). compute_waypoint_positions()
-below computes candidate waypoint positions for this pattern; it does
-not place anything.
+connections have been tested so far).
+satisfactory_ai.layout.compute_waypoint_positions() (re-exported here)
+computes candidate waypoint positions for this pattern; it does not
+place anything. See satisfactory_ai.power for the equivalent pattern
+for power lines/poles.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from __future__ import annotations
 import math
 from typing import List, Optional, Tuple
 
+from .layout import compute_waypoint_positions  # noqa: F401 - re-exported, generic geometry now lives in layout.py
 from .models import ConveyorBeltTier, Position
 
 
@@ -91,34 +94,7 @@ def is_straight_segment_feasible(
     return True, ""
 
 
-def compute_waypoint_positions(start: Position, end: Position, max_segment_length: float) -> List[Position]:
-    """Evenly-spaced waypoint positions from start to end (inclusive of
-    both endpoints) such that no consecutive pair is farther apart than
-    max_segment_length - candidate anchor points for the
-    pole-per-waypoint chaining pattern described in this module's
-    docstring. Pure geometry - does not place anything, does not know
-    about terrain/obstacles, and does not choose max_segment_length
-    (pass a tier's max_spline_length, or something smaller for margin).
-
-    Raises ValueError if max_segment_length <= 0.
-    """
-    if max_segment_length <= 0:
-        raise ValueError("max_segment_length must be positive")
-
-    dx = end.x - start.x
-    dy = end.y - start.y
-    dz = end.z - start.z
-    total_distance = math.sqrt(dx * dx + dy * dy + dz * dz)
-
-    if total_distance <= max_segment_length:
-        return [start, end]
-
-    segment_count = math.ceil(total_distance / max_segment_length)
-    return [
-        Position(
-            x=start.x + dx * (i / segment_count),
-            y=start.y + dy * (i / segment_count),
-            z=start.z + dz * (i / segment_count),
-        )
-        for i in range(segment_count + 1)
-    ]
+# compute_waypoint_positions moved to satisfactory_ai.layout (2026-08-25)
+# - it's generic geometry, not belt-specific, and satisfactory_ai.power
+# needs the exact same function. Still importable from here for
+# backward compatibility (see the import above).

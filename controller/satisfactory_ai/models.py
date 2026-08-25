@@ -173,3 +173,34 @@ class ConveyorBeltTier:
             bend_radius=float(data["bendRadius"]) if "bendRadius" in data else None,
             max_incline_degrees=float(data["maxInclineDegrees"]) if "maxInclineDegrees" in data else None,
         )
+
+
+@dataclass(frozen=True)
+class PowerLineLimits:
+    """Mirrors "world.powerLineLimits" (added 2026-08-25).
+
+    Unlike ConveyorBeltTier.speed, these ARE documented-unit values -
+    AFGBuildableWire::mMaxLength/mMaxPowerTowerLength/mLengthPerCost are
+    plain public UPROPERTYs commented "[cm]" in FGBuildableWire.h, the
+    same unit every position/distance value in this project's telemetry
+    already uses, so max_length is directly comparable to a computed
+    3D distance with no unknown-conversion caveat (contrast
+    ConveyorBeltTier.speed's unconfirmed unit). Only one power line
+    tier exists in the game (no Mk1..N like belts).
+    """
+
+    recipe_class: str
+    buildable_class: str
+    max_length: float
+    max_power_tower_length: float
+    length_per_cost: float
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PowerLineLimits":
+        return cls(
+            recipe_class=data["recipeClass"],
+            buildable_class=data["buildableClass"],
+            max_length=float(data["maxLength"]),
+            max_power_tower_length=float(data["maxPowerTowerLength"]),
+            length_per_cost=float(data["lengthPerCost"]),
+        )

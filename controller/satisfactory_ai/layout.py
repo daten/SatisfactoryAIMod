@@ -224,3 +224,40 @@ def compute_aligned_placement_position(
     target_point = _add(target_connector_position, _scale(target_connector_normal, clearance_distance))
     rotated_local_offset = rotate_yaw(new_connector_profile.local_position, new_building_yaw)
     return _sub(target_point, rotated_local_offset)
+
+
+def compute_waypoint_positions(start: Position, end: Position, max_segment_length: float) -> List[Position]:
+    """Evenly-spaced waypoint positions from start to end (inclusive of
+    both endpoints) such that no consecutive pair is farther apart than
+    max_segment_length. Generic geometry, not belt- or power-specific -
+    used by satisfactory_ai.conveyors and satisfactory_ai.power as
+    candidate anchor points for chaining multiple segments (conveyor
+    poles or power poles respectively) when a route exceeds one
+    segment's real distance limit. Pure geometry - does not place
+    anything, does not know about terrain/obstacles, and does not
+    choose max_segment_length (pass a real queried limit, e.g.
+    ConveyorBeltTier.max_spline_length or PowerLineLimits.max_length,
+    or something smaller for margin).
+
+    Raises ValueError if max_segment_length <= 0.
+    """
+    if max_segment_length <= 0:
+        raise ValueError("max_segment_length must be positive")
+
+    dx = end.x - start.x
+    dy = end.y - start.y
+    dz = end.z - start.z
+    total_distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    if total_distance <= max_segment_length:
+        return [start, end]
+
+    segment_count = math.ceil(total_distance / max_segment_length)
+    return [
+        Position(
+            x=start.x + dx * (i / segment_count),
+            y=start.y + dy * (i / segment_count),
+            z=start.z + dz * (i / segment_count),
+        )
+        for i in range(segment_count + 1)
+    ]

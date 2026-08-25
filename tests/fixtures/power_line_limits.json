@@ -1,0 +1,8 @@
+{
+  "protocolVersion": 1,
+  "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_PowerLine.Recipe_PowerLine_C",
+  "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+  "maxLength": 2000.0,
+  "maxPowerTowerLength": 4000.0,
+  "lengthPerCost": 100.0
+}

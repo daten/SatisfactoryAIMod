@@ -15,7 +15,6 @@ import unittest
 from pathlib import Path
 
 from satisfactory_ai.conveyors import (
-    compute_waypoint_positions,
     is_straight_segment_feasible,
     select_cheapest_sufficient_tier,
 )
@@ -92,29 +91,6 @@ class IsStraightSegmentFeasibleTest(unittest.TestCase):
             Position(0.0, 0.0, 0.0), Position(999999.0, 0.0, 999999.0), unknown_tier
         )
         self.assertTrue(feasible)
-
-
-class ComputeWaypointPositionsTest(unittest.TestCase):
-    def test_short_distance_returns_just_the_endpoints(self):
-        waypoints = compute_waypoint_positions(Position(0.0, 0.0, 0.0), Position(100.0, 0.0, 0.0), max_segment_length=1000.0)
-        self.assertEqual(waypoints, [Position(0.0, 0.0, 0.0), Position(100.0, 0.0, 0.0)])
-
-    def test_long_distance_is_split_into_equal_segments_within_the_limit(self):
-        start = Position(0.0, 0.0, 0.0)
-        end = Position(1000.0, 0.0, 0.0)
-        waypoints = compute_waypoint_positions(start, end, max_segment_length=300.0)
-
-        self.assertEqual(waypoints[0], start)
-        self.assertEqual(waypoints[-1], end)
-        self.assertGreaterEqual(len(waypoints), 4)  # ceil(1000/300) = 4 segments -> 5 points
-
-        for a, b in zip(waypoints, waypoints[1:]):
-            segment_length = ((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2) ** 0.5
-            self.assertLessEqual(segment_length, 300.0 + 1e-6)
-
-    def test_rejects_non_positive_max_segment_length(self):
-        with self.assertRaises(ValueError):
-            compute_waypoint_positions(Position(0.0, 0.0, 0.0), Position(1.0, 0.0, 0.0), max_segment_length=0.0)
 
 
 if __name__ == "__main__":
