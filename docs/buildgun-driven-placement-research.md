@@ -211,3 +211,40 @@ reload, whether it correctly appears in `world.buildables`/
 `world.connections` telemetry, and whether it's genuinely producing (not
 just occupying the node) — these are the natural next verification
 steps, not further placement-mechanism risk.
+
+## §3 correction: `GetHitResult()` alone does not control final placement
+
+`ConstructBuildingNearPlayer`'s generalization to arbitrary near-player
+positions (not resource-node-anchored) surfaced a real gap §3 above
+missed: setting `AFGBuildGun::GetHitResult()` once, before spawning the
+hologram, is **not sufficient** to control where construction actually
+happens.
+
+**Confirmed live (2026-08-24), a diagnostic added specifically to test
+this**: on every one of three test runs, the build gun's `GetHitResult()`
+had changed by the time the poll checked it one real tick later — in one
+case by ~4000 units (40m), including a ~4400-unit altitude jump on the
+run that then failed with "Surface is too uneven!" at a location nowhere
+near the computed candidate. `UFGBuildGunStateBuild::TickState_Implementation`
+almost certainly runs its own real `AFGBuildGun::TraceForBuilding()`
+every tick (per its declaration, `FGBuildGun.h:267`, matching a normal
+player's live crosshair-follows-camera behavior) and overwrites
+`GetHitResult()` with the player's actual real-time aim, silently
+discarding whatever was set beforehand. The user independently confirmed
+the two earlier "successful" placements had genuinely matched where they
+were aiming at the moment - meaning the computed candidate position was
+never actually what got built; the real trace and the intended target
+had simply coincided.
+
+**Fix**: all three build-gun-driven functions
+(`DebugCheckExtractorPlacementViaBuildGun`, `ConstructExtractorOnTargetedNode`,
+`ConstructBuildingNearPlayer`) now store the synthetic `FHitResult` in
+their poll state and call `AFGHologram::UpdateHologramPlacement()`
+directly with it on **every poll tick**, immediately before checking
+`CanConstruct()`/constructing — re-asserting the intended position after
+whatever the build gun's own trace did that tick. This makes placement
+deterministic regardless of where the player's camera happens to be
+pointed, which is required for genuine API-driven placement (the
+eventual goal is no human aiming at anything at all). **Not yet
+re-verified live** — the fix compiled clean but hasn't been tested
+against real gameplay yet.
