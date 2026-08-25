@@ -973,8 +973,18 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTar
 		}
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 
-		UE_LOG(LogDocModAI, Display, TEXT("DebugCheckExtractorPlacementOnTargetedNode (deferred, resolved after %d real tick(s)): node=%s canConstruct=%s disqualifiers=[%s]"),
-			PollState->AttemptsTaken, *PollState->NodeId, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+		// Diagnostic only, both public on AFGHologram (FGHologram.h:363,370)
+		// - testing the hypothesis that UFGCDInitializing never clearing
+		// (three attempts, docs/extractor-placement-research.md) is
+		// because the protected SetupClearanceDetector() (:540), which the
+		// real AFGBuildGun explicitly calls after spawning a hologram
+		// (paired with its own CleanupHologramClearanceDetection()), never
+		// ran for a hologram spawned via SpawnHologramFromRecipe. A null
+		// GetClearanceDetector() here would directly confirm that.
+		UE_LOG(LogDocModAI, Display, TEXT("DebugCheckExtractorPlacementOnTargetedNode (deferred, resolved after %d real tick(s)): node=%s canConstruct=%s disqualifiers=[%s] clearanceDetector=%s hasClearance=%s"),
+			PollState->AttemptsTaken, *PollState->NodeId, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary,
+			PollHologram->GetClearanceDetector() ? TEXT("set") : TEXT("null"),
+			PollHologram->HasClearance() ? TEXT("true") : TEXT("false"));
 
 		PollHologram->Destroy();
 	};
