@@ -179,6 +179,36 @@ struct FDocModFactoryConnectionTelemetry
 	/** Id of the AFGBuildable on the other end, or empty if bConnected is false. Session-local only. */
 	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
 	FString ConnectedBuildableId;
+
+	/**
+	 * The connector's real world position (UFGFactoryConnectionComponent::
+	 * GetConnectorLocation(), no clearance offset). Added 2026-08-25 after
+	 * a live belt-routing investigation (docs/demo-production-chain.md)
+	 * needed this exact data ad hoc, via one-off diagnostic UE_LOG calls,
+	 * to explain a "belt geometrically impossible" failure - this should
+	 * be ordinary queryable telemetry, not something re-derived per
+	 * experiment. Without it, an external planner has no way to know
+	 * where a machine's connectors actually are relative to its own
+	 * placement position/rotation.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FVector Position = FVector::ZeroVector;
+
+	/**
+	 * The connector's real outward-facing world normal
+	 * (UFGFactoryConnectionComponent::GetConnectorNormal()). For an
+	 * Output connection, items leave moving in this direction; for an
+	 * Input connection, items must arrive moving in the OPPOSITE
+	 * direction (approaching from outside, along +Normal, then entering
+	 * the building along -Normal) - confirmed live: this is exactly what
+	 * made a straight Smelter(output, faces +Y)-to-Constructor(input,
+	 * faced -Y at the time) belt geometrically infeasible even though
+	 * both connectors snapped correctly. An external planner needs this
+	 * to choose a target position/orientation where two connectors'
+	 * normals are compatible before ever calling world.placeBuilding.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FVector Normal = FVector::ZeroVector;
 };
 
 /**

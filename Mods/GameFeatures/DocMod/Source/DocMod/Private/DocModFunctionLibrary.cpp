@@ -228,6 +228,8 @@ namespace
 		Telemetry.OwnerBuildableId = OwnerId;
 		Telemetry.Direction = FactoryConnectionDirectionToString(Connection->GetDirection());
 		Telemetry.bConnected = Connection->IsConnected();
+		Telemetry.Position = Connection->GetConnectorLocation();
+		Telemetry.Normal = Connection->GetConnectorNormal();
 
 		if (Telemetry.bConnected)
 		{
@@ -603,9 +605,9 @@ void UDocModFunctionLibrary::LogFactoryConnections(UObject* WorldContextObject)
 
 	for (const FDocModFactoryConnectionTelemetry& Connection : Connections)
 	{
-		UE_LOG(LogDocModAI, Display, TEXT("Connection: owner=%s direction=%s connected=%s connectedTo=%s"),
+		UE_LOG(LogDocModAI, Display, TEXT("Connection: owner=%s direction=%s connected=%s connectedTo=%s position=%s normal=%s"),
 			*Connection.OwnerBuildableId, *Connection.Direction, Connection.bConnected ? TEXT("true") : TEXT("false"),
-			*Connection.ConnectedBuildableId);
+			*Connection.ConnectedBuildableId, *Connection.Position.ToString(), *Connection.Normal.ToString());
 	}
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogFactoryConnections: enumerated %d connection point(s)"), Connections.Num());
@@ -625,6 +627,18 @@ FString UDocModFunctionLibrary::LogFactoryConnectionsAsJson(UObject* WorldContex
 		ConnectionObject->SetStringField(TEXT("direction"), Connection.Direction);
 		ConnectionObject->SetBoolField(TEXT("connected"), Connection.bConnected);
 		ConnectionObject->SetStringField(TEXT("connectedBuildableId"), Connection.ConnectedBuildableId);
+
+		const TSharedRef<FJsonObject> PositionObject = MakeShared<FJsonObject>();
+		PositionObject->SetNumberField(TEXT("x"), Connection.Position.X);
+		PositionObject->SetNumberField(TEXT("y"), Connection.Position.Y);
+		PositionObject->SetNumberField(TEXT("z"), Connection.Position.Z);
+		ConnectionObject->SetObjectField(TEXT("position"), PositionObject);
+
+		const TSharedRef<FJsonObject> NormalObject = MakeShared<FJsonObject>();
+		NormalObject->SetNumberField(TEXT("x"), Connection.Normal.X);
+		NormalObject->SetNumberField(TEXT("y"), Connection.Normal.Y);
+		NormalObject->SetNumberField(TEXT("z"), Connection.Normal.Z);
+		ConnectionObject->SetObjectField(TEXT("normal"), NormalObject);
 
 		ConnectionJsonArray.Add(MakeShared<FJsonValueObject>(ConnectionObject));
 	}
