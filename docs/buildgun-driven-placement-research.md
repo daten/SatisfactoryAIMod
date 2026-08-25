@@ -174,10 +174,40 @@ clearance-detector-overlap delegate system, or something in
 logic), but it no longer matters *which* mechanism — driving the real
 build gun is a working, confirmed path.
 
-**Not yet attempted: actual `Construct()`/`Server_ConstructHologram`.**
-Everything up to this point is still a dry-run — no building has been
-placed, no save touched. The next step (a real building actually
-appearing on the node) is a materially different kind of action than
-anything tested in this repo so far and should be treated with the same
-care as Phase 12's first write-operation testing, not rushed into
-immediately after a first green light.
+## First real building placement — confirmed live (2026-08-24)
+
+`ConstructExtractorOnTargetedNode` (commit `ae7a6c0799`) — the same
+validated flow as the dry-run, but calling
+`UFGBuildGunStateBuild::InternalConstructHologram()` once `CanConstruct()`
+genuinely resolves `true` — **worked on the first real test**:
+
+```
+ConstructExtractorOnTargetedNode (deferred, resolved after 1 real tick(s)):
+construction attempted via InternalConstructHologram -
+node=.../BP_ResourceNode571 nodeNowOccupied=true
+```
+
+The log immediately after shows the real `SK_MinerMk1` skeletal mesh
+loading and the game's own build-effect system running
+(`[BuildEffect]`/`LogSkeletalMesh` lines) — independent confirmation a
+genuine `Build_MinerMk1` buildable now exists, not just a flag flip.
+(The `[BuildEffect] Failed to find remap material`/missing
+`bUsedWithSkeletalMesh` warnings that follow are a pre-existing
+base-game material-compilation quirk — the engine's own log says it
+recompiles on next editor launch — not something this mod caused; any
+real player construction of a Miner Mk1 would trigger the same
+warnings.)
+
+**PLAN.md Phase 13's central question is answered**: an
+`AFGResourceExtractorHologram` can be driven correctly, headlessly (no
+real human pressing keys), to place a real, correctly-registered
+building — via the real `AFGBuildGun`/`HotKeyRecipe` flow, not the
+standalone `SpawnHologramFromRecipe` path. `InternalConstructHologram()`
+being callable directly (§5) meant no RPC/`FConstructHologramMessage`
+serialization was ever needed.
+
+**Not yet verified**: whether the constructed Miner survives a save/
+reload, whether it correctly appears in `world.buildables`/
+`world.connections` telemetry, and whether it's genuinely producing (not
+just occupying the node) — these are the natural next verification
+steps, not further placement-mechanism risk.

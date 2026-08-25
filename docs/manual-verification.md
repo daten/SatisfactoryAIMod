@@ -378,9 +378,19 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
   use this command, not the standalone one, for further placement
   testing. **This command visibly equips the build gun** (shows the
   normal build-mode HUD briefly) unlike the standalone one - expected,
-  not a bug. Actual construction (`Construct()`/`Server_ConstructHologram`)
-  still has not been attempted - this is still dry-run only, no building
-  has been placed yet.
+  not a bug.
+- **`DocMod.ConstructExtractorOnTargetedNode` — first real building
+  placement, SUCCEEDED on the first attempt (2026-08-24).** Log showed
+  `nodeNowOccupied=true` plus the real `SK_MinerMk1` mesh loading via the
+  game's own build-effect system - independent confirmation, not just a
+  flag flip. A `Build_MinerMk1` genuinely exists on the targeted node
+  now. See `docs/buildgun-driven-placement-research.md`'s "First real
+  building placement" section.
+- **Still not verified**: whether the constructed Miner survives a save/
+  reload, whether it shows up correctly in `world.buildables`/
+  `world.connections` telemetry (run `DocMod.Buildables` or hit
+  `world.buildables` to check), and whether it's actually producing (not
+  just occupying the node) once it has power/is otherwise eligible.
 
 ---
 
