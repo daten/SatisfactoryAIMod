@@ -149,3 +149,35 @@ exactly as before, log `CanConstruct()`/disqualifiers, then always call
 `UnequipBuildGun()` to restore the player's UI regardless of outcome.
 Still stops before any real `Construct()`/`Server_ConstructHologram`
 call - same safety posture as every prior experiment in this repo.
+
+## Result: confirmed live, first try (2026-08-24)
+
+`DebugCheckExtractorPlacementViaBuildGun` (commit `8286bd6b24`) worked
+on the first real test, twice in a row: `canConstruct=true
+disqualifiers=[<none>]`, resolved after **1 real tick** both times —
+not the 120-tick safety cap the standalone experiment always hit. A
+`LogBuildGun: Warning: ...GetHologramCost failed cause no hologram
+spawned.` line appears in the log at the very start of each run — this
+is a UI widget (`Widget_BuildMode`) querying the hologram cost in the
+same frame `HotKeyRecipe` is called, before the hologram exists yet;
+harmless, and resolved by the time our own poll checks a tick later.
+
+**This confirms the core hypothesis**: something in the real
+`AFGBuildGun`/`HotKeyRecipe`/`UFGBuildGunStateBuild` flow does what a
+standalone `AFGHologram::SpawnHologramFromRecipe()`-spawned hologram
+never got — `UFGCDInitializing` was never a timing issue at all (five
+falsified hypotheses on the standalone path all made sense in
+retrospect: no amount of waiting fixes a structural gap). The exact
+mechanism is still unconfirmed (candidates from §7: the build-gun-only
+clearance-detector-overlap delegate system, or something in
+`BeginState_Implementation`/`TickState_Implementation`'s stub-hidden
+logic), but it no longer matters *which* mechanism — driving the real
+build gun is a working, confirmed path.
+
+**Not yet attempted: actual `Construct()`/`Server_ConstructHologram`.**
+Everything up to this point is still a dry-run — no building has been
+placed, no save touched. The next step (a real building actually
+appearing on the node) is a materially different kind of action than
+anything tested in this repo so far and should be treated with the same
+care as Phase 12's first write-operation testing, not rushed into
+immediately after a first green light.
