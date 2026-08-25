@@ -254,19 +254,54 @@ real frames for some async query per `InitializeClearanceData()`/
 `PostInitializeClearanceData()`, `FGHologram.h:535-536`). Elapsed
 time/tick count alone does not clear this disqualifier.
 
-**Updated hypothesis, not yet tested:** `UFGCDInitializing` may not be a
-transient "not ready yet" state at all — it may depend on something
-structural that a hologram spawned via `SpawnHologramFromRecipe` outside
-the real `AFGBuildGun`/`UFGBuildGunStateBuild` flow never satisfies,
-e.g. a check against the hologram's owning build-gun/equipment state, or
-an explicit "initialization complete" call the build gun's state machine
-normally makes that has no public equivalent. Per
-`docs/building-placement-research.md`'s own verdict (§7), this was
-always the known risk of driving a hologram without a real build gun in
-the loop — this may be where that risk turns out to matter. **No further
-fix attempted without new evidence** — three same-result attempts is the
-point to stop guessing blindly and either investigate further or make a
-deliberate decision to pause this approach, not keep iterating on hunches.
+**Updated after five total attempts, all converging on the same
+conclusion.** Two more targeted, evidence-based tests were run after the
+above (2026-08-24), both ruling out real candidate causes rather than
+guessing blindly:
+
+4. `IFGExtractableResourceInterface::CanPlaceResourceExtractor()`/
+   `HasAnyResources()`/`CanBecomeOccupied()` (`FGExtractableResourceInterface.h`
+   — the same interface `IsOccupied()` already uses) all report `true` on
+   the targeted node — the node itself is entirely fine at the
+   node-level "can an extractor go here" check, independent of the
+   hologram's clearance system.
+5. Switched the synthetic `FHitResult`'s location/rotation from the
+   node's raw actor transform to
+   `IFGExtractableResourceInterface::GetPlacementLocation()`/
+   `GetPlacementRotation()` — explicitly documented as "used by
+   holograms to get the correct location/rotation for snapping." Live
+   output confirmed this returns real, non-trivial values (a genuine
+   rotation, not a fallback), meaning the snap location/rotation are
+   correct. No change in outcome.
+
+**Every one of five independently-verified hypotheses is now falsified,
+and the result has never varied even once**: always exactly one hard
+disqualifier, `Initializing`, regardless of what changes on our side —
+tick count, real elapsed ticks, clearance setup, node validity, or snap
+accuracy. That consistency is itself strong evidence: this is very
+unlikely to be a bug in how this experiment drives the hologram, and
+much more likely to be structural — something `AFGBuildGun`/
+`UFGBuildGunStateBuild`'s real, replicated construction handshake
+establishes that a hologram spawned via `SpawnHologramFromRecipe`
+outside that flow never gets, exactly the risk `docs/building-placement-research.md`
+§7 flagged before any of this code was written. It's also plausible this
+is deliberate — a guard against exactly this kind of out-of-band
+construction.
+
+**No further fix attempted without new evidence.** Official Satisfactory
+modding docs (`BuildableHolograms.html`) were checked directly and
+confirm the entire documented hologram workflow assumes a live
+`AFGBuildGun` driving it — no documented headless/server-side
+construction path exists at all. At this point, the responsible next
+steps are either (a) investigate what a real build gun's
+`InternalSpawnHologram()`/`BeginState_Implementation()` does immediately
+after spawning that this experiment doesn't reproduce (would need
+either decompiling the real `.cpp` logic or community/Discord knowledge
+neither available here), or (b) accept this as the boundary of what's
+learnable from this angle and make a deliberate call on whether to
+pursue a real (possibly server-only, non-visible) `AFGBuildGun`-driven
+flow instead of a standalone hologram — a materially larger undertaking.
+Not something to keep iterating on by further guesswork.
 
 **Deliberately stops at `CanConstruct()`.** `Construct()` is never
 called — the function destroys the scratch hologram actor on every exit
