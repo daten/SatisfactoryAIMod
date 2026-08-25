@@ -213,4 +213,38 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DebugCheckExtractorPlacementOnTargetedNode(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13, second dry-run experiment: after
+	 * DebugCheckExtractorPlacementOnTargetedNode's standalone hologram
+	 * (spawned via AFGHologram::SpawnHologramFromRecipe, no real
+	 * AFGBuildGun involved) consistently reported a hard
+	 * UFGCDInitializing disqualifier across five independently-verified
+	 * fix attempts (see docs/extractor-placement-research.md's "will not
+	 * clear" section), this drives the REAL build gun flow instead, per
+	 * docs/buildgun-driven-placement-research.md: calls
+	 * AFGCharacterPlayer::HotKeyRecipe(Recipe_MinerMk1) (a real,
+	 * ordinary player-facing hotkey feature - not something invented for
+	 * this experiment) to equip the build gun and enter build mode,
+	 * retrieves the resulting UFGBuildGunStateBuild/hologram via public
+	 * accessors, feeds a synthetic FHitResult through
+	 * AFGBuildGun::GetHitResult()'s mutable reference (bypassing the
+	 * real camera trace), polls real ticks the same way as the standalone
+	 * experiment, and always calls UnequipBuildGun() before returning to
+	 * restore the player's prior equipped state.
+	 *
+	 * VISIBLE SIDE EFFECT, unlike the standalone experiment: this
+	 * genuinely equips the build gun and shows the normal in-game
+	 * build-mode HUD/hologram UI for the duration of the test, briefly
+	 * replacing whatever the player currently has equipped.
+	 *
+	 * Same safety posture as the standalone experiment: never calls
+	 * Construct()/Server_ConstructHologram - this cannot place a real
+	 * building or touch the save. Same solid-resource-only scope
+	 * (UNSUPPORTED_RESOURCE_FORM for liquid/gas nodes) and the same
+	 * PARTIALLY ASYNCHRONOUS behavior (ErrorCode="PENDING" while polling,
+	 * real result logged to LogDocModAI once resolved).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult DebugCheckExtractorPlacementViaBuildGun(UObject* WorldContextObject);
 };

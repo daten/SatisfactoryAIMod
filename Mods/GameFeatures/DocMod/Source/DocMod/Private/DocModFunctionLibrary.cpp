@@ -21,6 +21,8 @@
 #include "Policies/CondensedJsonPrintPolicy.h"
 #include "Hologram/FGHologram.h"
 #include "FGConstructDisqualifier.h"
+#include "Equipment/FGBuildGun.h"
+#include "Equipment/FGBuildGunBuild.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
@@ -1018,4 +1020,184 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementOnTar
 
 	return FDocModOperationResult::Failure(TEXT("PENDING"),
 		TEXT("Scheduled - polling real ticks until UFGCDInitializing clears (or a safety cap is hit); see LogDocModAI for the real result"));
+}
+
+FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementViaBuildGun(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	const FDocModResourceNodeTelemetry TargetTelemetry = GetTargetedResourceNode(WorldContextObject);
+	if (TargetTelemetry.Id.IsEmpty())
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_TARGET_NODE"), TEXT("Not currently looking at a resource node"));
+	}
+
+	AFGResourceNode* TargetNode = nullptr;
+	for (TActorIterator<AFGResourceNode> It(World); It; ++It)
+	{
+		if (IsValid(*It) && It->GetPathName() == TargetTelemetry.Id)
+		{
+			TargetNode = *It;
+			break;
+		}
+	}
+	if (!TargetNode)
+	{
+		return FDocModOperationResult::Failure(TEXT("NODE_NOT_FOUND"), TEXT("Targeted node id could not be re-resolved"));
+	}
+
+	if (TargetNode->IsOccupied())
+	{
+		return FDocModOperationResult::Failure(TEXT("NODE_OCCUPIED"), TEXT("Targeted node is already occupied"));
+	}
+
+	const EResourceForm Form = UFGItemDescriptor::GetForm(TargetNode->GetResourceClass());
+	if (Form != EResourceForm::RF_SOLID)
+	{
+		return FDocModOperationResult::Failure(TEXT("UNSUPPORTED_RESOURCE_FORM"),
+			TEXT("This experiment only supports solid resource nodes (Miner Mk1) so far"));
+	}
+
+	UClass* MinerRecipeClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_MinerMk1.Recipe_MinerMk1_C"));
+	if (!MinerRecipeClass || !MinerRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("RECIPE_LOAD_FAILED"), TEXT("Failed to load Recipe_MinerMk1 as a UFGRecipe"));
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = MinerRecipeClass;
+
+	// Real, ordinary player-facing hotkey
+	// (docs/buildgun-driven-placement-research.md §1) - equips the build
+	// gun and enters build mode with this recipe in one call, same as a
+	// player pressing a recipe hotkey. VISIBLE SIDE EFFECT: genuinely
+	// changes what the player has equipped for the duration of this call
+	// - always restored via UnequipBuildGun() below, on every exit path
+	// from here on (including inside the poll lambda).
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null"));
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun"));
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	if (!Hologram)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"), TEXT("HotKeyRecipe did not result in a spawned hologram - build gun may not have entered build mode as expected"));
+	}
+
+	// Same GetPlacementLocation/GetPlacementRotation fix as the
+	// standalone experiment (docs/extractor-placement-research.md).
+	const FVector RawLocation = TargetNode->GetActorLocation();
+	const FVector PlacementLocation = TargetNode->GetPlacementLocation(RawLocation);
+	const FRotator PlacementRotation = TargetNode->GetPlacementRotation(RawLocation);
+
+	FHitResult SyntheticHit;
+	SyntheticHit.Location = PlacementLocation;
+	SyntheticHit.ImpactPoint = PlacementLocation;
+	SyntheticHit.Normal = PlacementRotation.RotateVector(FVector::UpVector);
+	SyntheticHit.ImpactNormal = SyntheticHit.Normal;
+	SyntheticHit.HitObjectHandle = FActorInstanceHandle(TargetNode);
+	SyntheticHit.bBlockingHit = true;
+	if (UPrimitiveComponent* NodePrimitive = Cast<UPrimitiveComponent>(TargetNode->GetRootComponent()))
+	{
+		SyntheticHit.Component = NodePrimitive;
+	}
+
+	// The core of this experiment (docs/buildgun-driven-placement-research.md
+	// §3): feed our synthetic hit result through the build gun's own
+	// mutable GetHitResult() reference, bypassing its real camera trace,
+	// so the build gun's own real TickState-driven update loop - not our
+	// own manual UpdateHologramPlacement() call - is what drives the
+	// hologram from here on. Unverified whether TickState actually reads
+	// this every tick; that's exactly what this experiment exists to find
+	// out.
+	BuildGun->GetHitResult() = SyntheticHit;
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FString NodeId;
+		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = Hologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->NodeId = TargetTelemetry.Id;
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("DebugCheckExtractorPlacementViaBuildGun (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			return;
+		}
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bCanConstruct = PollHologram->CanConstruct();
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogDocModAI, Display, TEXT("DebugCheckExtractorPlacementViaBuildGun (deferred, resolved after %d real tick(s)): node=%s canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, *PollState->NodeId, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		// Never calls Construct()/Server_ConstructHologram - see this
+		// function's header comment. Always restore the player's prior
+		// equipped state, regardless of outcome.
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+
+	return FDocModOperationResult::Failure(TEXT("PENDING"),
+		TEXT("Scheduled via the real build gun - polling real ticks until UFGCDInitializing clears (or a safety cap is hit); see LogDocModAI for the real result"));
 }

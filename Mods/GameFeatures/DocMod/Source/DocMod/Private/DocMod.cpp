@@ -232,6 +232,34 @@ void FDocModModule::RegisterConsoleCommands()
 				}
 			}),
 		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.TestExtractorPlacementViaBuildGun"),
+		TEXT("Like DocMod.TestExtractorPlacement, but drives the REAL build gun (HotKeyRecipe) instead of a standalone hologram - VISIBLY equips the build gun for the duration of the test, then unequips it. Never calls Construct() - see docs/buildgun-driven-placement-research.md."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World)
+				{
+					Ar.Log(TEXT("DocMod: no world available - load a level first"));
+					return;
+				}
+				Ar.Log(TEXT("DocMod: running extractor placement dry-run via the real build gun (will briefly equip it)..."));
+				const FDocModOperationResult Result = UDocModFunctionLibrary::DebugCheckExtractorPlacementViaBuildGun(World);
+				if (Result.bSuccess)
+				{
+					Ar.Log(TEXT("DocMod: CanConstruct() = true - placement would succeed (build gun unequipped, nothing was built)"));
+				}
+				else if (Result.ErrorCode == TEXT("PENDING"))
+				{
+					Ar.Log(TEXT("DocMod: scheduled - waiting on real ticks, check LogDocModAI in a moment for the actual result"));
+				}
+				else
+				{
+					Ar.Log(FString::Printf(TEXT("DocMod: CanConstruct() = false - %s: %s"), *Result.ErrorCode, *Result.ErrorMessage));
+				}
+			}),
+		ECVF_Default));
 }
 
 void FDocModModule::UnregisterConsoleCommands()
