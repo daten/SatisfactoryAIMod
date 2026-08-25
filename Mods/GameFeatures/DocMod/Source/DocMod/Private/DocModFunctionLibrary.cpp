@@ -1124,14 +1124,16 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementViaBu
 		SyntheticHit.Component = NodePrimitive;
 	}
 
-	// The core of this experiment (docs/buildgun-driven-placement-research.md
-	// §3): feed our synthetic hit result through the build gun's own
-	// mutable GetHitResult() reference, bypassing its real camera trace,
-	// so the build gun's own real TickState-driven update loop - not our
-	// own manual UpdateHologramPlacement() call - is what drives the
-	// hologram from here on. Unverified whether TickState actually reads
-	// this every tick; that's exactly what this experiment exists to find
-	// out.
+	// Feed our synthetic hit result through the build gun's own mutable
+	// GetHitResult() reference. NOTE, found live (2026-08-24, see
+	// ConstructBuildingNearPlayer's matching fix and
+	// docs/buildgun-driven-placement-research.md): setting this ONCE is
+	// not enough - UFGBuildGunStateBuild::TickState_Implementation runs
+	// its own real TraceForBuilding() every tick and overwrites this with
+	// the player's live aim. Set it here anyway (harmless, and covers the
+	// very first frame before any real trace has run), but the poll below
+	// re-asserts our placement directly via UpdateHologramPlacement()
+	// every tick, which is what actually makes the position deterministic.
 	BuildGun->GetHitResult() = SyntheticHit;
 
 	struct FPollState
@@ -1140,6 +1142,7 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementViaBu
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
 		TWeakObjectPtr<UWorld> World;
 		FString NodeId;
+		FHitResult SyntheticHit;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 	};
@@ -1148,6 +1151,7 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementViaBu
 	PollState->Character = Character;
 	PollState->World = World;
 	PollState->NodeId = TargetTelemetry.Id;
+	PollState->SyntheticHit = SyntheticHit;
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
 	*PollFn = [PollState, PollFn]()
@@ -1163,6 +1167,11 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementViaBu
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			return;
 		}
+
+		// Re-assert our intended placement, overriding whatever the build
+		// gun's own real per-tick trace did to the hologram since we last
+		// checked - see the comment on BuildGun->GetHitResult() above.
+		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
@@ -1298,6 +1307,10 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructExtractorOnTargetedNode(
 		SyntheticHit.Component = NodePrimitive;
 	}
 
+	// See DebugCheckExtractorPlacementViaBuildGun's matching comment:
+	// setting this once is not enough - the poll below re-asserts it via
+	// UpdateHologramPlacement() every tick to override the build gun's
+	// own real per-tick trace.
 	BuildGun->GetHitResult() = SyntheticHit;
 
 	struct FPollState
@@ -1307,6 +1320,7 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructExtractorOnTargetedNode(
 		TWeakObjectPtr<AFGResourceNode> TargetNode;
 		TWeakObjectPtr<UWorld> World;
 		FString NodeId;
+		FHitResult SyntheticHit;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 	};
@@ -1316,6 +1330,7 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructExtractorOnTargetedNode(
 	PollState->TargetNode = TargetNode;
 	PollState->World = World;
 	PollState->NodeId = TargetTelemetry.Id;
+	PollState->SyntheticHit = SyntheticHit;
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
 	*PollFn = [PollState, PollFn]()
@@ -1332,6 +1347,8 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructExtractorOnTargetedNode(
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			return;
 		}
+
+		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
@@ -1493,26 +1510,33 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 			TEXT("HotKeyRecipe did not result in a spawned hologram - recipe may not be a simple single-step buildable"));
 	}
 
+	// See DebugCheckExtractorPlacementViaBuildGun's matching comment -
+	// confirmed live (2026-08-24) that setting this once is not enough:
+	// UFGBuildGunStateBuild::TickState_Implementation runs its own real
+	// TraceForBuilding() every tick and overwrites GetHitResult() with
+	// the player's live aim, silently discarding whatever we set here.
+	// The poll below re-asserts our intended placement directly via
+	// UpdateHologramPlacement() every tick, which is what actually makes
+	// the position deterministic regardless of where the player is
+	// looking.
 	BuildGun->GetHitResult() = SyntheticHit;
 
 	struct FPollState
 	{
 		TWeakObjectPtr<AFGHologram> Hologram;
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
-		TWeakObjectPtr<AFGBuildGun> BuildGun;
 		TWeakObjectPtr<UWorld> World;
 		FString RecipeClassPath;
-		FVector OriginalHitLocation = FVector::ZeroVector;
+		FHitResult SyntheticHit;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 	};
 	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
 	PollState->Hologram = Hologram;
 	PollState->Character = Character;
-	PollState->BuildGun = BuildGun;
 	PollState->World = World;
 	PollState->RecipeClassPath = RecipeClassPath;
-	PollState->OriginalHitLocation = SyntheticHit.Location;
+	PollState->SyntheticHit = SyntheticHit;
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
 	*PollFn = [PollState, PollFn]()
@@ -1529,22 +1553,11 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 			return;
 		}
 
-		// Diagnostic: found live (2026-08-24) that the final constructed
-		// location didn't match the synthetic hit result fed in before
-		// HotKeyRecipe - testing the hypothesis that
-		// UFGBuildGunStateBuild::TickState_Implementation runs its own
-		// real TraceForBuilding() every tick and overwrites
-		// GetHitResult() with the player's actual real-time aim, silently
-		// discarding our synthetic value.
-		if (AFGBuildGun* PollBuildGunForDiagnostic = PollState->BuildGun.Get())
-		{
-			const FVector CurrentHitLocation = PollBuildGunForDiagnostic->GetHitResult().Location;
-			if (!CurrentHitLocation.Equals(PollState->OriginalHitLocation, 1.0f))
-			{
-				UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingNearPlayer (deferred, tick %d): GetHitResult() no longer matches what we set - original=%s current=%s (build gun's own trace likely overwrote it)"),
-					PollState->AttemptsTaken, *PollState->OriginalHitLocation.ToString(), *CurrentHitLocation.ToString());
-			}
-		}
+		// The actual fix (see comment above BuildGun->GetHitResult()):
+		// re-assert our intended placement, overriding whatever the build
+		// gun's own real per-tick trace did to the hologram since we last
+		// checked.
+		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
