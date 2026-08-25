@@ -291,9 +291,15 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 			return true;
 		}
 
+		// Optional, defaults to 0 (no rotation, prior behavior) - see
+		// ConstructBuildingAtPosition's doc comment on why this is a raw,
+		// uncalibrated Scroll() delta rather than a degrees value.
+		double RotationScrollDelta = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("rotationScrollDelta"), RotationScrollDelta);
+
 		// FHttpResultCallback is a TFunction, safe to copy - captured by
 		// value so it stays alive until the deferred poll actually calls it.
-		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y),
+		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta),
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

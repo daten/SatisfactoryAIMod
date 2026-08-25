@@ -361,8 +361,19 @@ public:
 	 * UDocModHttpServerSubsystem hold an HTTP response open and reply
 	 * with the real result instead of returning a placeholder over the
 	 * wire.
+	 *
+	 * RotationScrollDelta (2026-08-25, calibration in progress): passed
+	 * directly to AFGHologram::Scroll() before the placement poll begins
+	 * - real units unknown, AFGHologram::Scroll/ScrollRotate/
+	 * SetScrollRotateValue/GetRotationStep are all stub bodies in this
+	 * installed SDK (no source to read). Deliberately exposing the RAW
+	 * scroll delta rather than guessing a degrees-to-steps conversion,
+	 * so calibration can happen via live dry-run-adjacent calls (read
+	 * the resulting AFGHologram::GetActorRotation() logged at
+	 * CanConstruct()-poll time) rather than baked-in guesswork. Pass 0
+	 * for the prior no-rotation-control behavior.
 	 */
-	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * PLAN.md Phase 13/14: dry-run only, no-mutation experiment toward

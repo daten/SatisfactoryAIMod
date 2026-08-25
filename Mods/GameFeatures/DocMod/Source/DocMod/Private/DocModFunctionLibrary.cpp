@@ -1671,7 +1671,7 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, the building WILL be constructed; see LogDocModAI for the real result"));
 }
 
-void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -1758,6 +1758,20 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 
 	BuildGun->GetHitResult() = SyntheticHit;
 
+	// Calibration (2026-08-25): applied once, before the poll starts -
+	// Scroll()'s effect is expected to persist across the repeated
+	// UpdateHologramPlacement() calls in the poll below (mScrollRotation
+	// is a UPROPERTY member, not re-derived from the hit each tick).
+	// Logging rotation before/after so the RPC caller can read the real
+	// effect back via LogDocModAI without a separate throwaway experiment.
+	const FRotator RotationBeforeScroll = Hologram->GetActorRotation();
+	if (RotationScrollDelta != 0)
+	{
+		Hologram->Scroll(RotationScrollDelta);
+	}
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: rotationScrollDelta=%d rotationBeforeScroll=%s rotationAfterScroll=%s"),
+		RotationScrollDelta, *RotationBeforeScroll.ToString(), *Hologram->GetActorRotation().ToString());
+
 	struct FPollState
 	{
 		TWeakObjectPtr<AFGHologram> Hologram;
@@ -1815,6 +1829,9 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
 		}
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition (deferred, resolved after %d real tick(s)): resolvedRotation=%s canConstruct=%s"),
+			PollState->AttemptsTaken, *PollHologram->GetActorRotation().ToString(), bCanConstruct ? TEXT("true") : TEXT("false"));
 
 		if (!bCanConstruct)
 		{
