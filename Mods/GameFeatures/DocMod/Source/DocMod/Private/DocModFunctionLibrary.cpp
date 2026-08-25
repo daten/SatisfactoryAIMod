@@ -1772,16 +1772,29 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 
 	BuildGun->GetHitResult() = SyntheticHit;
 
-	// Calibration (2026-08-25): applied once, before the poll starts -
-	// Scroll()'s effect is expected to persist across the repeated
-	// UpdateHologramPlacement() calls in the poll below (mScrollRotation
-	// is a UPROPERTY member, not re-derived from the hit each tick).
-	// Logging rotation before/after so the RPC caller can read the real
-	// effect back via LogDocModAI without a separate throwaway experiment.
+	// Calibration (2026-08-25, revised): a single Scroll(N) call with
+	// |N|>1 was found live to behave identically to Scroll(1) - delta=1,2,3
+	// all produced the same resolved yaw, and delta=-1,-2 produced the
+	// SAME (positive) result as +1,+2, not a negative rotation - the
+	// signature of a per-call clamped/smoothed input handler built for
+	// one mouse-wheel notch per call, not an arbitrary-magnitude delta
+	// encoded in a single call. Calling Scroll(sign) REPEATEDLY,
+	// |RotationScrollDelta| times, mimics how a real player's wheel
+	// input actually arrives (one small event per call) - applied once,
+	// before the poll starts; Scroll()'s effect is expected to persist
+	// across the repeated UpdateHologramPlacement() calls in the poll
+	// below (mScrollRotation is a UPROPERTY member, not re-derived from
+	// the hit each tick). Logging rotation before/after so the RPC
+	// caller can read the real effect back via LogDocModAI without a
+	// separate throwaway experiment.
 	const FRotator RotationBeforeScroll = Hologram->GetActorRotation();
 	if (RotationScrollDelta != 0)
 	{
-		Hologram->Scroll(RotationScrollDelta);
+		const int32 ScrollStep = RotationScrollDelta > 0 ? 1 : -1;
+		for (int32 i = 0; i < FMath::Abs(RotationScrollDelta); ++i)
+		{
+			Hologram->Scroll(ScrollStep);
+		}
 	}
 	UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: rotationScrollDelta=%d rotationBeforeScroll=%s rotationAfterScroll=%s"),
 		RotationScrollDelta, *RotationBeforeScroll.ToString(), *Hologram->GetActorRotation().ToString());
