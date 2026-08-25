@@ -284,6 +284,35 @@ void FDocModModule::RegisterConsoleCommands()
 				}
 			}),
 		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.PlaceBuildingNearPlayer"),
+		TEXT("REAL MUTATION - places a simple, single-step building (production machines only - NOT belts/pipes/walls/foundations) a short distance in front of the player. Optional arg: a UFGRecipe class path, defaults to Recipe_ConstructorMk1 if omitted. Touches the save. See docs/buildgun-driven-placement-research.md."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World)
+				{
+					Ar.Log(TEXT("DocMod: no world available - load a level first"));
+					return;
+				}
+				// Verified to exist as a real asset in Content/FactoryGame/Recipes/Buildings/
+				// (not guessed from memory).
+				const FString RecipeClassPath = Args.Num() > 0 && !Args[0].IsEmpty()
+					? Args[0]
+					: TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConstructorMk1.Recipe_ConstructorMk1_C");
+				Ar.Log(FString::Printf(TEXT("DocMod: attempting REAL construction of %s near the player via the real build gun (will briefly equip it)..."), *RecipeClassPath));
+				const FDocModOperationResult Result = UDocModFunctionLibrary::ConstructBuildingNearPlayer(World, RecipeClassPath);
+				if (Result.ErrorCode == TEXT("PENDING"))
+				{
+					Ar.Log(TEXT("DocMod: scheduled - if CanConstruct() resolves true, the building WILL be built; check LogDocModAI in a moment for the actual result"));
+				}
+				else
+				{
+					Ar.Log(FString::Printf(TEXT("DocMod: not attempted - %s: %s"), *Result.ErrorCode, *Result.ErrorMessage));
+				}
+			}),
+		ECVF_Default));
 }
 
 void FDocModModule::UnregisterConsoleCommands()

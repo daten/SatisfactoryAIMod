@@ -282,4 +282,43 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult ConstructExtractorOnTargetedNode(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13: generalizes ConstructExtractorOnTargetedNode
+	 * beyond resource-node-anchored extractors - places any simple,
+	 * single-step, non-snapping building recipe (production machines:
+	 * Constructor/Assembler/Manufacturer/Smelter/Foundry/Refinery/etc.)
+	 * a short distance in front of the player. REAL MUTATION - places an
+	 * actual building and touches the save, same as
+	 * ConstructExtractorOnTargetedNode.
+	 *
+	 * NOT for buildings that need snap points or multi-step placement
+	 * (belts, pipes, walls, foundations, power lines) - those need
+	 * different hologram-driving logic this function doesn't implement.
+	 * Untested outside a couple of production-machine recipes; if
+	 * CanConstruct() reports a real (non-Initializing) disqualifier for
+	 * some other recipe class, that's the game correctly saying no, not
+	 * a bug to work around here.
+	 *
+	 * Position: deliberately simple, not a real "solve valid placement"
+	 * algorithm (explicit scope decision - see docs/manual-verification.md).
+	 * A candidate X/Y is chosen 800 units in front of the player (their
+	 * actor forward vector, horizontal only); a single vertical line
+	 * trace (ECC_Visibility, player ignored) at that X/Y finds real
+	 * ground and its actual hit result is used directly. If nothing is
+	 * hit (e.g. no ground within 1000 units either way), falls back to a
+	 * synthetic hit result at the player's own Z with an assumed
+	 * FVector::UpVector normal. Either way, CanConstruct() is still the
+	 * real gate - a bad spot (e.g. overlapping another building) is
+	 * reported as CANNOT_CONSTRUCT, not silently forced.
+	 *
+	 * RecipeClassPath uses the same validation as SetManufacturerRecipe -
+	 * must resolve to a real UFGRecipe subclass (INVALID_RECIPE if not).
+	 * Same PARTIALLY ASYNCHRONOUS behavior and real-tick polling for
+	 * CanConstruct() as ConstructExtractorOnTargetedNode - see that
+	 * function's comment and docs/buildgun-driven-placement-research.md.
+	 * Same visible side effect (equips the build gun for the duration).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult ConstructBuildingNearPlayer(UObject* WorldContextObject, const FString& RecipeClassPath);
 };
