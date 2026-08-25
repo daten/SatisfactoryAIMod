@@ -55,9 +55,11 @@ struct FHttpServerRequest;
  * so live testing can clean up stray buildables between attempts.
  *
  * "world.placeBuilding" ({"recipeClass","x","y"}, plus optional
- * "rotationScrollDelta" (default 0) and "gridSnapSize" (default 100,
- * i.e. snap-to-1m-grid by default - pass 0 to disable; see
- * ConstructBuildingAtPosition's doc comment for both)), "world.placeExtractor"
+ * "rotationScrollDelta" (default 0), "gridSnapSize" (default 100,
+ * i.e. snap-to-1m-grid by default - pass 0 to disable), and "z"
+ * (anchors the ground-trace search to this Z instead of the player's
+ * current Z - recommended for any multi-step layout; see
+ * ConstructBuildingAtPosition's doc comment for all three)), "world.placeExtractor"
  * ({"nodeId"}), "world.testPowerConnection" (dry run, never touches the
  * save) and "world.connectPower" (real - both
  * {"buildableIdA","buildableIdB"}), "world.testConveyorBelt" (dry run) and

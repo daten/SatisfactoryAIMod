@@ -330,9 +330,18 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		double GridSnapSize = 100.0;
 		ParamsObject->TryGetNumberField(TEXT("gridSnapSize"), GridSnapSize);
 
+		// Optional - anchors the ground-trace search to this Z instead
+		// of the player's current Z. See ConstructBuildingAtPosition's
+		// doc comment on ReferenceZ for why this matters for reliable,
+		// player-position-independent placement (e.g. building on
+		// foundations step by step) - sentinel -1000000 means "not
+		// provided, use player Z" (the prior behavior).
+		double ReferenceZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), ReferenceZ);
+
 		// FHttpResultCallback is a TFunction, safe to copy - captured by
 		// value so it stays alive until the deferred poll actually calls it.
-		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta), static_cast<float>(GridSnapSize),
+		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta), static_cast<float>(GridSnapSize), static_cast<float>(ReferenceZ),
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

@@ -431,8 +431,24 @@ public:
 	 * internally (protected, no public accessor, varies per building
 	 * type - not read or relied on here). Pass 0 to disable (the prior
 	 * behavior).
+	 *
+	 * ReferenceZ (2026-08-25): anchors the ground trace's vertical search
+	 * range (+/-1000 units) to this Z instead of the player's current Z.
+	 * Found live to matter, not just in theory: the player's elevation
+	 * at call time is otherwise load-bearing for where a building
+	 * actually lands - if the player is somewhere unrelated (standing on
+	 * top of another building, on a walkway far above/below the real
+	 * target), the trace can miss real terrain and fall back to that
+	 * irrelevant Z, landing nowhere near the intended spot on any axis.
+	 * Pass a KNOWN, FIXED reference (e.g. an existing buildable's own Z
+	 * from world.buildables) for deterministic placement independent of
+	 * where the player happens to be standing - the recommended approach
+	 * for any multi-step layout (foundations, then buildings on them)
+	 * rather than relying on player position at every step. Sentinel
+	 * -1000000 (an unrealistic in-game Z) means "not provided", which
+	 * preserves the prior player-Z-anchored behavior.
 	 */
-	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * PLAN.md Phase 13/14: dry-run only, no-mutation experiment toward

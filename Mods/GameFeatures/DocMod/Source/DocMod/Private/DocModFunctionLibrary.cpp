@@ -1819,7 +1819,7 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, the building WILL be constructed; see LogDocModAI for the real result"));
 }
 
-void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -1861,13 +1861,32 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	// driven by an explicit X/Y instead of a player-relative offset - see
 	// that function's header comment for why this stays simple rather
 	// than a real "solve valid placement" algorithm.
+	//
+	// ZSearchCenter (2026-08-25): the vertical search range for the
+	// ground trace defaults to the PLAYER's current Z +/-1000 units -
+	// found live to be a real reliability problem, not just a
+	// theoretical one: placing a building far from the player's current
+	// elevation (e.g. player standing on top of another building, or on
+	// an unrelated walkway) can make the trace miss real terrain
+	// entirely and fall back to the player's own (irrelevant) Z, putting
+	// the result nowhere near the intended location on ANY axis - not
+	// just wrong height, since a bad Z anchor can also make the trace
+	// hit the wrong piece of geometry entirely. ReferenceZ lets the
+	// caller anchor the search to a KNOWN, FIXED point instead (e.g. an
+	// existing buildable's own Z from world.buildables) - deterministic
+	// regardless of where the player happens to be standing at call
+	// time, matching this session's broader push toward intentional,
+	// planned placement rather than player-relative guessing. Sentinel
+	// -1000000 (an unrealistic in-game Z) means "not provided" and
+	// preserves the prior player-Z-anchored behavior.
 	const FVector PlayerLocation = Character->GetActorLocation();
-	const FVector CandidateXY(X, Y, PlayerLocation.Z);
+	const float ZSearchCenter = (ReferenceZ > -1000000.0f) ? ReferenceZ : PlayerLocation.Z;
+	const FVector CandidateXY(X, Y, ZSearchCenter);
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(DocModConstructBuildingAtPosition), false);
 	QueryParams.AddIgnoredActor(Character);
-	const FVector TraceStart(X, Y, PlayerLocation.Z + 1000.0f);
-	const FVector TraceEnd(X, Y, PlayerLocation.Z - 1000.0f);
+	const FVector TraceStart(X, Y, ZSearchCenter + 1000.0f);
+	const FVector TraceEnd(X, Y, ZSearchCenter - 1000.0f);
 
 	FHitResult GroundHit;
 	const bool bFoundGround = World->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
@@ -1879,7 +1898,7 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	}
 	else
 	{
-		UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingAtPosition: ground trace found nothing at (%.0f, %.0f) - falling back to player Z"), X, Y);
+		UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingAtPosition: ground trace found nothing at (%.0f, %.0f) around Z=%.0f - falling back to that Z"), X, Y, ZSearchCenter);
 		SyntheticHit.Location = CandidateXY;
 		SyntheticHit.ImpactPoint = SyntheticHit.Location;
 		SyntheticHit.Normal = FVector::UpVector;
