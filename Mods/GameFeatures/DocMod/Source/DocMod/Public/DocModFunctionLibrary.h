@@ -413,4 +413,27 @@ public:
 	 * ResultBuildableId set on success).
 	 */
 	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, TFunction<void(const FDocModOperationResult&)> OnComplete);
+
+	/**
+	 * PLAN.md Phase 13/14: RPC-drivable, genuinely asynchronous variant
+	 * of the DebugCheckPowerConnection dry-run - same validated flow
+	 * (HotKeyRecipe(Recipe_PowerLine), free UFGPowerConnectionComponent
+	 * lookup on each buildable, AFGWireHologram::SetConnection(0/1,...),
+	 * real-tick polling for CanConstruct()), but with an added
+	 * bDryRun switch: when false, calls InternalConstructHologram() once
+	 * CanConstruct() genuinely resolves true (same real-construction
+	 * pattern as ConstructExtractorOnNode/ConstructBuildingAtPosition -
+	 * only ever constructs after a live, confirmed-true validation, never
+	 * unconditionally). Not a UFUNCTION - same reason as the other
+	 * async entry points.
+	 *
+	 * See docs/conveyor-power-connection-research.md for the open
+	 * question this function's dry-run mode exists to answer (whether
+	 * SetConnection() alone is sufficient), and its note on the
+	 * pole-vs-daisy-chain gameplay constraint that may make direct
+	 * machine-to-machine connection unavailable depending on the save's
+	 * progression state - a CANNOT_CONSTRUCT/NO_POWER_CONNECTION result
+	 * may correctly reflect that, not indicate a bug.
+	 */
+	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 };

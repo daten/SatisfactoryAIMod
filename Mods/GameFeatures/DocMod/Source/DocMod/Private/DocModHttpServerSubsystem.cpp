@@ -304,6 +304,41 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		return true;
 	}
 
+	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
+	// "world.testPowerConnection" (dry run, never touches the save) and
+	// "world.connectPower" (real - see
+	// docs/conveyor-power-connection-research.md's pole-vs-daisy-chain
+	// note before assuming a failure here is a bug) both take the same
+	// params and share UDocModFunctionLibrary::ConstructPowerConnection,
+	// differing only in the bDryRun argument.
+	if (Method == TEXT("world.testPowerConnection") || Method == TEXT("world.connectPower"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableIdA;
+		FString BuildableIdB;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableIdA"), BuildableIdA) || BuildableIdA.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("buildableIdB"), BuildableIdB) || BuildableIdB.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableIdA and params.buildableIdB must both be non-empty strings")));
+			return true;
+		}
+
+		const bool bDryRun = Method == TEXT("world.testPowerConnection");
+		UDocModFunctionLibrary::ConstructPowerConnection(GetGameInstance(), BuildableIdA, BuildableIdB, bDryRun,
+			[OnComplete, RequestId](const FDocModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
 	// not implement GetWorld(); UGameInstance does.
 	FString MethodResultJson;
