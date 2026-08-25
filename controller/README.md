@@ -29,6 +29,14 @@ contains:
   RPC itself. Tested against real geometry captured live from a
   Smelter/Constructor belt-routing session, not synthetic numbers — see
   `tests/test_layout.py`.
+- `satisfactory_ai/conveyors.py` — same toolkit posture, for belt tier
+  selection: `select_cheapest_sufficient_tier()` picks the cheapest of
+  an already-queried `ConveyorBeltTier` list meeting a minimum speed.
+  Does not fetch telemetry or call any RPC - the caller decides the
+  minimum and validates the chosen recipe live. See
+  `ConveyorBeltTier`'s doc comment (`models.py`) for why `speed` is
+  FactoryGame's own raw queried value, not an assumed items-per-minute
+  figure.
 
 - `live_check.py` — a network client, but a diagnostic one, not part of
   the "controller" proper: connects to a **running** DocMod `/rpc`

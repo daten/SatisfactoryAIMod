@@ -1,0 +1,20 @@
+{
+  "protocolVersion": 1,
+  "tiers": [
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+      "speed": 100.0
+    },
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk2.Recipe_ConveyorBeltMk2_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk2/Build_ConveyorBeltMk2.Build_ConveyorBeltMk2_C",
+      "speed": 200.0
+    },
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk3.Recipe_ConveyorBeltMk3_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk3/Build_ConveyorBeltMk3.Build_ConveyorBeltMk3_C",
+      "speed": 450.0
+    }
+  ]
+}

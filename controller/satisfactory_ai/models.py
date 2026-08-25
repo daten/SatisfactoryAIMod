@@ -130,3 +130,30 @@ class FactoryConnection:
             position=Position.from_dict(data["position"]),
             normal=Position.from_dict(data["normal"]),
         )
+
+
+@dataclass(frozen=True)
+class ConveyorBeltTier:
+    """Mirrors one entry of "world.conveyorBeltTiers" (added 2026-08-25).
+
+    speed is AFGBuildableConveyorBase::GetSpeed(), read live off each
+    tier's buildable class CDO - NOT a hardcoded/assumed items-per-minute
+    figure. The unit isn't documented in the FactoryGame source
+    ("Speed of this conveyor", no unit given) - treat as relative/
+    comparable across tiers unless a live comparison against the game's
+    own displayed items-per-minute numbers confirms the exact
+    conversion. See docs/telemetry-protocol.md's conveyorBeltTiers
+    section.
+    """
+
+    recipe_class: str
+    buildable_class: str
+    speed: float
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ConveyorBeltTier":
+        return cls(
+            recipe_class=data["recipeClass"],
+            buildable_class=data["buildableClass"],
+            speed=float(data["speed"]),
+        )

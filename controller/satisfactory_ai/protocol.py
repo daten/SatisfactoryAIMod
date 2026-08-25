@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from .models import Buildable, FactoryConnection, ResourceNode
+from .models import Buildable, ConveyorBeltTier, FactoryConnection, ResourceNode
 
 SUPPORTED_PROTOCOL_VERSION = 1
 
@@ -68,6 +68,18 @@ class FactoryConnectionTelemetry:
         return cls(protocol_version=version, connections=connections)
 
 
+@dataclass(frozen=True)
+class ConveyorBeltTierTelemetry:
+    protocol_version: int
+    tiers: tuple[ConveyorBeltTier, ...]
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ConveyorBeltTierTelemetry":
+        version = _check_protocol_version(data)
+        tiers = tuple(ConveyorBeltTier.from_dict(t) for t in data["tiers"])
+        return cls(protocol_version=version, tiers=tiers)
+
+
 def parse_resource_node_telemetry(json_text: str) -> ResourceNodeTelemetry:
     return ResourceNodeTelemetry.from_dict(json.loads(json_text))
 
@@ -78,3 +90,7 @@ def parse_buildable_telemetry(json_text: str) -> BuildableTelemetry:
 
 def parse_factory_connection_telemetry(json_text: str) -> FactoryConnectionTelemetry:
     return FactoryConnectionTelemetry.from_dict(json.loads(json_text))
+
+
+def parse_conveyor_belt_tier_telemetry(json_text: str) -> ConveyorBeltTierTelemetry:
+    return ConveyorBeltTierTelemetry.from_dict(json.loads(json_text))

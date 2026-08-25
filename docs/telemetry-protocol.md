@@ -212,6 +212,42 @@ takes the `buildables` and `connections` payloads and produces a directed
 graph (one edge per connected `"Output"` row, since `"Input"` rows are
 the same physical link seen from the other end).
 
+## conveyorBeltTiers (`method: "world.conveyorBeltTiers"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "tiers": [
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+      "speed": 0.0
+    }
+  ]
+}
+```
+
+Added 2026-08-25 alongside making `world.connectConveyor`/
+`world.testConveyorBelt`'s `recipeClass` a real parameter (previously
+hardcoded to `Recipe_ConveyorBeltMk1`) — one row per
+`Recipe_ConveyorBeltMk1`..`Mk6` (all six exist on disk), `speed` being
+`AFGBuildableConveyorBase::GetSpeed()` read live off each tier's
+buildable class CDO (`LoadObject` + `GetDefaultObject`), not a
+hardcoded or assumed items-per-minute table. **`speed`'s exact unit is
+unconfirmed** — `FGBuildableConveyorBase.h` only comments the backing
+field as `"Speed of this conveyor"`, no unit given, so it is NOT
+guaranteed to be items-per-minute directly. Treat it as
+relative/comparable across tiers (a bigger number is a faster belt)
+until a live comparison against the game's own displayed
+items-per-minute figures confirms the exact conversion. A tier whose
+class fails to resolve is simply omitted, not a hard error.
+
+`controller/satisfactory_ai/conveyors.py`'s `select_cheapest_sufficient_tier()`
+is a small toolkit function (not a solver) for picking the cheapest
+tier meeting a minimum speed from an already-queried tier list — the
+caller decides what the minimum should be and validates the chosen
+recipe live, same posture as `satisfactory_ai.layout`.
+
 ## targetedManufacturer (`method: "world.targetedManufacturer"`)
 
 ```json
