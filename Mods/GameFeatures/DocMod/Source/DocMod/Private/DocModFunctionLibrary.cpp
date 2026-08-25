@@ -1617,3 +1617,215 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 	return FDocModOperationResult::Failure(TEXT("PENDING"),
 		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, the building WILL be constructed; see LogDocModAI for the real result"));
 }
+
+void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, TFunction<void(const FDocModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INVALID_RECIPE"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
+
+	// Same ground-finding approach as ConstructBuildingNearPlayer, just
+	// driven by an explicit X/Y instead of a player-relative offset - see
+	// that function's header comment for why this stays simple rather
+	// than a real "solve valid placement" algorithm.
+	const FVector PlayerLocation = Character->GetActorLocation();
+	const FVector CandidateXY(X, Y, PlayerLocation.Z);
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(DocModConstructBuildingAtPosition), false);
+	QueryParams.AddIgnoredActor(Character);
+	const FVector TraceStart(X, Y, PlayerLocation.Z + 1000.0f);
+	const FVector TraceEnd(X, Y, PlayerLocation.Z - 1000.0f);
+
+	FHitResult GroundHit;
+	const bool bFoundGround = World->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
+
+	FHitResult SyntheticHit;
+	if (bFoundGround)
+	{
+		SyntheticHit = GroundHit;
+	}
+	else
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingAtPosition: ground trace found nothing at (%.0f, %.0f) - falling back to player Z"), X, Y);
+		SyntheticHit.Location = CandidateXY;
+		SyntheticHit.ImpactPoint = SyntheticHit.Location;
+		SyntheticHit.Normal = FVector::UpVector;
+		SyntheticHit.ImpactNormal = FVector::UpVector;
+		SyntheticHit.bBlockingHit = true;
+	}
+
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: recipe=%s groundTraceHit=%s location=%s"),
+		*RecipeClassPath, bFoundGround ? TEXT("true") : TEXT("false"), *SyntheticHit.Location.ToString());
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	if (!Hologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			TEXT("HotKeyRecipe did not result in a spawned hologram - recipe may not be a simple single-step buildable")));
+		return;
+	}
+
+	BuildGun->GetHitResult() = SyntheticHit;
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FString RecipeClassPath;
+		FHitResult SyntheticHit;
+		TFunction<void(const FDocModOperationResult&)> OnComplete;
+		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = Hologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->RecipeClassPath = RecipeClassPath;
+	PollState->SyntheticHit = SyntheticHit;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingAtPosition (deferred): hologram or world became invalid while polling (after %d tick(s)) - nothing built"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bCanConstruct = PollHologram->CanConstruct();
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		if (!bCanConstruct)
+		{
+			UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition (deferred, resolved after %d real tick(s)): CanConstruct()=false, NOT constructing - recipe=%s disqualifiers=[%s]"),
+				PollState->AttemptsTaken, *PollState->RecipeClassPath, *DisqualifierSummary);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogDocModAI, Error, TEXT("ConstructBuildingAtPosition (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		const FVector ConstructLocation = PollHologram->GetActorLocation();
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		// Identify the newly-constructed buildable by proximity to where
+		// we just built - InternalConstructHologram is void and there's
+		// no direct return value, but nothing else should legitimately
+		// exist within a couple hundred units of a spot CanConstruct()
+		// just validated as clear a moment ago.
+		FString ConstructedBuildableId;
+		if (BuildableSubsystem)
+		{
+			float BestDistSq = TNumericLimits<float>::Max();
+			AFGBuildable* BestMatch = nullptr;
+			for (AFGBuildable* Candidate : BuildableSubsystem->GetAllBuildablesRef())
+			{
+				if (!IsValid(Candidate)) { continue; }
+				const float DistSq = FVector::DistSquared(Candidate->GetActorLocation(), ConstructLocation);
+				if (DistSq < BestDistSq)
+				{
+					BestDistSq = DistSq;
+					BestMatch = Candidate;
+				}
+			}
+			if (BestMatch && BestDistSq < FMath::Square(200.0f))
+			{
+				ConstructedBuildableId = BestMatch->GetPathName();
+			}
+		}
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - recipe=%s location=%s id=%s"),
+			PollState->AttemptsTaken, *PollState->RecipeClassPath, *ConstructLocation.ToString(), *ConstructedBuildableId);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		PollState->OnComplete(ConstructedBuildableId.IsEmpty()
+			? FDocModOperationResult::Success()
+			: FDocModOperationResult::SuccessWithBuildableId(ConstructedBuildableId));
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}

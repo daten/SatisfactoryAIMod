@@ -321,4 +321,34 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult ConstructBuildingNearPlayer(UObject* WorldContextObject, const FString& RecipeClassPath);
+
+	/**
+	 * PLAN.md Phase 13/14: RPC-drivable building placement at an
+	 * explicit position, for scenarios (like placing several buildings
+	 * a controlled distance apart for a production chain) where "near
+	 * the player, facing forward" isn't good enough. Not a UFUNCTION -
+	 * TFunction callbacks aren't UHT-compatible - this is a plain C++
+	 * entry point for UDocModHttpServerSubsystem specifically, not
+	 * exposed to Blueprint.
+	 *
+	 * Same validated flow, scope, and safety posture as
+	 * ConstructBuildingNearPlayer (HotKeyRecipe, real-tick polling for
+	 * CanConstruct(), UpdateHologramPlacement() re-asserted every tick
+	 * to make position deterministic - see
+	 * docs/buildgun-driven-placement-research.md's §3 correction) -
+	 * simple/single-step/non-snapping buildings only. The only
+	 * difference: X/Y come directly from the caller instead of being
+	 * computed from the player's position/facing; a vertical line trace
+	 * at that X/Y (falling back to the player's own Z if nothing is hit)
+	 * still finds the real ground height, same as the near-player
+	 * version.
+	 *
+	 * Genuinely asynchronous, not "PENDING then log": OnComplete is
+	 * invoked exactly once, either synchronously (for early validation
+	 * failures) or after real-tick polling resolves - this is what lets
+	 * UDocModHttpServerSubsystem hold an HTTP response open and reply
+	 * with the real result instead of returning a placeholder over the
+	 * wire.
+	 */
+	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, TFunction<void(const FDocModOperationResult&)> OnComplete);
 };

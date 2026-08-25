@@ -92,7 +92,13 @@ namespace
 		Root->SetNumberField(TEXT("protocolVersion"), 1);
 		Root->SetStringField(TEXT("requestId"), RequestId);
 		Root->SetBoolField(TEXT("success"), true);
-		Root->SetObjectField(TEXT("result"), MakeShared<FJsonObject>());
+
+		const TSharedRef<FJsonObject> ResultObject = MakeShared<FJsonObject>();
+		if (!OperationResult.ResultBuildableId.IsEmpty())
+		{
+			ResultObject->SetStringField(TEXT("buildableId"), OperationResult.ResultBuildableId);
+		}
+		Root->SetObjectField(TEXT("result"), ResultObject);
 		return MakeJsonResponse(EHttpServerResponseCodes::Ok, Root);
 	}
 }
@@ -227,6 +233,48 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 			OnComplete(MakeOperationResponse(Result, RequestId));
 			return true;
 		}
+	}
+
+	// PLAN.md Phase 13/14: genuinely asynchronous - ConstructBuildingAtPosition's
+	// OnComplete may fire well after this function returns (real-tick
+	// polling, typically 1 tick but up to a ~2s safety cap). Per
+	// FHttpRequestHandler's own contract (HttpRequestHandler.h: "returning
+	// true means the delegate itself will (now or later) invoke
+	// OnComplete"), returning true here without having called OnComplete
+	// yet is correct - the HTTP response stays open until the copied
+	// OnComplete is eventually invoked from the deferred poll.
+	if (Method == TEXT("world.placeBuilding"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		double X = 0.0;
+		double Y = 0.0;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		// FHttpResultCallback is a TFunction, safe to copy - captured by
+		// value so it stays alive until the deferred poll actually calls it.
+		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y),
+			[OnComplete, RequestId](const FDocModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
 	}
 
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does

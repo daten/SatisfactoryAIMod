@@ -31,10 +31,29 @@ struct FDocModOperationResult
 	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Operation")
 	FString ErrorMessage;
 
+	/**
+	 * Session-local id of a buildable this operation created (e.g.
+	 * ConstructBuildingAtPosition) - so a caller can act on it further
+	 * (SetManufacturerRecipe, future connect-conveyor/connect-power
+	 * operations) without a separate world.buildables round-trip. Empty
+	 * for operations that don't create a new buildable, and on failure.
+	 * Same session-local-only caveat as FDocModResourceNodeTelemetry's Id.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Operation")
+	FString ResultBuildableId;
+
 	static FDocModOperationResult Success()
 	{
 		FDocModOperationResult Result;
 		Result.bSuccess = true;
+		return Result;
+	}
+
+	static FDocModOperationResult SuccessWithBuildableId(const FString& BuildableId)
+	{
+		FDocModOperationResult Result;
+		Result.bSuccess = true;
+		Result.ResultBuildableId = BuildableId;
 		return Result;
 	}
 

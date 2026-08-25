@@ -48,6 +48,18 @@ struct FHttpServerRequest;
  * class must not grow a generic "call any function by name" method
  * (CLAUDE.md's Safety and Stability Boundary).
  *
+ * "world.placeBuilding" ({"recipeClass","x","y"}, PLAN.md Phase 13) is
+ * the one GENUINELY ASYNCHRONOUS method - UDocModFunctionLibrary::
+ * ConstructBuildingAtPosition's completion callback may fire well after
+ * HandleRpcRequest returns (real-tick polling to resolve
+ * UFGCDInitializing/CanConstruct(), typically 1 tick, capped ~2s) -
+ * FHttpResultCallback is captured by value and invoked from the deferred
+ * poll once the real result is known, per FHttpRequestHandler's own
+ * documented "return true now, call OnComplete later" contract. On
+ * success, result.buildableId names the constructed building
+ * (session-local id, same caveat as every other id in this protocol) -
+ * empty for methods that don't create a buildable.
+ *
  * A UGameInstanceSubsystem's HTTPServer route handler executes on the
  * game thread already (the module ticks via FTSTickerObjectBase on the
  * game thread), so no manual thread-marshaling is needed for this simple
