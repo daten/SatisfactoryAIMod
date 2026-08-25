@@ -123,6 +123,39 @@ Confirmed (delegated pass): zero matches in `Mods/SML/Source/SML` for
 "ConveyorBelt", "PowerLine", "PowerConnection", "SplineHologram" - same
 established pattern, nothing to build on.
 
+## Important gameplay constraint (from the user, 2026-08-25): direct machine-to-machine wiring may not be available by default
+
+The game has two distinct ways to wire power, and this matters a lot for
+`DebugCheckPowerConnection`'s design and any real power-connect
+operation built on it:
+
+- **Default/early-game**: machines connect to **power poles** (or
+  directly to a power-producing building like a generator) - a machine
+  typically has exactly **one** power connection slot.
+- **Later-game unlock**: a progression unlock allows machines to be
+  **daisy-chained** directly to each other, two power connections per
+  machine, no pole needed in between.
+
+**Implication for this project**: `FindFreePowerConnection` (in
+`DebugCheckPowerConnection`, `DocModFunctionLibrary.cpp`) looks for a
+`UFGPowerConnectionComponent` with `GetNumFreeConnections() > 0` on each
+machine. If the daisy-chain unlock isn't active in the target save, a
+production machine likely only has its one slot, reserved conceptually
+for a pole connection - meaning `DebugCheckPowerConnection` called on
+two machines directly may legitimately report `NO_POWER_CONNECTION`
+(or a `CanConstruct()` disqualifier) not because of a code bug, but
+because that's a correct reflection of the game's real constraint.
+**Before concluding a power-connection test result is a code problem,
+check whether the save has this unlock active.**
+
+For this project's demo specifically: **if daisy-chaining isn't
+unlocked, the real power step needs a power pole placed between the
+Smelter and Constructor** (wire pole→Smelter and pole→Constructor,
+rather than one direct Smelter→Constructor wire) - `Recipe_PowerPoleMk1`
+is already confirmed to exist as a real asset (§ above). Not yet
+determined whether the current save has the unlock active; find out
+empirically via the dry-run test before assuming either way.
+
 ## Plan
 
 1. **Power first** (more tractable, direct API exists): small, isolated
