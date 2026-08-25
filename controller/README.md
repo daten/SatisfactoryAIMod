@@ -16,6 +16,19 @@ contains:
   `WorldGraph` (one edge per connected `"Output"` connection point). Per
   PLAN.md, graph construction/analysis belongs on the controller, not the
   mod — the mod only exposes the raw per-connection-point facts.
+- `satisfactory_ai/layout.py` — a placement-geometry TOOLKIT (added
+  2026-08-25), not a layout solver: `learn_connector_profile()` derives
+  a connector's yaw-independent local position/normal from a live
+  instance, `predict_connector_world_state()`/`compute_aligned_placement_position()`
+  answer "where would this connector land at position P, yaw Y" /
+  "what position aligns two connectors", and `candidate_yaws_for_normal()`
+  answers "what orientation would face this connector a given
+  direction". Each function answers one geometry question for an agent
+  to compose and iterate over while planning/optimizing a layout — it
+  never chooses a layout, searches for the best position, or calls any
+  RPC itself. Tested against real geometry captured live from a
+  Smelter/Constructor belt-routing session, not synthetic numbers — see
+  `tests/test_layout.py`.
 
 - `live_check.py` — a network client, but a diagnostic one, not part of
   the "controller" proper: connects to a **running** DocMod `/rpc`

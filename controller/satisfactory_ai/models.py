@@ -97,13 +97,22 @@ class Buildable:
 class FactoryConnection:
     """Mirrors FDocModFactoryConnectionTelemetry - one connection point,
     not a constructed edge. See satisfactory_ai.graph for how these are
-    turned into a WorldGraph.
+    turned into a WorldGraph, and satisfactory_ai.layout for how
+    position/normal are used to plan new-building placement.
+
+    position/normal (added 2026-08-25) are the connector's real world
+    position (no clearance offset) and outward-facing normal - see
+    docs/telemetry-protocol.md's connections section for the
+    Output-leaves-along-+normal / Input-arrives-along--normal rule these
+    encode.
     """
 
     owner_buildable_id: str
     direction: str
     connected: bool
     connected_buildable_id: str
+    position: Position
+    normal: Position
 
     def __post_init__(self) -> None:
         if self.direction not in VALID_CONNECTION_DIRECTIONS:
@@ -118,4 +127,6 @@ class FactoryConnection:
             direction=data["direction"],
             connected=bool(data["connected"]),
             connected_buildable_id=data.get("connectedBuildableId", ""),
+            position=Position.from_dict(data["position"]),
+            normal=Position.from_dict(data["normal"]),
         )

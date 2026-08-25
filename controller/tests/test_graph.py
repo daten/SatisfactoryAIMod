@@ -57,13 +57,15 @@ class BuildWorldGraphTest(unittest.TestCase):
         self.assertEqual(len(graph.buildables), 3)
 
     def test_warns_on_unknown_edge_endpoint(self):
-        from satisfactory_ai.models import FactoryConnection
+        from satisfactory_ai.models import FactoryConnection, Position
 
         dangling = FactoryConnection(
             owner_buildable_id="known",
             direction="Output",
             connected=True,
             connected_buildable_id="does-not-exist-in-buildables",
+            position=Position(x=0.0, y=0.0, z=0.0),
+            normal=Position(x=0.0, y=0.0, z=0.0),
         )
         with self.assertWarns(UserWarning):
             build_world_graph([], [dangling])

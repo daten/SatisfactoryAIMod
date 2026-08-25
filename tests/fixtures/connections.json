@@ -5,31 +5,41 @@
       "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_1",
       "direction": "Output",
       "connected": true,
-      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1"
+      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1",
+      "position": { "x": 200.0, "y": 0.0, "z": 0.0 },
+      "normal": { "x": 1.0, "y": 0.0, "z": 0.0 }
     },
     {
       "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1",
       "direction": "Input",
       "connected": true,
-      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_1"
+      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_1",
+      "position": { "x": 350.0, "y": 0.0, "z": 0.0 },
+      "normal": { "x": -1.0, "y": 0.0, "z": 0.0 }
     },
     {
       "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1",
       "direction": "Output",
       "connected": true,
-      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_2"
+      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_2",
+      "position": { "x": 450.0, "y": 0.0, "z": 0.0 },
+      "normal": { "x": 1.0, "y": 0.0, "z": 0.0 }
     },
     {
       "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_2",
       "direction": "Input",
       "connected": true,
-      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1"
+      "connectedBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConveyorBeltMk1_C_1",
+      "position": { "x": 650.0, "y": 0.0, "z": 0.0 },
+      "normal": { "x": -1.0, "y": 0.0, "z": 0.0 }
     },
     {
       "ownerBuildableId": "/Game/Maps/Grasslands.Grasslands:PersistentLevel.Build_ConstructorMk1_C_2",
       "direction": "Output",
       "connected": false,
-      "connectedBuildableId": ""
+      "connectedBuildableId": "",
+      "position": { "x": 950.0, "y": 0.0, "z": 0.0 },
+      "normal": { "x": 1.0, "y": 0.0, "z": 0.0 }
     }
   ]
 }

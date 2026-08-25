@@ -143,7 +143,9 @@ Source: `docs/buildable-research.md` §2-4.
       "ownerBuildableId": "/Game/Maps/.../Build_ConstructorMk1_C_1",
       "direction": "Output",
       "connected": true,
-      "connectedBuildableId": "/Game/Maps/.../Build_ConveyorBeltMk1_C_1"
+      "connectedBuildableId": "/Game/Maps/.../Build_ConveyorBeltMk1_C_1",
+      "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "normal": { "x": 0.0, "y": 0.0, "z": 0.0 }
     }
   ]
 }
@@ -163,6 +165,32 @@ buildings produces two rows: an `"Output"` row on the source and an
 `"Any"`, `"SnapOnly"` (`EFactoryConnectionDirection`).
 `connectedBuildableId` is `""` when `connected` is `false`. Source:
 `docs/buildable-research.md` §6.
+
+`position` (`UFGFactoryConnectionComponent::GetConnectorLocation()`, no
+clearance offset) and `normal`
+(`UFGFactoryConnectionComponent::GetConnectorNormal()`, i.e.
+`GetComponentRotation().Vector()`) were added 2026-08-25 after a live
+belt-routing investigation (see `docs/demo-production-chain.md`) needed
+this exact data ad hoc, via one-off diagnostic log statements, to
+explain a "belt geometrically impossible" `CanConstruct()` failure — a
+straight Smelter(output)→Constructor(input) belt failed because the two
+connectors' normals weren't compatible for the buildings' relative
+positions. For an `"Output"` connection, items leave the building moving
+in `+normal`; for an `"Input"` connection, items must arrive moving in
+`-normal` (approaching from outside along `+normal`, then entering along
+`-normal`). A straight, no-bend belt between two fixed (unrotated)
+buildings requires the destination's `normal` to equal the negation of
+the source's `normal`, with the destination positioned further along the
+source's `+normal` direction than its clearance extends. See
+`controller/satisfactory_ai/layout.py` for a small toolkit of
+composable geometry primitives (connector-compatibility checks,
+local/world coordinate transforms, single-candidate placement
+computation) built on this data — deliberately NOT a "solve the whole
+layout" function per CLAUDE.md's LLM/deterministic-code split: the tools
+answer geometry questions (is this pair compatible? where would this
+connector end up at position P, yaw Y? what position aligns connector A
+with connector B?) for an agent to compose and iterate over, rather than
+pre-determining a layout the agent can't reconsider or optimize.
 
 **Building the actual graph from these rows is PLAN.md Phase 11's job,
 and belongs on the external controller, not the mod** — see
