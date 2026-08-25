@@ -114,20 +114,45 @@ such check. Verified via `world.manufacturers`:
 `productionStatus:"Error"` on both is expected at this stage - no power
 or input material connected yet, not a bug.
 
+## Power connection: validated, both dry-run and real (2026-08-25)
+
+`world.testPowerConnection` (dry run) and `world.connectPower` (real)
+both succeeded on the first live test, connecting the Smelter and
+Constructor - confirms `AFGWireHologram::SetConnection()` alone is
+sufficient, no multi-step `TrySnapToActor`/`DoMultiStepPlacement` flow
+needed (the open question from
+`docs/conveyor-power-connection-research.md` is answered). Both
+machines had a free power connection slot, so this save's progression
+has the daisy-chain unlock active - the pole-vs-daisy-chain constraint
+noted earlier did not block this.
+
+**The wire alone doesn't provide real power**, though - `world.buildables`
+confirmed the new `Build_PowerLine_C` exists between the two machines,
+but the nearest *other* power infrastructure (poles/generators/existing
+lines) is 7000+ units away, presumably back at the main base. Both
+machines still report `productionStatus:"Error"` after connecting -
+electrical continuity between two unpowered machines doesn't create
+power. **User decision: skip getting real electricity flowing for now**
+(options considered: a local Biomass Burner needing manual fuel DocMod
+can't insert yet, or a long power-pole chain back to the main base, both
+real effort) - move on to belts, revisit power later if needed.
+
 ## Still to do
 
 1. ~~Configure recipes~~ - done, see above.
-2. Power connections - `DebugCheckPowerConnection`/`DocMod.TestPowerConnection`
-   exists as a dry-run only; needs live testing (untested as of this
-   writing) before building a real (non-dry-run) power-connect RPC
-   method, per `docs/conveyor-power-connection-research.md`'s plan. Keep
-   the pole-vs-daisy-chain constraint above in mind when interpreting
-   results.
+2. ~~Power connections~~ - done (mechanism validated), real electricity
+   deliberately deferred, see above.
 3. Conveyor belts - no implementation started yet; higher risk/unknown
-   per the research doc, to be tackled after power is validated. The
+   per `docs/conveyor-power-connection-research.md` (no direct
+   `SetConnection`-equivalent exists for belts, unlike wires - needs the
+   real multi-step `TrySnapToActor`/`DoMultiStepPlacement` flow driving
+   `ESplineHologramBuildStep`). Per that doc's plan, start smaller than a
+   full attempt: confirm a single `TrySnapToActor` call can fix a start
+   point (`SHBS_FindStart`) before attempting the full sequence. The
    Miner-to-Smelter and Smelter-to-Constructor distances in this layout
    should be checked once belts are attempted (Miner is on the node,
    Smelter/Constructor are on the nearby platform - not verified how far
    apart exactly).
 4. Verify actual production via `world.manufacturers`'
-   `productionStatus`/`productionProgress` once wired and powered.
+   `productionStatus`/`productionProgress` once wired, belted, and
+   (eventually) powered.
