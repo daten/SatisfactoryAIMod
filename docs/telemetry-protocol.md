@@ -74,9 +74,9 @@ envelope itself (`{"protocolVersion","requestId","method"}` request →
 }
 ```
 
-Generic fields for **any** placed `AFGBuildable` — foundations, conveyors,
-power poles, machines, everything. `id` has the same session-local-only
-caveat as resource nodes (see below). `buildableClass` is the buildable's
+Generic fields for placed buildables — conveyors, power poles, machines,
+foundations, everything. `id` has the same session-local-only caveat as
+resource nodes (see below). `buildableClass` is the buildable's
 `UClass::GetPathName()`. Source: `docs/buildable-research.md` §1.
 
 **Enumeration caveat:** tries `AFGBuildableSubsystem::GetAllBuildablesRef()`
@@ -85,6 +85,19 @@ back to a `TActorIterator<AFGBuildable>` scan if the subsystem is
 unavailable. Whether the subsystem is actually populated at runtime is
 unverified from source (its `.cpp` is a stub) — see
 [manual-verification.md](manual-verification.md).
+
+**Two different id shapes, 2026-08-25:** most buildables are real
+`AFGBuildable` actors and get a `GetPathName()`-based id
+(`/Game/Maps/.../Build_X_C_1`). Foundations — and likely other
+mass-placed buildables — are NOT actors at all; they're stored via
+`AFGLightweightBuildableSubsystem` for performance at scale, and get an
+id shaped `"lightweight:<BuildableClassPath>|<Index>"` instead (identity
+is `(class, array index)`, not a path). See
+`docs/lightweight-buildable-research.md` for the full discovery and why
+both id shapes are handled by `DismantleBuildable`/`world.deleteBuilding`.
+Callers should treat `id` as an opaque string either way — never parse
+it to infer whether something is "real" vs. lightweight, since that's
+an implementation detail that could change.
 
 ## manufacturers (`method: "world.manufacturers"`)
 

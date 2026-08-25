@@ -198,6 +198,16 @@ public:
 	 * available) if the buildable refuses - e.g. an already-dismantled
 	 * actor, or one with an un-dismantled parent (integrated sub-
 	 * buildables like railroad platform track).
+	 *
+	 * Also handles "lightweight:<ClassPath>|<Index>" ids (2026-08-25 -
+	 * see docs/lightweight-buildable-research.md): foundations, and
+	 * likely other mass-placed pieces, aren't AFGBuildable actors at all
+	 * - they're FRuntimeBuildableInstanceData in
+	 * AFGLightweightBuildableSubsystem. For these, materializes a real
+	 * temporary AFGBuildable* via FindOrSpawnBuildableForRuntimeData()
+	 * and reuses the exact same Execute_Dismantle() call -
+	 * AFGBuildable::Dismantle_Implementation() already has a dedicated
+	 * branch that correctly removes the lightweight instance for us.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId);

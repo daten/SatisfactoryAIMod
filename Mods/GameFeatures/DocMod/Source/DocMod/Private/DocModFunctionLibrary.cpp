@@ -31,6 +31,8 @@
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
 #include "FGDismantleInterface.h"
+#include "FGLightweightBuildableSubsystem.h"
+#include "Resources/FGBuildingDescriptor.h"
 
 namespace
 {
@@ -113,6 +115,136 @@ namespace
 		return Buildables;
 	}
 
+	// Id prefix for "lightweight" buildables (foundations, and likely
+	// walls/other mass-placed pieces) - see MakeLightweightBuildableId's
+	// doc comment for why these need a wholly different id shape than
+	// AFGBuildable::GetPathName().
+	const TCHAR* LightweightIdPrefix = TEXT("lightweight:");
+
+	/**
+	 * Lightweight buildables (2026-08-25 discovery - see
+	 * docs/lightweight-buildable-research.md) are NOT AFGBuildable actors
+	 * at all - they're stored as FRuntimeBuildableInstanceData in
+	 * AFGLightweightBuildableSubsystem, for performance at scale
+	 * (thousands of foundation/wall pieces would be expensive as full
+	 * actors). Confirmed live: placing a foundation via
+	 * ConstructBuildingAtPosition reported success and the piece was
+	 * visually confirmed in-game, but it appeared in neither the
+	 * proximity-based buildableId lookup nor the full world.buildables
+	 * list (still exactly 10121 real AFGBuildable actors before and
+	 * after). GetPathName() is meaningless here - there's no actor - so
+	 * these use "lightweight:<BuildableClassPath>|<Index>" instead,
+	 * identity being (class, array index) into
+	 * GetAllLightweightBuildableInstances(). '|' rather than a second
+	 * ':' as the separator - Unreal object paths can themselves contain
+	 * ':' (e.g. a level's "Persistent_Level:PersistentLevel" nesting),
+	 * but never '|'.
+	 */
+	FString MakeLightweightBuildableId(const TSubclassOf<AFGBuildable>& BuildableClass, int32 Index)
+	{
+		return FString::Printf(TEXT("%s%s|%d"), LightweightIdPrefix, *BuildableClass->GetPathName(), Index);
+	}
+
+	bool IsLightweightBuildableId(const FString& BuildableId)
+	{
+		return BuildableId.StartsWith(LightweightIdPrefix);
+	}
+
+	// Splits a "lightweight:<ClassPath>|<Index>" id back into its class
+	// path and index. Returns false (and leaves outputs unchanged) if
+	// BuildableId isn't well-formed.
+	bool ParseLightweightBuildableId(const FString& BuildableId, FString& OutClassPath, int32& OutIndex)
+	{
+		if (!IsLightweightBuildableId(BuildableId))
+		{
+			return false;
+		}
+		const FString Remainder = BuildableId.RightChop(FCString::Strlen(LightweightIdPrefix));
+		FString ClassPath;
+		FString IndexString;
+		if (!Remainder.Split(TEXT("|"), &ClassPath, &IndexString, ESearchCase::CaseSensitive, ESearchDir::FromEnd))
+		{
+			return false;
+		}
+		if (!IndexString.IsNumeric())
+		{
+			return false;
+		}
+		OutClassPath = ClassPath;
+		OutIndex = FCString::Atoi(*IndexString);
+		return true;
+	}
+
+	// Resolves a building recipe class path to the AFGBuildable subclass
+	// it actually constructs, via its first product (expected to be a
+	// UFGBuildingDescriptor - true for every simple building recipe used
+	// in this project so far) and
+	// UFGBuildingDescriptor::GetBuildableClass(). Used to search
+	// AFGLightweightBuildableSubsystem's instances by class when a
+	// just-placed recipe produced a lightweight buildable instead of a
+	// real actor - see docs/lightweight-buildable-research.md. Returns
+	// nullptr (not an error) if the recipe's first product isn't a
+	// building descriptor.
+	TSubclassOf<AFGBuildable> ResolveBuildableClassForRecipe(const FString& RecipeClassPath)
+	{
+		UClass* RecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+		if (!RecipeClass || !RecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+		{
+			return nullptr;
+		}
+		const TArray<FItemAmount> Products = UFGRecipe::GetProducts(RecipeClass);
+		if (Products.Num() == 0 || !Products[0].ItemClass || !Products[0].ItemClass->IsChildOf(UFGBuildingDescriptor::StaticClass()))
+		{
+			return nullptr;
+		}
+		const TSubclassOf<UFGBuildingDescriptor> BuildingDescriptorClass = Products[0].ItemClass.Get();
+		return UFGBuildingDescriptor::GetBuildableClass(BuildingDescriptorClass);
+	}
+
+	TArray<FDocModBuildableTelemetry> CollectLightweightBuildableTelemetry(UWorld* World)
+	{
+		TArray<FDocModBuildableTelemetry> Result;
+		AFGLightweightBuildableSubsystem* LightweightSubsystem = AFGLightweightBuildableSubsystem::Get(World);
+		if (!LightweightSubsystem)
+		{
+			return Result;
+		}
+
+		for (const auto& ClassAndInstances : LightweightSubsystem->GetAllLightweightBuildableInstances())
+		{
+			const TSubclassOf<AFGBuildable> BuildableClass = ClassAndInstances.Key;
+			if (!BuildableClass)
+			{
+				continue;
+			}
+			const TArray<FRuntimeBuildableInstanceData>& Instances = ClassAndInstances.Value;
+			for (int32 Index = 0; Index < Instances.Num(); ++Index)
+			{
+				const FRuntimeBuildableInstanceData& InstanceData = Instances[Index];
+				// Removed instances leave a cleared (tombstoned), not
+				// compacted, slot behind - FRuntimeBuildableInstanceData::
+				// IsValid() (Handles.Num()>0 && BuiltWithRecipe) is exactly
+				// this project's own emptiness check, confirmed by reading
+				// FGLightweightBuildableSubsystem.h's Clear()/IsValid(). This
+				// also means (class, index) identity stays stable when a
+				// DIFFERENT instance of the same class is removed - no
+				// index shifting to worry about.
+				if (!InstanceData.IsValid())
+				{
+					continue;
+				}
+
+				FDocModBuildableTelemetry Telemetry;
+				Telemetry.Id = MakeLightweightBuildableId(BuildableClass, Index);
+				Telemetry.BuildableClass = BuildableClass->GetPathName();
+				Telemetry.Position = InstanceData.Transform.GetLocation();
+				Telemetry.Rotation = InstanceData.Transform.Rotator();
+				Result.Add(MoveTemp(Telemetry));
+			}
+		}
+		return Result;
+	}
+
 	TArray<FDocModBuildableTelemetry> CollectBuildableTelemetry(UWorld* World)
 	{
 		TArray<FDocModBuildableTelemetry> Result;
@@ -130,6 +262,7 @@ namespace
 			Telemetry.Rotation = Buildable->GetActorRotation();
 			Result.Add(MoveTemp(Telemetry));
 		}
+		Result.Append(CollectLightweightBuildableTelemetry(World));
 		return Result;
 	}
 
@@ -1925,6 +2058,41 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 			}
 		}
 
+		if (ConstructedBuildableId.IsEmpty())
+		{
+			// The regular-actor search above found nothing - the recipe
+			// may have produced a lightweight buildable instead
+			// (foundations, likely other mass-placed pieces - see
+			// docs/lightweight-buildable-research.md). Search
+			// AFGLightweightBuildableSubsystem's instances for the
+			// recipe's buildable class by proximity, same 200-unit
+			// tolerance as the regular-actor search.
+			if (AFGLightweightBuildableSubsystem* LightweightSubsystem = AFGLightweightBuildableSubsystem::Get(PollWorld))
+			{
+				const TSubclassOf<AFGBuildable> BuildableClass = ResolveBuildableClassForRecipe(PollState->RecipeClassPath);
+				if (const TArray<FRuntimeBuildableInstanceData>* Instances = BuildableClass ? LightweightSubsystem->GetAllLightweightBuildableInstances().Find(BuildableClass) : nullptr)
+				{
+					float BestDistSq = TNumericLimits<float>::Max();
+					int32 BestIndex = INDEX_NONE;
+					for (int32 Index = 0; Index < Instances->Num(); ++Index)
+					{
+						const FRuntimeBuildableInstanceData& InstanceData = (*Instances)[Index];
+						if (!InstanceData.IsValid()) { continue; }
+						const float DistSq = FVector::DistSquared(InstanceData.Transform.GetLocation(), ConstructLocation);
+						if (DistSq < BestDistSq)
+						{
+							BestDistSq = DistSq;
+							BestIndex = Index;
+						}
+					}
+					if (BestIndex != INDEX_NONE && BestDistSq < FMath::Square(200.0f))
+					{
+						ConstructedBuildableId = MakeLightweightBuildableId(BuildableClass, BestIndex);
+					}
+				}
+			}
+		}
+
 		UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - recipe=%s location=%s id=%s"),
 			PollState->AttemptsTaken, *PollState->RecipeClassPath, *ConstructLocation.ToString(), *ConstructedBuildableId);
 
@@ -2001,7 +2169,59 @@ FDocModOperationResult UDocModFunctionLibrary::DismantleBuildable(UObject* World
 		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
 	}
 
-	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
+	AFGBuildable* Buildable = nullptr;
+
+	if (IsLightweightBuildableId(BuildableId))
+	{
+		// Lightweight buildables (foundations, likely walls/other
+		// mass-placed pieces - see docs/lightweight-buildable-research.md)
+		// aren't actors, so there's nothing to look up directly. Resolve
+		// the class+index, then materialize a real, temporary
+		// AFGBuildable* via FindOrSpawnBuildableForRuntimeData() and reuse
+		// the exact same Execute_Dismantle() call below -
+		// AFGBuildable::Dismantle_Implementation() already has a
+		// dedicated mIsLightweightTemporary branch that correctly calls
+		// AFGLightweightBuildableSubsystem::RemoveByInstanceIndex() for
+		// us (confirmed by reading FGBuildable.cpp), so there's no need
+		// to duplicate that logic here.
+		FString ClassPath;
+		int32 Index = INDEX_NONE;
+		if (!ParseLightweightBuildableId(BuildableId, ClassPath, Index))
+		{
+			return FDocModOperationResult::Failure(TEXT("INVALID_REQUEST"),
+				FString::Printf(TEXT("'%s' is not a well-formed lightweight buildable id"), *BuildableId));
+		}
+
+		UClass* ResolvedClass = LoadObject<UClass>(nullptr, *ClassPath);
+		const TSubclassOf<AFGBuildable> BuildableClass = (ResolvedClass && ResolvedClass->IsChildOf(AFGBuildable::StaticClass())) ? ResolvedClass : nullptr;
+		if (!BuildableClass)
+		{
+			return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+				FString::Printf(TEXT("'%s' did not resolve to an AFGBuildable subclass"), *ClassPath));
+		}
+
+		AFGLightweightBuildableSubsystem* LightweightSubsystem = AFGLightweightBuildableSubsystem::Get(World);
+		FRuntimeBuildableInstanceData* RuntimeData = LightweightSubsystem ? LightweightSubsystem->GetRuntimeDataForBuildableClassAndIndex(BuildableClass, Index) : nullptr;
+		if (!RuntimeData || !RuntimeData->IsValid())
+		{
+			return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+				FString::Printf(TEXT("No lightweight buildable found with id '%s'"), *BuildableId));
+		}
+
+		bool bDidSpawn = false;
+		FInstanceToTemporaryBuildable* Temporary = LightweightSubsystem->FindOrSpawnBuildableForRuntimeData(BuildableClass, RuntimeData, Index, bDidSpawn);
+		if (!Temporary || !Temporary->IsValid())
+		{
+			return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+				FString::Printf(TEXT("Failed to materialize a temporary buildable for '%s'"), *BuildableId));
+		}
+		Buildable = Temporary->Buildable;
+	}
+	else
+	{
+		Buildable = FindBuildableById(World, BuildableId);
+	}
+
 	if (!Buildable)
 	{
 		return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
