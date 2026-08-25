@@ -2881,41 +2881,32 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 		return;
 	}
 
-	// ConstructPowerConnection rewrite (2026-08-25, live-diagnosed):
-	// the previous implementation set both ends via the public
-	// AFGWireHologram::SetConnection() directly, with no click/snap
-	// step at all. Confirmed LIVE that this works for machine<->machine
-	// connections but fails EVERY pole-involving connection (pole<->pole,
-	// pole<->machine, either order) with UFGCDWireSnap
-	// ("Must be hooked up to a connection!") - a different disqualifier
-	// than UFGCDWireTooLong (the real distance check, also confirmed
-	// live and unaffected by this change). AFGWireHologram.h's private
-	// state (mActiveSnapConnection/mCurrentConnection, tracked
-	// separately from mConnections[2]) strongly suggested CheckValidSnap()
-	// depends on a real TrySnapToActor() snap having occurred, not just
-	// SetConnection() being called - the same class of gap already fixed
-	// for belts/pipes. Switched to the same click-based
-	// UpdateHologramPlacement()+TrySnapToActor()+DoMultiStepPlacement(true)
-	// pattern (one click per end) instead of explicit SetConnection()
-	// calls - relies on the hit location matching the exact free
-	// connection's real GetComponentLocation(), same technique belts/pipes
-	// already use successfully since neither exposes any SetConnection
-	// equivalent at all.
-	auto MakeHitAt = [](AFGBuildable* Buildable, UFGCircuitConnectionComponent* Connection) -> FHitResult
-	{
-		FHitResult Hit;
-		Hit.Location = Connection->GetComponentLocation();
-		Hit.ImpactPoint = Hit.Location;
-		// No connector-normal concept exists on UFGCircuitConnectionComponent
-		// (unlike UFGFactoryConnectionComponent/UFGPipeConnectionComponentBase) -
-		// UpVector was already used here before this rewrite.
-		Hit.Normal = FVector::UpVector;
-		Hit.ImpactNormal = FVector::UpVector;
-		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
-		Hit.bBlockingHit = true;
-		return Hit;
-	};
-
+	// ConstructPowerConnection (2026-08-25, REVERTED after a live
+	// regression): a first attempt switched this to the click-based
+	// UpdateHologramPlacement()+TrySnapToActor()+DoMultiStepPlacement()
+	// pattern used by belts/pipes, on the theory that AFGWireHologram's
+	// private mActiveSnapConnection/mCurrentConnection state needed a
+	// real snap. Confirmed LIVE that theory was wrong in a way that
+	// mattered: TrySnapToActor() never populated GetConnection(0)/(1)
+	// for wires at all, even for the PREVIOUSLY-WORKING machine<->machine
+	// case (a genuine regression, not just a failure to fix poles).
+	// Reverted to the original, still-proven approach: explicit
+	// SetConnection(0/1, ...) calls, with BuildGun->GetHitResult() set
+	// to each connection's location as each is made (extended from the
+	// original, which only ever set it once for ConnectionA - a single
+	// targeted addition, not yet confirmed to help poles, on the theory
+	// that CheckValidSnap() may inspect the build gun's current hit
+	// result against whichever connection was most recently touched).
+	// The real, still-open, live-confirmed finding stands regardless of
+	// this addition's outcome: machine<->machine connections work under
+	// SetConnection(); EVERY pole-involving connection (pole<->pole,
+	// pole<->machine, either order) fails with UFGCDWireSnap ("Must be
+	// hooked up to a connection!") - a different disqualifier than
+	// UFGCDWireTooLong (the real distance check, confirmed live,
+	// maxLength=10000 real units). If this addition doesn't resolve it,
+	// treat pole power-connections as a genuinely unsolved problem
+	// needing a different approach next session, not a small variant of
+	// this one.
 	auto SummarizeDisqualifiers = [](AFGWireHologram* H) -> FString
 	{
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
@@ -2929,49 +2920,44 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
 	};
 
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructPowerConnection diagnostic: connectionALoc=%s connectionBLoc=%s"),
-		*ConnectionA->GetComponentLocation().ToString(), *ConnectionB->GetComponentLocation().ToString());
+	FHitResult HitA;
+	HitA.Location = ConnectionA->GetComponentLocation();
+	HitA.ImpactPoint = HitA.Location;
+	HitA.Normal = FVector::UpVector;
+	HitA.ImpactNormal = FVector::UpVector;
+	HitA.HitObjectHandle = FActorInstanceHandle(BuildableA);
+	// UFGPowerConnectionComponent derives from USceneComponent, not
+	// UPrimitiveComponent - FHitResult::Component left unset, same as
+	// the dry-run.
+	HitA.bBlockingHit = true;
 
-	const FHitResult HitA = MakeHitAt(BuildableA, ConnectionA);
-	WireHologram->UpdateHologramPlacement(HitA);
-	WireHologram->TrySnapToActor(HitA);
-	const bool bFirstStepComplete = WireHologram->DoMultiStepPlacement(true);
+	FHitResult HitB;
+	HitB.Location = ConnectionB->GetComponentLocation();
+	HitB.ImpactPoint = HitB.Location;
+	HitB.Normal = FVector::UpVector;
+	HitB.ImpactNormal = FVector::UpVector;
+	HitB.HitObjectHandle = FActorInstanceHandle(BuildableB);
+	HitB.bBlockingHit = true;
 
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructPowerConnection: a=%s b=%s after first click: stepComplete=%s connection0=%s disqualifiers=[%s]"),
-		*BuildableIdA, *BuildableIdB, bFirstStepComplete ? TEXT("true") : TEXT("false"),
-		WireHologram->GetConnection(0) ? TEXT("set") : TEXT("null"), *SummarizeDisqualifiers(WireHologram));
+	BuildGun->GetHitResult() = HitA;
+	WireHologram->SetConnection(0, ConnectionA);
 
-	if (bFirstStepComplete)
-	{
-		Character->UnequipBuildGun();
-		OnComplete(FDocModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the first connection click")));
-		return;
-	}
+	// The one targeted addition over the original: touch GetHitResult()
+	// for ConnectionB too, not just A, before setting it.
+	BuildGun->GetHitResult() = HitB;
+	WireHologram->SetConnection(1, ConnectionB);
 
-	const FHitResult HitB = MakeHitAt(BuildableB, ConnectionB);
-	WireHologram->UpdateHologramPlacement(HitB);
-	WireHologram->TrySnapToActor(HitB);
-	const bool bSecondStepComplete = WireHologram->DoMultiStepPlacement(true);
-
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructPowerConnection: a=%s b=%s after second click: stepComplete=%s connection0=%s connection1=%s disqualifiers=[%s]"),
-		*BuildableIdA, *BuildableIdB, bSecondStepComplete ? TEXT("true") : TEXT("false"),
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructPowerConnection: a=%s b=%s after SetConnection(0/1,...): connection0=%s connection1=%s disqualifiers=[%s]"),
+		*BuildableIdA, *BuildableIdB,
 		WireHologram->GetConnection(0) ? TEXT("set") : TEXT("null"), WireHologram->GetConnection(1) ? TEXT("set") : TEXT("null"),
 		*SummarizeDisqualifiers(WireHologram));
-
-	if (!bSecondStepComplete)
-	{
-		Character->UnequipBuildGun();
-		OnComplete(FDocModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"),
-			FString::Printf(TEXT("DoMultiStepPlacement() did not report complete after the second connection click - connection0=%s connection1=%s"),
-				WireHologram->GetConnection(0) ? TEXT("set") : TEXT("null"), WireHologram->GetConnection(1) ? TEXT("set") : TEXT("null"))));
-		return;
-	}
 
 	struct FPollState
 	{
 		TWeakObjectPtr<AFGWireHologram> Hologram;
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
 		TWeakObjectPtr<UWorld> World;
+		FHitResult SyntheticHit;
 		FString BuildableIdA;
 		FString BuildableIdB;
 		bool bDryRun = true;
@@ -2983,6 +2969,10 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 	PollState->Hologram = WireHologram;
 	PollState->Character = Character;
 	PollState->World = World;
+	// Re-assert HitA every poll tick, same as the original working
+	// implementation (HitB was only ever a one-time SetConnection(1,...)
+	// companion, not the per-tick value).
+	PollState->SyntheticHit = HitA;
 	PollState->BuildableIdA = BuildableIdA;
 	PollState->BuildableIdB = BuildableIdB;
 	PollState->bDryRun = bDryRun;
@@ -3004,10 +2994,8 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 			return;
 		}
 
-		// No per-tick UpdateHologramPlacement() re-assertion here, unlike
-		// the single-click Construct* functions - the two real clicks
-		// above (matching belts/pipes) already committed the snap/connection
-		// state, nothing to re-assert.
+		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
+
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
 		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
