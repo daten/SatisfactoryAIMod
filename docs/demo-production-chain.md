@@ -100,13 +100,23 @@ between the Smelter and Constructor.
   - Smelter: `Build_SmelterMk1_C_2147434176` (on the platform)
   - Constructor: `Build_ConstructorMk1_C_2147436054` (on the platform)
 
+## Recipes configured and verified (2026-08-25)
+
+`world.setRecipe` set the Smelter to `Recipe_IngotIron`
+(`/Game/FactoryGame/Recipes/Smelter/Recipe_IngotIron.uasset`) and the
+Constructor to `Recipe_IronPlate`
+(`/Game/FactoryGame/Recipes/Constructor/Recipe_IronPlate.uasset`), both
+`success:true` - and since `SetManufacturerRecipe` validates against
+`UFGRecipe::IsProducedIn` before applying, this is real confirmation
+they're compatible, unlike the placement-recipe mixup above which had no
+such check. Verified via `world.manufacturers`:
+`recipe:"Iron Ingot"`/`"Iron Plate"` respectively.
+`productionStatus:"Error"` on both is expected at this stage - no power
+or input material connected yet, not a bug.
+
 ## Still to do
 
-1. Configure the Smelter's recipe (`Recipe_IngotIron`,
-   `/Game/FactoryGame/Recipes/Smelter/Recipe_IngotIron.uasset`, verified
-   real) and the Constructor's recipe (`Recipe_IronPlate`,
-   `/Game/FactoryGame/Recipes/Constructor/Recipe_IronPlate.uasset`,
-   verified real) via the already-working `world.setRecipe`.
+1. ~~Configure recipes~~ - done, see above.
 2. Power connections - `DebugCheckPowerConnection`/`DocMod.TestPowerConnection`
    exists as a dry-run only; needs live testing (untested as of this
    writing) before building a real (non-dry-run) power-connect RPC
