@@ -392,6 +392,27 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
   `world.buildables` to check), and whether it's actually producing (not
   just occupying the node) once it has power/is otherwise eligible.
 
+### 11. Generalized building placement (`DocMod.PlaceBuildingNearPlayer`)
+
+- Stand somewhere with reasonably open, roughly flat ground in front of
+  you (a real vertical trace finds the actual floor height, but there's
+  no clearance-avoidance logic - if the spot 800 units in front of you
+  overlaps something, `CanConstruct()` will correctly say no).
+- Run `DocMod.PlaceBuildingNearPlayer` with no argument (defaults to
+  Constructor Mk1), or with a specific recipe class path, e.g.
+  `DocMod.PlaceBuildingNearPlayer /Game/FactoryGame/Recipes/Buildings/Recipe_AssemblerMk1.Recipe_AssemblerMk1_C`.
+- **Expected:** same visible build-gun-equip side effect as the other
+  build-gun-driven commands, then `LogDocModAI` reports either a
+  successful construction (with the real placement location logged) or
+  a specific `CANNOT_CONSTRUCT` disqualifier if the spot wasn't valid -
+  try moving to different ground and re-running if so.
+- **Scope reminder:** only tested for simple, single-step, non-snapping
+  buildings (production machines). Belts, pipes, walls, and foundations
+  are explicitly out of scope for this function - if tried, expect
+  either `HOLOGRAM_SPAWN_FAILED` or genuinely undefined behavior, not a
+  supported case.
+- **Not yet tested at all** - first real test of this generalized path.
+
 ---
 
 ## Confirmed
