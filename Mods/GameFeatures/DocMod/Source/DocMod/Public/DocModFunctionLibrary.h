@@ -247,4 +247,39 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DebugCheckExtractorPlacementViaBuildGun(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13: the first real write operation for building
+	 * placement - places a real Miner Mk1 on the currently-targeted
+	 * resource node. THIS IS A REAL MUTATION, unlike every other
+	 * "extractor placement" function in this class - it genuinely
+	 * constructs a building and touches the save.
+	 *
+	 * Runs the exact same validated flow as
+	 * DebugCheckExtractorPlacementViaBuildGun (HotKeyRecipe, synthetic
+	 * hit result via GetHitResult(), real-tick polling for
+	 * CanConstruct()) - see docs/buildgun-driven-placement-research.md,
+	 * confirmed live 2026-08-24 to resolve canConstruct=true after 1
+	 * real tick. Only once CanConstruct() genuinely returns true does
+	 * this go one step further than the dry-run: calls
+	 * UFGBuildGunStateBuild::InternalConstructHologram() (the same
+	 * function Server_ConstructHologram's RPC delegates to
+	 * server-side - both public, calling it directly here skips only the
+	 * client->server RPC serialization round-trip, a no-op in this
+	 * same-process singleplayer/listen-server context) with a fresh
+	 * FNetConstructionID from AFGBuildableSubsystem::GetNewNetConstructionID().
+	 * If CanConstruct() ever returns false, this behaves identically to
+	 * the dry-run - logs why, unequips the build gun, and never attempts
+	 * construction.
+	 *
+	 * PARTIALLY ASYNCHRONOUS, same as the dry-run: returns immediately
+	 * with ErrorCode="PENDING" while polling; the real outcome (including
+	 * whether the target node reports occupied afterward, as
+	 * confirmation) is logged to LogDocModAI once resolved.
+	 *
+	 * VISIBLE SIDE EFFECT: equips the build gun for the duration (same as
+	 * the dry-run), unequipped afterward regardless of outcome.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult ConstructExtractorOnTargetedNode(UObject* WorldContextObject);
 };

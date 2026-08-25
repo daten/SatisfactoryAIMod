@@ -1201,3 +1201,204 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckExtractorPlacementViaBu
 	return FDocModOperationResult::Failure(TEXT("PENDING"),
 		TEXT("Scheduled via the real build gun - polling real ticks until UFGCDInitializing clears (or a safety cap is hit); see LogDocModAI for the real result"));
 }
+
+FDocModOperationResult UDocModFunctionLibrary::ConstructExtractorOnTargetedNode(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	const FDocModResourceNodeTelemetry TargetTelemetry = GetTargetedResourceNode(WorldContextObject);
+	if (TargetTelemetry.Id.IsEmpty())
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_TARGET_NODE"), TEXT("Not currently looking at a resource node"));
+	}
+
+	AFGResourceNode* TargetNode = nullptr;
+	for (TActorIterator<AFGResourceNode> It(World); It; ++It)
+	{
+		if (IsValid(*It) && It->GetPathName() == TargetTelemetry.Id)
+		{
+			TargetNode = *It;
+			break;
+		}
+	}
+	if (!TargetNode)
+	{
+		return FDocModOperationResult::Failure(TEXT("NODE_NOT_FOUND"), TEXT("Targeted node id could not be re-resolved"));
+	}
+
+	if (TargetNode->IsOccupied())
+	{
+		return FDocModOperationResult::Failure(TEXT("NODE_OCCUPIED"), TEXT("Targeted node is already occupied"));
+	}
+
+	const EResourceForm Form = UFGItemDescriptor::GetForm(TargetNode->GetResourceClass());
+	if (Form != EResourceForm::RF_SOLID)
+	{
+		return FDocModOperationResult::Failure(TEXT("UNSUPPORTED_RESOURCE_FORM"),
+			TEXT("This experiment only supports solid resource nodes (Miner Mk1) so far"));
+	}
+
+	UClass* MinerRecipeClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_MinerMk1.Recipe_MinerMk1_C"));
+	if (!MinerRecipeClass || !MinerRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("RECIPE_LOAD_FAILED"), TEXT("Failed to load Recipe_MinerMk1 as a UFGRecipe"));
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = MinerRecipeClass;
+
+	// Real, ordinary player-facing hotkey - see
+	// DebugCheckExtractorPlacementViaBuildGun's matching comment. VISIBLE
+	// SIDE EFFECT, always restored via UnequipBuildGun().
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null"));
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun"));
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	if (!Hologram)
+	{
+		Character->UnequipBuildGun();
+		return FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"), TEXT("HotKeyRecipe did not result in a spawned hologram"));
+	}
+
+	const FVector RawLocation = TargetNode->GetActorLocation();
+	const FVector PlacementLocation = TargetNode->GetPlacementLocation(RawLocation);
+	const FRotator PlacementRotation = TargetNode->GetPlacementRotation(RawLocation);
+
+	FHitResult SyntheticHit;
+	SyntheticHit.Location = PlacementLocation;
+	SyntheticHit.ImpactPoint = PlacementLocation;
+	SyntheticHit.Normal = PlacementRotation.RotateVector(FVector::UpVector);
+	SyntheticHit.ImpactNormal = SyntheticHit.Normal;
+	SyntheticHit.HitObjectHandle = FActorInstanceHandle(TargetNode);
+	SyntheticHit.bBlockingHit = true;
+	if (UPrimitiveComponent* NodePrimitive = Cast<UPrimitiveComponent>(TargetNode->GetRootComponent()))
+	{
+		SyntheticHit.Component = NodePrimitive;
+	}
+
+	BuildGun->GetHitResult() = SyntheticHit;
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<AFGResourceNode> TargetNode;
+		TWeakObjectPtr<UWorld> World;
+		FString NodeId;
+		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = Hologram;
+	PollState->Character = Character;
+	PollState->TargetNode = TargetNode;
+	PollState->World = World;
+	PollState->NodeId = TargetTelemetry.Id;
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		AFGResourceNode* PollTargetNode = PollState->TargetNode.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("ConstructExtractorOnTargetedNode (deferred): hologram or world became invalid while polling (after %d tick(s)) - nothing built"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			return;
+		}
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bCanConstruct = PollHologram->CanConstruct();
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		if (!bCanConstruct)
+		{
+			UE_LOG(LogDocModAI, Display, TEXT("ConstructExtractorOnTargetedNode (deferred, resolved after %d real tick(s)): CanConstruct()=false, NOT constructing - node=%s disqualifiers=[%s]"),
+				PollState->AttemptsTaken, *PollState->NodeId, *DisqualifierSummary);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			return;
+		}
+
+		// The only point where this function actually differs from
+		// DebugCheckExtractorPlacementViaBuildGun - everything above is
+		// the identical validated dry-run flow. InternalConstructHologram
+		// is the same function Server_ConstructHologram's RPC delegates
+		// to server-side (both public - see
+		// docs/buildgun-driven-placement-research.md §5); calling it
+		// directly here skips only the client->server RPC serialization
+		// round-trip, a no-op in this same-process singleplayer/
+		// listen-server context, and operates on the same live hologram
+		// this poll already validated with CanConstruct()==true.
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogDocModAI, Error, TEXT("ConstructExtractorOnTargetedNode (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			return;
+		}
+
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		// Confirmation, not just trust: if construction genuinely
+		// succeeded, the node should now report occupied.
+		const bool bNowOccupied = IsValid(PollTargetNode) && PollTargetNode->IsOccupied();
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructExtractorOnTargetedNode (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - node=%s nodeNowOccupied=%s"),
+			PollState->AttemptsTaken, *PollState->NodeId, bNowOccupied ? TEXT("true") : TEXT("false"));
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+
+	return FDocModOperationResult::Failure(TEXT("PENDING"),
+		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, a real Miner Mk1 WILL be constructed; see LogDocModAI for the real result"));
+}

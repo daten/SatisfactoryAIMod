@@ -260,6 +260,30 @@ void FDocModModule::RegisterConsoleCommands()
 				}
 			}),
 		ECVF_Default));
+
+	ConsoleCommands.Add(ConsoleManager.RegisterConsoleCommand(
+		TEXT("DocMod.ConstructExtractorOnTargetedNode"),
+		TEXT("REAL MUTATION - places an actual Miner Mk1 on the currently-targeted resource node if CanConstruct() resolves true (same validated flow as DocMod.TestExtractorPlacementViaBuildGun). Touches the save. See docs/buildgun-driven-placement-research.md."),
+		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateStatic(
+			[](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
+			{
+				if (!World)
+				{
+					Ar.Log(TEXT("DocMod: no world available - load a level first"));
+					return;
+				}
+				Ar.Log(TEXT("DocMod: attempting REAL extractor construction via the real build gun (will briefly equip it)..."));
+				const FDocModOperationResult Result = UDocModFunctionLibrary::ConstructExtractorOnTargetedNode(World);
+				if (Result.ErrorCode == TEXT("PENDING"))
+				{
+					Ar.Log(TEXT("DocMod: scheduled - if CanConstruct() resolves true, a real Miner Mk1 WILL be built; check LogDocModAI in a moment for the actual result"));
+				}
+				else
+				{
+					Ar.Log(FString::Printf(TEXT("DocMod: not attempted - %s: %s"), *Result.ErrorCode, *Result.ErrorMessage));
+				}
+			}),
+		ECVF_Default));
 }
 
 void FDocModModule::UnregisterConsoleCommands()
