@@ -29,6 +29,9 @@
 #include "Hologram/FGConveyorBeltHologram.h"
 #include "Buildables/FGBuildableConveyorBase.h"
 #include "Buildables/FGBuildableWire.h"
+#include "Buildables/FGBuildablePipeline.h"
+#include "Hologram/FGPipelineHologram.h"
+#include "FGPipeConnectionComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
@@ -236,6 +239,44 @@ namespace
 		return (HologramClass && HologramClass->IsChildOf(AFGConveyorBeltHologram::StaticClass()))
 			? TSubclassOf<AFGConveyorBeltHologram>(HologramClass)
 			: nullptr;
+	}
+
+	// Same pattern as ResolveConveyorBeltHologramClassForRecipe, for
+	// pipelines (2026-08-25 pipe groundwork). AFGPipelineHologram is a
+	// sibling of AFGConveyorBeltHologram - both derive directly from
+	// AFGSplineHologram - confirmed from source, not assumed.
+	TSubclassOf<AFGPipelineHologram> ResolvePipelineHologramClassForRecipe(const FString& RecipeClassPath)
+	{
+		const TSubclassOf<UFGBuildingDescriptor> BuildingDescriptorClass = ResolveBuildingDescriptorClassForRecipe(RecipeClassPath);
+		if (!BuildingDescriptorClass)
+		{
+			return nullptr;
+		}
+		UClass* HologramClass = UFGBuildDescriptor::GetHologramClass(BuildingDescriptorClass);
+		return (HologramClass && HologramClass->IsChildOf(AFGPipelineHologram::StaticClass()))
+			? TSubclassOf<AFGPipelineHologram>(HologramClass)
+			: nullptr;
+	}
+
+	// Same generic-discovery pattern as FindFreeFactoryConnection/
+	// FindFreePowerConnection, for pipes: UFGPipeConnectionComponentBase/
+	// EPipeConnectionType are pipes' own parallel type hierarchy (NOT
+	// UFGFactoryConnectionComponent/EFactoryConnectionDirection) -
+	// confirmed from source (FGPipeConnectionComponent.h), not assumed.
+	// PCT_PRODUCER is the pipe equivalent of FCD_OUTPUT, PCT_CONSUMER of
+	// FCD_INPUT.
+	UFGPipeConnectionComponentBase* FindFreePipeConnection(AFGBuildable* Buildable, EPipeConnectionType Type)
+	{
+		TArray<UFGPipeConnectionComponentBase*> Connections;
+		Buildable->GetComponents<UFGPipeConnectionComponentBase>(Connections);
+		for (UFGPipeConnectionComponentBase* Connection : Connections)
+		{
+			if (IsValid(Connection) && Connection->GetPipeConnectionType() == Type && !Connection->IsConnected())
+			{
+				return Connection;
+			}
+		}
+		return nullptr;
 	}
 
 	TArray<FDocModBuildableTelemetry> CollectLightweightBuildableTelemetry(UWorld* World)
@@ -3209,6 +3250,78 @@ FString UDocModFunctionLibrary::LogPowerLineLimitsAsJson(UObject* WorldContextOb
 	return JsonString;
 }
 
+FString UDocModFunctionLibrary::LogPipelineTiersAsJson(UObject* WorldContextObject)
+{
+	// Read-only telemetry, no World/player needed - mirrors
+	// LogConveyorBeltTiersAsJson's structure for the pipe equivalent.
+	// Recipe_Pipeline (Mk1) and Recipe_PipelineMK2 (note the capital
+	// "MK2", unlike belts' "Mk2" - confirmed from the actual filename on
+	// disk) are the two real tiers.
+	static const TCHAR* TierRecipePaths[] = {
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_Pipeline.Recipe_Pipeline_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PipelineMK2.Recipe_PipelineMK2_C"),
+	};
+
+	TArray<TSharedPtr<FJsonValue>> TierJsonArray;
+	for (const TCHAR* RecipePath : TierRecipePaths)
+	{
+		const TSubclassOf<AFGBuildable> BuildableClass = ResolveBuildableClassForRecipe(RecipePath);
+		const AFGBuildablePipeline* PipelineCDO = BuildableClass ? Cast<AFGBuildablePipeline>(BuildableClass->GetDefaultObject()) : nullptr;
+		if (!PipelineCDO)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("LogPipelineTiersAsJson: could not resolve a AFGBuildablePipeline CDO for '%s' - omitting"), RecipePath);
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> TierObject = MakeShared<FJsonObject>();
+		TierObject->SetStringField(TEXT("recipeClass"), RecipePath);
+		TierObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
+		// flowLimit: "Maximum flow through this pipe in cubic meters.
+		// [m^3/s]" per FGBuildablePipeline.h's own doc comment - a real
+		// documented unit, unlike belts' ambiguous GetSpeed().
+		TierObject->SetNumberField(TEXT("flowLimit"), PipelineCDO->GetFlowLimit());
+
+		// maxSplineLength/bendRadius/minBendRadius (2026-08-25): ALL
+		// THREE are private on AFGPipelineHologram with no public
+		// getters (unlike belts, where two of three had public getters)
+		// - confirmed from source, all real UPROPERTY(EditDefaultsOnly)
+		// fields, read via reflection same as belts' mMaxIncline.
+		if (const TSubclassOf<AFGPipelineHologram> HologramClass = ResolvePipelineHologramClassForRecipe(RecipePath))
+		{
+			if (const AFGPipelineHologram* HologramCDO = Cast<AFGPipelineHologram>(HologramClass->GetDefaultObject()))
+			{
+				if (const FFloatProperty* MaxSplineLengthProperty = FindFProperty<FFloatProperty>(HologramClass, TEXT("mMaxSplineLength")))
+				{
+					TierObject->SetNumberField(TEXT("maxSplineLength"), MaxSplineLengthProperty->GetPropertyValue_InContainer(HologramCDO));
+				}
+				if (const FFloatProperty* BendRadiusProperty = FindFProperty<FFloatProperty>(HologramClass, TEXT("mBendRadius")))
+				{
+					TierObject->SetNumberField(TEXT("bendRadius"), BendRadiusProperty->GetPropertyValue_InContainer(HologramCDO));
+				}
+				if (const FFloatProperty* MinBendRadiusProperty = FindFProperty<FFloatProperty>(HologramClass, TEXT("mMinBendRadius")))
+				{
+					TierObject->SetNumberField(TEXT("minBendRadius"), MinBendRadiusProperty->GetPropertyValue_InContainer(HologramCDO));
+				}
+			}
+		}
+
+		TierJsonArray.Add(MakeShared<FJsonValueObject>(TierObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("tiers"), TierJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogPipelineTiersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
 void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -3477,6 +3590,279 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		PollBuildState->InternalConstructHologram(ConstructionID);
 
 		UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorBelt (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		PollState->OnComplete(FDocModOperationResult::Success());
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// ConstructPipe (2026-08-25 pipe groundwork) - deliberate near-exact
+// mirror of ConstructConveyorBelt above, same mechanism, different
+// types: AFGPipelineHologram is a sibling of AFGConveyorBeltHologram
+// (both derive directly from AFGSplineHologram - confirmed from
+// source), and UFGPipeConnectionComponentBase/EPipeConnectionType is
+// pipes' own parallel connection-type hierarchy, NOT
+// UFGFactoryConnectionComponent/EFactoryConnectionDirection. Applies
+// every fix discovered live for belts up front rather than
+// rediscovering them - UpdateHologramPlacement() before
+// TrySnapToActor() at each click, and the connector's REAL
+// GetConnectorNormal() (not a placeholder UpVector) in the synthetic
+// hit. NOT YET LIVE-TESTED - unlike ConstructConveyorBelt, none of
+// this has been run against a real game session. Two known
+// pipe-specific unknowns going in: (1) AFGSplineHologram (the shared
+// base) has no GetAnyConnectedBuildables() - only
+// AFGConveyorBeltHologram declares that method - so this uses
+// IsConnectionSnapped(false) instead for the post-end-click diagnostic,
+// an indicator already noted (see DebugCheckConveyorSnap's findings)
+// as not fully reliable even for belts; (2) fluid type compatibility
+// (UFGCDPipeFluidTypeMismatch, confirmed to exist in
+// FGConstructDisqualifier.h) is NOT pre-validated here - the real
+// CanConstruct() disqualifier check is trusted to catch it, same as
+// every other disqualifier this function doesn't special-case.
+void UDocModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	AFGBuildable* SourceBuildable = FindBuildableById(World, SourceBuildableId);
+	if (!SourceBuildable)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *SourceBuildableId)));
+		return;
+	}
+	AFGBuildable* DestBuildable = FindBuildableById(World, DestBuildableId);
+	if (!DestBuildable)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *DestBuildableId)));
+		return;
+	}
+
+	UFGPipeConnectionComponentBase* SourceConnection = FindFreePipeConnection(SourceBuildable, EPipeConnectionType::PCT_PRODUCER);
+	if (!SourceConnection)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PIPE_CONNECTION"), FString::Printf(TEXT("'%s' has no free Producer pipe connection component"), *SourceBuildableId)));
+		return;
+	}
+	UFGPipeConnectionComponentBase* DestConnection = FindFreePipeConnection(DestBuildable, EPipeConnectionType::PCT_CONSUMER);
+	if (!DestConnection)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PIPE_CONNECTION"), FString::Printf(TEXT("'%s' has no free Consumer pipe connection component"), *DestBuildableId)));
+		return;
+	}
+
+	// Caller-chosen pipe tier - see LogPipelineTiersAsJson for the two
+	// real recipes (Recipe_Pipeline, Recipe_PipelineMK2). Same
+	// validation posture as every other recipe param in this file.
+	UClass* PipeRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!PipeRecipeClass || !PipeRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = PipeRecipeClass;
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	AFGPipelineHologram* PipeHologram = Cast<AFGPipelineHologram>(Hologram);
+	if (!PipeHologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGPipelineHologram (got %s)"),
+				*RecipeClassPath, Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
+		return;
+	}
+
+	auto MakeHitAt = [](AFGBuildable* Buildable, UFGPipeConnectionComponentBase* Connection) -> FHitResult
+	{
+		FHitResult Hit;
+		Hit.Location = Connection->GetConnectorLocation();
+		Hit.ImpactPoint = Hit.Location;
+		Hit.Normal = Connection->GetConnectorNormal();
+		Hit.ImpactNormal = Hit.Normal;
+		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
+		Hit.bBlockingHit = true;
+		return Hit;
+	};
+
+	auto SummarizeDisqualifiers = [](AFGPipelineHologram* H) -> FString
+	{
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		H->GetConstructDisqualifiers(Disqualifiers);
+		TArray<FString> Texts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+		{
+			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
+		}
+		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
+	};
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructPipe diagnostic: playerLoc=%s playerRot=%s sourceConnectorLoc=%s sourceConnectorNormal=%s sourceConnectorClearanceLoc=%s destConnectorLoc=%s destConnectorNormal=%s destConnectorClearanceLoc=%s"),
+		*Character->GetActorLocation().ToString(), *Character->GetActorRotation().ToString(),
+		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(), *SourceConnection->GetConnectorLocation(true).ToString(),
+		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString(), *DestConnection->GetConnectorLocation(true).ToString());
+
+	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	PipeHologram->UpdateHologramPlacement(StartHit);
+	PipeHologram->TrySnapToActor(StartHit);
+	const bool bStartStepComplete = PipeHologram->DoMultiStepPlacement(true);
+	const ESplineHologramBuildStep StepAfterStart = PipeHologram->GetCurrentBuildStep();
+
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructPipe: source=%s dest=%s after start click: stepComplete=%s step=%d disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bStartStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterStart), *SummarizeDisqualifiers(PipeHologram));
+
+	if (bStartStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
+		return;
+	}
+
+	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
+	PipeHologram->UpdateHologramPlacement(EndHit);
+	PipeHologram->TrySnapToActor(EndHit);
+	const bool bEndStepComplete = PipeHologram->DoMultiStepPlacement(true);
+	const ESplineHologramBuildStep StepAfterEnd = PipeHologram->GetCurrentBuildStep();
+	const bool bEndConnectionSnapped = PipeHologram->IsConnectionSnapped(false);
+
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructPipe: source=%s dest=%s after end click: stepComplete=%s step=%d connectionSnapped=%s disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bEndStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterEnd), bEndConnectionSnapped ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(PipeHologram));
+
+	if (!bEndStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"),
+			FString::Printf(TEXT("DoMultiStepPlacement() did not report complete after the end click - step=%d connectionSnapped=%s, may need a third step"), static_cast<int32>(StepAfterEnd), bEndConnectionSnapped ? TEXT("true") : TEXT("false"))));
+		return;
+	}
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGPipelineHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		bool bDryRun = true;
+		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+		TFunction<void(const FDocModOperationResult&)> OnComplete;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = PipeHologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->SourceBuildableId = SourceBuildableId;
+	PollState->DestBuildableId = DestBuildableId;
+	PollState->bDryRun = bDryRun;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGPipelineHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("ConstructPipe (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bCanConstruct = PollHologram->CanConstruct();
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructPipe (deferred, resolved after %d real tick(s)): source=%s dest=%s dryRun=%s canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId, PollState->bDryRun ? TEXT("true") : TEXT("false"),
+			bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		if (!bCanConstruct)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		if (PollState->bDryRun)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Success());
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogDocModAI, Error, TEXT("ConstructPipe (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructPipe (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
 			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
 
 		if (IsValid(PollCharacter))

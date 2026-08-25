@@ -472,6 +472,51 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		return true;
 	}
 
+	// Genuinely asynchronous, same shape as "world.testConveyorBelt"/
+	// "world.connectConveyor" above. "world.testPipe" (dry run) and
+	// "world.connectPipe" (real) share UDocModFunctionLibrary::
+	// ConstructPipe, differing only in the bDryRun argument. Pipe
+	// groundwork (2026-08-25) - NOT YET LIVE-TESTED, see ConstructPipe's
+	// doc comment for the open questions (no GetAnyConnectedBuildables()
+	// on the shared hologram base, no standalone pole recipe found on
+	// disk).
+	if (Method == TEXT("world.testPipe") || Method == TEXT("world.connectPipe"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			return true;
+		}
+
+		// Optional, defaults to Mk1. Recipe_Pipeline or
+		// Recipe_PipelineMK2 - see world.pipelineTiers for each tier's
+		// real queried flowLimit/maxSplineLength/bendRadius/minBendRadius.
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_Pipeline.Recipe_Pipeline_C");
+		}
+
+		const bool bDryRun = Method == TEXT("world.testPipe");
+		UDocModFunctionLibrary::ConstructPipe(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRun,
+			[OnComplete, RequestId](const FDocModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
 	// not implement GetWorld(); UGameInstance does.
 	FString MethodResultJson;
@@ -498,6 +543,10 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	else if (Method == TEXT("world.powerLineLimits"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogPowerLineLimitsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.pipelineTiers"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogPipelineTiersAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.targetedManufacturer"))
 	{

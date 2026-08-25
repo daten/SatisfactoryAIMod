@@ -690,4 +690,86 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogPowerLineLimitsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Telemetry, not a mutation - same LogXAsJson convention as
+	 * LogConveyorBeltTiersAsJson/LogPowerLineLimitsAsJson. Added
+	 * 2026-08-25 for pipe groundwork, directly motivated by the user
+	 * asking to prepare pipe handling ahead of the next live session,
+	 * the same way belts/power were prepared.
+	 *
+	 * Reports Recipe_Pipeline and Recipe_PipelineMK2 (both confirmed on
+	 * disk - note the capital "MK2", unlike belts' "Mk2"). Per tier:
+	 * "flowLimit" is AFGBuildablePipeline::GetFlowLimit(), a PUBLIC
+	 * getter with a documented unit ("Maximum flow through this pipe in
+	 * cubic meters. [m^3/s]" per FGBuildablePipeline.h's own doc
+	 * comment) - unlike belt speed, this is directly usable without a
+	 * unit caveat. "maxSplineLength"/"bendRadius"/"minBendRadius" come
+	 * from AFGPipelineHologram's CDO (resolved via
+	 * ResolvePipelineHologramClassForRecipe, the same
+	 * UFGBuildDescriptor::GetHologramClass pattern as the belt hologram
+	 * lookup) - ALL THREE are private UPROPERTY(EditDefaultsOnly)
+	 * fields with no public getter (unlike belts, where two of three
+	 * had public getters), read via FindFProperty<FFloatProperty>
+	 * reflection - a single hardcoded read-only field lookup per field,
+	 * not a generic property-access capability, same justification as
+	 * the belt incline read. Any tier/field that fails to resolve is
+	 * simply omitted, not a hard error.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipelineTiersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13/14 pipe groundwork (2026-08-25) - a deliberate
+	 * near-exact mirror of ConstructConveyorBelt, same build-gun-driven
+	 * two-click mechanism (TrySnapToActor + DoMultiStepPlacement(true)
+	 * at the source connector, then again at the dest connector),
+	 * applying every fix already discovered live for belts up front:
+	 * UpdateHologramPlacement() before each TrySnapToActor(), and the
+	 * connector's real GetConnectorNormal() (not a placeholder
+	 * UpVector) in the synthetic FHitResult. AFGPipelineHologram is a
+	 * sibling of AFGConveyorBeltHologram - both derive directly from
+	 * AFGSplineHologram, confirmed from source - and
+	 * UFGPipeConnectionComponentBase/EPipeConnectionType is pipes' own
+	 * parallel connection-type hierarchy (PCT_PRODUCER/PCT_CONSUMER),
+	 * NOT UFGFactoryConnectionComponent/EFactoryConnectionDirection.
+	 *
+	 * NOT YET LIVE-TESTED - unlike ConstructConveyorBelt, none of this
+	 * has been run against a real game session; this is groundwork
+	 * ahead of the next testing session, same posture as the belt-tier
+	 * and power-limit telemetry added earlier tonight. Two known
+	 * pipe-specific open questions going into that first live test:
+	 * (1) AFGSplineHologram (the shared base) has no
+	 * GetAnyConnectedBuildables() - only AFGConveyorBeltHologram
+	 * declares that - so the post-end-click diagnostic here uses
+	 * IsConnectionSnapped(false) instead, an indicator already noted
+	 * (DebugCheckConveyorSnap's findings) as not fully reliable even
+	 * for belts; (2) fluid type compatibility
+	 * (UFGCDPipeFluidTypeMismatch, confirmed present in
+	 * FGConstructDisqualifier.h) is NOT pre-validated here - the real
+	 * CanConstruct() disqualifier check is trusted to catch it, same as
+	 * every other disqualifier this function doesn't special-case; (3)
+	 * no standalone Recipe_PipelineSupport/pole recipe was found on
+	 * disk (unlike Recipe_ConveyorPole for belts) even though
+	 * Build_PipelineSupport.uasset exists as a buildable - whether
+	 * chaining ConstructPipe calls through an intermediate pole works
+	 * the same way it does for belts/power, or whether pipe poles are
+	 * only auto-spawned internally by the hologram's own
+	 * mDefaultPipelineSupportRecipe mechanism during placement, is an
+	 * open question for the first live pipe test to answer, not
+	 * assumed either way here.
+	 *
+	 * RecipeClassPath: Recipe_Pipeline or Recipe_PipelineMK2 (see
+	 * LogPipelineTiersAsJson/"world.pipelineTiers" for each tier's real
+	 * queried flowLimit/maxSplineLength/bendRadius/minBendRadius). Tier
+	 * selection and multi-segment routing decisions are deliberately
+	 * NOT made here - see the planned controller/satisfactory_ai/pipes.py
+	 * toolkit module for where that belongs, per this project's
+	 * established toolkit-not-solver direction. SourceBuildableId/
+	 * DestBuildableId are NOT required to be machines: any AFGBuildable
+	 * with a free UFGPipeConnectionComponentBase works, same generic
+	 * posture as ConstructConveyorBelt. Not a UFUNCTION - same reason
+	 * as the other async entry points.
+	 */
+	static void ConstructPipe(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 };

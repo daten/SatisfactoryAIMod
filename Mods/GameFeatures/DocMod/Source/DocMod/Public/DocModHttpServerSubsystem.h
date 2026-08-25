@@ -43,7 +43,10 @@ struct FHttpServerRequest;
  * LogConveyorBeltTiersAsJson's doc comment on why this is NOT a hardcoded
  * items-per-minute table), "world.powerLineLimits" (Recipe_PowerLine's
  * real mMaxLength/mMaxPowerTowerLength/mLengthPerCost, in cm - see
- * LogPowerLineLimitsAsJson's doc comment), "world.targetedManufacturer"
+ * LogPowerLineLimitsAsJson's doc comment), "world.pipelineTiers"
+ * (Recipe_Pipeline/Recipe_PipelineMK2's real queried
+ * flowLimit/maxSplineLength/bendRadius/minBendRadius - pipe groundwork,
+ * 2026-08-25, see LogPipelineTiersAsJson's doc comment), "world.targetedManufacturer"
  * (whatever manufacturer the local player
  * is currently looking at - "manufacturer":null if none). Write methods
  * (PLAN.md Phase 12, take a "params" object): "world.setClockSpeed"
@@ -76,9 +79,15 @@ struct FHttpServerRequest;
  * "world.connectConveyor" (real - both
  * {"sourceBuildableId","destBuildableId"}, plus optional "recipeClass"
  * (default Recipe_ConveyorBeltMk1 - any of Mk1..Mk6, see
- * "world.conveyorBeltTiers" above to pick by real queried speed)) (PLAN.md Phase 13/14) are
+ * "world.conveyorBeltTiers" above to pick by real queried speed)),
+ * "world.testPipe" (dry run) and "world.connectPipe" (real - both
+ * {"sourceBuildableId","destBuildableId"}, plus optional "recipeClass"
+ * (default Recipe_Pipeline - or Recipe_PipelineMK2, see
+ * "world.pipelineTiers" above) - pipe groundwork, 2026-08-25, NOT YET
+ * LIVE-TESTED, see ConstructPipe's doc comment for open questions)
+ * (PLAN.md Phase 13/14) are
  * GENUINELY ASYNCHRONOUS methods - UDocModFunctionLibrary::ConstructBuildingAtPosition/
- * ConstructExtractorOnNode/ConstructPowerConnection/ConstructConveyorBelt's completion callback may fire well after
+ * ConstructExtractorOnNode/ConstructPowerConnection/ConstructConveyorBelt/ConstructPipe's completion callback may fire well after
  * HandleRpcRequest returns (real-tick polling to resolve
  * UFGCDInitializing/CanConstruct(), typically 1 tick, capped ~2s) -
  * FHttpResultCallback is captured by value and invoked from the deferred
