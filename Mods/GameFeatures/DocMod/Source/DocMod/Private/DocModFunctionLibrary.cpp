@@ -221,14 +221,16 @@ namespace
 			for (int32 Index = 0; Index < Instances.Num(); ++Index)
 			{
 				const FRuntimeBuildableInstanceData& InstanceData = Instances[Index];
-				// Removed instances leave a cleared (tombstoned), not
-				// compacted, slot behind - FRuntimeBuildableInstanceData::
-				// IsValid() (Handles.Num()>0 && BuiltWithRecipe) is exactly
-				// this project's own emptiness check, confirmed by reading
-				// FGLightweightBuildableSubsystem.h's Clear()/IsValid(). This
-				// also means (class, index) identity stays stable when a
-				// DIFFERENT instance of the same class is removed - no
-				// index shifting to worry about.
+				// A removed instance's slot has Handles.Num()==0 &&
+				// BuiltWithRecipe==nullptr (matches Clear()'s real body in
+				// FGLightweightBuildableSubsystem.h) - IsValid() below skips
+				// it. CORRECTION (2026-08-25, docs/lightweight-buildable-
+				// research.md "Index stability"): this does NOT mean
+				// (class, index) identity is stable over time - live
+				// evidence showed a whole batch of indices shift after
+				// unrelated deletes (a periodic compaction, not a pure
+				// tombstone) - always re-resolve an id by position before
+				// trusting an old one.
 				if (!InstanceData.IsValid())
 				{
 					continue;

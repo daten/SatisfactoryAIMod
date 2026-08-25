@@ -335,3 +335,56 @@ subsequent candidate positions for any multi-point sweep should be
 offset well clear of the player's current position (a ring at a fixed
 radius, one point per candidate, is what worked here) rather than
 reusing the player's exact coordinates.
+
+## §5 "Invalid aim location!" can persist at ~100 units, independent of distance/yaw - camera pitch/yaw, not capsule facing, 2026-08-25
+
+A second, real Smelter/Constructor/foundation build near an existing
+Miner (`docs/lightweight-buildable-research.md` has the foundation
+side of this session) repeatedly hit `"Invalid aim location!"` even
+after every previously-understood cause was ruled out one at a time,
+live:
+
+- Not distance: a 7-point radial sweep (400 to 2200 units, along the
+  bearing toward the actual target) failed at **every** distance,
+  including the closest.
+- Not ground validity: `groundTraceHit=true` with a sane Z at every
+  failing attempt (confirmed via the per-attempt `ConstructBuildingAtPosition:
+  recipe=... groundTraceHit=...` log line).
+- Not horizontal capsule yaw: a further sweep placed candidates
+  directly along `Character->GetActorRotation()`'s own yaw (via
+  `world.player`) at 100/200/300 units - all three still failed, with
+  the player stationary the whole time (user had stepped away from the
+  keyboard/mouse, so this ruled out both distance AND yaw-alignment
+  changing between attempts).
+- Not leftover debris/duplicate objects at the target (checked via
+  `world.buildables` proximity query - clean).
+- Not a stuck build-gun/cooldown state: an 8-second real-time wait
+  before retrying made no difference.
+
+**Working theory (implemented, not yet live-verified - needs an
+Alpakit redeploy):** `world.player`/`AFGCharacterPlayer::GetActorRotation()`
+only reflects the character **capsule's** yaw, never pitch, and this
+game decouples camera look direction from capsule facing (as most
+third-person-capable characters do) - if the player's actual camera
+happens to be pointed somewhere unrelated to the capsule's forward
+vector (e.g. looking down at inventory, or simply however it was left
+when the user stepped away), some disqualifier apparently still
+consults the real controller `ControlRotation` independent of
+`UpdateHologramPlacement()`'s per-tick position override - the same
+class of bug as this doc's §3 finding (`GetHitResult()` alone doesn't
+control final placement), just one layer deeper: overriding the
+hologram's *position* isn't enough if a disqualifier separately checks
+the *camera's* direction.
+
+**Fix, applied in `ConstructBuildingAtPosition`:** before
+`HotKeyRecipe()`, set `Character->GetController()->SetControlRotation()`
+to face the synthetic hit location - `(SyntheticHit.Location -
+Character->GetActorLocation()).Rotation()`. This is a real, visible
+side effect (snaps the player's camera to face the target, same
+category as `HotKeyRecipe()`'s existing visible side effect) but makes
+placement work regardless of where the camera actually happens to be
+aimed - the whole point of RPC-driven placement being independent of
+player attention. **Not yet confirmed live** - written and compiled
+while the user had stepped away and redeploying needs them at Alpakit;
+next session should verify this actually resolves the failures
+reproduced above before trusting it.

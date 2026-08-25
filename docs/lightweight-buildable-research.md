@@ -52,16 +52,33 @@ collide. Helpers: `MakeLightweightBuildableId`,
 `IsLightweightBuildableId`, `ParseLightweightBuildableId` (all in the
 anonymous namespace at the top of `DocModFunctionLibrary.cpp`).
 
-### Index stability
+### Index stability — CORRECTED 2026-08-25, indices are NOT stable
 
-`FRuntimeBuildableInstanceData::IsValid()` is `Handles.Num() > 0 &&
-BuiltWithRecipe` (read directly from `FGLightweightBuildableSubsystem.h`)
-and `Clear()` resets exactly those fields — confirming removal
-**tombstones** a slot rather than compacting the array. `(class, index)`
-identity therefore stays valid for every *other* instance of that class
-after one is removed — no index-shifting to worry about.
-`CollectLightweightBuildableTelemetry` filters out invalid (tombstoned)
-slots so they don't appear in `world.buildables`.
+Originally believed (from reading `FRuntimeBuildableInstanceData::IsValid()`/
+`Clear()`'s real bodies) that removal tombstones a slot rather than
+compacting the array, keeping `(class, index)` identity stable for
+every other instance of that class. **Live evidence contradicts this**:
+five foundations placed in one session (indices 771-775) were later
+found, after several unrelated `world.deleteBuilding` calls against
+*different* lightweight instances of the same class, to have been
+renumbered to 754-758 — every single one shifted by exactly -17, with
+their positions unchanged. This means something (a periodic compaction
+pass, possibly `RemoveStaleTemporaryBuildables()` - "Called end of
+tick. Destroys and buildables and deletes the instance to temp data
+for them" - or an equivalent) does eventually reindex the array,
+contradicting the tombstone theory. `IsValid()`/`Clear()`'s real bodies
+still explain the *low-level* mechanics of one removal correctly; what
+was wrong was assuming that's the *only* thing that happens to the
+array over time.
+
+**Practical consequence:** a lightweight buildable id captured at one
+point in time is not safe to reuse indefinitely, especially after any
+`world.deleteBuilding` call (on that class or possibly others) or
+after a game session reload - re-resolve by position via
+`world.buildables` before trusting an old id again, don't just retry
+the same id. This is a stronger version of the pre-existing
+"session-local only, not save-stable" caveat that already applies to
+every id in this protocol.
 
 ### Telemetry
 
