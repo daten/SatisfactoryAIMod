@@ -1,0 +1,21 @@
+{
+  "protocolVersion": 1,
+  "tiers": [
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_Pipeline.Recipe_Pipeline_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/Pipeline/Build_Pipeline.Build_Pipeline_C",
+      "flowLimit": 300.0,
+      "maxSplineLength": 5000.0,
+      "bendRadius": 100.0,
+      "minBendRadius": 50.0
+    },
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_PipelineMK2.Recipe_PipelineMK2_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/PipelineMK2/Build_PipelineMK2.Build_PipelineMK2_C",
+      "flowLimit": 600.0,
+      "maxSplineLength": 5000.0,
+      "bendRadius": 100.0,
+      "minBendRadius": 50.0
+    }
+  ]
+}

@@ -204,3 +204,40 @@ class PowerLineLimits:
             max_power_tower_length=float(data["maxPowerTowerLength"]),
             length_per_cost=float(data["lengthPerCost"]),
         )
+
+
+@dataclass(frozen=True)
+class PipelineTier:
+    """Mirrors one entry of "world.pipelineTiers" (added 2026-08-25,
+    pipe groundwork - NOT YET LIVE-TESTED, see ConstructPipe's C++ doc
+    comment for open questions).
+
+    flow_limit is AFGBuildablePipeline::GetFlowLimit(), a documented-unit
+    value ("[m^3/s]" per FGBuildablePipeline.h) - unlike
+    ConveyorBeltTier.speed, directly usable without a unit-conversion
+    caveat.
+
+    max_spline_length/bend_radius/min_bend_radius (may be None if the
+    mod couldn't resolve that tier's hologram class) are read via
+    reflection off AFGPipelineHologram's CDO - all three are private
+    fields with no public getter, unlike belts where two of three had
+    public getters.
+    """
+
+    recipe_class: str
+    buildable_class: str
+    flow_limit: float
+    max_spline_length: Optional[float] = None
+    bend_radius: Optional[float] = None
+    min_bend_radius: Optional[float] = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PipelineTier":
+        return cls(
+            recipe_class=data["recipeClass"],
+            buildable_class=data["buildableClass"],
+            flow_limit=float(data["flowLimit"]),
+            max_spline_length=float(data["maxSplineLength"]) if "maxSplineLength" in data else None,
+            bend_radius=float(data["bendRadius"]) if "bendRadius" in data else None,
+            min_bend_radius=float(data["minBendRadius"]) if "minBendRadius" in data else None,
+        )

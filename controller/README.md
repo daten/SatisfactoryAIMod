@@ -55,8 +55,24 @@ contains:
 - `satisfactory_ai/layout.py`'s `compute_waypoint_positions()` (moved
   here 2026-08-25 from `conveyors.py` since it's generic geometry, not
   belt-specific) computes evenly-spaced anchor points between two
-  positions respecting a max segment length - shared by both
-  `conveyors.py` and `power.py`'s chaining patterns.
+  positions respecting a max segment length - shared by
+  `conveyors.py`, `power.py`, and now `pipes.py`'s chaining patterns.
+- `satisfactory_ai/pipes.py` - pipe groundwork (added 2026-08-25,
+  NOT YET LIVE-TESTED), same toolkit posture as `conveyors.py`/
+  `power.py`: `select_cheapest_sufficient_tier()` picks the cheapest
+  `PipelineTier` meeting a minimum `flow_limit` (a documented-`[m^3/s]`
+  value, unlike belt `speed` - no unit caveat);
+  `is_straight_segment_feasible()` checks a candidate segment's
+  distance against `max_spline_length` only (no incline check - unlike
+  belts, no incline-vs-limit relationship for pipes has been confirmed
+  from source). Unlike belts (`Recipe_ConveyorPole`) and power
+  (`Recipe_PowerPoleMk1/Mk2/Mk3`), **no standalone
+  `Recipe_PipelineSupport`/pole recipe was found on disk** - whether
+  the same place-a-pole-then-chain-connect pattern transfers to pipes,
+  or whether pipe poles are only auto-spawned internally by
+  `AFGPipelineHologram`'s own `mDefaultPipelineSupportRecipe`
+  mechanism, is an open question for the first live pipe test to
+  answer - see `pipes.py`'s module docstring.
 
 - `live_check.py` — a network client, but a diagnostic one, not part of
   the "controller" proper: connects to a **running** DocMod `/rpc`

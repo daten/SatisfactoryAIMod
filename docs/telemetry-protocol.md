@@ -311,6 +311,75 @@ for a *short* connection if the later-game daisy-chain unlock isn't
 active in the current save — a real constraint distinct from the
 `maxLength` distance question this section addresses.
 
+## pipelineTiers (`method: "world.pipelineTiers"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "tiers": [
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_Pipeline.Recipe_Pipeline_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/Pipeline/Build_Pipeline.Build_Pipeline_C",
+      "flowLimit": 0.0,
+      "maxSplineLength": 0.0,
+      "bendRadius": 0.0,
+      "minBendRadius": 0.0
+    }
+  ]
+}
+```
+
+Added 2026-08-25, pipe groundwork directly motivated by the user asking
+to prepare pipe handling ahead of the next live testing session — same
+treatment already given to belts/power above. **NOT YET
+LIVE-TESTED.** One row per `Recipe_Pipeline`/`Recipe_PipelineMK2` (note
+the capital `MK2`, unlike belts' `Mk2` — confirmed from the actual
+filename on disk). `flowLimit` is `AFGBuildablePipeline::GetFlowLimit()`,
+a **public**, documented-unit value (`"Maximum flow through this pipe
+in cubic meters. [m^3/s]"` per `FGBuildablePipeline.h`'s own doc
+comment) — unlike belts' `speed`, no unit-conversion caveat.
+`maxSplineLength`/`bendRadius`/`minBendRadius` come from
+`AFGPipelineHologram`'s CDO (`ResolvePipelineHologramClassForRecipe`,
+the same `UFGBuildDescriptor::GetHologramClass` pattern used for belt
+holograms) — **all three** are private `UPROPERTY(EditDefaultsOnly)`
+fields with no public getter (unlike belts, where two of three had
+public getters), read via the same single-hardcoded-field
+`FindFProperty<FFloatProperty>` reflection technique. Any tier/field
+that fails to resolve is simply omitted, not a hard error.
+
+`AFGPipelineHologram` is a sibling of `AFGConveyorBeltHologram` — both
+derive directly from `AFGSplineHologram`, confirmed from source — and
+`ConstructPipe`/`world.connectPipe` mirrors `ConstructConveyorBelt`'s
+two-click `TrySnapToActor`+`DoMultiStepPlacement` mechanism using
+`UFGPipeConnectionComponentBase`/`EPipeConnectionType` (pipes' own
+parallel connection-type hierarchy — `PCT_PRODUCER`/`PCT_CONSUMER`,
+**not** `UFGFactoryConnectionComponent`/`EFactoryConnectionDirection`).
+Two open questions flagged for the first live test: (1) the shared
+`AFGSplineHologram` base has no `GetAnyConnectedBuildables()` (only
+`AFGConveyorBeltHologram` declares that), so the post-end-click
+diagnostic uses `IsConnectionSnapped(false)` instead — an indicator
+already noted as not fully reliable even for belts; (2) **no
+standalone `Recipe_PipelineSupport`/pole recipe was found on disk**
+(unlike `Recipe_ConveyorPole` for belts or
+`Recipe_PowerPoleMk1`/`Mk2`/`Mk3` for power), even though
+`Build_PipelineSupport.uasset` exists as a buildable — pipe poles may
+only be auto-spawned internally by the hologram's own
+`mDefaultPipelineSupportRecipe` mechanism during a real multi-click
+placement, meaning the belt/power "place a pole via
+`world.placeBuilding`, then chain connect calls" pattern may **not**
+transfer directly to pipes. This is an open question for the first
+live pipe test, not assumed either way.
+
+`controller/satisfactory_ai/pipes.py` mirrors `conveyors.py`'s toolkit
+shape: `select_cheapest_sufficient_tier()` picks the cheapest tier
+meeting a minimum flow; `is_straight_segment_feasible()` checks a
+candidate segment's distance against `maxSplineLength` only (no
+incline check — unlike belts, no incline-vs-limit relationship for
+pipes has been confirmed from source); `compute_waypoint_positions()`
+is re-exported for the same waypoint-chaining pattern, though whether
+pipe chaining actually works the way belt/power chaining does is
+exactly the open pole-recipe question above.
+
 ## targetedManufacturer (`method: "world.targetedManufacturer"`)
 
 ```json

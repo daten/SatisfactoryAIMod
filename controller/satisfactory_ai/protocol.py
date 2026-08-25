@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
-from .models import Buildable, ConveyorBeltTier, FactoryConnection, PowerLineLimits, ResourceNode
+from .models import Buildable, ConveyorBeltTier, FactoryConnection, PipelineTier, PowerLineLimits, ResourceNode
 
 SUPPORTED_PROTOCOL_VERSION = 1
 
@@ -81,6 +81,24 @@ class ConveyorBeltTierTelemetry:
         return cls(protocol_version=version, tiers=tiers)
 
 
+@dataclass(frozen=True)
+class PipelineTierTelemetry:
+    """Mirrors "world.pipelineTiers" (added 2026-08-25, pipe groundwork
+    - NOT YET LIVE-TESTED). Same array shape as ConveyorBeltTierTelemetry
+    - LogPipelineTiersAsJson skips (not errors on) any recipe whose
+    buildable CDO fails to resolve, so "tiers" may contain fewer than
+    two entries."""
+
+    protocol_version: int
+    tiers: tuple[PipelineTier, ...]
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PipelineTierTelemetry":
+        version = _check_protocol_version(data)
+        tiers = tuple(PipelineTier.from_dict(t) for t in data["tiers"])
+        return cls(protocol_version=version, tiers=tiers)
+
+
 def parse_resource_node_telemetry(json_text: str) -> ResourceNodeTelemetry:
     return ResourceNodeTelemetry.from_dict(json.loads(json_text))
 
@@ -107,3 +125,7 @@ def parse_power_line_limits(json_text: str) -> Optional[PowerLineLimits]:
     if "maxLength" not in data:
         return None
     return PowerLineLimits.from_dict(data)
+
+
+def parse_pipeline_tier_telemetry(json_text: str) -> PipelineTierTelemetry:
+    return PipelineTierTelemetry.from_dict(json.loads(json_text))
