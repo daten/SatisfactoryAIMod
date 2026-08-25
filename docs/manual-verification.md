@@ -165,12 +165,13 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
   [networking-research.md](networking-research.md)'s "Confirmed broken
   live" note for the root cause and the two-layer fix applied
   (application-layer `PeerAddress` check + a new
-  `Mods/GameFeatures/DocMod/Config/DefaultEngine.ini`). **Re-run this
-  exact `netstat` check after the next session** to confirm: (a) the
-  socket itself now shows `127.0.0.1:51902` (tests the ini fix), and
-  separately (b) that a request from another machine on the LAN
-  genuinely gets rejected with `403 FORBIDDEN` (tests the app-layer fix,
-  which should hold even if (a) still fails).
+  `Mods/GameFeatures/DocMod/Config/DefaultEngine.ini`). **Re-checked
+  2026-08-25: still `0.0.0.0:51902`** — the plugin-level ini fix did not
+  work (see networking-research.md's "Plugin-level ini fix confirmed NOT
+  working" note). The application-layer `PeerAddress` check remains the
+  real protection and is unaffected. **Still not tested**: an actual
+  request from another machine on the LAN, to confirm it genuinely gets
+  rejected with `403 FORBIDDEN`.
 - Once loopback-only is confirmed, test the endpoint itself, e.g. from
   PowerShell:
   ```powershell

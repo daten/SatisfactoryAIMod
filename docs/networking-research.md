@@ -124,6 +124,31 @@ so the override never reached the running game at all.
    itself now binds to `127.0.0.1`. Even if it works, item 1 above
    should stay in place as defense-in-depth.
 
+## Plugin-level ini fix confirmed NOT working (2026-08-25)
+
+Re-ran `netstat -an` (via the `grep ":51902"` filter) against a live
+Steam session after deploying the plugin-level
+`Mods/GameFeatures/DocMod/Config/DefaultEngine.ini` (added specifically
+to test this) — **still `0.0.0.0:51902 LISTENING`**, not
+`127.0.0.1:51902`. The hypothesis that a GameFeature plugin's own
+`Config/DefaultEngine.ini` gets merged into the packaged build the same
+way a regular always-on plugin's would has been tested and disproven, at
+least for this specific Alpakit-deployed setup — the config-merge timing
+concern flagged when this was added has turned out to be real.
+
+**The application-layer fix (item 1 above,
+`UDocModHttpServerSubsystem::HandleRpcRequest`'s `PeerAddress` check,
+commit `870e1fdfee`) remains the actual protection** and is unaffected
+by this — it doesn't depend on the socket binding at all. The raw socket
+being reachable from the LAN is still not ideal (a determined actor on
+the LAN could still open a TCP connection, just get rejected once a
+request is sent), but it's not the same risk level as the original
+finding (no requests are actually served to non-loopback peers). Root
+cause of *why* the plugin ini doesn't get picked up is still unknown —
+would need either further Unreal plugin-config-loading research, or
+accepting the socket-level fix as out of reach for now and relying on
+the application layer permanently rather than as a stopgap.
+
 ## API surface used
 
 All confirmed directly by reading headers (not relying solely on
