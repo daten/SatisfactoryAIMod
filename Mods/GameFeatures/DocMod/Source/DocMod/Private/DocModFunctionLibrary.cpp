@@ -1499,16 +1499,20 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 	{
 		TWeakObjectPtr<AFGHologram> Hologram;
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<AFGBuildGun> BuildGun;
 		TWeakObjectPtr<UWorld> World;
 		FString RecipeClassPath;
+		FVector OriginalHitLocation = FVector::ZeroVector;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 	};
 	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
 	PollState->Hologram = Hologram;
 	PollState->Character = Character;
+	PollState->BuildGun = BuildGun;
 	PollState->World = World;
 	PollState->RecipeClassPath = RecipeClassPath;
+	PollState->OriginalHitLocation = SyntheticHit.Location;
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
 	*PollFn = [PollState, PollFn]()
@@ -1523,6 +1527,23 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 			UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingNearPlayer (deferred): hologram or world became invalid while polling (after %d tick(s)) - nothing built"), PollState->AttemptsTaken);
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			return;
+		}
+
+		// Diagnostic: found live (2026-08-24) that the final constructed
+		// location didn't match the synthetic hit result fed in before
+		// HotKeyRecipe - testing the hypothesis that
+		// UFGBuildGunStateBuild::TickState_Implementation runs its own
+		// real TraceForBuilding() every tick and overwrites
+		// GetHitResult() with the player's actual real-time aim, silently
+		// discarding our synthetic value.
+		if (AFGBuildGun* PollBuildGunForDiagnostic = PollState->BuildGun.Get())
+		{
+			const FVector CurrentHitLocation = PollBuildGunForDiagnostic->GetHitResult().Location;
+			if (!CurrentHitLocation.Equals(PollState->OriginalHitLocation, 1.0f))
+			{
+				UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingNearPlayer (deferred, tick %d): GetHitResult() no longer matches what we set - original=%s current=%s (build gun's own trace likely overwrote it)"),
+					PollState->AttemptsTaken, *PollState->OriginalHitLocation.ToString(), *CurrentHitLocation.ToString());
+			}
 		}
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
