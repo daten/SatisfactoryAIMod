@@ -1909,6 +1909,31 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: recipe=%s groundTraceHit=%s location=%s"),
 		*RecipeClassPath, bFoundGround ? TEXT("true") : TEXT("false"), *SyntheticHit.Location.ToString());
 
+	// Live investigation (2026-08-25): "Invalid aim location!" was found
+	// to persist even at ~100 units distance, directly along the
+	// character's own capsule-facing direction, with a confirmed-valid
+	// ground trace hit - ruling out both distance and horizontal capsule
+	// yaw as the cause. world.player/AFGCharacterPlayer::GetActorRotation()
+	// only reflects capsule yaw, not the actual camera pitch/yaw
+	// (decoupled in this game, as in most third-person-capable
+	// characters) - if the player's camera happens to be pointed
+	// somewhere unrelated (e.g. looking down at inventory) when this RPC
+	// fires, some disqualifier apparently still consults the real
+	// camera/control rotation despite UpdateHologramPlacement()
+	// overriding the hologram's *position* every poll tick (see
+	// docs/buildgun-driven-placement-research.md's "GetHitResult() alone
+	// does not control final placement" finding - this looks like the
+	// same class of problem, one layer deeper). Fix: point the
+	// controller's ControlRotation at the synthetic hit location before
+	// placing, same spirit as overriding GetHitResult() - makes
+	// placement work regardless of where the camera actually happens to
+	// be aimed, which is the whole point of RPC-driven placement.
+	if (AController* Controller = Character->GetController())
+	{
+		const FRotator LookAtTarget = (SyntheticHit.Location - Character->GetActorLocation()).Rotation();
+		Controller->SetControlRotation(LookAtTarget);
+	}
+
 	Character->HotKeyRecipe(RecipeClass);
 
 	AFGBuildGun* BuildGun = Character->GetBuildGun();
