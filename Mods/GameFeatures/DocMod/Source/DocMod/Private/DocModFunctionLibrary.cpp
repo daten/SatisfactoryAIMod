@@ -2598,11 +2598,8 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckConveyorSnap(UObject* W
 				Hologram ? *Hologram->GetClass()->GetName() : TEXT("null")));
 	}
 
-	const ESplineHologramBuildStep StepBefore = BeltHologram->GetCurrentBuildStep();
+	const ESplineHologramBuildStep StepInitial = BeltHologram->GetCurrentBuildStep();
 
-	// The single, isolated experiment - see this function's header
-	// comment for why this stops here rather than driving the full
-	// multi-step sequence.
 	FHitResult SyntheticHit;
 	SyntheticHit.Location = SourceConnection->GetConnectorLocation();
 	SyntheticHit.ImpactPoint = SyntheticHit.Location;
@@ -2611,25 +2608,58 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckConveyorSnap(UObject* W
 	SyntheticHit.HitObjectHandle = FActorInstanceHandle(SourceBuildable);
 	SyntheticHit.bBlockingHit = true;
 
+	// Widened experiment (2026-08-25): calling TrySnapToActor() directly
+	// returned true but left every state indicator unchanged
+	// (step/IsConnectionSnapped/connected count all showed no real
+	// snap) - contradictory evidence. Every other hologram in this
+	// project (buildings, wires) is driven through
+	// UpdateHologramPlacement(), not by calling the override method
+	// directly - try that first, matching the proven pattern, before
+	// (and after) TrySnapToActor() and a single DoMultiStepPlacement()
+	// "click" to gather maximum evidence in one pass.
+	BeltHologram->UpdateHologramPlacement(SyntheticHit);
+	const ESplineHologramBuildStep StepAfterUpdate = BeltHologram->GetCurrentBuildStep();
+	const bool bConnectionSnappedAfterUpdate = BeltHologram->IsConnectionSnapped(false);
+
 	const bool bSnapped = BeltHologram->TrySnapToActor(SyntheticHit);
-	const ESplineHologramBuildStep StepAfter = BeltHologram->GetCurrentBuildStep();
-	const bool bConnectionSnapped = BeltHologram->IsConnectionSnapped(false);
-	const TArray<AFGBuildable*> ConnectedBuildables = BeltHologram->GetAnyConnectedBuildables();
+	const ESplineHologramBuildStep StepAfterSnap = BeltHologram->GetCurrentBuildStep();
+	const bool bConnectionSnappedAfterSnap = BeltHologram->IsConnectionSnapped(false);
+	const TArray<AFGBuildable*> ConnectedBuildablesAfterSnap = BeltHologram->GetAnyConnectedBuildables();
 
-	UE_LOG(LogDocModAI, Display, TEXT("DebugCheckConveyorSnap: source=%s connectorLocation=%s TrySnapToActor()=%s stepBefore=%d stepAfter=%d IsConnectionSnapped(false)=%s connectedBuildableCount=%d"),
-		*SourceBuildableId, *SyntheticHit.Location.ToString(),
-		bSnapped ? TEXT("true") : TEXT("false"),
-		static_cast<int32>(StepBefore), static_cast<int32>(StepAfter),
-		bConnectionSnapped ? TEXT("true") : TEXT("false"),
-		ConnectedBuildables.Num());
+	TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+	BeltHologram->GetConstructDisqualifiers(Disqualifiers);
+	TArray<FString> DisqualifierTexts;
+	for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+	{
+		DisqualifierTexts.Add(UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString());
+	}
+	const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 
-	// Never calls DoMultiStepPlacement/CanConstruct/Construct - this
-	// hologram is just a scratch actor to be cleaned up now.
+	// A single simulated "click" - per FGHologram.h's doc comment on
+	// DoMultiStepPlacement, true signals a release; a real player's
+	// first click on a belt should fix the start point without
+	// finishing the belt (only returns true once the whole sequence is
+	// done), so false is expected here, not a failure indicator by
+	// itself.
+	const bool bStepComplete = BeltHologram->DoMultiStepPlacement(true);
+	const ESplineHologramBuildStep StepAfterClick = BeltHologram->GetCurrentBuildStep();
+	const bool bConnectionSnappedAfterClick = BeltHologram->IsConnectionSnapped(false);
+	const TArray<AFGBuildable*> ConnectedBuildablesAfterClick = BeltHologram->GetAnyConnectedBuildables();
+
+	UE_LOG(LogDocModAI, Display, TEXT("DebugCheckConveyorSnap: source=%s connectorLocation=%s stepInitial=%d | afterUpdateHologramPlacement: step=%d snapped=%s | afterTrySnapToActor: result=%s step=%d snapped=%s connectedCount=%d disqualifiers=[%s] | afterDoMultiStepPlacement(true): stepComplete=%s step=%d snapped=%s connectedCount=%d"),
+		*SourceBuildableId, *SyntheticHit.Location.ToString(), static_cast<int32>(StepInitial),
+		static_cast<int32>(StepAfterUpdate), bConnectionSnappedAfterUpdate ? TEXT("true") : TEXT("false"),
+		bSnapped ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterSnap), bConnectionSnappedAfterSnap ? TEXT("true") : TEXT("false"), ConnectedBuildablesAfterSnap.Num(), *DisqualifierSummary,
+		bStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterClick), bConnectionSnappedAfterClick ? TEXT("true") : TEXT("false"), ConnectedBuildablesAfterClick.Num());
+
+	// Never calls CanConstruct()/Construct() - this hologram is just a
+	// scratch actor to be cleaned up now, regardless of outcome.
 	Character->UnequipBuildGun();
 
-	if (!bSnapped)
+	const bool bAnySnapIndicator = bConnectionSnappedAfterUpdate || bSnapped || bConnectionSnappedAfterSnap || bConnectionSnappedAfterClick || ConnectedBuildablesAfterClick.Num() > 0;
+	if (!bAnySnapIndicator)
 	{
-		return FDocModOperationResult::Failure(TEXT("SNAP_FAILED"), TEXT("TrySnapToActor() returned false"));
+		return FDocModOperationResult::Failure(TEXT("SNAP_FAILED"), TEXT("No snap indicator was ever true - see LogDocModAI for the full step-by-step trace"));
 	}
 
 	return FDocModOperationResult::Success();

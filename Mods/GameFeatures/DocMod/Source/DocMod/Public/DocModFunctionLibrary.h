@@ -446,13 +446,15 @@ public:
 	 * AFGConveyorBeltHologram (via HotKeyRecipe(Recipe_ConveyorBeltMk1)),
 	 * finds a free Output UFGFactoryConnectionComponent on
 	 * SourceBuildableId, feeds a synthetic FHitResult at that
-	 * connection's location, calls TrySnapToActor() ONCE, and reports
-	 * whether it returned true and what GetCurrentBuildStep() is
-	 * afterward - unlike belts/wires/buildings elsewhere in this file,
-	 * this does NOT drive DoMultiStepPlacement or check CanConstruct(),
-	 * because whether a single snap even works at all is the open
-	 * question being tested. No polling, no construction, nothing
-	 * deferred - reports synchronously. Never touches the save.
+	 * connection's location through three different entry points in
+	 * sequence (UpdateHologramPlacement(), TrySnapToActor(), a single
+	 * DoMultiStepPlacement() "click"), logging the build step/
+	 * IsConnectionSnapped()/GetAnyConnectedBuildables() state after each
+	 * - widened from a single TrySnapToActor() call after that alone
+	 * produced contradictory evidence (returned true but no state
+	 * indicator actually changed) on the first live test. Never checks
+	 * CanConstruct() or calls Construct(). No polling, nothing deferred -
+	 * reports synchronously. Never touches the save.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DebugCheckConveyorSnap(UObject* WorldContextObject, const FString& SourceBuildableId);
