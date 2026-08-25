@@ -234,6 +234,40 @@ recipe, not a production recipe — Miner Mk1 has none).
 with human-readable text — used to log *why* placement would fail, not
 just whether.
 
+### `UFGCDInitializing` will not clear — three attempts, same result, likely a dead end for this approach
+
+Every live run so far reports exactly one hard disqualifier,
+`UFGCDInitializing` (`FGConstructDisqualifier.h:49`, generic "still
+initializing" text) — never anything more specific, and never clears:
+
+1. Checked `CanConstruct()` immediately after `UpdateHologramPlacement()`
+   — `Initializing (hard)`.
+2. Added 5 manually-invoked `Hologram->Tick(0.1f)` calls first — same
+   result, no change.
+3. Replaced that with real per-tick polling via
+   `SetTimerForNextTick()`, re-checking every actual engine tick up to a
+   120-tick safety cap (~2 real seconds) — **exhausted the full cap,
+   still `Initializing (hard)`, never cleared.**
+
+This rules out both hypotheses tried so far (needs one tick; needs a few
+real frames for some async query per `InitializeClearanceData()`/
+`PostInitializeClearanceData()`, `FGHologram.h:535-536`). Elapsed
+time/tick count alone does not clear this disqualifier.
+
+**Updated hypothesis, not yet tested:** `UFGCDInitializing` may not be a
+transient "not ready yet" state at all — it may depend on something
+structural that a hologram spawned via `SpawnHologramFromRecipe` outside
+the real `AFGBuildGun`/`UFGBuildGunStateBuild` flow never satisfies,
+e.g. a check against the hologram's owning build-gun/equipment state, or
+an explicit "initialization complete" call the build gun's state machine
+normally makes that has no public equivalent. Per
+`docs/building-placement-research.md`'s own verdict (§7), this was
+always the known risk of driving a hologram without a real build gun in
+the loop — this may be where that risk turns out to matter. **No further
+fix attempted without new evidence** — three same-result attempts is the
+point to stop guessing blindly and either investigate further or make a
+deliberate decision to pause this approach, not keep iterating on hunches.
+
 **Deliberately stops at `CanConstruct()`.** `Construct()` is never
 called — the function destroys the scratch hologram actor on every exit
 path (`ON_SCOPE_EXIT`). This can't place a real building or touch the

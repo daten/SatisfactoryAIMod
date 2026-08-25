@@ -365,8 +365,16 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
 - Check `LogDocModAI` regardless of the console output shown - it logs
   the full disqualifier list with each one's soft/hard status, more
   detail than the one-line console summary.
-- **Not yet attempted at all** - this is the first real test of any
-  Phase 13 code.
+- **Result as of 2026-08-24: consistently `CANNOT_CONSTRUCT: Initializing (hard)`
+  across three different fix attempts** (immediate check, manual ticks,
+  120-tick real polling - none cleared it). See
+  `docs/extractor-placement-research.md`'s "will not clear" section for
+  the full trail. Node targeting itself is confirmed correct
+  (`DocMod.TargetNode` matches the game's own "Press E to mine" prompt) -
+  this is specifically about the hologram's own `CanConstruct()` state,
+  not about finding the right node. **Paused pending further
+  investigation or a deliberate decision on how to proceed** - not
+  re-tested with a fourth blind guess.
 
 ---
 
