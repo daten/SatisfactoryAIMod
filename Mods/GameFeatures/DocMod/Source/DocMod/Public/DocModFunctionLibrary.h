@@ -523,29 +523,31 @@ public:
 
 	/**
 	 * PLAN.md Phase 13/14: RPC-drivable, genuinely asynchronous variant
-	 * of the DebugCheckPowerConnection dry-run.
+	 * of the DebugCheckPowerConnection dry-run - calls
+	 * AFGWireHologram::SetConnection(0/1, ...) directly with a single
+	 * GetHitResult() assignment for ConnectionA, no click/snap step.
 	 *
-	 * REWRITTEN 2026-08-25 after a live pole-chaining test surfaced a
-	 * real bug: the original implementation called
-	 * AFGWireHologram::SetConnection(0/1, ...) directly with no click/snap
-	 * step. Confirmed LIVE this works for machine<->machine connections
-	 * but fails EVERY pole-involving connection (pole<->pole,
-	 * pole<->machine, either order) with UFGCDWireSnap
-	 * ("Must be hooked up to a connection!") - so the open question this
-	 * function's dry-run mode originally existed to answer ("is
-	 * SetConnection() alone sufficient?") is now answered: no, not for
-	 * poles. Now uses the same click-based
-	 * UpdateHologramPlacement()+TrySnapToActor()+DoMultiStepPlacement(true)
-	 * pattern (one real click per end, synthetic FHitResult located at
-	 * each free UFGCircuitConnectionComponent's real
-	 * GetComponentLocation()) already proven for belts/pipes, instead of
-	 * calling SetConnection() at all - AFGWireHologram.h's private
-	 * mActiveSnapConnection/mCurrentConnection state (separate from
-	 * mConnections[2]) is the evidence this depends on a genuine snap
-	 * having occurred. NOT YET RE-VERIFIED LIVE after this rewrite - the
-	 * machine<->machine path that WAS working must be re-confirmed not
-	 * to have regressed, in addition to confirming the pole path now
-	 * works.
+	 * CONFIRMED LIVE, TWICE (2026-08-25), that this exact mechanism is
+	 * the only variant that works for machine<->machine connections -
+	 * two deviations were tried and both regressed it: (1) a click-based
+	 * UpdateHologramPlacement()+TrySnapToActor()+DoMultiStepPlacement()
+	 * rewrite mirroring belts/pipes - TrySnapToActor() never populated
+	 * AFGWireHologram::GetConnection(0)/(1) for wires at all; (2) also
+	 * setting GetHitResult() for ConnectionB (not just A) before
+	 * SetConnection(1,...) - broke ConnectionA's own validation. Do not
+	 * repeat either without new evidence.
+	 *
+	 * STILL UNRESOLVED: machine<->machine connections work under this
+	 * mechanism; EVERY pole-involving connection (pole<->pole,
+	 * pole<->machine, either order) fails with UFGCDWireSnap ("Must be
+	 * hooked up to a connection!") - a different disqualifier than
+	 * UFGCDWireTooLong (the real distance check, confirmed live,
+	 * maxLength=10000 real units). Needs a genuinely different
+	 * investigation approach, not another guess-and-redeploy cycle on
+	 * this function - e.g. some way to inspect the real CheckValidSnap()
+	 * logic, or testing whether pole wiring works via the actual
+	 * player-driven build gun to isolate an RPC-mechanism gap from a
+	 * genuine FactoryGame constraint.
 	 *
 	 * Same bDryRun switch and real-construction posture as
 	 * ConstructExtractorOnNode/ConstructBuildingAtPosition: only calls
@@ -558,7 +560,7 @@ public:
 	 * machine-to-machine connection unavailable depending on the save's
 	 * progression state - a CANNOT_CONSTRUCT/NO_POWER_CONNECTION result
 	 * may correctly reflect that, not indicate a bug; distinct from the
-	 * UFGCDWireSnap gap this rewrite fixes.
+	 * still-unresolved UFGCDWireSnap gap above.
 	 */
 	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 

@@ -2881,76 +2881,46 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 		return;
 	}
 
-	// ConstructPowerConnection (2026-08-25, REVERTED after a live
-	// regression): a first attempt switched this to the click-based
+	// ConstructPowerConnection (2026-08-25): confirmed live, TWICE, that
+	// this exact SetConnection()-only mechanism (no click/snap step, a
+	// single GetHitResult() assignment for ConnectionA only) is the only
+	// variant that works for machine<->machine connections. Two
+	// deviations were tried and BOTH regressed the previously-working
+	// machine<->machine case live: (1) a click-based
 	// UpdateHologramPlacement()+TrySnapToActor()+DoMultiStepPlacement()
-	// pattern used by belts/pipes, on the theory that AFGWireHologram's
-	// private mActiveSnapConnection/mCurrentConnection state needed a
-	// real snap. Confirmed LIVE that theory was wrong in a way that
-	// mattered: TrySnapToActor() never populated GetConnection(0)/(1)
-	// for wires at all, even for the PREVIOUSLY-WORKING machine<->machine
-	// case (a genuine regression, not just a failure to fix poles).
-	// Reverted to the original, still-proven approach: explicit
-	// SetConnection(0/1, ...) calls, with BuildGun->GetHitResult() set
-	// to each connection's location as each is made (extended from the
-	// original, which only ever set it once for ConnectionA - a single
-	// targeted addition, not yet confirmed to help poles, on the theory
-	// that CheckValidSnap() may inspect the build gun's current hit
-	// result against whichever connection was most recently touched).
-	// The real, still-open, live-confirmed finding stands regardless of
-	// this addition's outcome: machine<->machine connections work under
-	// SetConnection(); EVERY pole-involving connection (pole<->pole,
-	// pole<->machine, either order) fails with UFGCDWireSnap ("Must be
-	// hooked up to a connection!") - a different disqualifier than
-	// UFGCDWireTooLong (the real distance check, confirmed live,
-	// maxLength=10000 real units). If this addition doesn't resolve it,
-	// treat pole power-connections as a genuinely unsolved problem
-	// needing a different approach next session, not a small variant of
-	// this one.
-	auto SummarizeDisqualifiers = [](AFGWireHologram* H) -> FString
-	{
-		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
-		H->GetConstructDisqualifiers(Disqualifiers);
-		TArray<FString> Texts;
-		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
-		{
-			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
-				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
-		}
-		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
-	};
-
-	FHitResult HitA;
-	HitA.Location = ConnectionA->GetComponentLocation();
-	HitA.ImpactPoint = HitA.Location;
-	HitA.Normal = FVector::UpVector;
-	HitA.ImpactNormal = FVector::UpVector;
-	HitA.HitObjectHandle = FActorInstanceHandle(BuildableA);
+	// rewrite - TrySnapToActor() never populated GetConnection(0)/(1)
+	// for wires at all; (2) touching BuildGun->GetHitResult() for
+	// ConnectionB too (not just A) before SetConnection(1,...) - broke
+	// the ConnectionA validation somehow. Do not repeat either. This is
+	// the exact original implementation, restored a second time.
+	//
+	// The real, still-UNRESOLVED, live-confirmed finding: machine<->machine
+	// connections work under this SetConnection() mechanism; EVERY
+	// pole-involving connection (pole<->pole, pole<->machine, either
+	// order) fails with UFGCDWireSnap ("Must be hooked up to a
+	// connection!") - a different disqualifier than UFGCDWireTooLong
+	// (the real distance check, confirmed live, maxLength=10000 real
+	// units). Needs a genuinely different investigation approach next
+	// session (not another guess-and-redeploy cycle on this function) -
+	// e.g. decompiling/inspecting the real CheckValidSnap() logic some
+	// other way, or testing whether pole connections work at all via
+	// the ACTUAL in-game build gun (player-driven, not RPC-driven) to
+	// isolate whether this is an RPC-mechanism gap or a genuine
+	// FactoryGame constraint on pole wiring.
+	FHitResult SyntheticHit;
+	SyntheticHit.Location = ConnectionA->GetComponentLocation();
+	SyntheticHit.ImpactPoint = SyntheticHit.Location;
+	SyntheticHit.Normal = FVector::UpVector;
+	SyntheticHit.ImpactNormal = FVector::UpVector;
+	SyntheticHit.HitObjectHandle = FActorInstanceHandle(BuildableA);
 	// UFGPowerConnectionComponent derives from USceneComponent, not
 	// UPrimitiveComponent - FHitResult::Component left unset, same as
 	// the dry-run.
-	HitA.bBlockingHit = true;
+	SyntheticHit.bBlockingHit = true;
+	BuildGun->GetHitResult() = SyntheticHit;
 
-	FHitResult HitB;
-	HitB.Location = ConnectionB->GetComponentLocation();
-	HitB.ImpactPoint = HitB.Location;
-	HitB.Normal = FVector::UpVector;
-	HitB.ImpactNormal = FVector::UpVector;
-	HitB.HitObjectHandle = FActorInstanceHandle(BuildableB);
-	HitB.bBlockingHit = true;
-
-	BuildGun->GetHitResult() = HitA;
 	WireHologram->SetConnection(0, ConnectionA);
-
-	// The one targeted addition over the original: touch GetHitResult()
-	// for ConnectionB too, not just A, before setting it.
-	BuildGun->GetHitResult() = HitB;
 	WireHologram->SetConnection(1, ConnectionB);
-
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructPowerConnection: a=%s b=%s after SetConnection(0/1,...): connection0=%s connection1=%s disqualifiers=[%s]"),
-		*BuildableIdA, *BuildableIdB,
-		WireHologram->GetConnection(0) ? TEXT("set") : TEXT("null"), WireHologram->GetConnection(1) ? TEXT("set") : TEXT("null"),
-		*SummarizeDisqualifiers(WireHologram));
 
 	struct FPollState
 	{
@@ -2969,10 +2939,7 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 	PollState->Hologram = WireHologram;
 	PollState->Character = Character;
 	PollState->World = World;
-	// Re-assert HitA every poll tick, same as the original working
-	// implementation (HitB was only ever a one-time SetConnection(1,...)
-	// companion, not the per-tick value).
-	PollState->SyntheticHit = HitA;
+	PollState->SyntheticHit = SyntheticHit;
 	PollState->BuildableIdA = BuildableIdA;
 	PollState->BuildableIdB = BuildableIdB;
 	PollState->bDryRun = bDryRun;
