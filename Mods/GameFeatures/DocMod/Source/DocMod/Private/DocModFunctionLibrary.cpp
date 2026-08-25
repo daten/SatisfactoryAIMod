@@ -2757,8 +2757,15 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 	};
 
 	// Step 1 of the flow found live via DebugCheckConveyorSnap - fix the
-	// start point on the source's Output connection.
+	// start point on the source's Output connection. UpdateHologramPlacement()
+	// before TrySnapToActor() is not optional: DebugCheckConveyorSnap's
+	// successful trace called both, and omitting it here reproduced a
+	// live "Invalid aim location! (hard)" CanConstruct() failure even
+	// though the snap/step/connectedCount indicators all looked correct -
+	// evidently CanConstruct()'s aim-location disqualifier reads state
+	// that only UpdateHologramPlacement() sets, not TrySnapToActor() alone.
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	BeltHologram->UpdateHologramPlacement(StartHit);
 	BeltHologram->TrySnapToActor(StartHit);
 	const bool bStartStepComplete = BeltHologram->DoMultiStepPlacement(true);
 	const ESplineHologramBuildStep StepAfterStart = BeltHologram->GetCurrentBuildStep();
@@ -2777,8 +2784,11 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		return;
 	}
 
-	// Step 2 - the destination's free Input connection.
+	// Step 2 - the destination's free Input connection. Same
+	// UpdateHologramPlacement()-before-TrySnapToActor() requirement as
+	// step 1 above.
 	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
+	BeltHologram->UpdateHologramPlacement(EndHit);
 	BeltHologram->TrySnapToActor(EndHit);
 	const bool bEndStepComplete = BeltHologram->DoMultiStepPlacement(true);
 	const ESplineHologramBuildStep StepAfterEnd = BeltHologram->GetCurrentBuildStep();
