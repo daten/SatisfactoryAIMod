@@ -235,6 +235,32 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		}
 	}
 
+	// Synchronous - no build gun/hologram involved, unlike construction.
+	// Added 2026-08-25 so live testing (e.g. rotation calibration) can
+	// clean up stray test buildables instead of accumulating them - see
+	// DismantleBuildable's doc comment.
+	if (Method == TEXT("world.deleteBuilding"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		const FDocModOperationResult Result = UDocModFunctionLibrary::DismantleBuildable(GetGameInstance(), BuildableId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous, unlike the placement/power methods below - DebugCheckConveyorSnap
 	// never polls, it's a single-call experiment (see its own doc comment).
 	if (Method == TEXT("world.testConveyorSnap"))
@@ -297,9 +323,16 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		double RotationScrollDelta = 0.0;
 		ParamsObject->TryGetNumberField(TEXT("rotationScrollDelta"), RotationScrollDelta);
 
+		// Optional, defaults to 100 (1m) - snap-to-grid-by-default per
+		// explicit project direction (2026-08-25), so callers get tidy
+		// coordinates without having to opt in every time. Pass 0
+		// explicitly to disable.
+		double GridSnapSize = 100.0;
+		ParamsObject->TryGetNumberField(TEXT("gridSnapSize"), GridSnapSize);
+
 		// FHttpResultCallback is a TFunction, safe to copy - captured by
 		// value so it stays alive until the deferred poll actually calls it.
-		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta),
+		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta), static_cast<float>(GridSnapSize),
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

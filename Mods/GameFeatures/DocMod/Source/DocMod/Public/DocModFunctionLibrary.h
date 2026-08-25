@@ -177,6 +177,32 @@ public:
 	static FDocModOperationResult SetManufacturerRecipe(UObject* WorldContextObject, const FString& BuildableId, const FString& RecipeClassPath);
 
 	/**
+	 * Dismantles an existing buildable via the real, safe
+	 * IFGDismantleInterface (Execute_CanDismantle/Execute_Dismantle) -
+	 * NOT AActor::Destroy(), per CLAUDE.md's "No Direct Memory
+	 * Manipulation"/"perform explicitly supported game operations" -
+	 * AFGBuildable::Dismantle_Implementation() (FGBuildable.cpp) properly
+	 * clears factory/circuit connections, dismantles attached wires,
+	 * empties and locks inventories, and removes the buildable from
+	 * AFGBuildableSubsystem before network-replicated destruction, the
+	 * same real cleanup a player's in-game dismantle does. Added
+	 * 2026-08-25 specifically so live RPC-driven testing (e.g. rotation
+	 * calibration - docs/buildgun-driven-placement-research.md §4) can
+	 * clean up stray test buildables between attempts instead of
+	 * accumulating them or relying on spacing/error-text alone to avoid
+	 * cross-test collisions.
+	 *
+	 * Synchronous - no build gun/hologram involved, unlike construction.
+	 * Fails with TARGET_NOT_FOUND if the id doesn't resolve, or
+	 * CANNOT_DISMANTLE (with Execute_CanDismantle()'s reason where
+	 * available) if the buildable refuses - e.g. an already-dismantled
+	 * actor, or one with an un-dismantled parent (integrated sub-
+	 * buildables like railroad platform track).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId);
+
+	/**
 	 * Returns telemetry for the resource node the local player is
 	 * currently aiming at, via the same
 	 * AFGCharacterPlayer::GetBestUsableActor() GetTargetedManufacturer
@@ -362,18 +388,41 @@ public:
 	 * with the real result instead of returning a placeholder over the
 	 * wire.
 	 *
-	 * RotationScrollDelta (2026-08-25, calibration in progress): passed
-	 * directly to AFGHologram::Scroll() before the placement poll begins
-	 * - real units unknown, AFGHologram::Scroll/ScrollRotate/
-	 * SetScrollRotateValue/GetRotationStep are all stub bodies in this
-	 * installed SDK (no source to read). Deliberately exposing the RAW
-	 * scroll delta rather than guessing a degrees-to-steps conversion,
-	 * so calibration can happen via live dry-run-adjacent calls (read
-	 * the resulting AFGHologram::GetActorRotation() logged at
-	 * CanConstruct()-poll time) rather than baked-in guesswork. Pass 0
-	 * for the prior no-rotation-control behavior.
+	 * RotationScrollDelta (2026-08-25, live-calibrated - see
+	 * docs/buildgun-driven-placement-research.md §4 for the full
+	 * investigation): applied as AFGHologram::Scroll(sign) called
+	 * |RotationScrollDelta| times (NOT Scroll(RotationScrollDelta) once
+	 * - a single call with |N|>1 was found to behave identically to
+	 * Scroll(1), and negative values didn't decrement, matching a
+	 * per-call clamped input handler built for one wheel notch per
+	 * call) before the placement poll begins. NOT camera-direction-
+	 * dependent (ruled out live). The resulting orientation is
+	 * context/terrain-dependent, not a fixed default or a clean
+	 * degrees-per-unit constant: on a foundation, rotation appears to
+	 * hard-snap to 90-degree multiples; on raw terrain, one live
+	 * calibration point measured Scroll(1) ~= +10 degrees, but only a
+	 * narrow window of deltas kept the placement's aim location valid
+	 * at that specific spot - ground slope constrains which
+	 * orientations are even valid. Pass 0 for the pre-rotation-control
+	 * behavior (still context-dependent, just no additional scroll).
+	 * Treat any delta as a candidate to verify via the constructed
+	 * buildable's real rotation.yaw (world.buildables), not a
+	 * guaranteed/precomputed result.
+	 *
+	 * GridSnapSize (2026-08-25): if > 0, X and Y are each rounded to the
+	 * nearest multiple of this value before ground-tracing/placement.
+	 * Added per explicit project direction to snap buildables to the
+	 * world grid when possible, so layout planning
+	 * (controller/satisfactory_ai/layout.py) works with tidy, predictable
+	 * coordinates instead of arbitrary floats carried forward from live
+	 * telemetry. This is a caller-chosen general-purpose snap, distinct
+	 * from and in addition to whatever per-hologram-class grid snapping
+	 * FactoryGame's own AFGBuildableHologram::mGridSnapSize applies
+	 * internally (protected, no public accessor, varies per building
+	 * type - not read or relied on here). Pass 0 to disable (the prior
+	 * behavior).
 	 */
-	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * PLAN.md Phase 13/14: dry-run only, no-mutation experiment toward

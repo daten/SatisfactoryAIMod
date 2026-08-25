@@ -256,3 +256,82 @@ match on the first post-fix test is strong confirmation the
 `UpdateHologramPlacement()` override is winning against the build gun's
 own per-tick trace as intended. Placement is now genuinely
 API-controlled, not dependent on where the player happens to be looking.
+
+## §4 Rotation control (`rotationScrollDelta`) — investigation notes, 2026-08-25
+
+Added to unblock the demo's Constructor-orientation problem (see
+`docs/demo-production-chain.md`), then needed real live calibration
+since `AFGHologram::Scroll()`/`ScrollRotate()`/`SetScrollRotateValue()`/
+`GetRotationStep()` are all stub bodies in this installed SDK - no
+source to read the real degrees-per-call relationship from.
+
+**Not camera-direction-dependent** - ruled out directly. An early
+calibration batch got stuck with `"Invalid aim location!"` even at
+`rotationScrollDelta=0` (the prior, previously-working no-rotation
+behavior), which looked like it might depend on the player's actual
+camera look direction (unqueryable - `world.player` reads
+`AFGCharacterPlayer::GetActorRotation()`, the capsule/movement yaw, not
+the camera). Root cause turned out to be mundane: the test coordinates
+were near/on the player's own elevated position on ground distinct from
+the actual flat construction platform (~97 units of Z difference) -
+retesting at genuine flat-platform coordinates got past aim validation
+into ordinary clearance failures instead. No camera dependency exists
+for aim-location validity as far as this investigation went.
+
+**A single `Scroll(N)` call with `|N|>1` does not behave like N
+individual scroll events.** Live evidence: `rotationScrollDelta=1,2,3`
+in one call each all produced the identical resolved yaw, and
+`rotationScrollDelta=-1,-2` produced the *same positive* result as
+`+1,+2` rather than a negative rotation - the signature of a per-call
+clamped/smoothed input handler built for one mouse-wheel notch per
+call. **Fixed** in `ConstructBuildingAtPosition` by calling
+`Hologram->Scroll(sign)` in a loop `|RotationScrollDelta|` times
+instead of `Scroll(RotationScrollDelta)` once - matches how real wheel
+input actually arrives.
+
+**Base orientation is context/terrain-dependent, not a fixed default -
+and NOT simply "= player's current facing" either**, despite one early
+sample (`rotationScrollDelta=0` -> resolved yaw exactly matching the
+player's yaw at the time) suggesting that. A later test on open terrain
+placed a Constructor at yaw=-80° while the player was facing yaw=-177°
+(~97° apart) - something beyond raw player facing (very likely local
+ground contour/slope) also feeds into the hologram's default
+orientation on unconstrained terrain.
+
+**Foundation-adjacent vs. raw-terrain rotation behavior differs
+sharply - confirmed by the user's own interactive placement
+experience, not just RPC testing:** on a foundation, rotation appears
+to hard-snap to a 90°-multiple grid; on raw terrain, finer rotation is
+possible but the valid range is narrow and terrain-dependent (ground
+slope constrains which orientations keep the footing valid at all).
+Live data matches: a 12-point ring of test placements 1500 units from
+the player, one `rotationScrollDelta` each (0 through 12, and -1
+through -4), only `0` and `1` succeeded - all others failed
+`"Invalid aim location!"` even though each point was a distinct,
+well-separated location (not a repeat-clearance artifact). The two
+successes gave a **clean, real calibration point: `Scroll(1)` ≈ +10°**
+(`delta=0` -> yaw=180°, `delta=1` -> yaw=-170°, i.e. `180+10=190≡-170
+(mod 360)`), but this was only reproducible within a narrow window at
+that specific spot - not confirmed as a universal constant, since a
+foundation-adjacent test earlier the same session showed `delta=1,2`
+both snapping back to the SAME 0° (implying a coarser/different
+snapping rule applies near foundations, consistent with the user's
+"snaps to 90° intervals on foundations" observation).
+
+**Practical takeaway for future placement work:** prefer building on
+foundations when precise/intentional orientation matters - raw terrain
+introduces slope-dependent unpredictability in both placement validity
+*and* rotation tolerance, matching why CLAUDE.md's Building Placement
+section emphasizes validated construction over raw actor spawning in
+the first place. A full closed-form `rotationScrollDelta`-to-degrees
+formula was not reached and is not assumed reliable - treat any
+specific delta as a candidate to verify via telemetry
+(`world.buildables`' `rotation.yaw`) after placement, not a
+precomputed guarantee.
+
+**Caution when testing:** an early test in this investigation placed a
+building directly at the player's own X/Y, trapping them momentarily -
+subsequent candidate positions for any multi-point sweep should be
+offset well clear of the player's current position (a ring at a fixed
+radius, one point per candidate, is what worked here) rather than
+reusing the player's exact coordinates.

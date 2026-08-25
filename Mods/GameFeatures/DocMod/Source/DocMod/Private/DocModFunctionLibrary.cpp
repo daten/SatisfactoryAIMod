@@ -30,6 +30,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
+#include "FGDismantleInterface.h"
 
 namespace
 {
@@ -1685,7 +1686,7 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, the building WILL be constructed; see LogDocModAI for the real result"));
 }
 
-void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -1709,6 +1710,19 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 		return;
 	}
 	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
+
+	// Caller-chosen general-purpose grid snap - see this function's
+	// header doc comment. Applied before ground-tracing so the trace
+	// itself (and everything downstream) sees the snapped coordinate.
+	if (GridSnapSize > 0.0f)
+	{
+		const float SnappedX = FMath::RoundToFloat(X / GridSnapSize) * GridSnapSize;
+		const float SnappedY = FMath::RoundToFloat(Y / GridSnapSize) * GridSnapSize;
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: gridSnapSize=%.1f snapped (%.1f, %.1f) -> (%.1f, %.1f)"),
+			GridSnapSize, X, Y, SnappedX, SnappedY);
+		X = SnappedX;
+		Y = SnappedY;
+	}
 
 	// Same ground-finding approach as ConstructBuildingNearPlayer, just
 	// driven by an explicit X/Y instead of a player-relative offset - see
@@ -1977,6 +1991,38 @@ namespace
 		}
 		return nullptr;
 	}
+}
+
+FDocModOperationResult UDocModFunctionLibrary::DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
+	if (!Buildable)
+	{
+		return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+			FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+	}
+
+	if (!IFGDismantleInterface::Execute_CanDismantle(Buildable))
+	{
+		return FDocModOperationResult::Failure(TEXT("CANNOT_DISMANTLE"),
+			FString::Printf(TEXT("'%s' cannot currently be dismantled (already dismantled, or has an un-dismantled parent)"), *BuildableId));
+	}
+
+	// Real, safe dismantle - see this function's header doc comment.
+	// AFGBuildable::Dismantle_Implementation() handles connection
+	// cleanup, inventory locking/emptying, subsystem deregistration, and
+	// network-replicated actor destruction; this is not AActor::Destroy().
+	IFGDismantleInterface::Execute_Dismantle(Buildable);
+
+	UE_LOG(LogDocModAI, Display, TEXT("DismantleBuildable: %s"), *BuildableId);
+
+	return FDocModOperationResult::Success();
 }
 
 FDocModOperationResult UDocModFunctionLibrary::DebugCheckPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB)

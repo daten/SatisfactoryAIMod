@@ -48,7 +48,16 @@ struct FHttpServerRequest;
  * class must not grow a generic "call any function by name" method
  * (CLAUDE.md's Safety and Stability Boundary).
  *
- * "world.placeBuilding" ({"recipeClass","x","y"}), "world.placeExtractor"
+ * "world.deleteBuilding" ({"buildableId"}) is SYNCHRONOUS (no build
+ * gun/hologram involved, unlike construction) - delegates to
+ * UDocModFunctionLibrary::DismantleBuildable, the real
+ * IFGDismantleInterface flow, not AActor::Destroy(). Added 2026-08-25
+ * so live testing can clean up stray buildables between attempts.
+ *
+ * "world.placeBuilding" ({"recipeClass","x","y"}, plus optional
+ * "rotationScrollDelta" (default 0) and "gridSnapSize" (default 100,
+ * i.e. snap-to-1m-grid by default - pass 0 to disable; see
+ * ConstructBuildingAtPosition's doc comment for both)), "world.placeExtractor"
  * ({"nodeId"}), "world.testPowerConnection" (dry run, never touches the
  * save) and "world.connectPower" (real - both
  * {"buildableIdA","buildableIdB"}), "world.testConveyorBelt" (dry run) and
