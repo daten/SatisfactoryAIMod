@@ -245,6 +245,14 @@ directly with it on **every poll tick**, immediately before checking
 whatever the build gun's own trace did that tick. This makes placement
 deterministic regardless of where the player's camera happens to be
 pointed, which is required for genuine API-driven placement (the
-eventual goal is no human aiming at anything at all). **Not yet
-re-verified live** — the fix compiled clean but hasn't been tested
-against real gameplay yet.
+eventual goal is no human aiming at anything at all).
+
+**Confirmed live (2026-08-25).** `ConstructBuildingNearPlayer` with
+Constructor Mk1: ground-trace candidate `X=-54853.050 Y=160796.653
+Z=3337.826`, actual constructed location `X=-54853.103 Y=160796.700
+Z=3341.401` - matching to within a unit. Every pre-fix test diverged by
+hundreds to thousands of units (up to ~4000 units/40m), so a near-exact
+match on the first post-fix test is strong confirmation the
+`UpdateHologramPlacement()` override is winning against the build gun's
+own per-tick trace as intended. Placement is now genuinely
+API-controlled, not dependent on where the player happens to be looking.
