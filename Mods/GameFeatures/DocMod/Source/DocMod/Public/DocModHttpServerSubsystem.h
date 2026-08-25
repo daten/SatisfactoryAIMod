@@ -48,9 +48,10 @@ struct FHttpServerRequest;
  * class must not grow a generic "call any function by name" method
  * (CLAUDE.md's Safety and Stability Boundary).
  *
- * "world.placeBuilding" ({"recipeClass","x","y"}, PLAN.md Phase 13) is
- * the one GENUINELY ASYNCHRONOUS method - UDocModFunctionLibrary::
- * ConstructBuildingAtPosition's completion callback may fire well after
+ * "world.placeBuilding" ({"recipeClass","x","y"}) and "world.placeExtractor"
+ * ({"nodeId"}) (PLAN.md Phase 13) are GENUINELY ASYNCHRONOUS methods -
+ * UDocModFunctionLibrary::ConstructBuildingAtPosition/
+ * ConstructExtractorOnNode's completion callback may fire well after
  * HandleRpcRequest returns (real-tick polling to resolve
  * UFGCDInitializing/CanConstruct(), typically 1 tick, capped ~2s) -
  * FHttpResultCallback is captured by value and invoked from the deferred

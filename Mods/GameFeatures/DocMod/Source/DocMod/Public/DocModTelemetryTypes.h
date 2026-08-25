@@ -180,3 +180,27 @@ struct FDocModFactoryConnectionTelemetry
 	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
 	FString ConnectedBuildableId;
 };
+
+/**
+ * The local player character's current position/rotation (PLAN.md
+ * Phase 13/14). Exists specifically so RPC-driven placement
+ * (ConstructBuildingAtPosition/"world.placeBuilding") has a real
+ * reference point to place buildings near - an arbitrary existing
+ * buildable's position is NOT a safe substitute, found live
+ * (2026-08-25): the world can span thousands of units of elevation
+ * across its map, and a buildable far from the player will make
+ * ConstructBuildingAtPosition's ground trace (which searches only
+ * within the PLAYER's current +/-1000 unit Z range) miss real terrain
+ * entirely.
+ */
+USTRUCT(BlueprintType)
+struct FDocModPlayerTelemetry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FVector Position = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FRotator Rotation = FRotator::ZeroRotator;
+};

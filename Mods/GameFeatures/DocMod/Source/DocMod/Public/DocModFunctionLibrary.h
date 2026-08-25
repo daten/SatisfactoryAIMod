@@ -134,6 +134,18 @@ public:
 	static FString LogFactoryConnectionsAsJson(UObject* WorldContextObject);
 
 	/**
+	 * Returns the local player character's current position/rotation
+	 * (see FDocModPlayerTelemetry's comment for why this exists) - player
+	 * index 0 only, single-player/local scope per PLAN.md/CLAUDE.md.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModPlayerTelemetry GetPlayerTelemetry(UObject* WorldContextObject);
+
+	/** Serializes GetPlayerTelemetry to {"protocolVersion":1,"position":{...},"rotation":{...}}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPlayerAsJson(UObject* WorldContextObject);
+
+	/**
 	 * PLAN.md Phase 12: first controlled write operation. Sets the clock
 	 * speed (FactoryGame's "potential") on an existing manufacturing
 	 * building, identified by the session-local id from
@@ -380,4 +392,25 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DebugCheckPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB);
+
+	/**
+	 * PLAN.md Phase 13/14: RPC-drivable variant of
+	 * ConstructExtractorOnTargetedNode - places a real Miner Mk1 on a
+	 * resource node identified by session-local id (e.g. from
+	 * GetResourceNodeTelemetry/"world.resourceNodes"), instead of
+	 * requiring the player to actually be looking at it. Not a
+	 * UFUNCTION - TFunction callbacks aren't UHT-compatible - a plain
+	 * C++ entry point for UDocModHttpServerSubsystem, same shape as
+	 * ConstructBuildingAtPosition.
+	 *
+	 * Same validated flow, scope, and safety posture as
+	 * ConstructExtractorOnTargetedNode (solid resources only,
+	 * GetPlacementLocation/GetPlacementRotation for the synthetic hit,
+	 * UpdateHologramPlacement() re-asserted every poll tick,
+	 * InternalConstructHologram() only once CanConstruct() genuinely
+	 * resolves true) and genuinely asynchronous like
+	 * ConstructBuildingAtPosition (OnComplete invoked once, with
+	 * ResultBuildableId set on success).
+	 */
+	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, TFunction<void(const FDocModOperationResult&)> OnComplete);
 };

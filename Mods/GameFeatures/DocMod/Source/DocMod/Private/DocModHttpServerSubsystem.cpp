@@ -277,6 +277,33 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		return true;
 	}
 
+	// Genuinely asynchronous, same shape as "world.placeBuilding" above -
+	// see that method's comment.
+	if (Method == TEXT("world.placeExtractor"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString NodeId;
+		if (!ParamsObject->TryGetStringField(TEXT("nodeId"), NodeId) || NodeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.nodeId must be a non-empty string")));
+			return true;
+		}
+
+		UDocModFunctionLibrary::ConstructExtractorOnNode(GetGameInstance(), NodeId,
+			[OnComplete, RequestId](const FDocModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
 	// not implement GetWorld(); UGameInstance does.
 	FString MethodResultJson;
@@ -299,6 +326,10 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	else if (Method == TEXT("world.targetedManufacturer"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogTargetedManufacturerAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.player"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogPlayerAsJson(GetGameInstance());
 	}
 	else
 	{
