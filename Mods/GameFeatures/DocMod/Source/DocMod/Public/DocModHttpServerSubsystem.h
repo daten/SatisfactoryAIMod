@@ -46,7 +46,14 @@ struct FHttpServerRequest;
  * LogPowerLineLimitsAsJson's doc comment), "world.pipelineTiers"
  * (Recipe_Pipeline/Recipe_PipelineMK2's real queried
  * flowLimit/maxSplineLength/bendRadius/minBendRadius - pipe groundwork,
- * 2026-08-25, see LogPipelineTiersAsJson's doc comment), "world.targetedManufacturer"
+ * 2026-08-25, see LogPipelineTiersAsJson's doc comment),
+ * "world.conveyorAttachments" (the real Splitter/Merger/Priority
+ * Merger/Smart Splitter/Programmable Splitter recipe catalog with each
+ * variant's real inputCount/outputCount/supportsSortRules - added
+ * 2026-08-25, see LogConveyorAttachmentCatalogAsJson's doc comment;
+ * placing/connecting these needs NO new write method - existing
+ * "world.placeBuilding"/"world.connectConveyor" already handle them
+ * generically), "world.targetedManufacturer"
  * (whatever manufacturer the local player
  * is currently looking at - "manufacturer":null if none). Write methods
  * (PLAN.md Phase 12, take a "params" object): "world.setClockSpeed"

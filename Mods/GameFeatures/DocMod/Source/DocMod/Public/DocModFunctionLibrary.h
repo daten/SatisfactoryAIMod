@@ -646,6 +646,43 @@ public:
 	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
+	 * Telemetry, not a mutation - same LogXAsJson convention as
+	 * LogConveyorBeltTiersAsJson/LogPipelineTiersAsJson. Added 2026-08-25
+	 * per the user's request to research/verify/build splitter+merger
+	 * support.
+	 *
+	 * KEY FINDING (see docs/conveyor-attachment-research.md): splitters
+	 * and mergers use AFGConveyorAttachmentHologram : AFGFactoryHologram
+	 * : AFGBuildableHologram - the SAME simple, single-step hologram
+	 * lineage already proven for Miners/Smelters/Constructors, NOT the
+	 * AFGSplineHologram branch belts/pipes needed special multi-click
+	 * driving for. This means ConstructBuildingAtPosition/
+	 * world.placeBuilding and ConstructConveyorBelt/world.connectConveyor
+	 * (both already generic - source/dest never restricted to machines)
+	 * place and connect splitters/mergers with ZERO new construction
+	 * code - deliberately no ConstructSplitter-style wrapper was added.
+	 *
+	 * Reports the real recipe catalog (plain Splitter/Merger plus Smart/
+	 * Programmable Splitter and Priority Merger variants - all five
+	 * confirmed present on disk) with each variant's real
+	 * "inputCount"/"outputCount", read generically via GetDirection() on
+	 * each buildable class CDO's UFGFactoryConnectionComponents (the
+	 * same technique world.connections itself uses) rather than
+	 * hardcoding the commonly-known 1-in/3-out (splitter) / 3-in/1-out
+	 * (merger) figures - AFGBuildableConveyorAttachment's header doesn't
+	 * declare them as a literal constant anywhere. Also reports
+	 * "supportsSortRules" (true only for the Smart/Programmable variants,
+	 * which share the AFGBuildableSplitterSmart native class) - a real,
+	 * separate, NOT-yet-built capability gap: per-output item-type
+	 * routing (mSortRules/AddSortRule/etc., confirmed public on
+	 * FGBuildableSplitterSmart.h) needs its own future write operation:
+	 * placement/connection alone does not let an agent configure routing
+	 * rules on a Smart/Programmable splitter yet.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogConveyorAttachmentCatalogAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Telemetry, not a mutation - follows the LogXAsJson return-a-JSON-
 	 * string convention used elsewhere in this file (world.resourceNodes/
 	 * world.buildables/etc.), not FDocModOperationResult.

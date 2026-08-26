@@ -556,6 +556,10 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogPipelineTiersAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.conveyorAttachments"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.targetedManufacturer"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogTargetedManufacturerAsJson(GetGameInstance());

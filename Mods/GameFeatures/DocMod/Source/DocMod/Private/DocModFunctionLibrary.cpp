@@ -30,6 +30,8 @@
 #include "Buildables/FGBuildableConveyorBase.h"
 #include "Buildables/FGBuildableWire.h"
 #include "Buildables/FGBuildablePipeline.h"
+#include "Buildables/FGBuildableConveyorAttachment.h"
+#include "Buildables/FGBuildableSplitterSmart.h"
 #include "Hologram/FGPipelineHologram.h"
 #include "FGPipeConnectionComponent.h"
 #include "Components/PrimitiveComponent.h"
@@ -3379,6 +3381,90 @@ FString UDocModFunctionLibrary::LogPipelineTiersAsJson(UObject* WorldContextObje
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogPipelineTiersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+// LogConveyorAttachmentCatalogAsJson (2026-08-25, splitter/merger
+// groundwork) - research-confirmed (see docs/conveyor-attachment-research.md)
+// that splitters/mergers use AFGConveyorAttachmentHologram : AFGFactoryHologram
+// : AFGBuildableHologram - the SAME simple, single-step hologram lineage
+// already proven for Miners/Smelters/Constructors, NOT the AFGSplineHologram
+// branch belts/pipes needed special multi-click driving for. That means
+// ConstructBuildingAtPosition/world.placeBuilding (already generic) and
+// ConstructConveyorBelt/world.connectConveyor (source/dest already not
+// restricted to machines) place and connect splitters/mergers with ZERO
+// new construction code - deliberately NOT duplicating a
+// ConstructSplitter-style function that would just be a thin, unnecessary
+// wrapper. This function exists purely to report the real recipe catalog
+// and real per-class input/output UFGFactoryConnectionComponent counts -
+// read generically via GetDirection() on each buildable class CDO's
+// components (the same technique world.connections itself uses), rather
+// than hardcoding the commonly-known 1-in/3-out (splitter) / 3-in/1-out
+// (merger) figures, since AFGBuildableConveyorAttachment's header doesn't
+// declare them as a literal constant anywhere.
+FString UDocModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(UObject* WorldContextObject)
+{
+	static const TCHAR* RecipePaths[] = {
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentSplitter.Recipe_ConveyorAttachmentSplitter_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentSplitterSmart.Recipe_ConveyorAttachmentSplitterSmart_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentSplitterProgrammable.Recipe_ConveyorAttachmentSplitterProgrammable_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentMerger.Recipe_ConveyorAttachmentMerger_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentMergerPriority.Recipe_ConveyorAttachmentMergerPriority_C"),
+	};
+
+	TArray<TSharedPtr<FJsonValue>> EntryJsonArray;
+	for (const TCHAR* RecipePath : RecipePaths)
+	{
+		const TSubclassOf<AFGBuildable> BuildableClass = ResolveBuildableClassForRecipe(RecipePath);
+		const AFGBuildableConveyorAttachment* AttachmentCDO = BuildableClass ? Cast<AFGBuildableConveyorAttachment>(BuildableClass->GetDefaultObject()) : nullptr;
+		if (!AttachmentCDO)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("LogConveyorAttachmentCatalogAsJson: could not resolve a AFGBuildableConveyorAttachment CDO for '%s' - omitting"), RecipePath);
+			continue;
+		}
+
+		TArray<UFGFactoryConnectionComponent*> Connections;
+		AttachmentCDO->GetComponents<UFGFactoryConnectionComponent>(Connections);
+		int32 InputCount = 0;
+		int32 OutputCount = 0;
+		for (const UFGFactoryConnectionComponent* Connection : Connections)
+		{
+			if (!IsValid(Connection)) { continue; }
+			if (Connection->GetDirection() == EFactoryConnectionDirection::FCD_INPUT) { ++InputCount; }
+			else if (Connection->GetDirection() == EFactoryConnectionDirection::FCD_OUTPUT) { ++OutputCount; }
+		}
+
+		const TSharedRef<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+		EntryObject->SetStringField(TEXT("recipeClass"), RecipePath);
+		EntryObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
+		EntryObject->SetNumberField(TEXT("inputCount"), InputCount);
+		EntryObject->SetNumberField(TEXT("outputCount"), OutputCount);
+		// supportsSortRules (2026-08-25): Smart and Programmable
+		// splitters share the AFGBuildableSplitterSmart native class -
+		// per-output item-type routing (mSortRules, AddSortRule/
+		// RemoveSortRuleAt/SetSortRuleAt/GetSortRules, confirmed public
+		// on FGBuildableSplitterSmart.h) needs RPC support this project
+		// does NOT yet have. Placement/connection works today via the
+		// generic mechanism above; sort-rule configuration is a
+		// genuinely separate, not-yet-built capability - this flag lets
+		// an agent know not to assume a placed Smart/Programmable
+		// splitter can already be configured to route by item type.
+		EntryObject->SetBoolField(TEXT("supportsSortRules"), Cast<AFGBuildableSplitterSmart>(AttachmentCDO) != nullptr);
+
+		EntryJsonArray.Add(MakeShared<FJsonValueObject>(EntryObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("attachments"), EntryJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogConveyorAttachmentCatalogAsJson: %s"), *JsonString);
 
 	return JsonString;
 }
