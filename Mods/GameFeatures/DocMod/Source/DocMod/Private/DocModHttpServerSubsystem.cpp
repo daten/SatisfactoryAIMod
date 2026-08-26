@@ -471,8 +471,57 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C");
 		}
 
+		// Optional, defaults empty (hologram's own default mode, prior
+		// behavior unchanged) - "Straight"/"Curve"/"Auto", see
+		// ConstructConveyorBelt's doc comment.
+		FString RouteMode;
+		ParamsObject->TryGetStringField(TEXT("routeMode"), RouteMode);
+
 		const bool bDryRun = Method == TEXT("world.testConveyorBelt");
-		UDocModFunctionLibrary::ConstructConveyorBelt(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRun,
+		UDocModFunctionLibrary::ConstructConveyorBelt(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, RouteMode, bDryRun,
+			[OnComplete, RequestId](const FDocModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// Genuinely asynchronous, same shape as "world.testConveyorBelt"/
+	// "world.connectConveyor" above. "world.testConveyorLift" (dry run)
+	// and "world.connectConveyorLift" (real) share UDocModFunctionLibrary::
+	// ConstructConveyorLift, differing only in the bDryRun argument.
+	// Vertical conveyor groundwork (2026-08-25, per explicit user
+	// request) - NOT YET LIVE-TESTED, see ConstructConveyorLift's doc
+	// comment.
+	if (Method == TEXT("world.testConveyorLift") || Method == TEXT("world.connectConveyorLift"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			return true;
+		}
+
+		// Optional, defaults to Mk1. Any of Recipe_ConveyorLiftMk1..Mk6 -
+		// see world.conveyorLiftTiers for each tier's real queried speed.
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk1.Recipe_ConveyorLiftMk1_C");
+		}
+
+		const bool bDryRun = Method == TEXT("world.testConveyorLift");
+		UDocModFunctionLibrary::ConstructConveyorLift(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRun,
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));
@@ -559,6 +608,10 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	else if (Method == TEXT("world.conveyorAttachments"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.conveyorLiftTiers"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogConveyorLiftTiersAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.targetedManufacturer"))
 	{

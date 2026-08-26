@@ -53,7 +53,11 @@ struct FHttpServerRequest;
  * 2026-08-25, see LogConveyorAttachmentCatalogAsJson's doc comment;
  * placing/connecting these needs NO new write method - existing
  * "world.placeBuilding"/"world.connectConveyor" already handle them
- * generically), "world.targetedManufacturer"
+ * generically), "world.conveyorLiftTiers" (Recipe_ConveyorLiftMk1..Mk6's
+ * real queried speed - vertical conveyor groundwork, 2026-08-25, per
+ * explicit user request, see LogConveyorLiftTiersAsJson's doc comment
+ * on why min/max height limits are NOT reported - a real gap, not an
+ * omission), "world.targetedManufacturer"
  * (whatever manufacturer the local player
  * is currently looking at - "manufacturer":null if none). Write methods
  * (PLAN.md Phase 12, take a "params" object): "world.setClockSpeed"
@@ -90,7 +94,18 @@ struct FHttpServerRequest;
  * "world.connectConveyor" (real - both
  * {"sourceBuildableId","destBuildableId"}, plus optional "recipeClass"
  * (default Recipe_ConveyorBeltMk1 - any of Mk1..Mk6, see
- * "world.conveyorBeltTiers" above to pick by real queried speed)),
+ * "world.conveyorBeltTiers" above to pick by real queried speed) and
+ * optional "routeMode" (one of "Straight"/"Curve"/"Auto", default
+ * empty = hologram's own default mode - added 2026-08-25 to bypass the
+ * 2-click mechanism's confirmed inability to bend for mismatched
+ * connectors, see ConstructConveyorBelt's doc comment; NOT YET
+ * LIVE-VERIFIED to resolve it)),
+ * "world.testConveyorLift" (dry run) and "world.connectConveyorLift"
+ * (real - both {"sourceBuildableId","destBuildableId"}, plus optional
+ * "recipeClass" (default Recipe_ConveyorLiftMk1 - any of Mk1..Mk6, see
+ * "world.conveyorLiftTiers" above)) - vertical conveyor groundwork,
+ * 2026-08-25, per explicit user request, NOT YET LIVE-TESTED, see
+ * ConstructConveyorLift's doc comment,
  * "world.testPipe" (dry run) and "world.connectPipe" (real - both
  * {"sourceBuildableId","destBuildableId"}, plus optional "recipeClass"
  * (default Recipe_Pipeline - or Recipe_PipelineMK2, see
@@ -98,7 +113,7 @@ struct FHttpServerRequest;
  * LIVE-TESTED, see ConstructPipe's doc comment for open questions)
  * (PLAN.md Phase 13/14) are
  * GENUINELY ASYNCHRONOUS methods - UDocModFunctionLibrary::ConstructBuildingAtPosition/
- * ConstructExtractorOnNode/ConstructPowerConnection/ConstructConveyorBelt/ConstructPipe's completion callback may fire well after
+ * ConstructExtractorOnNode/ConstructPowerConnection/ConstructConveyorBelt/ConstructConveyorLift/ConstructPipe's completion callback may fire well after
  * HandleRpcRequest returns (real-tick polling to resolve
  * UFGCDInitializing/CanConstruct(), typically 1 tick, capped ~2s) -
  * FHttpResultCallback is captured by value and invoked from the deferred

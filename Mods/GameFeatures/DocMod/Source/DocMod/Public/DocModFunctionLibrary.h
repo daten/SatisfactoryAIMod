@@ -642,8 +642,84 @@ public:
 	 * should therefore let an agent build multi-segment routes, though
 	 * this has NOT been live-tested, only every machine-to-machine
 	 * single-segment case has.
+	 *
+	 * RouteMode (2026-08-25, added after live-diagnosing a real, well-
+	 * evidenced gap): the 2-click TrySnapToActor flow above reliably
+	 * fails - "Conveyor Belt is too long!"/"Invalid placement!" - for ANY
+	 * meaningful direction mismatch between the source's output and the
+	 * dest's input, confirmed across many distances (600-4100+ units)
+	 * and mismatch angles (20-90+ degrees), even when straight-line
+	 * distance was well under the real queried maxSplineLength. One of
+	 * "Straight"/"Curve"/"Auto" (case-insensitive; empty/omitted leaves
+	 * the hologram's own default mode untouched, matching prior
+	 * behavior) - maps to the real, disk-confirmed
+	 * `/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_*`
+	 * assets via `AFGHologram::SetBuildModeOverride()` (public,
+	 * FGHologram.h) - `AFGConveyorBeltHologram::mBuildModeStraight`/
+	 * `mBuildModeCurve` are the two it exposes past the implicit default
+	 * ("Auto"). `AutoRouteSpline()`'s own doc comment ("routes the spline
+	 * to the new location, inserting bends and straights") is the
+	 * evidence "Curve" should be the fix for the bend-failure gap above -
+	 * NOT YET LIVE-VERIFIED to actually resolve it, only a well-evidenced
+	 * hypothesis, since the private engine logic behind
+	 * SetBuildModeOverride()/AutoRouteSpline() is stub-source in this SDK
+	 * like everything else here.
 	 */
-	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
+
+	/**
+	 * Telemetry, not a mutation - same LogXAsJson convention as
+	 * LogConveyorBeltTiersAsJson. Added 2026-08-25, vertical conveyor
+	 * groundwork, per explicit user request ("add support for vertical
+	 * conveyors, these can be used strategically to transition from
+	 * miners locked to the terrain and raised foundations").
+	 *
+	 * Recipe_ConveyorLiftMk1..Mk6 (all six confirmed present on disk,
+	 * same naming as belts) resolve to `AFGBuildableConveyorLift` -
+	 * `AFGBuildableConveyorBase`'s OTHER direct subclass alongside
+	 * regular belts, confirmed from source, sharing
+	 * `GetSpeed()`/`GetConnection0()`/`GetConnection1()`. Reports each
+	 * tier's real queried `speed` only - deliberately does NOT report
+	 * min/max height limits: `AFGConveyorLiftHologram`'s
+	 * `mStepHeight`/`mMinimumHeight`/`mMaximumHeight`/
+	 * `mMinimumHeightWithVerticalConnection` are plain private `float`
+	 * members with NO `UPROPERTY` macro (confirmed from header) - unlike
+	 * every other reflection-based CDO read in this file,
+	 * `FindFProperty<FFloatProperty>` cannot find a non-`UPROPERTY`
+	 * field at all, since UHT never generates reflection data for it.
+	 * This is a genuine, real gap, not an omission - real height limits
+	 * remain unknown until discovered another way.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogConveyorLiftTiersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13/14, vertical conveyor groundwork (2026-08-25), per
+	 * explicit user request. Deliberate near-mirror of
+	 * ConstructConveyorBelt's two-click `TrySnapToActor` flow -
+	 * `AFGConveyorLiftHologram` is NOT a spline hologram (confirmed from
+	 * source: `AFGConveyorLiftHologram : AFGBuildableHologram` directly,
+	 * NOT `AFGSplineHologram` like belts/pipes - a vertical lift is a
+	 * straight column, no bending), but it DOES override
+	 * `TrySnapToActor`/`DoMultiStepPlacement` itself, so the same
+	 * click-driven pattern applies: `UpdateHologramPlacement()` before
+	 * each `TrySnapToActor()`, the connector's real
+	 * `GetConnectorNormal()` (not a placeholder) in the synthetic hit.
+	 * Reuses `FindFreeFactoryConnection`/`UFGFactoryConnectionComponent` -
+	 * `AFGBuildableConveyorLift` shares the exact same connection
+	 * component type as regular belts (both derive from
+	 * `AFGBuildableConveyorBase`).
+	 *
+	 * NOT YET LIVE-TESTED. No post-end-click connectivity diagnostic is
+	 * available here (unlike belts'/pipes' `GetAnyConnectedBuildables()`/
+	 * `IsConnectionSnapped()`, inherited from `AFGSplineHologram` which
+	 * this hologram does NOT derive from) - only the disqualifier list
+	 * is logged. No `RouteMode` param - lifts are a fixed vertical
+	 * column, no bend/curve concept applies. Same `bDryRun` switch and
+	 * real-construction posture as every other `Construct*` function.
+	 * Not a `UFUNCTION` - same reason as the other async entry points.
+	 */
+	static void ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * Telemetry, not a mutation - same LogXAsJson convention as

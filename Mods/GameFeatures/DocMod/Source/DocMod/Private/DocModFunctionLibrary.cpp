@@ -32,6 +32,9 @@
 #include "Buildables/FGBuildablePipeline.h"
 #include "Buildables/FGBuildableConveyorAttachment.h"
 #include "Buildables/FGBuildableSplitterSmart.h"
+#include "Buildables/FGBuildableConveyorLift.h"
+#include "Hologram/FGConveyorLiftHologram.h"
+#include "Hologram/FGHologramBuildModeDescriptor.h"
 #include "Hologram/FGPipelineHologram.h"
 #include "FGPipeConnectionComponent.h"
 #include "Components/PrimitiveComponent.h"
@@ -3469,7 +3472,7 @@ FString UDocModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(UObject* Worl
 	return JsonString;
 }
 
-void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -3551,6 +3554,61 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGConveyorBeltHologram (got %s)"),
 				*RecipeClassPath, Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
 		return;
+	}
+
+	// RouteMode (2026-08-25, added after live-diagnosing that the 2-click
+	// TrySnapToActor flow fails ("Conveyor Belt is too long!"/"Invalid
+	// placement!") for ANY meaningful direction mismatch between source
+	// and destination connectors). Real, confirmed-on-disk asset paths
+	// (grepped from Holo_ConveyorBelt.uasset's own string table, not
+	// guessed): AFGHologram::SetBuildModeOverride() (public,
+	// FGHologram.h) accepts one of
+	// "/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Default"
+	// (the implicit default when nothing is overridden - what the player
+	// UX calls "Auto"), "...BuildMode_Straight", or "...BuildMode_Curve"
+	// - AFGConveyorBeltHologram exposes exactly two of these via its own
+	// mBuildModeStraight/mBuildModeCurve fields (GetSupportedBuildModes_Implementation).
+	// Empty RouteMode (default) leaves the hologram's own default mode
+	// untouched - matches prior behavior exactly. NOT YET LIVE-VERIFIED
+	// that forcing Curve actually resolves the bend failures above - this
+	// is a well-evidenced hypothesis (AutoRouteSpline's own doc comment:
+	// "routes the spline to the new location, inserting bends and
+	// straights"), not a proven fix, since the private engine logic
+	// behind SetBuildModeOverride()/AutoRouteSpline() is stub-source in
+	// this SDK like everything else - only the public entry point and
+	// real asset paths are confirmed from source/binary inspection.
+	if (!RouteMode.IsEmpty())
+	{
+		FString RouteModeAssetPath;
+		if (RouteMode.Equals(TEXT("Straight"), ESearchCase::IgnoreCase))
+		{
+			RouteModeAssetPath = TEXT("/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Straight.BuildMode_Straight_C");
+		}
+		else if (RouteMode.Equals(TEXT("Curve"), ESearchCase::IgnoreCase))
+		{
+			RouteModeAssetPath = TEXT("/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Curve.BuildMode_Curve_C");
+		}
+		else if (RouteMode.Equals(TEXT("Auto"), ESearchCase::IgnoreCase) || RouteMode.Equals(TEXT("Default"), ESearchCase::IgnoreCase))
+		{
+			RouteModeAssetPath = TEXT("/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Default.BuildMode_Default_C");
+		}
+		else
+		{
+			Character->UnequipBuildGun();
+			OnComplete(FDocModOperationResult::Failure(TEXT("INVALID_ROUTE_MODE"), FString::Printf(TEXT("'%s' is not one of \"Straight\", \"Curve\", \"Auto\""), *RouteMode)));
+			return;
+		}
+
+		UClass* RouteModeClass = LoadObject<UClass>(nullptr, *RouteModeAssetPath);
+		if (!RouteModeClass || !RouteModeClass->IsChildOf(UFGHologramBuildModeDescriptor::StaticClass()))
+		{
+			Character->UnequipBuildGun();
+			OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), FString::Printf(TEXT("Failed to resolve '%s' as a UFGHologramBuildModeDescriptor"), *RouteModeAssetPath)));
+			return;
+		}
+
+		BeltHologram->SetBuildModeOverride(TSubclassOf<UFGHologramBuildModeDescriptor>(RouteModeClass));
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorBelt: applied RouteMode='%s' (%s)"), *RouteMode, *RouteModeAssetPath);
 	}
 
 	// Using FVector::UpVector for Normal/ImpactNormal here (as an
@@ -3737,6 +3795,333 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		PollBuildState->InternalConstructHologram(ConstructionID);
 
 		UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorBelt (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		PollState->OnComplete(FDocModOperationResult::Success());
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// LogConveyorLiftTiersAsJson (2026-08-25, vertical conveyor groundwork,
+// per explicit user request) - mirrors LogConveyorBeltTiersAsJson's
+// structure. Recipe_ConveyorLiftMk1..Mk6 (all six confirmed present on
+// disk, same "Mk1..Mk6" naming as belts) resolve to AFGBuildableConveyorLift
+// (AFGBuildableConveyorBase's OTHER direct subclass alongside regular
+// belts - confirmed from source, shares GetSpeed()/GetConnection0()/
+// GetConnection1()). Deliberately does NOT report min/max height limits:
+// AFGConveyorLiftHologram's mStepHeight/mMinimumHeight/mMaximumHeight/
+// mMinimumHeightWithVerticalConnection are plain private float members
+// with NO UPROPERTY macro (confirmed from header) - unlike every other
+// reflection-based CDO read in this file (belts' mMaxIncline, pipes'
+// mMaxSplineLength/etc.), FindFProperty<FFloatProperty> cannot find a
+// non-UPROPERTY field at all, since UHT never generates reflection data
+// for it. This is a genuine, real gap (not yet solved) rather than an
+// omission - real height limits remain unknown until discovered another
+// way (e.g. live binary-search construction attempts).
+FString UDocModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextObject)
+{
+	static const TCHAR* RecipePaths[] = {
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk1.Recipe_ConveyorLiftMk1_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk2.Recipe_ConveyorLiftMk2_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk3.Recipe_ConveyorLiftMk3_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk4.Recipe_ConveyorLiftMk4_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk5.Recipe_ConveyorLiftMk5_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk6.Recipe_ConveyorLiftMk6_C"),
+	};
+
+	TArray<TSharedPtr<FJsonValue>> TierJsonArray;
+	for (const TCHAR* RecipePath : RecipePaths)
+	{
+		const TSubclassOf<AFGBuildable> BuildableClass = ResolveBuildableClassForRecipe(RecipePath);
+		const AFGBuildableConveyorLift* LiftCDO = BuildableClass ? Cast<AFGBuildableConveyorLift>(BuildableClass->GetDefaultObject()) : nullptr;
+		if (!LiftCDO)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("LogConveyorLiftTiersAsJson: could not resolve a AFGBuildableConveyorLift CDO for '%s' - omitting"), RecipePath);
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> TierObject = MakeShared<FJsonObject>();
+		TierObject->SetStringField(TEXT("recipeClass"), RecipePath);
+		TierObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
+		// speed: AFGBuildableConveyorBase::GetSpeed(), same unit-ambiguity
+		// caveat as belts (see LogConveyorBeltTiersAsJson) - "Speed of
+		// this conveyor", no documented unit.
+		TierObject->SetNumberField(TEXT("speed"), LiftCDO->GetSpeed());
+
+		TierJsonArray.Add(MakeShared<FJsonValueObject>(TierObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("tiers"), TierJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogConveyorLiftTiersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+// ConstructConveyorLift (2026-08-25, vertical conveyor groundwork, per
+// explicit user request: "add support for vertical conveyors, these can
+// be used strategically to transition from miners locked to the terrain
+// and raised foundations providing a cleaner build area"). Deliberate
+// near-mirror of ConstructConveyorBelt's two-click TrySnapToActor flow -
+// AFGConveyorLiftHologram is NOT a spline hologram (confirmed from
+// source: AFGConveyorLiftHologram : AFGBuildableHologram directly, NOT
+// AFGSplineHologram like belts/pipes - a vertical lift is a straight
+// column, no bending), but it DOES override TrySnapToActor/
+// DoMultiStepPlacement itself, so the same click-driven pattern applies:
+// UpdateHologramPlacement() before each TrySnapToActor(), the connector's
+// real GetConnectorNormal() (not a placeholder) in the synthetic hit.
+// Reuses FindFreeFactoryConnection/UFGFactoryConnectionComponent -
+// AFGBuildableConveyorLift shares the exact same connection component
+// type as regular belts (both derive from AFGBuildableConveyorBase).
+// NOT YET LIVE-TESTED. No post-end-click connectivity diagnostic is
+// available here (unlike belts' GetAnyConnectedBuildables() or pipes'
+// IsConnectionSnapped(), inherited from AFGSplineHologram which this
+// hologram does NOT derive from) - only the disqualifier list is logged.
+// No RouteMode param - lifts are a fixed vertical column, no bend/curve
+// concept applies.
+void UDocModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	AFGBuildable* SourceBuildable = FindBuildableById(World, SourceBuildableId);
+	if (!SourceBuildable)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *SourceBuildableId)));
+		return;
+	}
+	AFGBuildable* DestBuildable = FindBuildableById(World, DestBuildableId);
+	if (!DestBuildable)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *DestBuildableId)));
+		return;
+	}
+
+	UFGFactoryConnectionComponent* SourceConnection = FindFreeFactoryConnection(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT);
+	if (!SourceConnection)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"), FString::Printf(TEXT("'%s' has no free Output factory connection component"), *SourceBuildableId)));
+		return;
+	}
+	UFGFactoryConnectionComponent* DestConnection = FindFreeFactoryConnection(DestBuildable, EFactoryConnectionDirection::FCD_INPUT);
+	if (!DestConnection)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"), FString::Printf(TEXT("'%s' has no free Input factory connection component"), *DestBuildableId)));
+		return;
+	}
+
+	UClass* LiftRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!LiftRecipeClass || !LiftRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = LiftRecipeClass;
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	AFGConveyorLiftHologram* LiftHologram = Cast<AFGConveyorLiftHologram>(Hologram);
+	if (!LiftHologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGConveyorLiftHologram (got %s)"),
+				*RecipeClassPath, Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
+		return;
+	}
+
+	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection) -> FHitResult
+	{
+		FHitResult Hit;
+		Hit.Location = Connection->GetConnectorLocation();
+		Hit.ImpactPoint = Hit.Location;
+		Hit.Normal = Connection->GetConnectorNormal();
+		Hit.ImpactNormal = Hit.Normal;
+		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
+		Hit.bBlockingHit = true;
+		return Hit;
+	};
+
+	auto SummarizeDisqualifiers = [](AFGConveyorLiftHologram* H) -> FString
+	{
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		H->GetConstructDisqualifiers(Disqualifiers);
+		TArray<FString> Texts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+		{
+			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
+		}
+		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
+	};
+
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorLift diagnostic: sourceConnectorLoc=%s sourceConnectorNormal=%s destConnectorLoc=%s destConnectorNormal=%s"),
+		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(),
+		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString());
+
+	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	LiftHologram->UpdateHologramPlacement(StartHit);
+	LiftHologram->TrySnapToActor(StartHit);
+	const bool bStartStepComplete = LiftHologram->DoMultiStepPlacement(true);
+
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after start click: stepComplete=%s disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bStartStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(LiftHologram));
+
+	if (bStartStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
+		return;
+	}
+
+	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
+	LiftHologram->UpdateHologramPlacement(EndHit);
+	LiftHologram->TrySnapToActor(EndHit);
+	const bool bEndStepComplete = LiftHologram->DoMultiStepPlacement(true);
+
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after end click: stepComplete=%s disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bEndStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(LiftHologram));
+
+	if (!bEndStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"), TEXT("DoMultiStepPlacement() did not report complete after the end click")));
+		return;
+	}
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGConveyorLiftHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		bool bDryRun = true;
+		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+		TFunction<void(const FDocModOperationResult&)> OnComplete;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = LiftHologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->SourceBuildableId = SourceBuildableId;
+	PollState->DestBuildableId = DestBuildableId;
+	PollState->bDryRun = bDryRun;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGConveyorLiftHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("ConstructConveyorLift (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bCanConstruct = PollHologram->CanConstruct();
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorLift (deferred, resolved after %d real tick(s)): source=%s dest=%s dryRun=%s canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId, PollState->bDryRun ? TEXT("true") : TEXT("false"),
+			bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		if (!bCanConstruct)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		if (PollState->bDryRun)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Success());
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogDocModAI, Error, TEXT("ConstructConveyorLift (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructConveyorLift (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
 			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
 
 		if (IsValid(PollCharacter))
