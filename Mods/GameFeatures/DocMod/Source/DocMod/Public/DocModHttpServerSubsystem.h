@@ -75,7 +75,11 @@ struct FHttpServerRequest;
  * ConstructBuildingAtPosition's doc comment for all of these)), "world.placeExtractor"
  * ({"nodeId"}), "world.testPowerConnection" (dry run, never touches the
  * save) and "world.connectPower" (real - both
- * {"buildableIdA","buildableIdB"}), "world.testConveyorBelt" (dry run) and
+ * {"buildableIdA","buildableIdB"}, plus optional "ignoreAimLocation" and
+ * "ignoreWireSnap" (both default false, added 2026-08-25 - named bypasses
+ * for disqualifiers live-diagnosed as camera/aim-state flakiness rather
+ * than real geometry failures, see ConstructPowerConnection's doc comment;
+ * NOT YET LIVE-VERIFIED to resolve it)), "world.testConveyorBelt" (dry run) and
  * "world.connectConveyor" (real - both
  * {"sourceBuildableId","destBuildableId"}, plus optional "recipeClass"
  * (default Recipe_ConveyorBeltMk1 - any of Mk1..Mk6, see

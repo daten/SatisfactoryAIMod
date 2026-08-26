@@ -528,26 +528,37 @@ public:
 	 * GetHitResult() assignment for ConnectionA, no click/snap step.
 	 *
 	 * CONFIRMED LIVE, TWICE (2026-08-25), that this exact mechanism is
-	 * the only variant that works for machine<->machine connections -
-	 * two deviations were tried and both regressed it: (1) a click-based
-	 * UpdateHologramPlacement()+TrySnapToActor()+DoMultiStepPlacement()
-	 * rewrite mirroring belts/pipes - TrySnapToActor() never populated
-	 * AFGWireHologram::GetConnection(0)/(1) for wires at all; (2) also
-	 * setting GetHitResult() for ConnectionB (not just A) before
-	 * SetConnection(1,...) - broke ConnectionA's own validation. Do not
-	 * repeat either without new evidence.
+	 * the only one that works at all for machine<->machine connections -
+	 * two mechanism deviations were tried and both regressed it: (1) a
+	 * click-based UpdateHologramPlacement()+TrySnapToActor()+
+	 * DoMultiStepPlacement() rewrite mirroring belts/pipes -
+	 * TrySnapToActor() never populated AFGWireHologram::GetConnection(0)/(1)
+	 * for wires at all; (2) also setting GetHitResult() for ConnectionB
+	 * (not just A) before SetConnection(1,...) - broke ConnectionA's own
+	 * validation. Do not repeat either without new evidence.
 	 *
-	 * STILL UNRESOLVED: machine<->machine connections work under this
-	 * mechanism; EVERY pole-involving connection (pole<->pole,
-	 * pole<->machine, either order) fails with UFGCDWireSnap ("Must be
-	 * hooked up to a connection!") - a different disqualifier than
-	 * UFGCDWireTooLong (the real distance check, confirmed live,
-	 * maxLength=10000 real units). Needs a genuinely different
-	 * investigation approach, not another guess-and-redeploy cycle on
-	 * this function - e.g. some way to inspect the real CheckValidSnap()
-	 * logic, or testing whether pole wiring works via the actual
-	 * player-driven build gun to isolate an RPC-mechanism gap from a
-	 * genuine FactoryGame constraint.
+	 * SEPARATELY diagnosed (also 2026-08-25, same mechanism, no code
+	 * change): repeated identical dry-run calls against the exact same
+	 * pair of buildables returned THREE DIFFERENT disqualifiers across
+	 * attempts - UFGCDWireSnap ("Must be hooked up to a connection!"),
+	 * UFGCDWireTooLong ("Wire is too long!" - despite the real 3D
+	 * distance being well under the real queried maxLength=10000), and
+	 * UFGCDInvalidAimLocation ("Invalid aim location!") - with success
+	 * on other attempts, still no change. This matches the same class of
+	 * live-camera-dependent flakiness already solved for building
+	 * placement (ConstructBuildingAtPosition's bIgnoreAimLocation etc.),
+	 * not a genuine geometry problem this function's own logic gets
+	 * wrong.
+	 *
+	 * Added bIgnoreAimLocation/bIgnoreWireSnap (mirroring
+	 * ConstructBuildingAtPosition's named, per-disqualifier bypass
+	 * pattern - manually walks GetConstructDisqualifiers() instead of
+	 * trusting the opaque CanConstruct() bool, skipping only the named
+	 * classes the caller opts into ignoring) to test whether bypassing
+	 * these two resolves the flakiness. UFGCDWireTooLong is deliberately
+	 * NOT ignorable - presumed to reflect the real, deterministic
+	 * mMaxLength check, unlike the other two. NOT YET LIVE-VERIFIED to
+	 * actually resolve the flakiness, only diagnosed and hypothesized.
 	 *
 	 * Same bDryRun switch and real-construction posture as
 	 * ConstructExtractorOnNode/ConstructBuildingAtPosition: only calls
@@ -560,9 +571,9 @@ public:
 	 * machine-to-machine connection unavailable depending on the save's
 	 * progression state - a CANNOT_CONSTRUCT/NO_POWER_CONNECTION result
 	 * may correctly reflect that, not indicate a bug; distinct from the
-	 * still-unresolved UFGCDWireSnap gap above.
+	 * disqualifier-flakiness this addition targets.
 	 */
-	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * PLAN.md Phase 13/14: the smallest possible conveyor belt

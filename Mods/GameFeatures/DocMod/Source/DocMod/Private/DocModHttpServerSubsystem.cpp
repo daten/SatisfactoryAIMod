@@ -417,8 +417,16 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 			return true;
 		}
 
+		// Optional, both default false - see ConstructPowerConnection's
+		// doc comment on the live-diagnosed disqualifier flakiness
+		// (UFGCDWireSnap/UFGCDInvalidAimLocation) these bypass.
+		bool bIgnoreAimLocation = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreAimLocation"), bIgnoreAimLocation);
+		bool bIgnoreWireSnap = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreWireSnap"), bIgnoreWireSnap);
+
 		const bool bDryRun = Method == TEXT("world.testPowerConnection");
-		UDocModFunctionLibrary::ConstructPowerConnection(GetGameInstance(), BuildableIdA, BuildableIdB, bDryRun,
+		UDocModFunctionLibrary::ConstructPowerConnection(GetGameInstance(), BuildableIdA, BuildableIdB, bDryRun, bIgnoreAimLocation, bIgnoreWireSnap,
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

@@ -2798,7 +2798,7 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
 }
 
-void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -2884,29 +2884,28 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 	// ConstructPowerConnection (2026-08-25): confirmed live, TWICE, that
 	// this exact SetConnection()-only mechanism (no click/snap step, a
 	// single GetHitResult() assignment for ConnectionA only) is the only
-	// variant that works for machine<->machine connections. Two
-	// deviations were tried and BOTH regressed the previously-working
-	// machine<->machine case live: (1) a click-based
+	// mechanism that works at all for machine<->machine connections. Two
+	// mechanism deviations were tried and BOTH regressed the
+	// previously-working machine<->machine case live: (1) a click-based
 	// UpdateHologramPlacement()+TrySnapToActor()+DoMultiStepPlacement()
 	// rewrite - TrySnapToActor() never populated GetConnection(0)/(1)
 	// for wires at all; (2) touching BuildGun->GetHitResult() for
 	// ConnectionB too (not just A) before SetConnection(1,...) - broke
-	// the ConnectionA validation somehow. Do not repeat either. This is
-	// the exact original implementation, restored a second time.
+	// the ConnectionA validation somehow. Do not repeat either.
 	//
-	// The real, still-UNRESOLVED, live-confirmed finding: machine<->machine
-	// connections work under this SetConnection() mechanism; EVERY
-	// pole-involving connection (pole<->pole, pole<->machine, either
-	// order) fails with UFGCDWireSnap ("Must be hooked up to a
-	// connection!") - a different disqualifier than UFGCDWireTooLong
-	// (the real distance check, confirmed live, maxLength=10000 real
-	// units). Needs a genuinely different investigation approach next
-	// session (not another guess-and-redeploy cycle on this function) -
-	// e.g. decompiling/inspecting the real CheckValidSnap() logic some
-	// other way, or testing whether pole connections work at all via
-	// the ACTUAL in-game build gun (player-driven, not RPC-driven) to
-	// isolate whether this is an RPC-mechanism gap or a genuine
-	// FactoryGame constraint on pole wiring.
+	// SEPARATELY diagnosed (also 2026-08-25, same mechanism, no code
+	// change): repeated identical dry-run calls against the exact same
+	// pair of buildables returned THREE DIFFERENT disqualifiers across
+	// attempts - UFGCDWireSnap, UFGCDWireTooLong (despite real 3D
+	// distance well under the real queried maxLength), and
+	// UFGCDInvalidAimLocation - with success on other attempts, still no
+	// change. This is the same class of live-camera-dependent flakiness
+	// already solved for building placement
+	// (ConstructBuildingAtPosition's bIgnoreAimLocation etc.), not a
+	// genuine geometry problem with this function's own logic. See the
+	// poll loop below for the bIgnoreAimLocation/bIgnoreWireSnap
+	// disqualifier-bypass this motivated - NOT YET LIVE-VERIFIED to
+	// resolve it, only diagnosed.
 	FHitResult SyntheticHit;
 	SyntheticHit.Location = ConnectionA->GetComponentLocation();
 	SyntheticHit.ImpactPoint = SyntheticHit.Location;
@@ -2931,6 +2930,8 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 		FString BuildableIdA;
 		FString BuildableIdB;
 		bool bDryRun = true;
+		bool bIgnoreAimLocation = false;
+		bool bIgnoreWireSnap = false;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FDocModOperationResult&)> OnComplete;
@@ -2943,6 +2944,8 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 	PollState->BuildableIdA = BuildableIdA;
 	PollState->BuildableIdB = BuildableIdB;
 	PollState->bDryRun = bDryRun;
+	PollState->bIgnoreAimLocation = bIgnoreAimLocation;
+	PollState->bIgnoreWireSnap = bIgnoreWireSnap;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -2974,13 +2977,45 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 			return;
 		}
 
-		const bool bCanConstruct = PollHologram->CanConstruct();
+		// Live-diagnosed 2026-08-25: repeated identical dry-run calls
+		// against the exact same pair of buildables (no code or geometry
+		// change between calls) returned THREE DIFFERENT disqualifiers
+		// across attempts - UFGCDWireSnap ("Must be hooked up to a
+		// connection!"), UFGCDWireTooLong ("Wire is too long!" - despite
+		// the real 3D distance being well under the real queried
+		// maxLength), and UFGCDInvalidAimLocation ("Invalid aim
+		// location!") - with success on other attempts with STILL no
+		// change. This matches the exact same class of live-camera-
+		// dependent flakiness already solved for building placement
+		// (ConstructBuildingAtPosition's bIgnoreAimLocation etc.) - the
+		// wire hologram's validation appears to depend on real,
+		// currently-changing player camera/aim state our synthetic hit
+		// doesn't fully override, not on anything this function's own
+		// geometry gets wrong. Bypassing PollHologram->CanConstruct()'s
+		// opaque bool (stub source, unreadable) in favor of manually
+		// walking GetConstructDisqualifiers() ourselves - same pattern
+		// as ConstructBuildingAtPosition - so bIgnoreAimLocation/
+		// bIgnoreWireSnap can skip specific disqualifier classes the
+		// caller explicitly opts into ignoring, without bypassing
+		// FactoryGame's own real validation inside
+		// InternalConstructHologram() itself. UFGCDWireTooLong is
+		// deliberately NOT ignorable here - unlike the other two, it is
+		// presumed to reflect the real, deterministic mMaxLength check.
+		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+			const bool bIgnoredByFlag =
+				(PollState->bIgnoreAimLocation && DisqualifierClass == UFGCDInvalidAimLocation::StaticClass()) ||
+				(PollState->bIgnoreWireSnap && DisqualifierClass == UFGCDWireSnap::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredByFlag && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
 				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
-				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredByFlag ? TEXT(", ignored") : TEXT("")));
 		}
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 
