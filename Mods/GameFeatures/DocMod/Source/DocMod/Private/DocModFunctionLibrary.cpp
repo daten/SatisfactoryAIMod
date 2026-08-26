@@ -2669,6 +2669,28 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 
 	BuildGun->GetHitResult() = SyntheticHit;
 
+	// TrySnapToActor() call added 2026-08-26 - live-diagnosed a real,
+	// reproducible failure: this function previously relied solely on
+	// UpdateHologramPlacement() (called every poll tick below) plus the
+	// raw BuildGun->GetHitResult() assignment above, with no explicit
+	// snap call - unlike every other click-driven Construct* function in
+	// this file (belts/pipes/lifts), which all call
+	// Hologram->TrySnapToActor(Hit) explicitly. Confirmed live across
+	// three different fresh resource nodes (all Pure, all genuinely
+	// unoccupied) that the previous code consistently failed with
+	// UFGCDNeedsResourceNode ("Must be placed on a Resource Node!") -
+	// AFGResourceExtractorHologram's own TrySnapToActor() override calls
+	// TrySnapToExtractableResource() internally (confirmed from source,
+	// FGResourceExtractorHologram.h) to populate mSnappedExtractableResource,
+	// which CheckValidPlacement() evidently needs set. Whatever
+	// implicit path used to satisfy this (if the function ever worked
+	// reliably without it) is not something this project can verify from
+	// source alone (stub .cpp bodies) - this explicit call matches the
+	// already-proven pattern elsewhere in this file rather than
+	// resurrecting a previously-undocumented implicit dependency.
+	Hologram->UpdateHologramPlacement(SyntheticHit);
+	Hologram->TrySnapToActor(SyntheticHit);
+
 	struct FPollState
 	{
 		TWeakObjectPtr<AFGHologram> Hologram;

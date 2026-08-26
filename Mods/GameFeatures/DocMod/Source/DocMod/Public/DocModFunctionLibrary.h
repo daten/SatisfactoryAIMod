@@ -518,6 +518,22 @@ public:
 	 * resolves true) and genuinely asynchronous like
 	 * ConstructBuildingAtPosition (OnComplete invoked once, with
 	 * ResultBuildableId set on success).
+	 *
+	 * FIXED 2026-08-26 - live-diagnosed a real, reproducible regression:
+	 * this function previously relied solely on UpdateHologramPlacement()
+	 * plus the raw BuildGun->GetHitResult() assignment, with no explicit
+	 * snap call - unlike every other click-driven Construct* function in
+	 * this file (belts/pipes/lifts), which all call
+	 * Hologram->TrySnapToActor(Hit) explicitly. Confirmed live across
+	 * three different fresh Pure, unoccupied resource nodes that this
+	 * consistently failed with UFGCDNeedsResourceNode ("Must be placed
+	 * on a Resource Node!") - AFGResourceExtractorHologram's own
+	 * TrySnapToActor() override calls TrySnapToExtractableResource()
+	 * internally (confirmed from source) to populate
+	 * mSnappedExtractableResource, which CheckValidPlacement() evidently
+	 * needs set. Now calls UpdateHologramPlacement()+TrySnapToActor()
+	 * once, immediately after setting the synthetic hit, matching the
+	 * already-proven pattern used elsewhere in this file.
 	 */
 	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
