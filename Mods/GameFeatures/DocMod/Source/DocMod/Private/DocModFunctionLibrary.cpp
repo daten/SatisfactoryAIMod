@@ -2016,7 +2016,32 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	if (AController* Controller = Character->GetController())
 	{
 		const FRotator LookAtTarget = (SyntheticHit.Location - Character->GetActorLocation()).Rotation();
-		Controller->SetControlRotation(LookAtTarget);
+
+		// Fix (2026-08-26): only LookAtTarget's PITCH was ever load-bearing
+		// for the "Invalid aim location!" fix above - the YAW was not. But
+		// AFGHologram::UpdateHologramPlacement() (called every poll tick
+		// below, stub source / unreadable) evidently re-derives the
+		// hologram's own default (pre-Scroll) facing from the controller's
+		// CURRENT yaw each tick. Confirmed live this session: the exact
+		// same RotationScrollDelta produced a DIFFERENT resolved yaw
+		// depending only on where the player character happened to be
+		// standing relative to the target - including a "yaw=0 expected"
+		// case with the player nowhere near the target, and even a
+		// completely isolated placement far from all other geometry. The
+		// resolved (pre-scroll) yaw was consistently just the compass
+		// bearing FROM the player's position TO the target, i.e. exactly
+		// what LookAtTarget.Yaw computes here. This made every automated,
+		// multi-building layout this session non-deterministic and was the
+		// root cause of the "chaotic" scattered/misrotated result the user
+		// found live via screenshots - not terrain, not gridSnapSize, not
+		// per-building randomness. Pinning yaw to a fixed 0 baseline here
+		// (independent of player position) makes RotationScrollDelta
+		// finally reproducible: delta=0 is always due north, and each
+		// scroll click's effect is now relative to that same fixed origin
+		// every time, regardless of where the player stands when the RPC
+		// fires.
+		const FRotator DeterministicLook(LookAtTarget.Pitch, 0.0f, 0.0f);
+		Controller->SetControlRotation(DeterministicLook);
 	}
 
 	Character->HotKeyRecipe(RecipeClass);
@@ -2116,6 +2141,28 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
 			return;
+		}
+
+		// Re-assert every tick, not just once before the loop (2026-08-26):
+		// live-diagnosed with the user hovering on a jetpack at the time -
+		// the one-time SetControlRotation() before this poll loop starts
+		// can get overridden by the game's own ongoing camera/flight input
+		// before a LATER tick's UpdateHologramPlacement() call reads it,
+		// since AFGHologram evidently re-derives its default yaw from
+		// whatever the controller's CURRENT rotation is on every tick (see
+		// the fix comment above this poll loop for the original diagnosis).
+		// A player standing still never showed this because their control
+		// rotation wasn't changing tick-to-tick regardless of whether this
+		// was re-applied - it only surfaces when the player is actively
+		// looking around (e.g. mid-flight) while a poll spans multiple
+		// ticks (bStillInitializing retries).
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				const FRotator PollLookAtTarget = (PollState->SyntheticHit.Location - PollCharacter->GetActorLocation()).Rotation();
+				PollController->SetControlRotation(FRotator(PollLookAtTarget.Pitch, 0.0f, 0.0f));
+			}
 		}
 
 		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
@@ -3687,6 +3734,18 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(), *SourceConnection->GetConnectorLocation(true).ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString(), *DestConnection->GetConnectorLocation(true).ToString());
 
+	// Player-independence (2026-08-26): this function used to point the
+	// controller at each connector to fight "Invalid aim location!" (a
+	// real fix at the time - see the removed comment in git history for
+	// the full incident). That's no longer needed now that the poll
+	// loop below permanently ignores UFGCDInvalidAimLocation instead of
+	// calling the real (opaque) CanConstruct() - see that block's own
+	// comment. Explicit user direction (2026-08-26): placement/connection
+	// results should not depend on player position or camera at all when
+	// the call is already anchored to explicit buildable IDs, so the
+	// SetControlRotation() workaround was removed rather than left as
+	// deadweight.
+
 	// Step 1 of the flow found live via DebugCheckConveyorSnap - fix the
 	// start point on the source's Output connection. UpdateHologramPlacement()
 	// before TrySnapToActor() is not optional: DebugCheckConveyorSnap's
@@ -3784,13 +3843,32 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 			return;
 		}
 
-		const bool bCanConstruct = PollHologram->CanConstruct();
+		// Player-independence (2026-08-26, explicit user direction): don't
+		// use the real (stub-source, opaque) CanConstruct() here - it has
+		// no way to selectively ignore a disqualifier. Belts/lifts are
+		// always built between two EXPLICIT existing buildables (never
+		// player-relative), so there is no legitimate reason a fixed
+		// source->dest connection should ever depend on where the player
+		// happens to be standing or looking. Always ignore
+		// UFGCDInvalidAimLocation here, same "any other hard disqualifier
+		// blocks" rule as ConstructBuildingAtPosition's own manual
+		// disqualifier loop. This is what let the SetControlRotation()
+		// aim-pointing workaround be removed entirely from this function -
+		// belt/lift construction results are now fully independent of
+		// player position/camera.
+		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
 				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
-				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
 		}
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 
@@ -4033,6 +4111,11 @@ void UDocModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, 
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString());
 
+	// Player-independence (2026-08-26): see ConstructConveyorBelt's
+	// identical comment - the SetControlRotation() aim workaround that
+	// used to live here is no longer needed now that the poll loop below
+	// permanently ignores UFGCDInvalidAimLocation.
+
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
 	LiftHologram->UpdateHologramPlacement(StartHit);
 	LiftHologram->TrySnapToActor(StartHit);
@@ -4111,13 +4194,21 @@ void UDocModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, 
 			return;
 		}
 
-		const bool bCanConstruct = PollHologram->CanConstruct();
+		// Player-independence fix - same rationale as ConstructConveyorBelt's
+		// identical block above.
+		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
 				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
-				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
 		}
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 
