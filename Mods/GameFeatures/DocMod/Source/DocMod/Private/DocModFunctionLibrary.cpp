@@ -2667,6 +2667,16 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 		SyntheticHit.Component = NodePrimitive;
 	}
 
+	// Diagnostic (2026-08-26) added while live-debugging a persistent
+	// UFGCDNeedsResourceNode failure - logs the actual computed values so
+	// we can tell whether GetPlacementLocation()/GetPlacementRotation()
+	// are returning something sane (close to the node's own actor
+	// location) versus something degenerate.
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructExtractorOnNode diagnostic: node=%s rawLocation=%s placementLocation=%s placementRotation=%s rootComponentClass=%s hitComponentSet=%s"),
+		*NodeId, *RawLocation.ToString(), *PlacementLocation.ToString(), *PlacementRotation.ToString(),
+		TargetNode->GetRootComponent() ? *TargetNode->GetRootComponent()->GetClass()->GetName() : TEXT("null"),
+		SyntheticHit.Component.IsValid() ? TEXT("true") : TEXT("false"));
+
 	BuildGun->GetHitResult() = SyntheticHit;
 
 	// TrySnapToActor() call added 2026-08-26 - live-diagnosed a real,
