@@ -35,7 +35,6 @@
 #include "Buildables/FGBuildableConveyorLift.h"
 #include "Hologram/FGConveyorLiftHologram.h"
 #include "Hologram/FGHologramBuildModeDescriptor.h"
-#include "Hologram/FGResourceExtractorHologram.h"
 #include "Hologram/FGPipelineHologram.h"
 #include "FGPipeConnectionComponent.h"
 #include "Components/PrimitiveComponent.h"
@@ -2652,15 +2651,6 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 		return;
 	}
 
-	// Diagnostic (2026-08-26) - unlike ConstructConveyorBelt/ConstructPipe/
-	// ConstructConveyorLift, this function has never cast Hologram to
-	// AFGResourceExtractorHologram or verified its class at all - logging
-	// the real runtime class here in case HotKeyRecipe(Recipe_MinerMk1)
-	// isn't actually producing what we assume it is.
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructExtractorOnNode diagnostic: hologramClass=%s isResourceExtractorHologram=%s"),
-		*Hologram->GetClass()->GetName(),
-		Hologram->IsA(AFGResourceExtractorHologram::StaticClass()) ? TEXT("true") : TEXT("false"));
-
 	const FVector RawLocation = TargetNode->GetActorLocation();
 	const FVector PlacementLocation = TargetNode->GetPlacementLocation(RawLocation);
 	const FRotator PlacementRotation = TargetNode->GetPlacementRotation(RawLocation);
@@ -2676,48 +2666,39 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 	{
 		SyntheticHit.Component = NodePrimitive;
 	}
-	// Distance (2026-08-26, experimental): every other field on this
-	// synthetic hit is deliberately populated to look like a real trace
-	// result, but Distance was left at its default (0.f) - a real
-	// build-gun trace always has a positive distance from the camera to
-	// the hit point. Setting a plausible placeholder in case
-	// IsValidHitResult()/CheckValidPlacement() sanity-checks it (stub
-	// source, can't confirm either way) - low-risk, matches the "make
-	// the synthetic hit look real" principle already used for
-	// Normal/Component above.
+	// Distance (2026-08-26) - CONFIRMED LIVE root cause of a real
+	// regression: this synthetic hit's Distance field was left at the
+	// FHitResult default (0.f) while every other field (Location,
+	// Normal, Component, HitObjectHandle) was deliberately populated to
+	// look like a real trace result. AFGResourceExtractorHologram's
+	// internal placement validation evidently sanity-checks Distance -
+	// a zero-distance "hit" was rejected with UFGCDNeedsResourceNode
+	// ("Must be placed on a Resource Node!") even though the hit
+	// otherwise correctly identified the target node (confirmed via a
+	// diagnostic pass: GetPlacementLocation()/GetPlacementRotation()
+	// were sane, hologram class was genuinely AFGResourceExtractorHologram -
+	// both ruled out first). A real build-gun trace always has a
+	// positive camera-to-hit distance; this now sets one.
 	SyntheticHit.Distance = FVector::Dist(Character->GetActorLocation(), PlacementLocation);
-
-	// Diagnostic (2026-08-26) added while live-debugging a persistent
-	// UFGCDNeedsResourceNode failure - logs the actual computed values so
-	// we can tell whether GetPlacementLocation()/GetPlacementRotation()
-	// are returning something sane (close to the node's own actor
-	// location) versus something degenerate.
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructExtractorOnNode diagnostic: node=%s rawLocation=%s placementLocation=%s placementRotation=%s rootComponentClass=%s hitComponentSet=%s"),
-		*NodeId, *RawLocation.ToString(), *PlacementLocation.ToString(), *PlacementRotation.ToString(),
-		TargetNode->GetRootComponent() ? *TargetNode->GetRootComponent()->GetClass()->GetName() : TEXT("null"),
-		SyntheticHit.Component.IsValid() ? TEXT("true") : TEXT("false"));
 
 	BuildGun->GetHitResult() = SyntheticHit;
 
-	// TrySnapToActor() call added 2026-08-26 - live-diagnosed a real,
-	// reproducible failure: this function previously relied solely on
-	// UpdateHologramPlacement() (called every poll tick below) plus the
-	// raw BuildGun->GetHitResult() assignment above, with no explicit
-	// snap call - unlike every other click-driven Construct* function in
-	// this file (belts/pipes/lifts), which all call
-	// Hologram->TrySnapToActor(Hit) explicitly. Confirmed live across
-	// three different fresh resource nodes (all Pure, all genuinely
-	// unoccupied) that the previous code consistently failed with
-	// UFGCDNeedsResourceNode ("Must be placed on a Resource Node!") -
+	// TrySnapToActor() call added 2026-08-26 alongside the Distance fix
+	// above while chasing the same live UFGCDNeedsResourceNode failure -
+	// this function previously relied solely on UpdateHologramPlacement()
+	// (called every poll tick below) plus the raw BuildGun->GetHitResult()
+	// assignment, with no explicit snap call, unlike every other
+	// click-driven Construct* function in this file (belts/pipes/lifts),
+	// which all call Hologram->TrySnapToActor(Hit) explicitly.
 	// AFGResourceExtractorHologram's own TrySnapToActor() override calls
-	// TrySnapToExtractableResource() internally (confirmed from source,
-	// FGResourceExtractorHologram.h) to populate mSnappedExtractableResource,
-	// which CheckValidPlacement() evidently needs set. Whatever
-	// implicit path used to satisfy this (if the function ever worked
-	// reliably without it) is not something this project can verify from
-	// source alone (stub .cpp bodies) - this explicit call matches the
-	// already-proven pattern elsewhere in this file rather than
-	// resurrecting a previously-undocumented implicit dependency.
+	// TrySnapToExtractableResource() internally (confirmed from source)
+	// to populate mSnappedExtractableResource. NOTE: live-confirmed that
+	// the Distance fix above was the actual fix for the failure this was
+	// added to chase (added in the same redeploy, so this call's own
+	// contribution is unconfirmed) - kept because it matches the
+	// already-proven pattern elsewhere in this file and mSnappedExtractableResource
+	// still needs populating correctly for the extractor to actually
+	// function, not just pass the disqualifier check.
 	Hologram->UpdateHologramPlacement(SyntheticHit);
 	Hologram->TrySnapToActor(SyntheticHit);
 

@@ -520,20 +520,24 @@ public:
 	 * ResultBuildableId set on success).
 	 *
 	 * FIXED 2026-08-26 - live-diagnosed a real, reproducible regression:
-	 * this function previously relied solely on UpdateHologramPlacement()
-	 * plus the raw BuildGun->GetHitResult() assignment, with no explicit
-	 * snap call - unlike every other click-driven Construct* function in
-	 * this file (belts/pipes/lifts), which all call
-	 * Hologram->TrySnapToActor(Hit) explicitly. Confirmed live across
-	 * three different fresh Pure, unoccupied resource nodes that this
 	 * consistently failed with UFGCDNeedsResourceNode ("Must be placed
-	 * on a Resource Node!") - AFGResourceExtractorHologram's own
-	 * TrySnapToActor() override calls TrySnapToExtractableResource()
-	 * internally (confirmed from source) to populate
-	 * mSnappedExtractableResource, which CheckValidPlacement() evidently
-	 * needs set. Now calls UpdateHologramPlacement()+TrySnapToActor()
-	 * once, immediately after setting the synthetic hit, matching the
-	 * already-proven pattern used elsewhere in this file.
+	 * on a Resource Node!") across three different fresh Pure,
+	 * unoccupied resource nodes. Root cause, CONFIRMED live via a
+	 * two-round diagnostic pass (ruled out bad GetPlacementLocation()/
+	 * GetPlacementRotation() values and a wrong hologram class first):
+	 * the synthetic FHitResult's `Distance` field was left at its
+	 * default (0.f) while every other field (Location/Normal/Component/
+	 * HitObjectHandle) was deliberately populated to look like a real
+	 * trace result - AFGResourceExtractorHologram's internal placement
+	 * validation evidently sanity-checks Distance. Now sets it to the
+	 * real player-to-placement-point distance. Also added an explicit
+	 * `Hologram->TrySnapToActor(Hit)` call (previously relied solely on
+	 * UpdateHologramPlacement(), unlike every other click-driven
+	 * Construct* function in this file) in the same redeploy - its own
+	 * contribution to the fix is unconfirmed, kept for consistency with
+	 * the rest of this file and because TrySnapToActor() is what
+	 * populates mSnappedExtractableResource, needed for the extractor to
+	 * actually function correctly, not just pass this one disqualifier.
 	 */
 	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
