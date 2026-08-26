@@ -178,3 +178,57 @@ empirically via the dry-run test before assuming either way.
    `world.manufacturers` for `productionStatus`/`productionProgress` on
    the Smelter/Constructor to confirm actual Iron Ingot/Iron Plate
    production, not just successful placement/connection.
+
+## Update 2026-08-25 (later the same night): pole connections resolved, full chain producing
+
+All four plan steps above are now DONE, live-verified. Key findings
+that updated the picture above:
+
+- **The `SetConnection(0/1, ...)` mechanism from §"Power connections"
+  was correct all along** for every connection type tested (machine↔machine,
+  pole↔pole, pole↔machine). Two attempts to replace it with a
+  click-based `TrySnapToActor()` flow (reasoning that pole connections
+  needed the belt-style multi-step drive) were both live-tested,
+  found to regress the previously-working machine↔machine case, and
+  reverted. Do not revisit that theory without new evidence.
+- **The real cause of intermittent pole-connection failures was
+  disqualifier flakiness tied to live player/camera state**, not a
+  geometry or mechanism bug: identical dry-run calls against the same
+  buildable pair, zero code changes between calls, returned three
+  different disqualifiers across attempts - `UFGCDWireSnap`,
+  `UFGCDWireTooLong` (even when real distance was well under
+  `maxLength`), and `UFGCDInvalidAimLocation`. Same class of issue as
+  the building-placement aim-location flakiness documented in
+  `docs/buildgun-driven-placement-research.md`.
+- **Fix**: `ConstructPowerConnection` gained `bIgnoreAimLocation`/
+  `bIgnoreWireSnap` params (`world.testPowerConnection`/
+  `world.connectPower`: `"ignoreAimLocation"`/`"ignoreWireSnap"`, both
+  optional, default `false`), mirroring `ConstructBuildingAtPosition`'s
+  proven named-disqualifier-bypass pattern instead of trusting the
+  opaque `CanConstruct()` bool. Confirmed live, repeatedly, across all
+  connection-type combinations. `UFGCDWireTooLong` was deliberately
+  left non-ignorable - it's presumed to be the real, deterministic
+  `maxLength` check (confirmed live as 10000 real units via
+  `world.powerLineLimits`, not the 2000 placeholder used in early
+  Python test fixtures).
+- **The daisy-chain-unlock caveat in §"pole-vs-daisy-chain" above did
+  NOT block this session's direct machine↔machine test** - the save
+  already had it unlocked (or the constraint doesn't apply the way
+  originally guessed). Machine↔machine power connections worked
+  directly once the aim-location flakiness was accounted for.
+- **A pole can look part of a live grid (have an existing wire) but not
+  actually be generator-connected** - live-diagnosed when the demo
+  site's newly-chained pole stayed on `productionStatus: "Error"` after
+  a geometrically-valid connection to a distant pre-existing pole. The
+  user manually reconnected that pole to the real grid in-game to
+  unblock the test. DocMod currently has NO telemetry to distinguish a
+  "live" pole from an "orphaned" one - flagged as a future
+  `world.powerCircuits`/per-connection `"circuitId"` addition, not yet
+  built.
+- **End state**: Miner→Smelter→Constructor chain fully built via RPC
+  (`world.placeExtractor`/`world.placeBuilding`, `world.setRecipe`,
+  `world.connectConveyor`, `world.connectPower`), real power from the
+  grid, Smelter `productionStatus: "Producing"` at ~99.6% productivity,
+  genuinely converting Iron Ore → Iron Ingot with the Constructor
+  queued to follow. First time this project's full observe→plan→build→
+  verify-production loop has closed end-to-end.
