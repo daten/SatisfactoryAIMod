@@ -15,7 +15,15 @@ import json
 from dataclasses import dataclass
 from typing import Optional
 
-from .models import Buildable, ConveyorBeltTier, FactoryConnection, PipelineTier, PowerLineLimits, ResourceNode
+from .models import (
+    Buildable,
+    ConveyorAttachmentInfo,
+    ConveyorBeltTier,
+    FactoryConnection,
+    PipelineTier,
+    PowerLineLimits,
+    ResourceNode,
+)
 
 SUPPORTED_PROTOCOL_VERSION = 1
 
@@ -129,3 +137,25 @@ def parse_power_line_limits(json_text: str) -> Optional[PowerLineLimits]:
 
 def parse_pipeline_tier_telemetry(json_text: str) -> PipelineTierTelemetry:
     return PipelineTierTelemetry.from_dict(json.loads(json_text))
+
+
+@dataclass(frozen=True)
+class ConveyorAttachmentCatalogTelemetry:
+    """Mirrors "world.conveyorAttachments" (added 2026-08-25, splitter/
+    merger groundwork - NOT YET LIVE-TESTED). Same array shape as
+    ConveyorBeltTierTelemetry/PipelineTierTelemetry -
+    LogConveyorAttachmentCatalogAsJson skips (not errors on) any recipe
+    whose buildable CDO fails to resolve."""
+
+    protocol_version: int
+    attachments: tuple[ConveyorAttachmentInfo, ...]
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ConveyorAttachmentCatalogTelemetry":
+        version = _check_protocol_version(data)
+        attachments = tuple(ConveyorAttachmentInfo.from_dict(a) for a in data["attachments"])
+        return cls(protocol_version=version, attachments=attachments)
+
+
+def parse_conveyor_attachment_catalog_telemetry(json_text: str) -> ConveyorAttachmentCatalogTelemetry:
+    return ConveyorAttachmentCatalogTelemetry.from_dict(json.loads(json_text))

@@ -241,3 +241,46 @@ class PipelineTier:
             bend_radius=float(data["bendRadius"]) if "bendRadius" in data else None,
             min_bend_radius=float(data["minBendRadius"]) if "minBendRadius" in data else None,
         )
+
+
+@dataclass(frozen=True)
+class ConveyorAttachmentInfo:
+    """Mirrors one entry of "world.conveyorAttachments" (added
+    2026-08-25, splitter/merger groundwork - NOT YET LIVE-TESTED). See
+    docs/conveyor-attachment-research.md: splitters/mergers use the same
+    simple, single-step hologram lineage already proven for Miners/
+    Smelters/Constructors, NOT the spline branch belts/pipes needed -
+    so placing and connecting them needs no dedicated toolkit module
+    the way belts/power/pipes did (no distance/speed/flow limit to
+    reason about, no chaining pattern) - just the existing
+    ConveyorBeltTier-style catalog lookup below plus
+    satisfactory_ai.graph/layout for wiring up connections.
+
+    input_count/output_count are read live off each variant's real
+    UFGFactoryConnectionComponents (not hardcoded to the commonly-known
+    1-in/3-out splitter / 3-in/1-out merger figures).
+
+    supports_sort_rules is true only for the Smart/Programmable
+    Splitter variants (both backed by the same native
+    AFGBuildableSplitterSmart class) - flags a REAL, separate,
+    not-yet-built capability gap: per-output item-type routing needs
+    its own future write operation DocMod does not have yet. Placement
+    and belt connection work today for every variant regardless of this
+    flag.
+    """
+
+    recipe_class: str
+    buildable_class: str
+    input_count: int
+    output_count: int
+    supports_sort_rules: bool
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ConveyorAttachmentInfo":
+        return cls(
+            recipe_class=data["recipeClass"],
+            buildable_class=data["buildableClass"],
+            input_count=int(data["inputCount"]),
+            output_count=int(data["outputCount"]),
+            supports_sort_rules=bool(data["supportsSortRules"]),
+        )

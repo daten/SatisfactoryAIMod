@@ -380,6 +380,65 @@ is re-exported for the same waypoint-chaining pattern, though whether
 pipe chaining actually works the way belt/power chaining does is
 exactly the open pole-recipe question above.
 
+## conveyorAttachments (`method: "world.conveyorAttachments"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "attachments": [
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentSplitter.Recipe_ConveyorAttachmentSplitter_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+      "inputCount": 1,
+      "outputCount": 3,
+      "supportsSortRules": false
+    }
+  ]
+}
+```
+
+Added 2026-08-25 in response to the user asking to research/verify/build
+splitter+merger support ahead of a future session — **NOT YET
+LIVE-TESTED.** See `docs/conveyor-attachment-research.md` for the full
+research trail; the key finding: splitters and mergers use
+`AFGConveyorAttachmentHologram : AFGFactoryHologram :
+AFGBuildableHologram` — the **same simple, single-step hologram lineage**
+already proven for Miners/Smelters/Constructors, **not** the
+`AFGSplineHologram` branch belts/pipes needed special multi-click
+driving for. That means **placement and connection needed zero new
+construction code**: `world.placeBuilding` already places any of the
+five real recipes below, and `world.connectConveyor`'s
+`FindFreeFactoryConnection` helper is already generic (a plain
+`GetComponents<UFGFactoryConnectionComponent>()` scan by direction, not
+hardcoded to any building class), so it correctly hands out whichever
+of a splitter's 3 outputs (or a merger's 3 inputs) is still free on each
+successive call — no `ConstructSplitter`-style wrapper was added,
+deliberately, since it would just duplicate `ConstructBuildingAtPosition`.
+
+One row per real recipe confirmed on disk: `Recipe_ConveyorAttachmentSplitter`,
+`Recipe_ConveyorAttachmentSplitterSmart`, `Recipe_ConveyorAttachmentSplitterProgrammable`,
+`Recipe_ConveyorAttachmentMerger`, `Recipe_ConveyorAttachmentMergerPriority`
+(the Programmable Splitter shares Smart Splitter's native class,
+`AFGBuildableSplitterSmart`; no "Smart Merger" exists). `inputCount`/
+`outputCount` are read live off each variant's real
+`UFGFactoryConnectionComponent`s via `GetDirection()` — not hardcoded to
+the commonly-known 1-in/3-out / 3-in/1-out figures, since
+`AFGBuildableConveyorAttachment`'s header doesn't declare them as a
+literal constant. `supportsSortRules` is `true` only for the Smart/
+Programmable variants — flags a **real, separate, not-yet-built**
+capability: per-output item-type routing
+(`AFGBuildableSplitterSmart::AddSortRule()`/etc., confirmed public) has
+no RPC method yet, so a placed Smart/Programmable splitter connects
+exactly like a plain one today but cannot yet be configured to route by
+item type.
+
+`satisfactory_ai.models.ConveyorAttachmentInfo`/
+`satisfactory_ai.protocol.parse_conveyor_attachment_catalog_telemetry`
+mirror this shape. No dedicated toolkit module was added (unlike
+`conveyors.py`/`power.py`/`pipes.py`) — there's no distance/speed/flow
+limit or chaining pattern to reason about here, just a placement +
+generic-connection lookup already covered by existing tools.
+
 ## targetedManufacturer (`method: "world.targetedManufacturer"`)
 
 ```json

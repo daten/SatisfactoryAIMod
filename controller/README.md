@@ -74,6 +74,19 @@ contains:
   mechanism, is an open question for the first live pipe test to
   answer - see `pipes.py`'s module docstring.
 
+- `satisfactory_ai/models.py`'s `ConveyorAttachmentInfo` /
+  `satisfactory_ai/protocol.py`'s `parse_conveyor_attachment_catalog_telemetry`
+  (added 2026-08-25, splitter/merger groundwork, NOT YET LIVE-TESTED) -
+  mirrors `world.conveyorAttachments`' real recipe catalog for
+  Splitter/Smart Splitter/Programmable Splitter/Merger/Priority Merger,
+  each with real `input_count`/`output_count`/`supports_sort_rules`. No
+  dedicated toolkit module (unlike belts/power/pipes) - see
+  `docs/conveyor-attachment-research.md`: splitters/mergers use the
+  same simple hologram already proven for Miners/Smelters/Constructors,
+  so placement (`world.placeBuilding`) and connection
+  (`world.connectConveyor`) already work generically with no new
+  construction code or chaining pattern to build a toolkit around.
+
 - `live_check.py` — a network client, but a diagnostic one, not part of
   the "controller" proper: connects to a **running** DocMod `/rpc`
   server (`http://127.0.0.1:51902/rpc` by default) and checks every RPC
