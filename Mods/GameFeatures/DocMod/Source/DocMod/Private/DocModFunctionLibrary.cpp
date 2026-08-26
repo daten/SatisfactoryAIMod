@@ -35,6 +35,7 @@
 #include "Buildables/FGBuildableConveyorLift.h"
 #include "Hologram/FGConveyorLiftHologram.h"
 #include "Hologram/FGHologramBuildModeDescriptor.h"
+#include "Hologram/FGResourceExtractorHologram.h"
 #include "Hologram/FGPipelineHologram.h"
 #include "FGPipeConnectionComponent.h"
 #include "Components/PrimitiveComponent.h"
@@ -2651,6 +2652,15 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 		return;
 	}
 
+	// Diagnostic (2026-08-26) - unlike ConstructConveyorBelt/ConstructPipe/
+	// ConstructConveyorLift, this function has never cast Hologram to
+	// AFGResourceExtractorHologram or verified its class at all - logging
+	// the real runtime class here in case HotKeyRecipe(Recipe_MinerMk1)
+	// isn't actually producing what we assume it is.
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructExtractorOnNode diagnostic: hologramClass=%s isResourceExtractorHologram=%s"),
+		*Hologram->GetClass()->GetName(),
+		Hologram->IsA(AFGResourceExtractorHologram::StaticClass()) ? TEXT("true") : TEXT("false"));
+
 	const FVector RawLocation = TargetNode->GetActorLocation();
 	const FVector PlacementLocation = TargetNode->GetPlacementLocation(RawLocation);
 	const FRotator PlacementRotation = TargetNode->GetPlacementRotation(RawLocation);
@@ -2666,6 +2676,16 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 	{
 		SyntheticHit.Component = NodePrimitive;
 	}
+	// Distance (2026-08-26, experimental): every other field on this
+	// synthetic hit is deliberately populated to look like a real trace
+	// result, but Distance was left at its default (0.f) - a real
+	// build-gun trace always has a positive distance from the camera to
+	// the hit point. Setting a plausible placeholder in case
+	// IsValidHitResult()/CheckValidPlacement() sanity-checks it (stub
+	// source, can't confirm either way) - low-risk, matches the "make
+	// the synthetic hit look real" principle already used for
+	// Normal/Component above.
+	SyntheticHit.Distance = FVector::Dist(Character->GetActorLocation(), PlacementLocation);
 
 	// Diagnostic (2026-08-26) added while live-debugging a persistent
 	// UFGCDNeedsResourceNode failure - logs the actual computed values so
