@@ -93,6 +93,15 @@ contains:
   method against real (or at least live) game state, printing PASS/FAIL
   per method and exiting non-zero on any failure. See "Live integration
   check" below.
+- `export_catalog.py` — also a network client, not the controller proper:
+  fetches `world.recipeCatalog`/`world.itemCatalog`/`world.buildableCatalog`
+  (docs/telemetry-protocol.md, added 2026-08-27) and writes them to a
+  local JSON snapshot (`catalog_cache.json` by default, gitignored). A
+  deliberate on-demand cache, not a static markdown reference — the
+  combined catalog is ~2,000 entries and would make a poor
+  hand-maintained doc; regenerate it whenever you want a fresh snapshot
+  rather than trusting an old one (the file's `exportedAt` field makes
+  staleness visible). See "Exporting the game database" below.
 
 Deliberately **does not** yet contain: an LLM dependency, an optimization
 solver, or game-control intelligence — per PLAN.md Phase 8's own scope
@@ -149,6 +158,23 @@ paths) against `tests/_mock_rpc_server.py`, a throwaway mock server —
 gracefully with a helpful hint when nothing is listening on the port.
 Has **not** yet been run against the real mod — that needs Satisfactory
 or the Editor actually running.
+
+## Exporting the game database
+
+Same "requires a running game" caveat as the live integration check:
+
+```powershell
+python controller/export_catalog.py
+python controller/export_catalog.py --url http://127.0.0.1:51902/rpc --output my_catalog.json
+```
+
+Writes `{recipes, items, buildables, exportedAt, sourceUrl}` to
+`controller/catalog_cache.json`. Fails loudly (non-zero exit) rather than
+writing a partial file if any of the three RPC calls fails — a half
+snapshot would be worse than no snapshot. Not part of the git history:
+the live RPC methods are the real source of truth, and this file exists
+purely to save the round-trip cost of re-querying them during a build
+session, not to become a second copy of the data someone edits by hand.
 
 ## Why a separate package from `../tests/`
 

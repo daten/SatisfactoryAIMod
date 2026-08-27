@@ -632,3 +632,10 @@ FodyWeavers.xsd
 # Additional files built by Visual Studio
 
 # End of https://www.toptal.com/developers/gitignore/api/unrealengine,visualstudio,rider,visualstudiocode
+
+### DocMod controller ###
+# Snapshot cache from controller/export_catalog.py - regenerate from the
+# live game with `python controller/export_catalog.py`, never hand-edit
+# or commit. The RPC methods it queries (docs/telemetry-protocol.md) are
+# the real source of truth, not this file.
+controller/catalog_cache.json
