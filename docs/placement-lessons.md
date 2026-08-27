@@ -40,6 +40,30 @@ need to systematically test many building types (e.g. a placement
 stress-test), route extractor recipes through `world.placeExtractor`
 against a real resource node ID instead of the generic path.
 
+**Fix confirmed live 2026-08-27**: re-ran the same crash scenario
+(`Recipe_MinerMk2` at the exact location/coordinates that crashed the
+game) - now cleanly refuses with `WRONG_METHOD_FOR_EXTRACTOR`, server
+stays up. Followed by a full systematic place-then-delete sweep of all 7
+extractor recipes through `world.placeBuilding` (all correctly refused,
+no crash) plus every other practical building category (manufacturers,
+generators, conveyor attachments, pipelines, poles, storage, vehicle
+infrastructure, structural pieces) - 55 of 62 recipes placed, verified,
+and deleted with zero issues; the other 7 were genuine, expected
+`"Missing materials!"` inventory shortages (not bugs - real construction
+cost the player's inventory didn't cover), not silent failures.
+
+**Separately (not yet fixed)**: `world.placeExtractor`
+(`ConstructExtractorOnNode`) itself is older than the deterministic
+camera-independence work elsewhere in this doc and doesn't have it -
+confirmed live it can fail with `"Invalid aim location!"` on a
+genuinely-valid, unoccupied node, consistently (not resolved by a simple
+retry), and has no `ignoreAimLocation`-style bypass param the way
+`world.placeBuilding`/`ConstructPowerConnection` do. If extractor
+placement needs to be reliable/player-independent going forward, this
+function needs the same treatment (point the controller at a
+deterministic target derived from the node's own location, reasserted
+per poll tick) - not yet done.
+
 ## Golden rule: never trust `"success": true` alone
 
 Every RPC that reports success on a connection (`world.connectConveyor`,
@@ -463,3 +487,18 @@ block or confuse later connection attempts in the same area.
   only search for `ConveyorBelt`/the buildable class you were placing -
   include `ConveyorPole` in any post-cleanup `find_near` sweep of a work
   area.
+- **`Recipe_Pipeline`/`Recipe_PipelineMK2` leave stray `Build_PipelineSupport_C`
+  actors behind after `world.deleteBuilding` on the pipe itself**, confirmed
+  live during a systematic place/delete sweep of every building type
+  (2026-08-27) - the pipe segment auto-spawns support structures the same
+  way belts auto-spawn `ConveyorPole`s, and deleting the pipe doesn't take
+  them with it. Include `PipelineSupport` in debris sweeps of any area
+  where pipes were placed and removed.
+- A `world.deleteBuilding` call that reports `success: true` can still show
+  up in the *very next* `world.buildables`/`find_near` call before
+  disappearing on a subsequent one - a real, brief propagation delay, not
+  a failed delete. Confirmed live 2026-08-27 (a `Build_RailroadTrackIntegrated_C`
+  auto-spawned by a Train Station placement showed up in a `find_near`
+  sweep immediately after its own successful delete, then was gone on a
+  second check moments later). If a just-deleted actor still shows up
+  once, re-check before concluding the delete failed.
