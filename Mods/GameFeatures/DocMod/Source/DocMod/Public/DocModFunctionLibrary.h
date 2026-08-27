@@ -796,6 +796,98 @@ public:
 	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& RecipeClassPath, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
+	 * Places a Portable Miner (AFGPortableMiner) on a resource node - added
+	 * 2026-08-27 per explicit user request. Architecturally unrelated to
+	 * every other Construct* function in this file: the Portable Miner is
+	 * NOT an AFGBuildable and is never driven by AFGBuildGunStateBuild/a
+	 * hologram at all (confirmed from source - AFGPortableMiner derives
+	 * directly from AActor). It's deployed as EQUIPMENT (like the Golf
+	 * Cart), via AFGPortableMinerDispenser : AFGEquipment, whose real
+	 * placement logic is a `protected UFUNCTION(Server, Reliable)
+	 * Server_SpawnPortableMiner(location, resourceNode)`.
+	 *
+	 * Real flow, reverse-engineered from FGPortableMiner.h/
+	 * FGPortableMinerDispenser.h/FGInventoryComponentEquipment.h/
+	 * FGCharacterPlayer.h (no .cpp bodies available - this SDK's
+	 * FactoryGame .cpp files are stub source):
+	 * 1. The player must already have a real Portable Miner ITEM in
+	 *    inventory (ItemClassPath, default the real
+	 *    BP_ItemDescriptorPortableMiner path) - it's consumed on
+	 *    placement like a real player crafting+placing one, not
+	 *    synthesized. Fails with PORTABLE_MINER_NOT_IN_INVENTORY if absent.
+	 * 2. Finds which inventory slot index (within the ARMS equipment
+	 *    slot's UFGInventoryComponentEquipment) holds that item, then
+	 *    calls the REAL, public, BlueprintCallable
+	 *    SetActiveEquipmentIndex(index) - the same sanctioned path a
+	 *    player's own hotbar key-press uses (internally
+	 *    spawns+equips the dispenser) - deliberately NOT calling
+	 *    AFGCharacterPlayer::SpawnEquipment directly, since that's a
+	 *    private, non-reflected C++ method with no public/reflectable
+	 *    entry point at all.
+	 * 3. Polls (real ticks, same pattern as every other deferred
+	 *    Construct* function) until AFGCharacterPlayer::GetEquipmentInSlot
+	 *    (ES_ARMS) resolves to a real AFGPortableMinerDispenser instance.
+	 * 4. Calls that dispenser's protected Server_SpawnPortableMiner via
+	 *    Unreal reflection (FindFunction+ProcessEvent - UFUNCTION
+	 *    reflection isn't gated by C++ access specifiers) with the
+	 *    resolved node's OWN real location, not a camera trace - this
+	 *    deliberately bypasses TraceForPortableMinerPlacementLocation's
+	 *    camera-dependent aim entirely, matching this project's
+	 *    established player-independence pattern for every other
+	 *    Construct* function.
+	 * 5. Polls again for a new AFGPortableMiner actor whose
+	 *    mExtractResourceNode matches the target node, then unequips
+	 *    (UnequipEquipment) to return to a clean state.
+	 *
+	 * NodeId uses the same AFGResourceNodeBase-based lookup as
+	 * ConstructExtractorOnNode (any real, unoccupied node). Fails with
+	 * NODE_OCCUPIED if IsOccupied() is already true, matching real game
+	 * behavior (a Portable Miner still occupies the node like any other
+	 * extractor).
+	 */
+	static void ConstructPortableMinerOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& ItemClassPath, TFunction<void(const FDocModOperationResult&)> OnComplete);
+
+	/**
+	 * Serializes every AFGPortableMiner actor in the world to
+	 * {"protocolVersion":1,"portableMiners":[{"id","position","nodeId",
+	 * "isProducing","extractionProgress","outputInventory":[{"itemClass",
+	 * "numItems"},...]},...]} - added 2026-08-27 alongside
+	 * ConstructPortableMinerOnNode, since a Portable Miner "has to be
+	 * emptied directly by the player" (no belt output) per the user's own
+	 * framing - this is how a caller finds out one needs emptying before
+	 * calling RetrievePortableMinerInventory. Id is the same session-local
+	 * GetPathName()-based scheme as every other actor id in this protocol.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPortableMinersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Moves items out of a Portable Miner's output inventory
+	 * (GetOutputInventory(), a plain UFGInventoryComponent) and into the
+	 * local player's own inventory - the "have to be emptied directly by
+	 * the player" step, done via RPC instead of walking up and pressing E.
+	 * Added 2026-08-27 per explicit user request ("build support for
+	 * managing machine inventory").
+	 *
+	 * Moves EVERY item currently in the output inventory (no partial/
+	 * selective retrieval yet - a real gap, not an oversight, flagged for
+	 * a future pass if selective retrieval turns out to matter). Uses
+	 * UFGInventoryComponent::Remove()+AddStack(allowPartialAdd=true) -
+	 * real inventory mutation, not a synthesized item grant. Only the
+	 * amount AddStack actually reports as added is ever Remove()'d from
+	 * the source - if the player's inventory fills up partway through,
+	 * whatever didn't fit simply stays in the Portable Miner rather than
+	 * being lost, so this is always safe to call even against a nearly-
+	 * full player inventory.
+	 *
+	 * Fails with TARGET_NOT_FOUND if PortableMinerId doesn't resolve,
+	 * NOTHING_TO_RETRIEVE if the output inventory is already empty, or
+	 * INVENTORY_FULL if it has items but none of them fit in the
+	 * player's inventory.
+	 */
+	static void RetrievePortableMinerInventory(UObject* WorldContextObject, const FString& PortableMinerId, TFunction<void(const FDocModOperationResult&)> OnComplete);
+
+	/**
 	 * PLAN.md Phase 13/14: RPC-drivable, genuinely asynchronous variant
 	 * of the DebugCheckPowerConnection dry-run - calls
 	 * AFGWireHologram::SetConnection(0/1, ...) directly with a single

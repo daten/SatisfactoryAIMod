@@ -514,6 +514,67 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		return true;
 	}
 
+	// Genuinely asynchronous, unrelated mechanism to every other
+	// construction method above - the Portable Miner is equipment, not a
+	// buildable/hologram. See ConstructPortableMinerOnNode's doc comment
+	// for the full flow (real hotbar-equip path + reflection-invoked
+	// protected Server RPC). Added 2026-08-27 per explicit user request.
+	if (Method == TEXT("world.placePortableMiner"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString NodeId;
+		if (!ParamsObject->TryGetStringField(TEXT("nodeId"), NodeId) || NodeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.nodeId must be a non-empty string")));
+			return true;
+		}
+
+		// Optional - defaults to the real BP_ItemDescriptorPortableMiner
+		// path. See ConstructPortableMinerOnNode's doc comment.
+		FString ItemClassPath;
+		ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClassPath);
+
+		UDocModFunctionLibrary::ConstructPortableMinerOnNode(GetGameInstance(), NodeId, ItemClassPath,
+			[OnComplete, RequestId](const FDocModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// Synchronous - see RetrievePortableMinerInventory's doc comment.
+	if (Method == TEXT("world.retrievePortableMinerInventory"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString PortableMinerId;
+		if (!ParamsObject->TryGetStringField(TEXT("portableMinerId"), PortableMinerId) || PortableMinerId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.portableMinerId must be a non-empty string")));
+			return true;
+		}
+
+		UDocModFunctionLibrary::RetrievePortableMinerInventory(GetGameInstance(), PortableMinerId,
+			[OnComplete, RequestId](const FDocModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
 	// "world.testPowerConnection" (dry run, never touches the save) and
 	// "world.connectPower" (real - see
@@ -800,6 +861,10 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	else if (Method == TEXT("world.chatHistory"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogChatHistoryAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.portableMiners"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogPortableMinersAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.groundHeight"))
 	{

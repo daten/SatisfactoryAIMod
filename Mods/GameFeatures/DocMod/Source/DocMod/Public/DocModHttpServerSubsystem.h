@@ -128,6 +128,15 @@ struct FHttpServerRequest;
  * buildable's real position and computes yaw automatically, instead of
  * the caller fetching it and doing the vector math themselves.
  *
+ * "world.portableMiners" (read-only, no params) lists every AFGPortableMiner
+ * with its position/node/output inventory - "world.placePortableMiner"
+ * ({"nodeId","itemClass"}, itemClass optional) equips+places one (real
+ * equipment-based flow, NOT the buildable/hologram path every other
+ * construction method uses - see ConstructPortableMinerOnNode's doc
+ * comment) and "world.retrievePortableMinerInventory"
+ * ({"portableMinerId"}, SYNCHRONOUS) empties one into the player's own
+ * inventory - all three added 2026-08-27 per explicit user request.
+ *
  * "world.chatHistory" (read-only, no params) reports
  * {"messages":[{"sender","text","type","timestamp","isLocalPlayerMessage"},...]}
  * via AFGChatManager::GetReceivedChatMessages() - genuinely two-way

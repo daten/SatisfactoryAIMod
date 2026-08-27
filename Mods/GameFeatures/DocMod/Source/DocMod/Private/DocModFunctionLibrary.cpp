@@ -59,6 +59,10 @@
 #include "Configuration/Properties/ConfigPropertyBool.h"
 #include "Configuration/Properties/ConfigPropertyFloat.h"
 #include "Configuration/Properties/ConfigPropertySection.h"
+#include "FGPortableMiner.h"
+#include "Equipment/FGPortableMinerDispenser.h"
+#include "FGInventoryComponentEquipment.h"
+#include "Resources/FGEquipmentDescriptor.h"
 
 namespace
 {
@@ -3618,6 +3622,393 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+namespace
+{
+	AFGPortableMiner* FindPortableMinerById(UWorld* World, const FString& Id)
+	{
+		for (TActorIterator<AFGPortableMiner> It(World); It; ++It)
+		{
+			if (IsValid(*It) && It->GetPathName() == Id)
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
+}
+
+void UDocModFunctionLibrary::ConstructPortableMinerOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& ItemClassPath, TFunction<void(const FDocModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	AFGResourceNodeBase* TargetNodeBase = nullptr;
+	for (TActorIterator<AFGResourceNodeBase> It(World); It; ++It)
+	{
+		if (IsValid(*It) && It->GetPathName() == NodeId)
+		{
+			TargetNodeBase = *It;
+			break;
+		}
+	}
+	if (!TargetNodeBase)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NODE_NOT_FOUND"), FString::Printf(TEXT("No resource node found with id '%s'"), *NodeId)));
+		return;
+	}
+	if (TargetNodeBase->IsOccupied())
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NODE_OCCUPIED"), TEXT("Targeted node is already occupied")));
+		return;
+	}
+
+	// Server_SpawnPortableMiner takes a real AFGResourceNode*, not the
+	// wider AFGResourceNodeBase - Portable Miners only ever go on normal
+	// solid ore nodes, never Fracking cores/satellites. Fail clearly here
+	// rather than passing a null resourceNode into the reflection call
+	// below.
+	AFGResourceNode* TargetNode = Cast<AFGResourceNode>(TargetNodeBase);
+	if (!TargetNode)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INVALID_NODE_TYPE"),
+			TEXT("Portable Miners only work on normal AFGResourceNode instances (not Fracking cores/satellites)")));
+		return;
+	}
+
+	const FString EffectiveItemClassPath = ItemClassPath.IsEmpty()
+		? TEXT("/Game/FactoryGame/Resource/Equipment/PortableMiner/BP_ItemDescriptorPortableMiner.BP_ItemDescriptorPortableMiner_C")
+		: ItemClassPath;
+	UClass* ResolvedItemClass = LoadObject<UClass>(nullptr, *EffectiveItemClassPath);
+	const TSubclassOf<UFGItemDescriptor> ItemClass = (ResolvedItemClass && ResolvedItemClass->IsChildOf(UFGItemDescriptor::StaticClass())) ? ResolvedItemClass : nullptr;
+	if (!ItemClass)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INVALID_RECIPE"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGItemDescriptor subclass"), *EffectiveItemClassPath)));
+		return;
+	}
+
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	if (!PlayerInventory || !PlayerInventory->HasItems(ItemClass, 1))
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("PORTABLE_MINER_NOT_IN_INVENTORY"),
+			FString::Printf(TEXT("Player has no '%s' in inventory - craft one first"), *EffectiveItemClassPath)));
+		return;
+	}
+
+	UFGInventoryComponentEquipment* ArmsSlot = Character->GetEquipmentSlot(EEquipmentSlot::ES_ARMS);
+	if (!ArmsSlot)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No ARMS equipment slot found on player")));
+		return;
+	}
+
+	int32 FoundIndex = INDEX_NONE;
+	for (int32 i = 0; i < ArmsSlot->GetSizeLinear(); ++i)
+	{
+		FInventoryStack Stack;
+		if (ArmsSlot->GetStackFromIndex(i, Stack) && Stack.HasItems() && Stack.Item.GetItemClass() == ItemClass)
+		{
+			FoundIndex = i;
+			break;
+		}
+	}
+	if (FoundIndex == INDEX_NONE)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("PORTABLE_MINER_NOT_IN_INVENTORY"),
+			FString::Printf(TEXT("'%s' found in main inventory but not in the ARMS equipment slot - unexpected inventory layout"), *EffectiveItemClassPath)));
+		return;
+	}
+
+	// Real, sanctioned equip path - the same one a player's own hotbar
+	// key-press uses. See this function's header doc comment for why
+	// AFGCharacterPlayer::SpawnEquipment/EquipEquipment aren't called
+	// directly (SpawnEquipment is private, non-reflected C++).
+	ArmsSlot->SetActiveEquipmentIndex(FoundIndex);
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		TWeakObjectPtr<AFGResourceNode> TargetNode;
+		TFunction<void(const FDocModOperationResult&)> OnComplete;
+		int32 AttemptsRemaining = 120; // real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->TargetNode = TargetNode;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		AFGResourceNode* PollTargetNode = PollState->TargetNode.Get();
+		if (!PollWorld || !IsValid(PollCharacter) || !IsValid(PollTargetNode))
+		{
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("World/character/node became invalid while polling")));
+			return;
+		}
+
+		AFGPortableMinerDispenser* Dispenser = Cast<AFGPortableMinerDispenser>(PollCharacter->GetEquipmentInSlot(EEquipmentSlot::ES_ARMS));
+		--PollState->AttemptsRemaining;
+		if (!Dispenser && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+		if (!Dispenser)
+		{
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("EQUIP_FAILED"),
+				FString::Printf(TEXT("Portable Miner Dispenser did not equip after %d tick(s)"), PollState->AttemptsTaken)));
+			return;
+		}
+
+		// Bypasses TraceForPortableMinerPlacementLocation's camera-dependent
+		// aim entirely - real node location, not a trace, matching this
+		// project's player-independence pattern for every other
+		// Construct* function. Server_SpawnPortableMiner is protected -
+		// invoked via reflection since UFUNCTION dispatch isn't gated by
+		// C++ access specifiers (no public/reflectable wrapper exists).
+		UFunction* SpawnFunction = Dispenser->FindFunction(TEXT("Server_SpawnPortableMiner"));
+		if (!SpawnFunction)
+		{
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Server_SpawnPortableMiner UFUNCTION not found via reflection")));
+			return;
+		}
+		struct FSpawnPortableMinerParams
+		{
+			FVector Location;
+			AFGResourceNode* ResourceNode;
+		};
+		FSpawnPortableMinerParams Params;
+		Params.Location = PollTargetNode->GetActorLocation();
+		Params.ResourceNode = PollTargetNode;
+		Dispenser->ProcessEvent(SpawnFunction, &Params);
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructPortableMinerOnNode: invoked Server_SpawnPortableMiner at %s for node %s"),
+			*Params.Location.ToString(), *PollTargetNode->GetPathName());
+
+		// Poll again for the real actor to appear before reporting success -
+		// never trust an RPC call alone (this project's established
+		// discipline).
+		struct FVerifyState
+		{
+			TWeakObjectPtr<UWorld> World;
+			TWeakObjectPtr<AFGCharacterPlayer> Character;
+			TWeakObjectPtr<AFGResourceNode> TargetNode;
+			TWeakObjectPtr<AFGPortableMinerDispenser> Dispenser;
+			TFunction<void(const FDocModOperationResult&)> OnComplete;
+			int32 AttemptsRemaining = 60;
+			int32 AttemptsTaken = 0;
+		};
+		const TSharedRef<FVerifyState> VerifyState = MakeShared<FVerifyState>();
+		VerifyState->World = PollWorld;
+		VerifyState->Character = PollCharacter;
+		VerifyState->TargetNode = PollTargetNode;
+		VerifyState->Dispenser = Dispenser;
+		VerifyState->OnComplete = PollState->OnComplete;
+
+		const TSharedRef<TFunction<void()>> VerifyFn = MakeShared<TFunction<void()>>();
+		*VerifyFn = [VerifyState, VerifyFn]()
+		{
+			++VerifyState->AttemptsTaken;
+
+			UWorld* VerifyWorld = VerifyState->World.Get();
+			AFGResourceNode* VerifyTargetNode = VerifyState->TargetNode.Get();
+			if (!VerifyWorld || !IsValid(VerifyTargetNode))
+			{
+				VerifyState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("World/node became invalid while verifying")));
+				return;
+			}
+
+			AFGPortableMiner* NewMiner = nullptr;
+			for (TActorIterator<AFGPortableMiner> It(VerifyWorld); It; ++It)
+			{
+				if (IsValid(*It) && It->mExtractResourceNode == VerifyTargetNode)
+				{
+					NewMiner = *It;
+					break;
+				}
+			}
+
+			--VerifyState->AttemptsRemaining;
+			if (!NewMiner && VerifyState->AttemptsRemaining > 0)
+			{
+				VerifyWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([VerifyFn]() { (*VerifyFn)(); }));
+				return;
+			}
+
+			AFGCharacterPlayer* VerifyCharacter = VerifyState->Character.Get();
+			AFGPortableMinerDispenser* VerifyDispenser = VerifyState->Dispenser.Get();
+			if (IsValid(VerifyCharacter) && IsValid(VerifyDispenser))
+			{
+				VerifyCharacter->UnequipEquipment(VerifyDispenser);
+			}
+
+			if (!NewMiner)
+			{
+				VerifyState->OnComplete(FDocModOperationResult::Failure(TEXT("CONSTRUCTION_UNCONFIRMED"),
+					FString::Printf(TEXT("Server_SpawnPortableMiner was invoked but no AFGPortableMiner targeting the node appeared after %d tick(s)"), VerifyState->AttemptsTaken)));
+				return;
+			}
+
+			VerifyState->OnComplete(FDocModOperationResult::SuccessWithBuildableId(NewMiner->GetPathName()));
+		};
+
+		PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([VerifyFn]() { (*VerifyFn)(); }));
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+FString UDocModFunctionLibrary::LogPortableMinersAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("LogPortableMinersAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> MinersArray;
+	for (TActorIterator<AFGPortableMiner> It(World); It; ++It)
+	{
+		AFGPortableMiner* Miner = *It;
+		if (!IsValid(Miner))
+		{
+			continue;
+		}
+
+		const FVector Position = Miner->GetActorLocation();
+		const TSharedRef<FJsonObject> PositionObject = MakeShared<FJsonObject>();
+		PositionObject->SetNumberField(TEXT("x"), Position.X);
+		PositionObject->SetNumberField(TEXT("y"), Position.Y);
+		PositionObject->SetNumberField(TEXT("z"), Position.Z);
+
+		TArray<TSharedPtr<FJsonValue>> OutputArray;
+		if (UFGInventoryComponent* OutputInventory = Miner->GetOutputInventory())
+		{
+			TArray<FInventoryStack> Stacks;
+			OutputInventory->GetInventoryStacks(Stacks, false);
+			for (const FInventoryStack& Stack : Stacks)
+			{
+				if (!Stack.HasItems())
+				{
+					continue;
+				}
+				const TSharedRef<FJsonObject> StackObject = MakeShared<FJsonObject>();
+				StackObject->SetStringField(TEXT("itemClass"), Stack.Item.GetItemClass() ? Stack.Item.GetItemClass()->GetPathName() : TEXT(""));
+				StackObject->SetNumberField(TEXT("numItems"), Stack.NumItems);
+				OutputArray.Add(MakeShared<FJsonValueObject>(StackObject));
+			}
+		}
+
+		const TSharedRef<FJsonObject> MinerObject = MakeShared<FJsonObject>();
+		MinerObject->SetStringField(TEXT("id"), Miner->GetPathName());
+		MinerObject->SetObjectField(TEXT("position"), PositionObject);
+		MinerObject->SetStringField(TEXT("nodeId"), Miner->mExtractResourceNode ? Miner->mExtractResourceNode->GetPathName() : TEXT(""));
+		MinerObject->SetBoolField(TEXT("isProducing"), Miner->IsProducing());
+		MinerObject->SetNumberField(TEXT("extractionProgress"), Miner->GetExtractionProgress());
+		MinerObject->SetArrayField(TEXT("outputInventory"), OutputArray);
+		MinersArray.Add(MakeShared<FJsonValueObject>(MinerObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("portableMiners"), MinersArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogPortableMinersAsJson: %d portable miner(s)"), MinersArray.Num());
+
+	return JsonString;
+}
+
+void UDocModFunctionLibrary::RetrievePortableMinerInventory(UObject* WorldContextObject, const FString& PortableMinerId, TFunction<void(const FDocModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGPortableMiner* Miner = FindPortableMinerById(World, PortableMinerId);
+	if (!Miner)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No Portable Miner found with id '%s'"), *PortableMinerId)));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	UFGInventoryComponent* OutputInventory = Miner->GetOutputInventory();
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	if (!OutputInventory || !PlayerInventory)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Missing output or player inventory component")));
+		return;
+	}
+
+	TArray<FInventoryStack> Stacks;
+	OutputInventory->GetInventoryStacks(Stacks, false);
+
+	bool bHadAnyItems = false;
+	int32 TotalMoved = 0;
+	for (const FInventoryStack& Stack : Stacks)
+	{
+		if (!Stack.HasItems())
+		{
+			continue;
+		}
+		bHadAnyItems = true;
+
+		const TSubclassOf<UFGItemDescriptor> ItemClass = Stack.Item.GetItemClass();
+		const int32 NumAdded = PlayerInventory->AddStack(FInventoryStack(Stack.NumItems, ItemClass), /*allowPartialAdd=*/true);
+		if (NumAdded > 0)
+		{
+			OutputInventory->Remove(ItemClass, NumAdded);
+			TotalMoved += NumAdded;
+		}
+	}
+
+	if (!bHadAnyItems)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NOTHING_TO_RETRIEVE"), TEXT("Output inventory is empty")));
+		return;
+	}
+	if (TotalMoved == 0)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INVENTORY_FULL"), TEXT("Output inventory has items, but none of them fit in the player's inventory")));
+		return;
+	}
+
+	UE_LOG(LogDocModAI, Display, TEXT("RetrievePortableMinerInventory: moved %d item(s) from %s to player inventory"), TotalMoved, *PortableMinerId);
+
+	OnComplete(FDocModOperationResult::Success());
 }
 
 void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FDocModOperationResult&)> OnComplete)

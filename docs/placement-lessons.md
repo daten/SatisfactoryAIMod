@@ -739,6 +739,84 @@ junction to rebuild the network around it, delete every pipe segment
 still attached to it FIRST (check via `world.pipeConnections` before
 deleting the junction), not just the junction itself.
 
+## Portable Miner: a genuinely different construction mechanism (equipment, not hologram) (2026-08-27)
+
+Per explicit user request ("build support for placing this and other
+related machines... also build support for managing machine inventory").
+Every other `Construct*` function in this codebase drives
+`AFGBuildGunStateBuild`/a hologram. The **Portable Miner**
+(`AFGPortableMiner`) does not work that way at all - confirmed from
+source, not guessed:
+
+- `AFGPortableMiner` derives directly from `AActor`, not `AFGBuildable` -
+  no hologram, no `IFGDismantleInterface`, no `GetConstructDisqualifiers()`.
+- It's deployed as **equipment** (like the Golf Cart), via
+  `AFGPortableMinerDispenser : AFGEquipment`. The real placement call is
+  `Server_SpawnPortableMiner(location, resourceNode)` - a `protected
+  UFUNCTION(Server, Reliable)`.
+- Equipping it the "sanctioned" way is NOT
+  `AFGCharacterPlayer::EquipEquipment()`/`SpawnEquipment()` directly -
+  `SpawnEquipment` is `private`, plain (non-`UFUNCTION`) C++, with no
+  reflectable or public entry point at all. The REAL public path a
+  player's own hotbar key-press uses is
+  `UFGInventoryComponentEquipment::SetActiveEquipmentIndex(index)`
+  (public, `BlueprintCallable`) on the character's ARMS equipment slot
+  (`AFGCharacterPlayer::GetEquipmentSlot(EEquipmentSlot::ES_ARMS)`) -
+  found the item's stack index there first (`GetStackFromIndex`/
+  `Stack.Item.GetItemClass()`), then called `SetActiveEquipmentIndex`,
+  then polled `GetEquipmentInSlot(ES_ARMS)` until it resolved to a real
+  `AFGPortableMinerDispenser*`.
+
+**New technique for this codebase: calling a `protected` UFUNCTION via
+reflection.** `Server_SpawnPortableMiner` is protected in C++, but it's
+still a `UFUNCTION` - Unreal's reflection dispatch (`FindFunction`/
+`ProcessEvent`) isn't gated by C++ access specifiers, only genuinely
+`private`/non-`UFUNCTION` methods (like `SpawnEquipment` above) are truly
+unreachable from outside the class. Pattern used:
+```cpp
+UFunction* SpawnFunction = Dispenser->FindFunction(TEXT("Server_SpawnPortableMiner"));
+struct FSpawnPortableMinerParams { FVector Location; AFGResourceNode* ResourceNode; };
+FSpawnPortableMinerParams Params{ TargetNode->GetActorLocation(), TargetNode };
+Dispenser->ProcessEvent(SpawnFunction, &Params);
+```
+A plain local struct mirroring the UFUNCTION's declared parameters in
+order works as the `ProcessEvent` params buffer for a simple RPC like
+this (no return value, no other complications for a two-plain-value-param
+Server RPC). This deliberately
+bypasses `TraceForPortableMinerPlacementLocation`'s camera-dependent aim
+trace entirely, using the real resolved node location instead - the same
+player-independence principle as every other `Construct*` function, just
+achieved differently since there's no hologram/disqualifier system to
+plug into here.
+
+**Real prerequisite, not a limitation**: the player must already have a
+real Portable Miner item in inventory (crafted via `Recipe_PortableMiner`)
+- `world.placePortableMiner` consumes a real inventory item exactly like
+placing one by hand, it does not synthesize one. Fails with
+`PORTABLE_MINER_NOT_IN_INVENTORY` if absent.
+
+**Only works on real `AFGResourceNode`, not Fracking cores/satellites** -
+`Server_SpawnPortableMiner` takes `AFGResourceNode*` specifically (unlike
+`ConstructExtractorOnNode`'s wider `AFGResourceNodeBase` search), so
+`nodeId` must resolve to a normal solid-ore node.
+
+**Retrieval** (`world.retrievePortableMinerInventory`) is much simpler -
+`AFGPortableMiner::GetOutputInventory()` is a clean public
+`UFGInventoryComponent*`, moved via `AddStack(allowPartialAdd=true)` +
+`Remove()` (only removing what was actually successfully added, so a
+partly-full player inventory never loses items - just leaves the rest in
+the miner for a later retrieval).
+
+**No other similar "manually placed, must be emptied by hand, equipment-
+dispensed" machine was found** - searched for other `AFGEquipment`-based
+"Dispenser" classes; only `AFGGolfCartDispenser` (a vehicle, unrelated)
+and `AFGPortableMinerDispenser` exist. Portable Miner appears to be
+unique in this category, not one of several similar devices.
+
+Not yet live-tested at time of writing - compiled clean, pending redeploy
+and a real run (place on a node, verify a real `AFGPortableMiner` exists
+and targets it, let it produce, retrieve its output).
+
 ## Two new determinism tools: `world.groundHeight` and `faceBuildableId` (2026-08-27)
 
 Per explicit user request: repeated Z-height and rotation inconsistencies
