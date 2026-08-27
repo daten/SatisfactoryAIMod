@@ -7,6 +7,39 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## CRITICAL: never use `world.placeBuilding` for extractor recipes (fixed 2026-08-27)
+
+`world.placeBuilding` (`ConstructBuildingAtPosition`) is the generic
+single-step placement path - it does **not** snap a real resource node
+reference. Extractor recipes (Miners, Water/Oil Pumps, Fracking
+Extractor/Smasher) have their own dedicated entry point,
+**`world.placeExtractor`** (`ConstructExtractorOnNode`), specifically
+because they need one.
+
+**This was a live, confirmed CRASH, not just a bad result**: placing
+`Recipe_MinerMk2` through `world.placeBuilding` with no real resource node
+underneath (during a systematic placement stress-test, floating in open
+air) resolved `canConstruct=true` - unlike `Recipe_MinerMk1` moments
+earlier at a different test location, which correctly refused with
+`"Must be placed on a Resource Node!"` - proving the "no resource node"
+disqualifier is not reliably present for every extractor/location
+combination through this path. Construction proceeded into
+`AFGResourceExtractorHologram::ConfigureActor()`, which unconditionally
+asserts on a valid `mSnappedExtractableResource` - a hard engine
+assertion, not a catchable disqualifier, that **took the entire game
+process down** (confirmed by the user's own crash dialog, same assert/
+callstack as the log).
+
+**Fixed** in `ConstructBuildingAtPosition` itself: it now refuses any
+recipe whose buildable class derives from `AFGBuildableResourceExtractorBase`
+outright (`WRONG_METHOD_FOR_EXTRACTOR`), unconditionally - not just
+another `bIgnore*`-bypassable disqualifier, since the whole point is not
+to gamble on `GetConstructDisqualifiers()` catching every case. Always
+use `world.placeExtractor` for Miners/Pumps/Fracking buildings; if you
+need to systematically test many building types (e.g. a placement
+stress-test), route extractor recipes through `world.placeExtractor`
+against a real resource node ID instead of the generic path.
+
 ## Golden rule: never trust `"success": true` alone
 
 Every RPC that reports success on a connection (`world.connectConveyor`,

@@ -1934,6 +1934,33 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	}
 	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
 
+	// Safety guard (2026-08-27, added after a live game CRASH, not just a
+	// bad result): this generic single-step placement path must never be
+	// used for extractor recipes (Miners, Water/Oil Pumps, Fracking
+	// buildings) - confirmed live that placing Recipe_MinerMk2 through
+	// here (no real resource node under it) resolved canConstruct=true
+	// (unlike Recipe_MinerMk1 moments earlier at a different location,
+	// which correctly refused with "Must be placed on a Resource Node!" -
+	// the disqualifier is evidently not reliably present for every
+	// extractor/location combination) and proceeded into
+	// InternalConstructHologram() -> AFGBuildableHologram::ConstructInstance()
+	// -> AFGResourceExtractorHologram::ConfigureActor(), which unconditionally
+	// asserts on a valid mSnappedExtractableResource - a hard engine
+	// assertion, not a catchable disqualifier, that takes the whole game
+	// process down. Extractors have a dedicated, correct entry point
+	// (ConstructExtractorOnNode / world.placeExtractor) that actually
+	// snaps a real resource node reference before construction - refuse
+	// here unconditionally (not just another disqualifier bIgnore* could
+	// bypass) rather than gamble on GetConstructDisqualifiers() catching
+	// every case.
+	const TSubclassOf<AFGBuildable> ResolvedBuildableClass = ResolveBuildableClassForRecipe(RecipeClassPath);
+	if (ResolvedBuildableClass && ResolvedBuildableClass->IsChildOf(AFGBuildableResourceExtractorBase::StaticClass()))
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("WRONG_METHOD_FOR_EXTRACTOR"),
+			FString::Printf(TEXT("'%s' is an extractor recipe - use world.placeExtractor (ConstructExtractorOnNode) instead, which snaps a real resource node reference. Constructing an extractor through world.placeBuilding without one is a confirmed CRASH (AFGResourceExtractorHologram::ConfigureActor's mSnappedExtractableResource assertion), not just a bad placement."), *RecipeClassPath)));
+		return;
+	}
+
 	// Caller-chosen general-purpose grid snap - see this function's
 	// header doc comment. Applied before ground-tracing so the trace
 	// itself (and everything downstream) sees the snapped coordinate.
