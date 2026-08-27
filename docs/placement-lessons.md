@@ -662,3 +662,79 @@ using all 4 connectors; B and D each take 3 extractors + 1 uplink to C.
 This fits exactly (3+3+1 = 7 sources, 3 junctions, 10 pipe segments total)
 and leaves the tank's second connector free. Confirmed live 2026-08-27 on
 the `BP_FrackingCore10` water cluster.
+
+## CRITICAL: `world.connectPipe` can report `success: true` while silently connecting the WRONG buildables (found 2026-08-27)
+
+Rebuilding the same network above with a cleaner topology (per user
+feedback that the first version's junction placement caused visually
+tangled/crossing pipes) surfaced a real, reproducible correctness bug,
+**twice**, on two different segments:
+
+1. A `connectPipe(462537, Hub)` call and a separate `connectPipe(W2, Hub)`
+   call, both attempted while `Hub` was geometrically hard to reach
+   cleanly, each reported `success: true` — but **neither actually
+   connected to `Hub` at all**. Both pipes instead routed up to a wildly
+   wrong location (Z≈3900, matching the *player's own altitude and
+   position*, ~150 units from where the player was standing on an
+   elevated platform) and **snapped onto each other's dangling free end**,
+   forming one long connected chain from the source extractor all the way
+   to the other call's source, joined by a stray `Build_PipelineSupport_C`
+   at the joint — confirmed live by the user directly observing a support
+   and pipes appear near them. Traced via `world.pipeConnections`
+   (`ownerBuildableId`/`connectedBuildableId` chase) since `world.buildables`
+   alone doesn't show connectivity.
+2. A later, simpler case: `connectPipe(443723, WA)` reported
+   `success: true`, but `WA` showed **zero** connected connectors
+   afterward — the pipe had one end genuinely on `443723` and the other
+   end **dangling in open air**, ~4000 units away, connected to nothing.
+
+**Root cause, best understanding without deeper C++ investigation**:
+`ConstructPipe`'s multi-step spline construction (`TrySnapToActor`/
+`DoMultiStepPlacement`, `AutoRouteSpline` internals — stub source, same
+opacity noted elsewhere in this project) can complete and report success
+without its final click's hit-test actually landing on the requested
+`DestBuildableId`'s connector component. When the real destination is
+geometrically awkward to reach (bad connector-normal alignment, or the
+same underlying issue driving `"Pipe is too long!"` hard failures — see
+above), the router appears to fall back to *something* physically nearby
+rather than failing cleanly - in one observed case grabbing a totally
+unrelated dangling connector far from either intended endpoint. **This
+was NOT caught by the existing `success: true` result** - a deeper,
+more dangerous version of "never trust `success: true` alone" than
+previously documented, since even inspecting the *source*'s connector
+state looked fine (`connected: true`) - only checking the **destination
+side too**, and confirming both share the same real pipe segment ID,
+revealed the problem.
+
+**Not yet fixed in C++** - `ConstructPipe` does not verify post-construction
+that the actual connected component's owner matches the requested
+`DestBuildableId` before returning success. A real fix would need to
+check this and either fail cleanly or auto-delete the wrongly-routed
+segment, rather than leaving it for the caller to catch. Flagged, not
+built - this needs dedicated investigation given `AutoRouteSpline`'s
+opacity.
+
+**Mandatory workaround for now, used successfully to finish this
+network**: after every `world.connectPipe` call that reports
+`success: true`, query `world.pipeConnections` and confirm the source
+and destination buildable actually **share the same connected pipe
+segment ID** - not just that each individually shows `connected: true`
+(a misrouted pipe still marks its own real endpoint as connected). If
+they don't share a segment, the call silently misrouted: find the real
+pipe segment via the source's `connectedBuildableId`, delete it (and any
+stray `Build_PipelineSupport_C` created alongside it - sweep by
+proximity to both the intended route AND the player's own position, not
+just the work site, since a misroute can travel there), and retry rather
+than trusting the result.
+
+**Also discovered while debugging this**: deleting a Pipeline Junction
+does **not** delete the real pipe segments still attached to it - they're
+left dangling with one end connected to whatever real buildable they
+reached and the other end orphaned in open air, **still occupying that
+buildable's connector slot** (confirmed: re-attempting to connect an
+extractor whose old pipe-to-a-now-deleted-junction was never cleaned up
+fails with `"has no free Producer or Any pipe connection component"`,
+even though the junction itself is long gone). When tearing down a
+junction to rebuild the network around it, delete every pipe segment
+still attached to it FIRST (check via `world.pipeConnections` before
+deleting the junction), not just the junction itself.
