@@ -1,0 +1,59 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#include "DocModConfiguration.h"
+#include "Configuration/Properties/ConfigPropertyBool.h"
+#include "Configuration/Properties/ConfigPropertyFloat.h"
+
+UDocModConfiguration::UDocModConfiguration()
+{
+	ConfigId.ModReference = TEXT("DocMod");
+	ConfigId.ConfigCategory = TEXT("");
+
+	DisplayName = FText::FromString(TEXT("DocMod AI Interface"));
+	Description = FText::FromString(TEXT("Safety/capability trade-offs for the DocMod RPC interface. All default off - the RPC behaves exactly as before unless you opt in here."));
+
+	UConfigPropertySection* Section = CreateDefaultSubobject<UConfigPropertySection>(TEXT("RootSection"));
+	RootSection = Section;
+
+	UConfigPropertyBool* AllowRemoteConnections = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("AllowRemoteConnections"));
+	AllowRemoteConnections->DisplayName = FText::FromString(TEXT("Allow Remote Connections"));
+	AllowRemoteConnections->Tooltip = FText::FromString(TEXT(
+		"SECURITY RISK. By default the DocMod RPC server only accepts connections from this machine (loopback). "
+		"Enabling this lets other devices on your network send RPC commands too - anyone who can reach this "
+		"machine's port can then control building/telemetry through DocMod. Only enable this on a network you trust."));
+	AllowRemoteConnections->DefaultValue = false;
+	AllowRemoteConnections->Value = false;
+	Section->SectionProperties.Add(TEXT("AllowRemoteConnections"), AllowRemoteConnections);
+
+	UConfigPropertyBool* UnlimitedResources = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("UnlimitedResources"));
+	UnlimitedResources->DisplayName = FText::FromString(TEXT("Unlimited Resources for RPC Builds"));
+	UnlimitedResources->Tooltip = FText::FromString(TEXT(
+		"By default, RPC-driven construction requires real materials in your inventory, exactly like placing it "
+		"yourself. Enabling this lets the RPC build without consuming/requiring materials - a game advantage, "
+		"not a safety concern. All other placement rules (clearance, valid floor, etc.) still apply."));
+	UnlimitedResources->DefaultValue = false;
+	UnlimitedResources->Value = false;
+	Section->SectionProperties.Add(TEXT("UnlimitedResources"), UnlimitedResources);
+
+	UConfigPropertyBool* LimitBuildDistance = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("LimitBuildDistance"));
+	LimitBuildDistance->DisplayName = FText::FromString(TEXT("Limit RPC Build Distance From Player"));
+	LimitBuildDistance->Tooltip = FText::FromString(TEXT(
+		"By default, RPC-driven construction has no distance limit at all - it can build anywhere on the map, "
+		"unlike your own Build Gun. Enabling this restricts RPC construction to within Max Build Distance of "
+		"you, so an external controller can't build somewhere you can't see. Off by default."));
+	LimitBuildDistance->DefaultValue = false;
+	LimitBuildDistance->Value = false;
+	Section->SectionProperties.Add(TEXT("LimitBuildDistance"), LimitBuildDistance);
+
+	// Default 8000 units ~= 10 standard 8m foundation tiles (800 units
+	// each), per the user's own "10 foundations away" framing when this
+	// setting was requested.
+	UConfigPropertyFloat* MaxBuildDistance = CreateDefaultSubobject<UConfigPropertyFloat>(TEXT("MaxBuildDistance"));
+	MaxBuildDistance->DisplayName = FText::FromString(TEXT("Max Build Distance (cm)"));
+	MaxBuildDistance->Tooltip = FText::FromString(TEXT(
+		"Only used when Limit RPC Build Distance From Player is on. Maximum distance, in centimeters, RPC-driven "
+		"construction is allowed from you. 800 = one 8m foundation tile; default 8000 is roughly 10 tiles."));
+	MaxBuildDistance->DefaultValue = 8000.0f;
+	MaxBuildDistance->Value = 8000.0f;
+	Section->SectionProperties.Add(TEXT("MaxBuildDistance"), MaxBuildDistance);
+}

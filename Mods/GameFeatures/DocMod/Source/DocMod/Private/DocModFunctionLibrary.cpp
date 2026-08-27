@@ -53,6 +53,12 @@
 #include "Buildables/FGBuildableResourceExtractorBase.h"
 #include "FGClearanceInterface.h"
 #include "FGClearanceData.h"
+#include "FGTimeSubsystem.h"
+#include "FGChatManager.h"
+#include "Configuration/ConfigManager.h"
+#include "Configuration/Properties/ConfigPropertyBool.h"
+#include "Configuration/Properties/ConfigPropertyFloat.h"
+#include "Configuration/Properties/ConfigPropertySection.h"
 
 namespace
 {
@@ -738,6 +744,60 @@ FString UDocModFunctionLibrary::GetInterfaceVersion()
 	return TEXT("0.1.0");
 }
 
+namespace
+{
+	UConfigManager* GetDocModConfigManager(UObject* WorldContextObject)
+	{
+		UGameInstance* GameInstance = Cast<UGameInstance>(WorldContextObject);
+		if (!GameInstance)
+		{
+			UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+			GameInstance = World ? World->GetGameInstance() : nullptr;
+		}
+		return GameInstance ? GameInstance->GetSubsystem<UConfigManager>() : nullptr;
+	}
+
+	UConfigPropertySection* GetDocModConfigRootSection(UObject* WorldContextObject)
+	{
+		UConfigManager* ConfigManager = GetDocModConfigManager(WorldContextObject);
+		if (!ConfigManager)
+		{
+			return nullptr;
+		}
+		FConfigId ConfigId;
+		ConfigId.ModReference = TEXT("DocMod");
+		return ConfigManager->GetConfigurationRootSection(ConfigId);
+	}
+}
+
+bool UDocModFunctionLibrary::GetDocModConfigBool(UObject* WorldContextObject, const FString& PropertyName, bool DefaultValue)
+{
+	const UConfigPropertySection* Root = GetDocModConfigRootSection(WorldContextObject);
+	if (!Root)
+	{
+		return DefaultValue;
+	}
+	if (const UConfigPropertyBool* BoolProperty = Cast<UConfigPropertyBool>(Root->SectionProperties.FindRef(PropertyName)))
+	{
+		return BoolProperty->Value;
+	}
+	return DefaultValue;
+}
+
+float UDocModFunctionLibrary::GetDocModConfigFloat(UObject* WorldContextObject, const FString& PropertyName, float DefaultValue)
+{
+	const UConfigPropertySection* Root = GetDocModConfigRootSection(WorldContextObject);
+	if (!Root)
+	{
+		return DefaultValue;
+	}
+	if (const UConfigPropertyFloat* FloatProperty = Cast<UConfigPropertyFloat>(Root->SectionProperties.FindRef(PropertyName)))
+	{
+		return FloatProperty->Value;
+	}
+	return DefaultValue;
+}
+
 TArray<FDocModResourceNodeTelemetry> UDocModFunctionLibrary::GetResourceNodeTelemetry(UObject* WorldContextObject)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -1199,6 +1259,140 @@ FString UDocModFunctionLibrary::LogPlayerAsJson(UObject* WorldContextObject)
 	UE_LOG(LogDocModAI, Display, TEXT("LogPlayerAsJson: %s"), *JsonString);
 
 	return JsonString;
+}
+
+FString UDocModFunctionLibrary::LogTimeOfDayAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGTimeOfDaySubsystem* TimeSubsystem = World ? AFGTimeOfDaySubsystem::Get(World) : nullptr;
+	if (!TimeSubsystem)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("LogTimeOfDayAsJson: no valid world context or time subsystem"));
+		return TEXT("{}");
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetNumberField(TEXT("hour"), TimeSubsystem->GetHours());
+	RootObject->SetNumberField(TEXT("minute"), TimeSubsystem->GetMinutes());
+	RootObject->SetNumberField(TEXT("daySeconds"), TimeSubsystem->GetDaySeconds());
+	RootObject->SetBoolField(TEXT("isDay"), TimeSubsystem->IsDay());
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogTimeOfDayAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+FDocModOperationResult UDocModFunctionLibrary::SetTimeOfDay(UObject* WorldContextObject, int32 Hour, int32 Minute)
+{
+	if (Hour < 0 || Hour > 23)
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_REQUEST"),
+			FString::Printf(TEXT("hour %d is outside the valid range [0, 23]"), Hour));
+	}
+	if (Minute < 0 || Minute > 59)
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_REQUEST"),
+			FString::Printf(TEXT("minute %d is outside the valid range [0, 59]"), Minute));
+	}
+
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGTimeOfDaySubsystem* TimeSubsystem = AFGTimeOfDaySubsystem::Get(World);
+	if (!TimeSubsystem)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No AFGTimeOfDaySubsystem found in this world"));
+	}
+
+	const float DaySeconds = Hour * AFGTimeOfDaySubsystem::SECONDS_PER_HOUR + Minute * AFGTimeOfDaySubsystem::SECONDS_PER_MINUTE;
+	TimeSubsystem->SetDaySeconds(DaySeconds);
+	TimeSubsystem->ForceReplicateTimeToClients();
+
+	UE_LOG(LogDocModAI, Display, TEXT("SetTimeOfDay: %02d:%02d (daySeconds=%.0f)"), Hour, Minute, DaySeconds);
+
+	return FDocModOperationResult::Success();
+}
+
+namespace
+{
+	FString ChatMessageTypeToString(EFGChatMessageType Type)
+	{
+		switch (Type)
+		{
+		case EFGChatMessageType::CMT_PlayerMessage: return TEXT("PlayerMessage");
+		case EFGChatMessageType::CMT_SystemMessage: return TEXT("SystemMessage");
+		case EFGChatMessageType::CMT_AdaMessage: return TEXT("AdaMessage");
+		case EFGChatMessageType::CMT_CustomMessage: return TEXT("CustomMessage");
+		default: return TEXT("Unknown");
+		}
+	}
+}
+
+FString UDocModFunctionLibrary::LogChatHistoryAsJson(UObject* WorldContextObject)
+{
+	AFGChatManager* ChatManager = AFGChatManager::Get(WorldContextObject);
+	if (!ChatManager)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("LogChatHistoryAsJson: no AFGChatManager found (too early in level load?)"));
+		return TEXT("{}");
+	}
+
+	TArray<FChatMessageStruct> Messages;
+	ChatManager->GetReceivedChatMessages(Messages);
+
+	TArray<TSharedPtr<FJsonValue>> MessageArray;
+	for (const FChatMessageStruct& Message : Messages)
+	{
+		const TSharedRef<FJsonObject> MessageObject = MakeShared<FJsonObject>();
+		MessageObject->SetStringField(TEXT("sender"), Message.MessageSender.ToString());
+		MessageObject->SetStringField(TEXT("text"), Message.MessageText.ToString());
+		MessageObject->SetStringField(TEXT("type"), ChatMessageTypeToString(Message.MessageType));
+		MessageObject->SetNumberField(TEXT("timestamp"), Message.ServerTimeStamp);
+		MessageObject->SetBoolField(TEXT("isLocalPlayerMessage"), Message.bIsLocalPlayerMessage);
+		MessageArray.Add(MakeShared<FJsonValueObject>(MessageObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("messages"), MessageArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogDocModAI, Verbose, TEXT("LogChatHistoryAsJson: %d message(s)"), Messages.Num());
+
+	return JsonString;
+}
+
+FDocModOperationResult UDocModFunctionLibrary::SendChatMessage(UObject* WorldContextObject, const FString& Message, const FString& Sender)
+{
+	if (Message.IsEmpty())
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Message must not be empty"));
+	}
+
+	AFGChatManager* ChatManager = AFGChatManager::Get(WorldContextObject);
+	if (!ChatManager)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No AFGChatManager found (too early in level load?)"));
+	}
+
+	FChatMessageStruct ChatMessage;
+	ChatMessage.MessageText = FText::FromString(Message);
+	ChatMessage.MessageType = EFGChatMessageType::CMT_CustomMessage;
+	ChatMessage.MessageSender = FText::FromString(Sender.IsEmpty() ? TEXT("DocMod AI") : Sender);
+	ChatMessage.MessageSenderColor = FLinearColor(0.2f, 0.8f, 1.0f);
+
+	ChatManager->AddChatMessageToReceived(ChatMessage);
+
+	UE_LOG(LogDocModAI, Display, TEXT("SendChatMessage: [%s] %s"), *ChatMessage.MessageSender.ToString(), *Message);
+
+	return FDocModOperationResult::Success();
 }
 
 FDocModManufacturerTelemetry UDocModFunctionLibrary::GetTargetedManufacturer(UObject* WorldContextObject)
@@ -2192,6 +2386,33 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 		return;
 	}
 
+	// LimitBuildDistance (2026-08-27) - a NEW synthetic restriction, not a
+	// real FactoryGame disqualifier: grepping FGConstructDisqualifier.h
+	// found no "too far from player" class at all, and this codebase has
+	// built at 100,000+ unit distances all session with nothing ever
+	// rejecting it (unlike a real player's Build Gun, which has a real
+	// reach limit). Added per explicit user request ("simulate a build
+	// distance limit... so structures cannot be built clear on the other
+	// side of the map") as a player-controlled mod setting - off by
+	// default, preserving today's unrestricted behavior. 2D distance
+	// only (X/Y) - Z isn't resolved yet at this point (ground trace
+	// hasn't run), and "how far away" is naturally a horizontal notion
+	// for this use case anyway. Checked here, before any hologram/poll
+	// work starts, so a rejected request never has any construction
+	// side effects to clean up.
+	if (UDocModFunctionLibrary::GetDocModConfigBool(World, TEXT("LimitBuildDistance"), false))
+	{
+		const float MaxBuildDistance = UDocModFunctionLibrary::GetDocModConfigFloat(World, TEXT("MaxBuildDistance"), 8000.0f);
+		const float DistanceFromPlayer = FVector::Dist2D(Character->GetActorLocation(), FVector(X, Y, 0.0f));
+		if (DistanceFromPlayer > MaxBuildDistance)
+		{
+			OnComplete(FDocModOperationResult::Failure(TEXT("BUILD_DISTANCE_EXCEEDED"),
+				FString::Printf(TEXT("Target is %.0f units from the player, exceeding the configured Max Build Distance of %.0f units (Limit RPC Build Distance From Player is enabled in DocMod's mod settings)"),
+					DistanceFromPlayer, MaxBuildDistance)));
+			return;
+		}
+	}
+
 	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
 	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGRecipe::StaticClass()))
 	{
@@ -2511,6 +2732,14 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 		// This does NOT bypass FactoryGame's OWN validation inside
 		// InternalConstructHologram() itself (unknown/unverified from
 		// source) - only DocMod's decision to attempt construction.
+		// UnlimitedResources (2026-08-27) - a player-controlled mod
+		// setting (DocModConfiguration.h), NOT another bIgnore* request
+		// param like the flags above - the caller can't opt into this,
+		// only the player can via the settings menu. Computed once per
+		// poll tick, not per disqualifier, to avoid a config lookup per
+		// entry in Disqualifiers.
+		const bool bUnlimitedResources = UDocModFunctionLibrary::GetDocModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
 		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
@@ -2519,7 +2748,8 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 				(PollState->bIgnoreAimLocation && DisqualifierClass == UFGCDInvalidAimLocation::StaticClass()) ||
 				(PollState->bIgnorePlayerEncroachment && DisqualifierClass == UFGCDEncroachingPlayer::StaticClass()) ||
 				(PollState->bIgnoreClearance && DisqualifierClass == UFGCDEncroachingClearance::StaticClass()) ||
-				(PollState->bIgnoreInvalidFloor && DisqualifierClass == UFGCDInvalidFloor::StaticClass());
+				(PollState->bIgnoreInvalidFloor && DisqualifierClass == UFGCDInvalidFloor::StaticClass()) ||
+				(bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredByFlag && !bIsSoft)
 			{
@@ -2761,13 +2991,38 @@ FDocModOperationResult UDocModFunctionLibrary::DismantleBuildable(UObject* World
 			FString::Printf(TEXT("'%s' cannot currently be dismantled (already dismantled, or has an un-dismantled parent)"), *BuildableId));
 	}
 
+	// Some buildables reference a separate, independently-existing child
+	// actor that Dismantle_Implementation() itself does not clean up -
+	// e.g. AFGBuildablePipeline's mFlowIndicator (a distinct
+	// AFGBuildablePipelineFlowIndicator actor, not a child component that
+	// would auto-destroy with its owner). GetChildDismantleActors exists
+	// specifically for this ("If we want to dismantle something else
+	// along with this, then add it through this" - FGDismantleInterface.h);
+	// the real player-driven path (UFGBuildGunStateDismantle) consults it,
+	// but Execute_Dismantle() on the buildable itself does not call it
+	// automatically. Without this, deleting a pipe via world.deleteBuilding
+	// left its fluid-fill indicator floating in place - confirmed live
+	// 2026-08-27, reported directly by the user. Gather while the
+	// buildable is still valid, dismantle each child first, then the
+	// buildable itself.
+	TArray<AActor*> ChildDismantleActors;
+	IFGDismantleInterface::Execute_GetChildDismantleActors(Buildable, ChildDismantleActors);
+	for (AActor* ChildActor : ChildDismantleActors)
+	{
+		if (IsValid(ChildActor) && ChildActor->Implements<UFGDismantleInterface>()
+			&& IFGDismantleInterface::Execute_CanDismantle(ChildActor))
+		{
+			IFGDismantleInterface::Execute_Dismantle(ChildActor);
+		}
+	}
+
 	// Real, safe dismantle - see this function's header doc comment.
 	// AFGBuildable::Dismantle_Implementation() handles connection
 	// cleanup, inventory locking/emptying, subsystem deregistration, and
 	// network-replicated actor destruction; this is not AActor::Destroy().
 	IFGDismantleInterface::Execute_Dismantle(Buildable);
 
-	UE_LOG(LogDocModAI, Display, TEXT("DismantleBuildable: %s"), *BuildableId);
+	UE_LOG(LogDocModAI, Display, TEXT("DismantleBuildable: %s (%d child actor(s) dismantled)"), *BuildableId, ChildDismantleActors.Num());
 
 	return FDocModOperationResult::Success();
 }
@@ -2982,6 +3237,23 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 		return;
 	}
 
+	// LimitBuildDistance (2026-08-27) - see ConstructBuildingAtPosition's
+	// identical check/comment for the full rationale (player-controlled
+	// mod setting, off by default, new synthetic restriction that doesn't
+	// exist in the base game or in DocMod's prior behavior).
+	if (UDocModFunctionLibrary::GetDocModConfigBool(World, TEXT("LimitBuildDistance"), false))
+	{
+		const float MaxBuildDistance = UDocModFunctionLibrary::GetDocModConfigFloat(World, TEXT("MaxBuildDistance"), 8000.0f);
+		const float DistanceFromPlayer = FVector::Dist2D(Character->GetActorLocation(), TargetNode->GetActorLocation());
+		if (DistanceFromPlayer > MaxBuildDistance)
+		{
+			OnComplete(FDocModOperationResult::Failure(TEXT("BUILD_DISTANCE_EXCEEDED"),
+				FString::Printf(TEXT("Target node is %.0f units from the player, exceeding the configured Max Build Distance of %.0f units (Limit RPC Build Distance From Player is enabled in DocMod's mod settings)"),
+					DistanceFromPlayer, MaxBuildDistance)));
+			return;
+		}
+	}
+
 	// The RF_SOLID-only gate this function used to enforce manually is
 	// gone (2026-08-27) - see this function's header doc comment for why
 	// (it only ever existed from being written/tested against Miners
@@ -3156,11 +3428,17 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 		// Player-independence (2026-08-27) - same manual disqualifier-ignore
 		// pattern as ConstructConveyorBelt, replacing the real (opaque)
 		// CanConstruct() this function used to call directly.
+		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// comment on this being a player-controlled mod setting, not a
+		// per-call flag.
+		const bool bUnlimitedResources = UDocModFunctionLibrary::GetDocModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
 		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
 			{
@@ -3448,13 +3726,18 @@ void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObjec
 		// InternalConstructHologram() itself. UFGCDWireTooLong is
 		// deliberately NOT ignorable here - unlike the other two, it is
 		// presumed to reflect the real, deterministic mMaxLength check.
+		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// identical comment on this being a player-controlled mod setting.
+		const bool bUnlimitedResources = UDocModFunctionLibrary::GetDocModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
 		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
 			const bool bIgnoredByFlag =
 				(PollState->bIgnoreAimLocation && DisqualifierClass == UFGCDInvalidAimLocation::StaticClass()) ||
-				(PollState->bIgnoreWireSnap && DisqualifierClass == UFGCDWireSnap::StaticClass());
+				(PollState->bIgnoreWireSnap && DisqualifierClass == UFGCDWireSnap::StaticClass()) ||
+				(bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredByFlag && !bIsSoft)
 			{
@@ -4662,11 +4945,17 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		// aim-pointing workaround be removed entirely from this function -
 		// belt/lift construction results are now fully independent of
 		// player position/camera.
+		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// comment on this being a player-controlled mod setting, not a
+		// per-call flag.
+		const bool bUnlimitedResources = UDocModFunctionLibrary::GetDocModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
 		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
 			{
@@ -5022,11 +5311,17 @@ void UDocModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, 
 
 		// Player-independence fix - same rationale as ConstructConveyorBelt's
 		// identical block above.
+		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// comment on this being a player-controlled mod setting, not a
+		// per-call flag.
+		const bool bUnlimitedResources = UDocModFunctionLibrary::GetDocModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
 		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
 			{
@@ -5331,11 +5626,17 @@ void UDocModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FS
 		// Player-independence (2026-08-27) - same manual disqualifier-ignore
 		// pattern as ConstructConveyorBelt, replacing the real (opaque)
 		// CanConstruct() this function used to call directly.
+		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// comment on this being a player-controlled mod setting, not a
+		// per-call flag.
+		const bool bUnlimitedResources = UDocModFunctionLibrary::GetDocModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
 		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
 			{
@@ -5623,11 +5924,17 @@ void UDocModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, con
 			return;
 		}
 
+		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// comment on this being a player-controlled mod setting, not a
+		// per-call flag.
+		const bool bUnlimitedResources = UDocModFunctionLibrary::GetDocModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
 		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
 			{

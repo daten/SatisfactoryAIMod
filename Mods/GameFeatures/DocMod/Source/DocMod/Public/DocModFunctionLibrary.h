@@ -29,6 +29,27 @@ public:
 	static FString GetInterfaceVersion();
 
 	/**
+	 * Reads a bool property's live value out of DocMod's player-facing mod
+	 * configuration (see DocModConfiguration.h - UDocModConfiguration,
+	 * registered via UConfigManager::RegisterModConfiguration in
+	 * UDocModHttpServerSubsystem::Initialize). Returns DefaultValue if the
+	 * config manager/section/property can't be found (e.g. called before
+	 * the game instance subsystem chain is ready) - never throws, never
+	 * treats a missing config as an error, since these are all
+	 * off-by-default safety/capability toggles where "can't read it" and
+	 * "player left it off" should behave identically.
+	 *
+	 * Not a UFUNCTION - internal infrastructure shared between
+	 * DocModFunctionLibrary.cpp's construction functions and
+	 * DocModHttpServerSubsystem.cpp's loopback check, not part of the
+	 * external RPC surface.
+	 */
+	static bool GetDocModConfigBool(UObject* WorldContextObject, const FString& PropertyName, bool DefaultValue);
+
+	/** Float counterpart to GetDocModConfigBool - see its doc comment. */
+	static float GetDocModConfigFloat(UObject* WorldContextObject, const FString& PropertyName, float DefaultValue);
+
+	/**
 	 * Enumerates all AFGResourceNode actors in the world via TActorIterator
 	 * (see docs/resource-node-research.md for why - no working manager API
 	 * was found) and returns them as normalized, protocol-facing telemetry
@@ -167,6 +188,106 @@ public:
 	static FString LogPlayerAsJson(UObject* WorldContextObject);
 
 	/**
+	 * Serializes the current in-game time of day to
+	 * {"protocolVersion":1,"hour":H,"minute":M,"daySeconds":S,"isDay":bool}
+	 * via AFGTimeOfDaySubsystem::Get()'s own GetHours()/GetMinutes()/
+	 * GetDaySeconds()/IsDay() - added 2026-08-27 so a caller can check the
+	 * current time before deciding whether to call SetTimeOfDay.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTimeOfDayAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Forces the in-game time of day to a specific hour/minute - added
+	 * 2026-08-27 per explicit user request: the day/night cycle made it
+	 * hard to visually observe live builds once it went dark, and they
+	 * wanted to be able to reset to a specific daylight time on demand.
+	 *
+	 * AFGTimeOfDaySubsystem (FGTimeSubsystem.h) exposes a public, plain
+	 * C++ SetDaySeconds(float) - not BlueprintCallable, and not exposed
+	 * to the generic RPC surface directly, since this class must never
+	 * grow a "call any function by name" method (see this class's header
+	 * doc comment). The real hour/minute-based setter,
+	 * UFGCheatManager::SetTimeOfDay(int32 hour, int32 minute), exists
+	 * specifically to convert hour/minute to seconds via
+	 * AFGTimeOfDaySubsystem's own SECONDS_PER_HOUR/SECONDS_PER_MINUTE
+	 * constants (AFGTimeOfDaySubsystem declares
+	 * "friend class UFGCheatManager;" for exactly this) and route through
+	 * Server_SetTimeOfDay - but reaching a real UFGCheatManager instance
+	 * depends on cheats being enabled for the local player controller,
+	 * which isn't guaranteed in an ordinary session. Since DocMod's own
+	 * code has full engine access (not a Blueprint-only caller), this
+	 * calls AFGTimeOfDaySubsystem::SetDaySeconds() directly with
+	 * Hour*SECONDS_PER_HOUR + Minute*SECONDS_PER_MINUTE, then
+	 * ForceReplicateTimeToClients() (public, exists specifically to push
+	 * a manual time change out) so the change is visible immediately
+	 * rather than waiting for the next periodic sync.
+	 *
+	 * Fails with INVALID_REQUEST if Hour is outside [0,23] or Minute is
+	 * outside [0,59]. Does not persist as a "fixed" time - the day/night
+	 * cycle continues advancing normally from the new time, per
+	 * mUpdateTime/the normal Tick() behavior; this is a one-shot jump,
+	 * not a pause.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult SetTimeOfDay(UObject* WorldContextObject, int32 Hour, int32 Minute);
+
+	/**
+	 * Serializes the local player's chat history (AFGChatManager::
+	 * GetReceivedChatMessages()) to
+	 * {"protocolVersion":1,"messages":[{"sender","text","type","timestamp","isLocalPlayerMessage"},...]}
+	 * - added 2026-08-27 per explicit user request for optional two-way
+	 * chat with the player.
+	 *
+	 * This is genuinely two-way without any extra plumbing: a message the
+	 * player types in the normal in-game chat box flows through the
+	 * ordinary game chat pipeline into this same
+	 * AFGChatManager::mReceivedMessages array SendChatMessage below
+	 * writes to - there is no separate "player input" channel to poll.
+	 * "type" is one of "PlayerMessage"/"SystemMessage"/"AdaMessage"/
+	 * "CustomMessage" (EFGChatMessageType). No "since last call"
+	 * filtering exists here - the caller is expected to track its own
+	 * high-water mark (e.g. by count or by "timestamp") between polls,
+	 * per CLAUDE.md's "external controller" responsibilities.
+	 *
+	 * NOTE: messages the player sends with a leading "/" never reach
+	 * this array at all - SML's own AFGPlayerController::
+	 * ChatMessageEntered hook diverts anything "/"-prefixed to chat
+	 * command dispatch (this is also how DocMod's own "/docmod" command
+	 * works - see DocModChatCommand.cpp) before it's ever added as a
+	 * normal chat message.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogChatHistoryAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Posts a message into the player's in-game chat - added 2026-08-27
+	 * per explicit user request so the AI controller can optionally talk
+	 * back to the player through Satisfactory's own chat UI, not just
+	 * this process's own logs/console.
+	 *
+	 * Uses AFGChatManager::AddChatMessageToReceived() - the same
+	 * mechanism SML's own USMLRemoteCallObject::SendChatMessage_
+	 * Implementation uses (SMLRemoteCallObject.cpp) - rather than
+	 * BroadcastChatMessage()'s NetMulticast RPC, since AddChatMessageToReceived
+	 * is the simpler, already-proven-in-this-codebase path and this
+	 * project is explicitly single-player/local-session scope (PLAN.md/
+	 * CLAUDE.md), where there's no separate remote client to multicast
+	 * to. Defaults Sender to "DocMod AI" and MessageType to
+	 * EFGChatMessageType::CMT_CustomMessage (a distinct visual style from
+	 * ordinary player chat) if not overridden. Fails with INVALID_REQUEST
+	 * if Message is empty.
+	 *
+	 * No rate limiting is implemented (flagged, not built - the real
+	 * FGChatManager.cpp doesn't visibly enforce any either, per this
+	 * feature's own research, so this matches the base game's own
+	 * behavior rather than under- or over-restricting it) - a caller
+	 * hammering this repeatedly could still flood the player's chat.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult SendChatMessage(UObject* WorldContextObject, const FString& Message, const FString& Sender);
+
+	/**
 	 * PLAN.md Phase 12: first controlled write operation. Sets the clock
 	 * speed (FactoryGame's "potential") on an existing manufacturing
 	 * building, identified by the session-local id from
@@ -229,6 +350,17 @@ public:
 	 * and reuses the exact same Execute_Dismantle() call -
 	 * AFGBuildable::Dismantle_Implementation() already has a dedicated
 	 * branch that correctly removes the lightweight instance for us.
+	 *
+	 * Also dismantles any IFGDismantleInterface::GetChildDismantleActors()
+	 * children first (fixed 2026-08-27) - some buildables reference a
+	 * separate, independently-existing actor that Dismantle_Implementation()
+	 * itself does not clean up (e.g. AFGBuildablePipeline's mFlowIndicator,
+	 * a distinct AFGBuildablePipelineFlowIndicator actor, not a child
+	 * component). The real player-driven dismantle path
+	 * (UFGBuildGunStateDismantle) consults GetChildDismantleActors;
+	 * Execute_Dismantle() alone does not. Without this, deleting a pipe
+	 * left its fluid-fill indicator floating in place after the pipe
+	 * itself disappeared - confirmed live, reported by the user.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId);

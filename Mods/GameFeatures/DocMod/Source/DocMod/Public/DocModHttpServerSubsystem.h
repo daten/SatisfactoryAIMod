@@ -86,7 +86,47 @@ struct FHttpServerRequest;
  * gun/hologram involved, unlike construction) - delegates to
  * UDocModFunctionLibrary::DismantleBuildable, the real
  * IFGDismantleInterface flow, not AActor::Destroy(). Added 2026-08-25
- * so live testing can clean up stray buildables between attempts.
+ * so live testing can clean up stray buildables between attempts. Fixed
+ * 2026-08-27 to also dismantle any IFGDismantleInterface::
+ * GetChildDismantleActors() children first (e.g. a pipe's separate
+ * AFGBuildablePipelineFlowIndicator actor, previously left floating in
+ * place after the pipe itself was removed - see DismantleBuildable's
+ * doc comment).
+ *
+ * "world.timeOfDay" (read-only, no params) reports the current
+ * {"hour","minute","daySeconds","isDay"} via AFGTimeOfDaySubsystem.
+ * "world.setTimeOfDay" ({"hour","minute"}, minute optional/default 0) is
+ * SYNCHRONOUS - added 2026-08-27 per explicit user request so the
+ * day/night cycle going dark doesn't block live visual observation. See
+ * SetTimeOfDay's doc comment for why this calls
+ * AFGTimeOfDaySubsystem::SetDaySeconds() directly rather than going
+ * through UFGCheatManager.
+ *
+ * Player-controlled mod settings (DocModConfiguration.h, registered here
+ * in Initialize() via UConfigManager::RegisterModConfiguration) gate three
+ * safety/capability trade-offs, added 2026-08-27 per explicit user
+ * request - all default off, preserving prior behavior unless the player
+ * opts in from DocMod's entry in SML's normal mod settings menu: "Allow
+ * Remote Connections" (consulted right here, alongside the existing
+ * defense-in-depth IsLoopbackPeer() check - an RPC caller cannot request
+ * this itself), "Unlimited Resources for RPC Builds" (bypasses
+ * UFGCDUnaffordable in every Construct* function's disqualifier-ignore
+ * logic - see UDocModFunctionLibrary::GetDocModConfigBool's doc comment),
+ * and "Limit RPC Build Distance From Player" + "Max Build Distance" (a
+ * brand-new synthetic restriction - no such disqualifier exists natively;
+ * checked early in ConstructBuildingAtPosition/ConstructExtractorOnNode,
+ * default 8000 units ~= 10 foundation tiles).
+ *
+ * "world.chatHistory" (read-only, no params) reports
+ * {"messages":[{"sender","text","type","timestamp","isLocalPlayerMessage"},...]}
+ * via AFGChatManager::GetReceivedChatMessages() - genuinely two-way
+ * without extra plumbing, since a message the player types normally
+ * (not "/"-prefixed - those go to chat command dispatch instead) lands
+ * in this same array through the ordinary game chat pipeline. See
+ * LogChatHistoryAsJson's doc comment. "world.sendChatMessage"
+ * ({"message","sender"}, sender optional/default "DocMod AI") is
+ * SYNCHRONOUS - both added 2026-08-27 per explicit user request for
+ * optional two-way chat between the AI controller and the player.
  *
  * "world.placeBuilding" ({"recipeClass","x","y"}, plus optional
  * "rotationScrollDelta" (default 0), "gridSnapSize" (default 100,

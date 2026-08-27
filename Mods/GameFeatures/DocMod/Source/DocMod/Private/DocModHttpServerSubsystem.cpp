@@ -15,6 +15,8 @@
 #include "Policies/CondensedJsonPrintPolicy.h"
 #include "Engine/GameInstance.h"
 #include "IPAddress.h"
+#include "DocModConfiguration.h"
+#include "Configuration/ConfigManager.h"
 
 namespace
 {
@@ -107,6 +109,21 @@ void UDocModHttpServerSubsystem::Initialize(FSubsystemCollectionBase& Collection
 {
 	Super::Initialize(Collection);
 
+	// Registers DocMod's player-facing mod settings (DocModConfiguration.h)
+	// so they show up in SML's normal mod settings menu, load from/save to
+	// disk, and are readable via UDocModFunctionLibrary::GetDocModConfigBool/
+	// GetDocModConfigFloat elsewhere in this module. Added 2026-08-27 per
+	// explicit user request for player-controlled safety/capability
+	// toggles instead of hardcoded defaults or per-call opt-in flags.
+	if (UConfigManager* ConfigManager = GetGameInstance() ? GetGameInstance()->GetSubsystem<UConfigManager>() : nullptr)
+	{
+		ConfigManager->RegisterModConfiguration(UDocModConfiguration::StaticClass());
+	}
+	else
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("DocMod HTTP server: no UConfigManager found - mod settings (remote connections, unlimited resources, build distance limit) will use their off-by-default values and won't be player-editable this session"));
+	}
+
 	FHttpServerModule& HttpServerModule = FHttpServerModule::Get();
 	Router = HttpServerModule.GetHttpRouter(ListenPort, /*bFailOnBindFailure=*/false);
 	if (!Router.IsValid())
@@ -140,12 +157,25 @@ void UDocModHttpServerSubsystem::Deinitialize()
 
 bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
 {
-	if (!IsLoopbackPeer(Request))
+	// AllowRemoteConnections (2026-08-27) - a player-controlled mod
+	// setting (DocModConfiguration.h), off by default: this defense-in-depth
+	// check still runs unconditionally otherwise, per this class's header
+	// doc comment ("bind only to loopback by default... design the
+	// transport so remote access is not accidentally enabled" -
+	// CLAUDE.md's Networking rules). An external RPC caller cannot enable
+	// this itself - only the player, from DocMod's settings menu.
+	const bool bAllowRemoteConnections = UDocModFunctionLibrary::GetDocModConfigBool(GetGameInstance(), TEXT("AllowRemoteConnections"), false);
+	if (!bAllowRemoteConnections && !IsLoopbackPeer(Request))
 	{
 		const FString PeerDescription = Request.PeerAddress.IsValid() ? Request.PeerAddress->ToString(/*bAppendPort=*/true) : TEXT("<unknown>");
-		UE_LOG(LogDocModAI, Warning, TEXT("DocMod HTTP server: rejected non-loopback request from %s"), *PeerDescription);
-		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::Forbidden, TEXT(""), TEXT("FORBIDDEN"), TEXT("DocMod RPC only accepts loopback connections")));
+		UE_LOG(LogDocModAI, Warning, TEXT("DocMod HTTP server: rejected non-loopback request from %s (enable 'Allow Remote Connections' in DocMod's mod settings to accept this)"), *PeerDescription);
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::Forbidden, TEXT(""), TEXT("FORBIDDEN"), TEXT("DocMod RPC only accepts loopback connections (enable 'Allow Remote Connections' in DocMod's mod settings to change this)")));
 		return true;
+	}
+	else if (bAllowRemoteConnections && !IsLoopbackPeer(Request))
+	{
+		const FString PeerDescription = Request.PeerAddress.IsValid() ? Request.PeerAddress->ToString(/*bAppendPort=*/true) : TEXT("<unknown>");
+		UE_LOG(LogDocModAI, Warning, TEXT("DocMod HTTP server: accepted non-loopback request from %s - 'Allow Remote Connections' is enabled in DocMod's mod settings"), *PeerDescription);
 	}
 
 	if (Request.Body.Num() > MaxRequestBodyBytes)
@@ -257,6 +287,67 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		}
 
 		const FDocModOperationResult Result = UDocModFunctionLibrary::DismantleBuildable(GetGameInstance(), BuildableId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Synchronous - direct AFGTimeOfDaySubsystem::SetDaySeconds() call, no
+	// build gun/hologram involved. Added 2026-08-27 per explicit user
+	// request so live testing/observation isn't blocked by the day/night
+	// cycle going dark - see SetTimeOfDay's doc comment for why this
+	// doesn't go through UFGCheatManager.
+	if (Method == TEXT("world.setTimeOfDay"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		int32 Hour = 0;
+		if (!ParamsObject->TryGetNumberField(TEXT("hour"), Hour))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.hour must be an integer")));
+			return true;
+		}
+
+		int32 Minute = 0;
+		ParamsObject->TryGetNumberField(TEXT("minute"), Minute);
+
+		const FDocModOperationResult Result = UDocModFunctionLibrary::SetTimeOfDay(GetGameInstance(), Hour, Minute);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Synchronous - AFGChatManager::AddChatMessageToReceived(), no build
+	// gun/hologram involved. Added 2026-08-27 per explicit user request
+	// for optional two-way chat with the player - see SendChatMessage's
+	// doc comment for why this doesn't use BroadcastChatMessage's
+	// NetMulticast RPC.
+	if (Method == TEXT("world.sendChatMessage"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString Message;
+		if (!ParamsObject->TryGetStringField(TEXT("message"), Message) || Message.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.message must be a non-empty string")));
+			return true;
+		}
+
+		// Optional, defaults to "DocMod AI" - see SendChatMessage's doc comment.
+		FString Sender;
+		ParamsObject->TryGetStringField(TEXT("sender"), Sender);
+
+		const FDocModOperationResult Result = UDocModFunctionLibrary::SendChatMessage(GetGameInstance(), Message, Sender);
 		OnComplete(MakeOperationResponse(Result, RequestId));
 		return true;
 	}
@@ -693,6 +784,14 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	else if (Method == TEXT("world.player"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogPlayerAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.timeOfDay"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogTimeOfDayAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.chatHistory"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogChatHistoryAsJson(GetGameInstance());
 	}
 	else
 	{
