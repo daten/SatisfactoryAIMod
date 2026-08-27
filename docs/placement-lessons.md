@@ -738,3 +738,54 @@ even though the junction itself is long gone). When tearing down a
 junction to rebuild the network around it, delete every pipe segment
 still attached to it FIRST (check via `world.pipeConnections` before
 deleting the junction), not just the junction itself.
+
+## Two new determinism tools: `world.groundHeight` and `faceBuildableId` (2026-08-27)
+
+Per explicit user request: repeated Z-height and rotation inconsistencies
+across this whole project (see the "real z/gridSnapSize semantics",
+`rotationScrollDelta`'s non-linearity, and connector-normal-matching
+sections elsewhere in this doc) all shared the same root shape - the
+caller (a human or an agent) had to already know a non-obvious mod-level
+quirk and/or do real-world vector math externally to get a reliable
+result. Two new tools remove that "special knowledge" requirement rather
+than making placement more forgiving of guesses (a deliberate choice -
+see the note at the end of this section):
+
+- **`world.groundHeight`** (`{"x","y"}`, optional `"z"` anchor) - runs
+  the EXACT SAME ground trace `world.placeBuilding` uses internally
+  (factored into a shared `FindGroundAtXY` helper so the two can't drift
+  out of sync) and reports the real resolved Z, as a plain read-only
+  query with no hologram/construction involved. Query this FIRST, then
+  pass the returned `"z"` straight back in as `world.placeBuilding`'s
+  `"z"` - guaranteed to match, no more guess-and-iterate on what Z a
+  given X/Y will actually resolve to.
+- **`faceBuildableId`** (new optional param on `world.placeBuilding`) -
+  resolves an existing buildable's real position
+  (`world.buildables`-equivalent lookup done server-side) and computes
+  the exact yaw needed to face it - `(TargetPos - PlacementLocation)
+  .Rotation().Yaw` - fed through the same proven absolute-yaw mechanism
+  the `"yaw"` param already used. This automates the manual "place at
+  yaw=0, read the real connector normal via `world.connections`/
+  `world.pipeConnections`, compute the needed delta, delete and
+  re-place, re-verify" dance that was repeated by hand for the
+  hypertube-entrance rotation fix and elsewhere this session. Takes
+  priority over an explicit `"yaw"` if both are given. Fails with
+  `FACE_TARGET_NOT_FOUND` if the id doesn't resolve.
+
+**Scope note, worth remembering**: `faceBuildableId` orients the WHOLE
+building to face a point - it does NOT (yet) reason about which SPECIFIC
+connector on a multi-connector building (e.g. a splitter's 3 outputs)
+ends up facing the target. For a single-connector building (most simple
+machines, hypertube entrances) this is a complete, correct fix. For
+multi-connector buildings, the connector-geometry-probing workflow
+documented elsewhere in this file is still the right approach.
+
+**Why this is "give exact numbers," not "make placement more forgiving"**
+(a deliberate design line, matching this project's broader stance after
+the pipe misroute bug earlier this session): both tools compute a REAL,
+EXACT value from REAL geometry and hand it to the caller/mechanism that
+already existed and was already proven reliable - they don't add new
+tolerance, fallback logic, or silent auto-correction on the construction
+path itself. A call that fails now still fails loudly for a real reason;
+it just doesn't require the caller to already know an internal mod quirk
+to get the *inputs* right in the first place.

@@ -50,6 +50,31 @@ public:
 	static float GetDocModConfigFloat(UObject* WorldContextObject, const FString& PropertyName, float DefaultValue);
 
 	/**
+	 * Serializes a real ground-trace query to
+	 * {"protocolVersion":1,"found":bool,"x":X,"y":Y,"z":realZ,"normal":{...}}
+	 * - added 2026-08-27 per explicit user request to make placement
+	 * height deterministic without requiring the caller to already know
+	 * that world.placeBuilding's "z" param is a +/-1000-unit ground-trace
+	 * SEARCH CENTER, not a literal height (see
+	 * docs/placement-lessons.md's real z/gridSnapSize semantics section).
+	 * A caller can query the real ground Z at a given X/Y first, then
+	 * pass the returned "z" straight back in as world.placeBuilding's
+	 * ReferenceZ - guaranteed to match, no more guess-and-iterate.
+	 *
+	 * ReferenceZ works exactly like ConstructBuildingAtPosition's own
+	 * param: anchors the search, defaults to the player's current Z if
+	 * omitted (sentinel <= -1000000). Uses the exact same trace as actual
+	 * construction (FindGroundAtXY, factored out of
+	 * ConstructBuildingAtPosition specifically so this can't drift out
+	 * of sync with what a real placement would resolve to). "found":false
+	 * means the trace hit nothing within +/-1000 units of ReferenceZ -
+	 * "z" in that case is just the literal search center, matching what
+	 * ConstructBuildingAtPosition itself falls back to.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogGroundHeightAsJson(UObject* WorldContextObject, float X, float Y, float ReferenceZ);
+
+	/**
 	 * Enumerates all AFGResourceNode actors in the world via TActorIterator
 	 * (see docs/resource-node-research.md for why - no working manager API
 	 * was found) and returns them as normalized, protocol-facing telemetry
@@ -642,8 +667,23 @@ public:
 	 * the recommended way to get a specific orientation reliably -
 	 * RotationScrollDelta remains for callers that only care about SOME
 	 * rotation being applied, not a specific one.
+	 *
+	 * FaceBuildableId (2026-08-27, optional, empty = unused): resolves an
+	 * existing buildable's real position (FindBuildableById) and computes
+	 * TargetYawDegrees from it automatically - (Target - PlacementLocation)
+	 * .Rotation().Yaw - instead of requiring the caller to fetch that
+	 * buildable's position separately and do the vector math themselves.
+	 * Takes priority over an explicit bHasTargetYaw/TargetYawDegrees if
+	 * both are given. Fails with FACE_TARGET_NOT_FOUND if the id doesn't
+	 * resolve. Added per explicit user request to make orientation
+	 * "not require special knowledge on the side of the agent" - this
+	 * automates the exact manual "read connector normal, compute delta,
+	 * rotate, reverify" dance repeated all session for splitters/mergers/
+	 * hypertube entrances. Only orients the WHOLE building to face the
+	 * target's position - does not (yet) reason about which SPECIFIC
+	 * connector on a multi-connector building ends up facing it.
 	 */
-	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * PLAN.md Phase 13/14: dry-run only, no-mutation experiment toward

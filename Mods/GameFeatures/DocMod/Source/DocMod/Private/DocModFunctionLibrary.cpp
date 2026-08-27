@@ -62,6 +62,61 @@
 
 namespace
 {
+	// Forward declaration - real definition lives further down (originally
+	// written for use only after that point in the file); ConstructBuildingAtPosition's
+	// faceBuildableId support (2026-08-27) needs to call it earlier than that.
+	// Anonymous namespaces in the same translation unit all merge into one,
+	// so this and the later definition refer to the same function - only
+	// textual order (declare before use) matters here.
+	AFGBuildable* FindBuildableById(UWorld* World, const FString& BuildableId);
+	FString WriteCondensedJson(const TSharedRef<FJsonObject>& RootObject);
+
+	/**
+	 * Shared ground-trace logic (2026-08-27), factored out of
+	 * ConstructBuildingAtPosition so world.groundHeight can expose the
+	 * exact same real trace as a standalone, read-only query - added per
+	 * explicit user request to make placement Z deterministic without
+	 * requiring the caller to already know that "z" is a +/-1000-unit
+	 * search center, not a literal height (see docs/placement-lessons.md).
+	 * A caller can now query the real ground Z at an X/Y first, then pass
+	 * that exact value back in as ReferenceZ - no more guess-and-iterate.
+	 */
+	struct FGroundTraceResult
+	{
+		bool bFound = false;
+		// Full hit, not just Location/Normal - ConstructBuildingAtPosition's
+		// synthetic hit needs every field a real trace would populate
+		// (Component, Distance, HitObjectHandle, etc.), not just the two
+		// values world.groundHeight cares about.
+		FHitResult Hit;
+	};
+
+	FGroundTraceResult FindGroundAtXY(UWorld* World, float X, float Y, float ZSearchCenter, AActor* IgnoreActor)
+	{
+		FGroundTraceResult Result;
+
+		FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(DocModGroundTrace), false);
+		if (IgnoreActor)
+		{
+			QueryParams.AddIgnoredActor(IgnoreActor);
+		}
+		const FVector TraceStart(X, Y, ZSearchCenter + 1000.0f);
+		const FVector TraceEnd(X, Y, ZSearchCenter - 1000.0f);
+
+		Result.bFound = World->LineTraceSingleByChannel(Result.Hit, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
+		if (!Result.bFound)
+		{
+			// Same fallback ConstructBuildingAtPosition always used: the
+			// literal search-center point, facing straight up.
+			Result.Hit.Location = FVector(X, Y, ZSearchCenter);
+			Result.Hit.ImpactPoint = Result.Hit.Location;
+			Result.Hit.Normal = FVector::UpVector;
+			Result.Hit.ImpactNormal = FVector::UpVector;
+			Result.Hit.bBlockingHit = true;
+		}
+		return Result;
+	}
+
 	// GetResourcePurityText() looked like a plain display string but is
 	// actually Slate rich-text markup meant for on-screen UI (its own doc
 	// comment says "For UI") - confirmed against a real save, it returned
@@ -796,6 +851,40 @@ float UDocModFunctionLibrary::GetDocModConfigFloat(UObject* WorldContextObject, 
 		return FloatProperty->Value;
 	}
 	return DefaultValue;
+}
+
+FString UDocModFunctionLibrary::LogGroundHeightAsJson(UObject* WorldContextObject, float X, float Y, float ReferenceZ)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("LogGroundHeightAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	const float ZSearchCenter = (ReferenceZ > -1000000.0f) ? ReferenceZ : (Character ? Character->GetActorLocation().Z : 0.0f);
+
+	const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+
+	const TSharedRef<FJsonObject> NormalObject = MakeShared<FJsonObject>();
+	NormalObject->SetNumberField(TEXT("x"), GroundTrace.Hit.Normal.X);
+	NormalObject->SetNumberField(TEXT("y"), GroundTrace.Hit.Normal.Y);
+	NormalObject->SetNumberField(TEXT("z"), GroundTrace.Hit.Normal.Z);
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetBoolField(TEXT("found"), GroundTrace.bFound);
+	RootObject->SetNumberField(TEXT("x"), X);
+	RootObject->SetNumberField(TEXT("y"), Y);
+	RootObject->SetNumberField(TEXT("z"), GroundTrace.Hit.Location.Z);
+	RootObject->SetObjectField(TEXT("normal"), NormalObject);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogGroundHeightAsJson: %s"), *JsonString);
+
+	return JsonString;
 }
 
 TArray<FDocModResourceNodeTelemetry> UDocModFunctionLibrary::GetResourceNodeTelemetry(UObject* WorldContextObject)
@@ -2370,7 +2459,7 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, the building WILL be constructed; see LogDocModAI for the real result"));
 }
 
-void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -2486,33 +2575,41 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	// preserves the prior player-Z-anchored behavior.
 	const FVector PlayerLocation = Character->GetActorLocation();
 	const float ZSearchCenter = (ReferenceZ > -1000000.0f) ? ReferenceZ : PlayerLocation.Z;
-	const FVector CandidateXY(X, Y, ZSearchCenter);
 
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(DocModConstructBuildingAtPosition), false);
-	QueryParams.AddIgnoredActor(Character);
-	const FVector TraceStart(X, Y, ZSearchCenter + 1000.0f);
-	const FVector TraceEnd(X, Y, ZSearchCenter - 1000.0f);
-
-	FHitResult GroundHit;
-	const bool bFoundGround = World->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
-
-	FHitResult SyntheticHit;
-	if (bFoundGround)
-	{
-		SyntheticHit = GroundHit;
-	}
-	else
+	const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+	if (!GroundTrace.bFound)
 	{
 		UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingAtPosition: ground trace found nothing at (%.0f, %.0f) around Z=%.0f - falling back to that Z"), X, Y, ZSearchCenter);
-		SyntheticHit.Location = CandidateXY;
-		SyntheticHit.ImpactPoint = SyntheticHit.Location;
-		SyntheticHit.Normal = FVector::UpVector;
-		SyntheticHit.ImpactNormal = FVector::UpVector;
-		SyntheticHit.bBlockingHit = true;
 	}
 
+	FHitResult SyntheticHit = GroundTrace.Hit;
+
 	UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: recipe=%s groundTraceHit=%s location=%s"),
-		*RecipeClassPath, bFoundGround ? TEXT("true") : TEXT("false"), *SyntheticHit.Location.ToString());
+		*RecipeClassPath, GroundTrace.bFound ? TEXT("true") : TEXT("false"), *SyntheticHit.Location.ToString());
+
+	// faceBuildableId (2026-08-27) - computes TargetYawDegrees from the
+	// REAL placement location and an existing buildable's REAL position,
+	// instead of requiring the caller to fetch both separately and do
+	// this vector math themselves externally (the exact manual dance
+	// this project's own placement work has repeated all session for
+	// splitters/mergers/hypertube entrances - see
+	// docs/placement-lessons.md). Takes priority over an explicit
+	// bHasTargetYaw/TargetYawDegrees if both are somehow provided, since
+	// a resolved real target is more specific than a raw number.
+	if (!FaceBuildableId.IsEmpty())
+	{
+		AFGBuildable* FaceTarget = FindBuildableById(World, FaceBuildableId);
+		if (!FaceTarget)
+		{
+			OnComplete(FDocModOperationResult::Failure(TEXT("FACE_TARGET_NOT_FOUND"),
+				FString::Printf(TEXT("faceBuildableId '%s' did not resolve to an existing buildable"), *FaceBuildableId)));
+			return;
+		}
+		const FRotator FaceRotation = (FaceTarget->GetActorLocation() - SyntheticHit.Location).Rotation();
+		bHasTargetYaw = true;
+		TargetYawDegrees = FaceRotation.Yaw;
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: faceBuildableId=%s resolved yaw=%.1f"), *FaceBuildableId, TargetYawDegrees);
+	}
 
 	// Live investigation (2026-08-25): "Invalid aim location!" was found
 	// to persist even at ~100 units distance, directly along the

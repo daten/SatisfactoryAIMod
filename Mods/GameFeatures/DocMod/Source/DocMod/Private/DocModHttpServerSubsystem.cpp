@@ -453,11 +453,19 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		double TargetYawDegrees = 0.0;
 		const bool bHasTargetYaw = ParamsObject->TryGetNumberField(TEXT("yaw"), TargetYawDegrees);
 
+		// Optional - resolves an existing buildable's real position and
+		// computes yaw automatically, instead of requiring the caller to
+		// fetch it and do the vector math themselves. Takes priority over
+		// "yaw" if both are given. See ConstructBuildingAtPosition's doc
+		// comment on FaceBuildableId.
+		FString FaceBuildableId;
+		ParamsObject->TryGetStringField(TEXT("faceBuildableId"), FaceBuildableId);
+
 		// FHttpResultCallback is a TFunction, safe to copy - captured by
 		// value so it stays alive until the deferred poll actually calls it.
 		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta), static_cast<float>(GridSnapSize), static_cast<float>(ReferenceZ),
 			bIgnoreAimLocation, bIgnorePlayerEncroachment, bIgnoreClearance, bIgnoreInvalidFloor,
-			bHasTargetYaw, static_cast<float>(TargetYawDegrees),
+			bHasTargetYaw, static_cast<float>(TargetYawDegrees), FaceBuildableId,
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));
@@ -792,6 +800,32 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	else if (Method == TEXT("world.chatHistory"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogChatHistoryAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.groundHeight"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0;
+		double Y = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		// Optional - same ReferenceZ semantics as world.placeBuilding's
+		// "z" param (search-center anchor, defaults to player Z). See
+		// LogGroundHeightAsJson's doc comment.
+		double ReferenceZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), ReferenceZ);
+
+		MethodResultJson = UDocModFunctionLibrary::LogGroundHeightAsJson(GetGameInstance(), static_cast<float>(X), static_cast<float>(Y), static_cast<float>(ReferenceZ));
 	}
 	else
 	{

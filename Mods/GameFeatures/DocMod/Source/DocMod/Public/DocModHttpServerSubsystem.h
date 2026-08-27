@@ -117,6 +117,17 @@ struct FHttpServerRequest;
  * checked early in ConstructBuildingAtPosition/ConstructExtractorOnNode,
  * default 8000 units ~= 10 foundation tiles).
  *
+ * "world.groundHeight" ({"x","y"}, optional "z" anchor) reports the real
+ * ground trace at that X/Y - {"found","x","y","z","normal"} - added
+ * 2026-08-27 per explicit user request to make placement Z deterministic
+ * without the caller needing to already know "z" is a search center, not
+ * a literal height (see LogGroundHeightAsJson's doc comment): query the
+ * real height first, then pass it straight back in as world.placeBuilding's
+ * "z". "world.placeBuilding" also gained an optional "faceBuildableId"
+ * (see ConstructBuildingAtPosition's doc comment) - resolves an existing
+ * buildable's real position and computes yaw automatically, instead of
+ * the caller fetching it and doing the vector math themselves.
+ *
  * "world.chatHistory" (read-only, no params) reports
  * {"messages":[{"sender","text","type","timestamp","isLocalPlayerMessage"},...]}
  * via AFGChatManager::GetReceivedChatMessages() - genuinely two-way
