@@ -59,7 +59,17 @@ struct FHttpServerRequest;
  * on why min/max height limits are NOT reported - a real gap, not an
  * omission), "world.targetedManufacturer"
  * (whatever manufacturer the local player
- * is currently looking at - "manufacturer":null if none). Write methods
+ * is currently looking at - "manufacturer":null if none),
+ * "world.recipeCatalog"/"world.itemCatalog"/"world.buildableCatalog"
+ * (2026-08-27, per explicit user request to support pre-planning complex
+ * builds - the full static game database: every recipe/alternate
+ * including not-yet-unlocked ones, every item descriptor with its form/
+ * stack size/energy value, every building with its construction cost,
+ * power consumption/production, clock-speed range, and factory/pipe/
+ * power connection counts - see LogRecipeCatalogAsJson's doc comment for
+ * the full field list and an IMPORTANT caveat: the backing
+ * AFGRecipeManager::Get() is stub-source in Editor/PIE and only resolves
+ * in the packaged/Alpakit-deployed game). Write methods
  * (PLAN.md Phase 12, take a "params" object): "world.setClockSpeed"
  * ({"buildableId","clockSpeedPercent"}), "world.setRecipe"
  * ({"buildableId","recipeClass"}) - both delegate all validation to

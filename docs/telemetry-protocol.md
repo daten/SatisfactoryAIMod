@@ -398,8 +398,22 @@ exactly the open pole-recipe question above.
 ```
 
 Added 2026-08-25 in response to the user asking to research/verify/build
-splitter+merger support ahead of a future session — **NOT YET
-LIVE-TESTED.** See `docs/conveyor-attachment-research.md` for the full
+splitter+merger support ahead of a future session. **Live-tested
+2026-08-27**: the example JSON above (`inputCount`/`outputCount`) is now
+confirmed correct against a real session — but the *first* live test
+found this method had been silently returning `inputCount`/
+`outputCount` of `0`/`0` for every entry since it was written, because
+`GetComponents<UFGFactoryConnectionComponent>()` on a class's CDO only
+finds natively-added (`CreateDefaultSubobject`) components — these
+buildables add their connectors via the Blueprint's Simple Construction
+Script instead, which never populates onto the CDO. Fixed by switching to
+`AFGBuildable::GetDefaultComponents<>()`, FactoryGame's own purpose-built
+helper that additionally walks the Blueprint inheritance chain's SCS
+nodes (resolving `InheritableComponentHandler` overrides). The same fix
+was needed in `buildableCatalog` below (built with the same,
+now-corrected pattern from the start of its live testing, so it never
+shipped the bug) — see that section's note. See
+`docs/conveyor-attachment-research.md` for the full
 research trail; the key finding: splitters and mergers use
 `AFGConveyorAttachmentHologram : AFGFactoryHologram :
 AFGBuildableHologram` — the **same simple, single-step hologram lineage**
@@ -438,6 +452,155 @@ mirror this shape. No dedicated toolkit module was added (unlike
 `conveyors.py`/`power.py`/`pipes.py`) — there's no distance/speed/flow
 limit or chaining pattern to reason about here, just a placement +
 generic-connection lookup already covered by existing tools.
+
+## recipeCatalog (`method: "world.recipeCatalog"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "recipes": [
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Constructor/Recipe_IronPlate.Recipe_IronPlate_C",
+      "displayName": "Iron Plate",
+      "isBuildingRecipe": false,
+      "manufacturingDuration": 6.0,
+      "ingredients": [
+        { "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C", "itemName": "Iron Ingot", "amount": 3 }
+      ],
+      "products": [
+        { "itemClass": "/Game/FactoryGame/Resource/Parts/IronPlate/Desc_IronPlate.Desc_IronPlate_C", "itemName": "Iron Plate", "amount": 2 }
+      ],
+      "producedIn": ["/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C"],
+      "variablePowerConsumptionConstant": 0.0,
+      "variablePowerConsumptionFactor": 0.0
+    }
+  ]
+}
+```
+
+Added 2026-08-27 per explicit user request to support pre-planning
+complex builds ("what recipes/alternates build each item, what machines
+are needed, resource/power requirements, rates"). Backed by
+`AFGRecipeManager::GetAllRecipes()` — **every recipe in the game,
+including ones not yet unlocked** in the current save, unlike the
+progression-gated `GetAllAvailableRecipes()`. Building recipes (whose
+product is itself a `UFGBuildingDescriptor`) are included too, flagged
+via `isBuildingRecipe` — that entry's `ingredients` is the building's real
+construction cost; see `buildableCatalog` below for the resolved
+buildable class and its power/connection data.
+
+`amount` is `FItemAmount`'s raw internal unit — for liquid/gas items this
+is thousandths of a cubic meter (same convention as
+`GetStackSizeConverted()`'s own `/1000` behavior for fluid stack sizes),
+**not pre-converted here**. Check the item's `"form"` via `itemCatalog`
+before interpreting the number. Deliberately does not compute effective
+production rates (items/min accounting for clock speed or Somersloop
+boost) — combine `manufacturingDuration`/`ingredients`/`products` here
+with `buildableCatalog`'s `minPotential`/`maxPotential` on the caller
+side, per this project's toolkit-not-solver preference.
+
+**IMPORTANT**: `AFGRecipeManager::Get()` and the private
+`PopulateAllRecipesList()` behind these arrays are stub-source
+(`Source/FactoryGame/Private/FGRecipeManager.cpp`) — `Get()` returns
+`null` in Editor/PIE and only resolves to real data in the packaged/
+Alpakit-deployed game. Test against the real Steam session.
+
+## itemCatalog (`method: "world.itemCatalog"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "items": [
+    {
+      "itemClass": "/Game/FactoryGame/Resource/Parts/IronPlate/Desc_IronPlate.Desc_IronPlate_C",
+      "name": "Iron Plate",
+      "form": "Solid",
+      "isBuildingDescriptor": false,
+      "stackSize": 100,
+      "energyValue": 0.0,
+      "radioactiveDecay": 0.0
+    }
+  ]
+}
+```
+
+Companion to `recipeCatalog` — same `AFGRecipeManager`/stub-source
+caveats apply. Backed by `GetAllItemDescriptors()`. `form` is one of
+`"Solid"`/`"Liquid"`/`"Gas"`/`"Invalid"`. `gasType` (`"Normal"`/
+`"Energy"`) is only present when `form` is `"Gas"`.
+`isBuildingDescriptor` is `true` for the "item" a building recipe
+produces (e.g. `Recipe_ConstructorMk1`'s product) — cross-check against
+`recipeCatalog`'s `isBuildingRecipe`.
+
+## buildableCatalog (`method: "world.buildableCatalog"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "buildables": [
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConstructorMk1.Recipe_ConstructorMk1_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+      "category": "Manufacturer",
+      "constructionCost": [
+        { "itemClass": "...", "itemName": "Reinforced Iron Plate", "amount": 2 }
+      ],
+      "runsOnPower": true,
+      "idlePowerConsumption": 0.5,
+      "producingPowerConsumptionBase": 4.0,
+      "defaultProducingPowerConsumption": 4.0,
+      "minPotential": 0.01,
+      "maxPotential": 1.0,
+      "canChangePotential": true,
+      "overridesShardSlotCount": false,
+      "factoryInputCount": 1,
+      "factoryOutputCount": 1,
+      "pipeInputCount": 0,
+      "pipeOutputCount": 0,
+      "powerConnectionCount": 1
+    }
+  ]
+}
+```
+
+Derived from `recipeCatalog` (filters to `isBuildingRecipe == true`,
+resolves each to its real `AFGBuildable` class via
+`UFGBuildingDescriptor::GetBuildableClass()`) rather than a separate
+enumeration source, so `constructionCost` always matches the recipe's own
+ingredients. `category` is `"Generator"`/`"Extractor"`/`"Manufacturer"`/
+`"Other"`, determined by C++ class hierarchy
+(`AFGBuildableGenerator`/`AFGBuildableResourceExtractorBase`/
+`AFGBuildableManufacturer`), not a FactoryGame-declared enum — covers the
+buildings most relevant to production planning. Non-factory buildables
+(foundations, walls, belts, poles...) still appear with category
+`"Other"`, but the power/potential fields are **omitted entirely** rather
+than reported as misleading zeros.
+
+Power/potential fields (`runsOnPower` through `canChangePotential`) are
+present for anything deriving from `AFGBuildableFactory` — Manufacturer,
+Extractor, and Generator all do. `maxPotential` is explicitly the
+un-overclocked baseline (documented on the class as "not accounting for
+the installed power shards"), **not** the real ceiling with shards
+inserted — live-confirmed both Constructor and Miner report `1.0` here.
+`potentialShardSlots` is only present/meaningful when
+`overridesShardSlotCount` is `true` — live-confirmed most buildings
+(Constructor, Miner) report the override off, meaning the real slot count
+falls back to a global default this per-building reflection read cannot
+see (a real, documented gap, not a wrong number — do not treat a missing
+`potentialShardSlots` as "0 slots"). `powerProductionCapacity`/
+`defaultPowerProductionCapacity` (real MW output) are additionally
+present only for `AFGBuildableGenerator`. All fields are read off each
+buildable class's **CDO** (never spawned in the world) via
+`AFGBuildable::GetDefaultComponents<>()` — **not** a plain
+`GetComponents<>()` scan, which misses every connector added via a
+Blueprint's Simple Construction Script (confirmed live: this bug affected
+both this method and the pre-existing `conveyorAttachments`, silently
+returning `factoryInputCount`/`factoryOutputCount`/`powerConnectionCount`
+all `0` for every entry, until fixed 2026-08-27 — see that section above
+for the same root cause). Class-level defaults only, same technique
+`conveyorAttachments`/`conveyorBeltTiers`
+already use. Same `AFGRecipeManager`/stub-source caveat as `recipeCatalog`
+applies (Editor/PIE returns an empty catalog).
 
 ## targetedManufacturer (`method: "world.targetedManufacturer"`)
 

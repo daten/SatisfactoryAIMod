@@ -44,6 +44,9 @@
 #include "FGLightweightBuildableSubsystem.h"
 #include "Resources/FGBuildingDescriptor.h"
 #include "Resources/FGBuildDescriptor.h"
+#include "FGRecipeManager.h"
+#include "Buildables/FGBuildableGenerator.h"
+#include "Buildables/FGBuildableResourceExtractorBase.h"
 
 namespace
 {
@@ -3507,8 +3510,22 @@ FString UDocModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(UObject* Worl
 			continue;
 		}
 
+		// Fix (2026-08-27, live-diagnosed): GetComponents<T>() on a CDO
+		// only finds NATIVE (CreateDefaultSubobject) components - these
+		// buildables add their connectors via the Blueprint's Simple
+		// Construction Script, which does NOT populate onto the CDO
+		// (SCS-added components only exist on a real spawned instance).
+		// This function had reported inputCount=0/outputCount=0 for
+		// EVERY entry since it was written - never actually caught
+		// because it was flagged "NOT YET LIVE-TESTED" until now.
+		// AFGBuildable::GetDefaultComponents<T>() (FGBuildable.h) is
+		// FactoryGame's own purpose-built helper for exactly this - walks
+		// the Blueprint inheritance chain's SimpleConstructionScript
+		// nodes (resolving InheritableComponentHandler overrides) in
+		// addition to the native GetComponents() scan, giving the
+		// correct full list without spawning anything.
 		TArray<UFGFactoryConnectionComponent*> Connections;
-		AttachmentCDO->GetComponents<UFGFactoryConnectionComponent>(Connections);
+		AttachmentCDO->GetDefaultComponents<UFGFactoryConnectionComponent>(Connections);
 		int32 InputCount = 0;
 		int32 OutputCount = 0;
 		for (const UFGFactoryConnectionComponent* Connection : Connections)
@@ -3548,6 +3565,342 @@ FString UDocModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(UObject* Worl
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogConveyorAttachmentCatalogAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+namespace
+{
+	// Shared by LogRecipeCatalogAsJson/LogBuildableCatalogAsJson. Amount is
+	// FItemAmount's raw internal unit (ItemAmount.h) - for RF_LIQUID/RF_GAS
+	// items this is thousandths of a cubic meter (same convention
+	// UFGItemDescriptor::GetStackSizeConverted()'s own doc comment
+	// describes for fluid stack sizes), NOT pre-converted here. Callers
+	// should check the item's "form" field (world.itemCatalog) before
+	// interpreting the number - deliberately not doing that conversion in
+	// C++, per this project's toolkit-not-solver preference (the AI/Python
+	// side should do unit interpretation, not have it baked in here).
+	TArray<TSharedPtr<FJsonValue>> ItemAmountsToJsonArray(const TArray<FItemAmount>& Amounts)
+	{
+		TArray<TSharedPtr<FJsonValue>> Result;
+		for (const FItemAmount& Amount : Amounts)
+		{
+			const TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("itemClass"), Amount.ItemClass ? Amount.ItemClass->GetPathName() : FString());
+			Entry->SetStringField(TEXT("itemName"), Amount.ItemClass ? UFGItemDescriptor::GetItemName(Amount.ItemClass).ToString() : FString());
+			Entry->SetNumberField(TEXT("amount"), Amount.Amount);
+			Result.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+		return Result;
+	}
+
+	FString ResourceFormToString(EResourceForm Form)
+	{
+		switch (Form)
+		{
+		case EResourceForm::RF_SOLID: return TEXT("Solid");
+		case EResourceForm::RF_LIQUID: return TEXT("Liquid");
+		case EResourceForm::RF_GAS: return TEXT("Gas");
+		default: return TEXT("Invalid");
+		}
+	}
+
+	bool IsBuildingRecipe(const TArray<FItemAmount>& Products)
+	{
+		return Products.Num() > 0 && Products[0].ItemClass && Products[0].ItemClass->IsChildOf(UFGBuildingDescriptor::StaticClass());
+	}
+}
+
+// LogRecipeCatalogAsJson/world.recipeCatalog, LogItemCatalogAsJson/
+// world.itemCatalog, LogBuildableCatalogAsJson/world.buildableCatalog
+// (2026-08-27, per explicit user request to support pre-planning complex
+// builds: "what items can be built, what recipes/alternates build each
+// item, what machines are needed, resource/power requirements, input/
+// output counts and types, rates including power shards/Somersloop,
+// belt/pipe rates"). Belt/pipe rates were already covered by
+// world.conveyorBeltTiers/world.pipelineTiers (2026-08-25) - these three
+// cover the rest.
+//
+// Enumeration source: AFGRecipeManager::GetAllRecipes()/
+// GetAllItemDescriptors() (FGRecipeManager.h) - confirmed via source
+// research to return EVERY recipe/item descriptor in the game, including
+// ones not yet unlocked in the current save (unlike the progression-gated
+// GetAllAvailableRecipes()). These are plain inline header reads of an
+// already-populated TArray, not stub-source themselves - BUT
+// AFGRecipeManager::Get() and the private PopulateAllRecipesList() that
+// fills those arrays ARE stub-source (Source/FactoryGame/Private/
+// FGRecipeManager.cpp), meaning Get() returns null in-Editor/PIE and only
+// resolves to real data in the packaged/Alpakit-deployed game. Test these
+// three methods against the real Steam session, not Play-in-Editor.
+//
+// Deliberately NOT pre-computing effective rates (items/min accounting
+// for clock speed or Somersloop boost) - these report the raw recipe
+// duration/amounts and the building's min/max potential and production-
+// boost fields, and leave the arithmetic to the caller, consistent with
+// this project's toolkit-not-solver preference elsewhere (Python/AI side
+// decides, C++ exposes real data).
+FString UDocModFunctionLibrary::LogRecipeCatalogAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGRecipeManager* RecipeManager = World ? AFGRecipeManager::Get(World) : nullptr;
+	if (!RecipeManager)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("LogRecipeCatalogAsJson: AFGRecipeManager::Get() returned null - stub-source in Editor/PIE, only resolves in the packaged game (see this function's doc comment)"));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> RecipeJsonArray;
+	if (RecipeManager)
+	{
+		for (const TSubclassOf<UFGRecipe>& RecipeClass : RecipeManager->GetAllRecipes())
+		{
+			if (!RecipeClass) { continue; }
+			const UFGRecipe* RecipeCDO = RecipeClass->GetDefaultObject<UFGRecipe>();
+			if (!RecipeCDO) { continue; }
+
+			const TArray<FItemAmount>& Ingredients = RecipeCDO->GetIngredients();
+			const TArray<FItemAmount>& Products = RecipeCDO->GetProducts();
+
+			TArray<TSharedPtr<FJsonValue>> ProducedInJsonArray;
+			for (const TSubclassOf<UObject>& Producer : UFGRecipe::GetProducedIn(RecipeClass))
+			{
+				if (Producer) { ProducedInJsonArray.Add(MakeShared<FJsonValueString>(Producer->GetPathName())); }
+			}
+
+			const TSharedRef<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+			EntryObject->SetStringField(TEXT("recipeClass"), RecipeClass->GetPathName());
+			EntryObject->SetStringField(TEXT("displayName"), UFGRecipe::GetRecipeName(RecipeClass).ToString());
+			EntryObject->SetBoolField(TEXT("isBuildingRecipe"), IsBuildingRecipe(Products));
+			EntryObject->SetNumberField(TEXT("manufacturingDuration"), RecipeCDO->GetManufacturingDuration());
+			EntryObject->SetArrayField(TEXT("ingredients"), ItemAmountsToJsonArray(Ingredients));
+			EntryObject->SetArrayField(TEXT("products"), ItemAmountsToJsonArray(Products));
+			EntryObject->SetArrayField(TEXT("producedIn"), ProducedInJsonArray);
+			EntryObject->SetNumberField(TEXT("variablePowerConsumptionConstant"), RecipeCDO->GetPowerConsumptionConstant());
+			EntryObject->SetNumberField(TEXT("variablePowerConsumptionFactor"), RecipeCDO->GetPowerConsumptionFactor());
+
+			RecipeJsonArray.Add(MakeShared<FJsonValueObject>(EntryObject));
+		}
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("recipes"), RecipeJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogRecipeCatalogAsJson: %d recipe(s)"), RecipeJsonArray.Num());
+
+	return JsonString;
+}
+
+// See LogRecipeCatalogAsJson's doc comment above for the shared
+// AFGRecipeManager/stub-source caveats - identical here.
+FString UDocModFunctionLibrary::LogItemCatalogAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGRecipeManager* RecipeManager = World ? AFGRecipeManager::Get(World) : nullptr;
+	if (!RecipeManager)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("LogItemCatalogAsJson: AFGRecipeManager::Get() returned null - stub-source in Editor/PIE, only resolves in the packaged game"));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> ItemJsonArray;
+	if (RecipeManager)
+	{
+		for (const TSubclassOf<UFGItemDescriptor>& ItemClass : RecipeManager->GetAllItemDescriptors())
+		{
+			if (!ItemClass) { continue; }
+
+			const EResourceForm Form = UFGItemDescriptor::GetForm(ItemClass);
+
+			const TSharedRef<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+			EntryObject->SetStringField(TEXT("itemClass"), ItemClass->GetPathName());
+			EntryObject->SetStringField(TEXT("name"), UFGItemDescriptor::GetItemName(ItemClass).ToString());
+			EntryObject->SetStringField(TEXT("form"), ResourceFormToString(Form));
+			EntryObject->SetBoolField(TEXT("isBuildingDescriptor"), ItemClass->IsChildOf(UFGBuildingDescriptor::StaticClass()));
+			EntryObject->SetNumberField(TEXT("stackSize"), UFGItemDescriptor::GetStackSize(ItemClass));
+			EntryObject->SetNumberField(TEXT("energyValue"), UFGItemDescriptor::GetEnergyValue(ItemClass));
+			EntryObject->SetNumberField(TEXT("radioactiveDecay"), UFGItemDescriptor::GetRadioactiveDecay(ItemClass));
+			if (Form == EResourceForm::RF_GAS)
+			{
+				EntryObject->SetStringField(TEXT("gasType"), UFGItemDescriptor::GetGasType(ItemClass) == EGasType::GT_ENERGY ? TEXT("Energy") : TEXT("Normal"));
+			}
+
+			ItemJsonArray.Add(MakeShared<FJsonValueObject>(EntryObject));
+		}
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("items"), ItemJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogItemCatalogAsJson: %d item(s)"), ItemJsonArray.Num());
+
+	return JsonString;
+}
+
+// Derived from the recipe catalog (filters to isBuildingRecipe==true and
+// resolves each to its real AFGBuildable class via
+// UFGBuildingDescriptor::GetBuildableClass()), rather than a separate
+// enumeration source - a building's construction cost is exactly its
+// recipe's ingredients, so this avoids a second, potentially-inconsistent
+// catalog. "category" is determined by C++ class hierarchy
+// (AFGBuildableGenerator/AFGBuildableResourceExtractorBase/
+// AFGBuildableManufacturer), not any FactoryGame-declared enum - covers
+// the buildings most relevant to production planning; non-factory
+// buildables (foundations, walls, belts, poles...) still appear with
+// category "Other" and zeroed power/potential fields. Power/potential
+// fields are read off each buildable class's CDO (never spawned in the
+// world) - safe for class-level defaults per the same technique
+// world.conveyorAttachments/world.conveyorBeltTiers already use.
+FString UDocModFunctionLibrary::LogBuildableCatalogAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGRecipeManager* RecipeManager = World ? AFGRecipeManager::Get(World) : nullptr;
+	if (!RecipeManager)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("LogBuildableCatalogAsJson: AFGRecipeManager::Get() returned null - stub-source in Editor/PIE, only resolves in the packaged game"));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> BuildableJsonArray;
+	if (RecipeManager)
+	{
+		for (const TSubclassOf<UFGRecipe>& RecipeClass : RecipeManager->GetAllRecipes())
+		{
+			if (!RecipeClass) { continue; }
+			const UFGRecipe* RecipeCDO = RecipeClass->GetDefaultObject<UFGRecipe>();
+			if (!RecipeCDO) { continue; }
+
+			const TArray<FItemAmount>& Products = RecipeCDO->GetProducts();
+			if (!IsBuildingRecipe(Products)) { continue; }
+
+			const TSubclassOf<UFGBuildingDescriptor> BuildingDescriptorClass(Products[0].ItemClass.Get());
+			const TSubclassOf<AFGBuildable> BuildableClass = UFGBuildingDescriptor::GetBuildableClass(BuildingDescriptorClass);
+			const AFGBuildable* BuildableCDO = BuildableClass ? BuildableClass->GetDefaultObject<AFGBuildable>() : nullptr;
+			if (!BuildableCDO)
+			{
+				continue;
+			}
+
+			FString Category = TEXT("Other");
+			if (Cast<AFGBuildableGenerator>(BuildableCDO)) { Category = TEXT("Generator"); }
+			else if (Cast<AFGBuildableResourceExtractorBase>(BuildableCDO)) { Category = TEXT("Extractor"); }
+			else if (Cast<AFGBuildableManufacturer>(BuildableCDO)) { Category = TEXT("Manufacturer"); }
+
+			const TSharedRef<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+			EntryObject->SetStringField(TEXT("recipeClass"), RecipeClass->GetPathName());
+			EntryObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
+			EntryObject->SetStringField(TEXT("category"), Category);
+			EntryObject->SetArrayField(TEXT("constructionCost"), ItemAmountsToJsonArray(RecipeCDO->GetIngredients()));
+
+			if (const AFGBuildableFactory* FactoryCDO = Cast<AFGBuildableFactory>(BuildableCDO))
+			{
+				EntryObject->SetBoolField(TEXT("runsOnPower"), FactoryCDO->RunsOnPower());
+				EntryObject->SetNumberField(TEXT("idlePowerConsumption"), FactoryCDO->GetIdlePowerConsumption());
+				EntryObject->SetNumberField(TEXT("producingPowerConsumptionBase"), FactoryCDO->GetProducingPowerConsumptionBase());
+				EntryObject->SetNumberField(TEXT("defaultProducingPowerConsumption"), FactoryCDO->GetDefaultProducingPowerConsumption());
+				EntryObject->SetNumberField(TEXT("minPotential"), FactoryCDO->GetCurrentMinPotential());
+				EntryObject->SetNumberField(TEXT("maxPotential"), FactoryCDO->GetMaxPotential());
+				EntryObject->SetBoolField(TEXT("canChangePotential"), FactoryCDO->GetCanChangePotential());
+
+				// mPotentialShardSlots (power-shard overclock slot count)
+				// has no public getter, but is a real UPROPERTY - same
+				// reflection technique as belts' mMaxIncline elsewhere in
+				// this file. maxPotential above is explicitly documented
+				// on the class ("Default maximum potential on the
+				// buildable, NOT accounting for the installed power
+				// shards") as the un-overclocked baseline - this slot
+				// count is what a caller needs to know how much headroom
+				// power shards can actually add on top of it.
+				//
+				// mPotentialShardSlots is itself gated by
+				// mOverridePotentialShardSlots (EditCondition in its own
+				// UPROPERTY meta) - live-confirmed most buildings
+				// (Constructor, Miner) report potentialShardSlots=0 with
+				// the override off, even though real instances DO accept
+				// shards. When the override is off, this field's value is
+				// meaningless - the real slot count comes from some
+				// global default this per-building reflection read
+				// cannot see. Report overridesShardSlotCount so callers
+				// can tell a genuine 0 (override on, deliberately no
+				// slots) from "unknown, falls back to a global default
+				// not exposed here" - a real, documented gap rather than
+				// a silently wrong number.
+				bool bOverridesShardSlotCount = false;
+				if (const FBoolProperty* OverrideProperty = FindFProperty<FBoolProperty>(FactoryCDO->GetClass(), TEXT("mOverridePotentialShardSlots")))
+				{
+					bOverridesShardSlotCount = OverrideProperty->GetPropertyValue_InContainer(FactoryCDO);
+				}
+				EntryObject->SetBoolField(TEXT("overridesShardSlotCount"), bOverridesShardSlotCount);
+				if (bOverridesShardSlotCount)
+				{
+					if (const FIntProperty* ShardSlotsProperty = FindFProperty<FIntProperty>(FactoryCDO->GetClass(), TEXT("mPotentialShardSlots")))
+					{
+						EntryObject->SetNumberField(TEXT("potentialShardSlots"), ShardSlotsProperty->GetPropertyValue_InContainer(FactoryCDO));
+					}
+				}
+			}
+
+			if (const AFGBuildableGenerator* GeneratorCDO = Cast<AFGBuildableGenerator>(BuildableCDO))
+			{
+				EntryObject->SetNumberField(TEXT("powerProductionCapacity"), GeneratorCDO->GetPowerProductionCapacity());
+				EntryObject->SetNumberField(TEXT("defaultPowerProductionCapacity"), GeneratorCDO->GetDefaultPowerProductionCapacity());
+			}
+
+			// GetDefaultComponents(), not GetComponents() - see the
+			// identical fix/comment in LogConveyorAttachmentCatalogAsJson
+			// above for why a plain CDO GetComponents<>() scan misses
+			// every Blueprint-SCS-added connector (which is most of
+			// them).
+			TArray<UFGFactoryConnectionComponent*> FactoryConnections;
+			BuildableCDO->GetDefaultComponents<UFGFactoryConnectionComponent>(FactoryConnections);
+			int32 FactoryInputCount = 0, FactoryOutputCount = 0;
+			for (const UFGFactoryConnectionComponent* Connection : FactoryConnections)
+			{
+				if (!IsValid(Connection)) { continue; }
+				if (Connection->GetDirection() == EFactoryConnectionDirection::FCD_INPUT) { ++FactoryInputCount; }
+				else if (Connection->GetDirection() == EFactoryConnectionDirection::FCD_OUTPUT) { ++FactoryOutputCount; }
+			}
+			EntryObject->SetNumberField(TEXT("factoryInputCount"), FactoryInputCount);
+			EntryObject->SetNumberField(TEXT("factoryOutputCount"), FactoryOutputCount);
+
+			TArray<UFGPipeConnectionComponentBase*> PipeConnections;
+			BuildableCDO->GetDefaultComponents<UFGPipeConnectionComponentBase>(PipeConnections);
+			int32 PipeInputCount = 0, PipeOutputCount = 0;
+			for (const UFGPipeConnectionComponentBase* Connection : PipeConnections)
+			{
+				if (!IsValid(Connection)) { continue; }
+				if (Connection->GetPipeConnectionType() == EPipeConnectionType::PCT_CONSUMER) { ++PipeInputCount; }
+				else if (Connection->GetPipeConnectionType() == EPipeConnectionType::PCT_PRODUCER) { ++PipeOutputCount; }
+			}
+			EntryObject->SetNumberField(TEXT("pipeInputCount"), PipeInputCount);
+			EntryObject->SetNumberField(TEXT("pipeOutputCount"), PipeOutputCount);
+
+			TArray<UFGPowerConnectionComponent*> PowerConnections;
+			BuildableCDO->GetDefaultComponents<UFGPowerConnectionComponent>(PowerConnections);
+			EntryObject->SetNumberField(TEXT("powerConnectionCount"), PowerConnections.Num());
+
+			BuildableJsonArray.Add(MakeShared<FJsonValueObject>(EntryObject));
+		}
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("buildables"), BuildableJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogBuildableCatalogAsJson: %d buildable(s)"), BuildableJsonArray.Num());
 
 	return JsonString;
 }

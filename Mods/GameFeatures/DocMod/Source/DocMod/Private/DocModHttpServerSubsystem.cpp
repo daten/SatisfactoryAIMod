@@ -613,6 +613,18 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogConveyorLiftTiersAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.recipeCatalog"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogRecipeCatalogAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.itemCatalog"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogItemCatalogAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.buildableCatalog"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogBuildableCatalogAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.targetedManufacturer"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogTargetedManufacturerAsJson(GetGameInstance());

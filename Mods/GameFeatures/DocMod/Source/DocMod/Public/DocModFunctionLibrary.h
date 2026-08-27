@@ -762,8 +762,13 @@ public:
 	 * Programmable Splitter and Priority Merger variants - all five
 	 * confirmed present on disk) with each variant's real
 	 * "inputCount"/"outputCount", read generically via GetDirection() on
-	 * each buildable class CDO's UFGFactoryConnectionComponents (the
-	 * same technique world.connections itself uses) rather than
+	 * each buildable class CDO's UFGFactoryConnectionComponents (via
+	 * AFGBuildable::GetDefaultComponents<>() - a plain CDO
+	 * GetComponents<>() scan finds nothing here, since these connectors
+	 * are added via the Blueprint's Simple Construction Script, not a
+	 * native CreateDefaultSubobject; fixed 2026-08-27, see this
+	 * function's .cpp comment - the original version of this function
+	 * reported 0/0 for every entry, undetected until then) rather than
 	 * hardcoding the commonly-known 1-in/3-out (splitter) / 3-in/1-out
 	 * (merger) figures - AFGBuildableConveyorAttachment's header doesn't
 	 * declare them as a literal constant anywhere. Also reports
@@ -777,6 +782,92 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogConveyorAttachmentCatalogAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.recipeCatalog (2026-08-27, per explicit user request to
+	 * support pre-planning: "what recipes/alternates build each item,
+	 * what machines are needed, resource/power requirements, rates").
+	 * Reports EVERY recipe in the game via AFGRecipeManager::GetAllRecipes()
+	 * - including ones not yet unlocked in the current save, unlike the
+	 * progression-gated GetAllAvailableRecipes(). Each entry: recipeClass,
+	 * displayName, isBuildingRecipe, manufacturingDuration, ingredients/
+	 * products (itemClass/itemName/amount - amount is FItemAmount's raw
+	 * unit, thousandths of a m^3 for liquids/gases, NOT pre-converted -
+	 * check the item's "form" via world.itemCatalog), producedIn (real
+	 * buildable/build-gun class paths), and the recipe's variable-power-
+	 * consumption constant/factor.
+	 *
+	 * IMPORTANT: AFGRecipeManager::Get() is stub-source in Editor/PIE and
+	 * only resolves to real data in the packaged/Alpakit-deployed game -
+	 * test against the real Steam session, not Play-in-Editor.
+	 *
+	 * Deliberately does NOT compute effective production rates (items/min
+	 * accounting for clock speed or Somersloop boost) - see
+	 * world.buildableCatalog for the per-building min/max potential and
+	 * production-boost fields needed to do that arithmetic on the caller
+	 * side, per this project's toolkit-not-solver preference.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogRecipeCatalogAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.itemCatalog (2026-08-27) - companion to LogRecipeCatalogAsJson,
+	 * see that function's doc comment for the shared AFGRecipeManager/
+	 * stub-source caveats. Reports every item descriptor via
+	 * AFGRecipeManager::GetAllItemDescriptors(): itemClass, name, form
+	 * ("Solid"/"Liquid"/"Gas"/"Invalid"), isBuildingDescriptor (true for
+	 * building "items" like Recipe_ConstructorMk1's product - cross-check
+	 * against world.recipeCatalog's isBuildingRecipe), stackSize,
+	 * energyValue (for fuel), radioactiveDecay, and gasType (only set when
+	 * form is "Gas").
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogItemCatalogAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.buildableCatalog (2026-08-27) - companion to
+	 * LogRecipeCatalogAsJson/LogItemCatalogAsJson, see LogRecipeCatalogAsJson's
+	 * doc comment for the shared AFGRecipeManager/stub-source caveats.
+	 * Derived from the recipe catalog (filters to isBuildingRecipe==true,
+	 * resolves each to its real AFGBuildable class via
+	 * UFGBuildingDescriptor::GetBuildableClass()) rather than a separate
+	 * enumeration source, so a building's construction cost is always
+	 * exactly its recipe's ingredients.
+	 *
+	 * Each entry: recipeClass, buildableClass, category ("Generator"/
+	 * "Extractor"/"Manufacturer"/"Other" - determined by C++ class
+	 * hierarchy, not a FactoryGame-declared enum), constructionCost (same
+	 * shape as recipe ingredients), factoryInputCount/factoryOutputCount
+	 * (solid connections), pipeInputCount/pipeOutputCount (fluid
+	 * connections), powerConnectionCount, overridesShardSlotCount +
+	 * potentialShardSlots (power-shard overclock slot count, via
+	 * reflection - mMaxPotential/GetMaxPotential() is explicitly
+	 * documented as the un-shard baseline, this is what tells a caller
+	 * how much headroom shards can add on top of it - BUT
+	 * potentialShardSlots is only meaningful when
+	 * overridesShardSlotCount is true; live-confirmed most buildings
+	 * report the override off, meaning the real slot count falls back to
+	 * a global default this per-building read cannot see - a real,
+	 * documented gap, not a wrong number) - all read off each buildable
+	 * class's CDO via AFGBuildable::GetDefaultComponents<>() (NOT plain
+	 * GetComponents<>(), which misses every Blueprint-SCS-added connector
+	 * - see LogConveyorAttachmentCatalogAsJson's doc comment for the same
+	 * fix and why it was needed), class-level defaults only, never
+	 * spawned in the world.
+	 *
+	 * For anything deriving from AFGBuildableFactory (Manufacturer,
+	 * Extractor, Generator all do): runsOnPower, idlePowerConsumption,
+	 * producingPowerConsumptionBase, defaultProducingPowerConsumption,
+	 * minPotential/maxPotential (clock speed range, i.e. what power shards
+	 * can reach), canChangePotential. For AFGBuildableGenerator
+	 * specifically, additionally: powerProductionCapacity/
+	 * defaultPowerProductionCapacity (real MW output). Non-factory
+	 * buildables (foundations, walls, belts, poles...) still appear with
+	 * category "Other" and omit these power/potential fields entirely
+	 * (rather than reporting misleading zeros).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogBuildableCatalogAsJson(UObject* WorldContextObject);
 
 	/**
 	 * Telemetry, not a mutation - follows the LogXAsJson return-a-JSON-
