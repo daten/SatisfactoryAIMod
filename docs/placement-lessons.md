@@ -122,42 +122,71 @@ and re-wire everything. Live-verified this way for both a splitter
 (rotated 90° so its main output pointed at a constructor row) and a merger
 (rotated 90° so its output matched the constructors' own flow direction).
 
-## Recommended default layout: lift → splitter (2026-08-27, user-suggested)
+## Lift → splitter layout: what actually works (2026-08-27, revised after live testing)
 
-Rather than placing a splitter at its default rotation near a lift and
-letting the connect call bend a belt however it can (the original approach
-that produced the very first "90° mismatch" complaint), the better default
-going forward:
+The original plan here ("rotate the lift's output to face the desired
+direction, then place the splitter a short distance away in that
+direction") turned out to rest on two false assumptions, both corrected
+by live-testing a full teardown/rebuild the same day:
 
-1. Decide the flow direction you want out of the lift.
-2. Rotate the **lift's output** to face that direction (per its own 90°
-   rotation option - see "Vertical conveyor lifts" below).
-3. Place the splitter a **short distance away in that same direction**,
-   explicitly at the **same Z as the lift's real output** (read via
-   `world.connections`, not guessed - see the Z-mismatch note above) and
-   rotated (via the fixed-topology math above) so its **input faces back
-   toward the lift**.
-4. Connect lift → splitter with a **straight belt** across the small gap.
+- **There is no "rotate an existing buildable in place" capability.**
+  `world.placeBuilding`'s `yaw` only applies at placement time. A lift
+  that's already connected at its input (to the source it's rising from)
+  can't be re-oriented via any current RPC - don't plan around this
+  existing.
+- **A lift's output direction is NOT independently choosable - it's
+  locked to match its input's direction.** Confirmed live: a lift is a
+  straight, non-bending vertical column, so both ends share the same
+  horizontal facing. Since the input's facing is itself determined by
+  where the *source* (e.g. a Miner) actually sits relative to the lift,
+  the output ends up facing that same, often "backward" (toward the
+  source), direction - not whatever direction you'd like it to continue
+  in. Placing a splitter in the "forward" direction and calling
+  `ConstructConveyorLift` to reach it produced a dangling, unconnected
+  output every time (it physically can't turn to reach a destination
+  that isn't roughly along its locked axis).
 
-This leaves a clean, deliberate straight segment instead of an
-overlapping/clipped near-zero-gap dock or an unplanned bend, and composes
-directly with the topology-solving approach above - decide the splitter's
-main-pair direction first (input toward the lift), then everything else
-(the side outputs' directions) falls out of that one choice.
+**What actually works**: place the splitter to the **side** of the lift's
+column (perpendicular to its locked input/output axis - e.g. lift
+receiving from the south locks it to input/output-south, so put the
+splitter east or west of it, not north), at the lift's **real output Z**
+(read via `world.connections`), then connect lift → splitter with a
+**separate `ConstructConveyorLift`-then-`ConstructConveyorBelt` two-step**
+- don't expect `ConstructConveyorLift` alone to bridge any real offset;
+build the lift up to its own natural (possibly dangling) top first, then
+bridge to the splitter with an ordinary belt call. A same-direction
+"reversal" belt (source's exit direction equals destination's input
+normal) is unreliable even with `Curve` mode - it failed on the first
+attempt and succeeded on an identical retry, so treat one failure here as
+possibly transient and retry once before concluding the geometry is
+infeasible.
 
-## Match splitter outputs to constructors by direction, not call order (2026-08-27, user-suggested)
+## Match splitter/merger connectors to buildables by direction, not call order (2026-08-27, user-suggested; ordering trick found live)
 
-Once a splitter's fan orientation is known (main output + two side
-outputs, each facing a specific real-world direction per the topology
-math above), **connect each output to whichever downstream buildable is
-actually closest to/in that direction** - e.g. an east-facing output
-should feed the east-most constructor, not whichever constructor happens
-to get called first in your script. Connecting them in an arbitrary order
-still "works" (`connectConveyor` doesn't care), but produces belts that
-cross, double back, or run needlessly long/curved even though a
-short/straight routing was available. Work out the direction-to-buildable
-mapping before issuing any `connectConveyor` calls, the same way you'd
-plan the fan's rotation itself.
+Once a splitter's or merger's fan orientation is known (main connector +
+two side connectors, each facing a specific real-world direction per the
+topology math above), **connect each one to whichever downstream/upstream
+buildable is actually closest to/in that direction** - e.g. an
+east-facing splitter output should feed the east-most constructor, and a
+west-facing merger input should come from the west-most constructor - not
+whichever buildable happens to get called first. Getting this wrong still
+"works" (`connectConveyor` doesn't care), but produces belts that visibly
+cross or double back even though a short/straight routing existed.
+
+**The catch**: `FindFreeFactoryConnection` doesn't let you choose *which*
+free connector on the splitter/merger gets used - it just hands out the
+next free one matching the requested direction, in a fixed internal
+order. Confirmed live this session that this order is **different for
+outputs than for inputs** (splitter outputs: main, then east, then west;
+merger inputs: main, then west, then east) and is NOT geometry-aware - it
+has nothing to do with which buildable you're connecting to. **Workaround**:
+after using up the main connector, connect the *side* buildables in
+whichever call order you empirically observe claims the correct connector
+first (verify via `world.connections` after each call, delete and
+re-order if swapped - this took exactly one correction each for the
+splitter and the merger in this session, in opposite directions from each
+other). There is no way to specify a target connector directly - ordering
+your calls is the only lever.
 
 ## Player independence, take 2 (fixed 2026-08-27)
 
