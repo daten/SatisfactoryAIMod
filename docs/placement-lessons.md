@@ -45,38 +45,155 @@ end is dangling.
   existing infrastructure instead of your request, that's why — always
   verify the actual landing position via `world.buildables`/`find_near`,
   never trust the request coordinates blindly.
+- **Repeated delete-then-place at the exact same X/Y climbs the resolved Z
+  every time** (confirmed 2026-08-27, splitter and merger rebuilds both hit
+  this): deleting and re-placing at an identical spot 3-4 times in a row
+  produced a Z that kept rising by ~250-400 units on *every single retry*,
+  even with an unchanged `z` reference and even after clearing every real
+  foundation/buildable nearby. This looks like the same family as the
+  "Phantom 'already built' collisions" quirk below, but manifests as a
+  silently-wrong landing height instead of an outright placement failure -
+  much easier to miss. **Always verify the landed Z via `world.buildables`/
+  `find_near` after every place call**, not just the position; if it's
+  jumped noticeably from a known-good value (e.g. an adjacent connector's
+  real Z) or keeps climbing across retries, stop fighting the exact spot -
+  offset the X or Y by a few hundred units instead (bridge the gap with a
+  short belt if needed). Don't try to "fix" the Z by tightening the
+  `z`/`ReferenceZ` search band or setting `ignoreClearance`/
+  `ignoreInvalidFloor` - neither changed the outcome when this was tested
+  live.
+- When you know the exact height a placement *should* land at (e.g. a
+  splitter that should sit right at a lift's output), pass that real,
+  already-known Z as the `z` reference (read it from `world.connections` on
+  the adjacent buildable) rather than a guessed/rounded value - this
+  reliably avoids the ground trace latching onto unrelated nearby geometry
+  (a taller foundation tile, another buildable's collision, etc.) within
+  its ±1000 search band.
 
-## Rotation (fixed 2026-08-26)
+## Rotation (fixed 2026-08-26, `rotationScrollDelta` superseded 2026-08-27)
 
 - `ConstructBuildingAtPosition` used to derive a building's default
   (pre-scroll) yaw from the player's camera bearing to the target — meaning
   identical `rotationScrollDelta` values produced different results
-  depending on where the player stood. **Fixed**: yaw is now pinned to a
-  deterministic 0° baseline regardless of player position. Verified:
-  repeated placements from wildly different player positions now all
-  produce `yaw=0.0`.
-- `rotationScrollDelta` still isn't a clean "degrees" value — treat it
-  empirically per building type if you need a specific facing, and verify
-  the resulting `yaw`/connector normals afterward rather than assuming.
+  depending on where the player stood. **Fixed 2026-08-26**: yaw is now
+  pinned to a deterministic 0° baseline regardless of player position.
+- **`rotationScrollDelta` itself is unreliable beyond `|delta|==1`** —
+  confirmed live 2026-08-27 by sweeping delta=-1..-9 against the same
+  recipe/location: resolved yaw was -10, +70, +40, 0, -50, -110, -180, +90,
+  +170 degrees — not linear, not monotonic, no usable per-click increment.
+  Root cause: `AFGHologram::Scroll()` called N times in a tight synchronous
+  loop (no real tick between calls) behaves nothing like N real mouse-wheel
+  notches. **Use `world.placeBuilding`'s `yaw` param instead** (an absolute
+  target in degrees) whenever you need a *specific* orientation — it
+  bypasses `Scroll()` entirely via a direct `SetActorRotation()`,
+  re-asserted every poll tick. `rotationScrollDelta` still exists for
+  callers that only need *some* non-zero rotation, not a chosen one.
 
-## Player independence (fixed 2026-08-26)
+## Splitter/merger have a FIXED internal connector topology (2026-08-27)
 
-- `ConstructConveyorBelt`/`ConstructConveyorLift` used to point the
-  player's camera at each connector to satisfy an "Invalid aim location!"
-  disqualifier — meaning belt/lift construction could fail depending on
-  where the player's actual camera happened to be pointed. **Fixed**: these
-  two functions now permanently ignore that disqualifier instead (same
-  ignore-list pattern `ConstructBuildingAtPosition` already used), and no
-  longer touch the camera at all. Verified reliable (10/10 across straight
-  and diagonal geometry) from ~19,000 units away from the player.
+Confirmed live by probing a splitter and a merger at `yaw=0` and reading
+every connector's real normal via `world.connections`: both hologram
+classes have exactly 4 factory connectors arranged in a **rigid, fixed
+local layout that a rotation can only spin as a whole, never reshape**:
+
+- One "main" pair 180° apart (splitter: input ↔ straight-through output;
+  merger: main input ↔ output). This pair's relationship never changes -
+  whatever direction the output faces, the main input always faces exactly
+  the opposite direction.
+- Two "side" connectors, each ±90° from the main pair (splitter: the other
+  two outputs; merger: the other two inputs).
+
+Because the whole fan rotates together, **you cannot independently choose
+"which side gets which direction" - only the whole fan's absolute
+orientation.** E.g. a merger whose output must point a specific way (to
+reach an already-placed downstream buildable) *forces* its main input to
+face exactly opposite; only the two perpendicular side inputs are still
+free to reason about. Plan the whole fan before rotating, not just the one
+connector you care about most.
+
+**How to compute the yaw you need**: probe the buildable at `yaw=0` first
+(place it, read `world.connections`, note the 4 normals as angles), pick
+the ONE known-normal you actually need pinned (e.g. "output must face
+north"), compute `delta = target_angle - current_angle`, and pass
+`yaw: (0 + delta) mod 360` to `world.placeBuilding`. The other 3
+connectors' final directions fall out automatically from the same delta -
+compute them too so you know what you're committing to before you place
+and re-wire everything. Live-verified this way for both a splitter
+(rotated 90° so its main output pointed at a constructor row) and a merger
+(rotated 90° so its output matched the constructors' own flow direction).
+
+## Recommended default layout: lift → splitter (2026-08-27, user-suggested)
+
+Rather than placing a splitter at its default rotation near a lift and
+letting the connect call bend a belt however it can (the original approach
+that produced the very first "90° mismatch" complaint), the better default
+going forward:
+
+1. Decide the flow direction you want out of the lift.
+2. Rotate the **lift's output** to face that direction (per its own 90°
+   rotation option - see "Vertical conveyor lifts" below).
+3. Place the splitter a **short distance away in that same direction**,
+   explicitly at the **same Z as the lift's real output** (read via
+   `world.connections`, not guessed - see the Z-mismatch note above) and
+   rotated (via the fixed-topology math above) so its **input faces back
+   toward the lift**.
+4. Connect lift → splitter with a **straight belt** across the small gap.
+
+This leaves a clean, deliberate straight segment instead of an
+overlapping/clipped near-zero-gap dock or an unplanned bend, and composes
+directly with the topology-solving approach above - decide the splitter's
+main-pair direction first (input toward the lift), then everything else
+(the side outputs' directions) falls out of that one choice.
+
+## Match splitter outputs to constructors by direction, not call order (2026-08-27, user-suggested)
+
+Once a splitter's fan orientation is known (main output + two side
+outputs, each facing a specific real-world direction per the topology
+math above), **connect each output to whichever downstream buildable is
+actually closest to/in that direction** - e.g. an east-facing output
+should feed the east-most constructor, not whichever constructor happens
+to get called first in your script. Connecting them in an arbitrary order
+still "works" (`connectConveyor` doesn't care), but produces belts that
+cross, double back, or run needlessly long/curved even though a
+short/straight routing was available. Work out the direction-to-buildable
+mapping before issuing any `connectConveyor` calls, the same way you'd
+plan the fan's rotation itself.
+
+## Player independence, take 2 (fixed 2026-08-27)
+
+- The 2026-08-26 fix below (permanently ignoring the aim disqualifier) was
+  **not sufficient on its own** — live-confirmed 2026-08-27 that
+  `ConstructConveyorBelt`/`ConstructConveyorLift`'s internal pathing
+  (inside `TrySnapToActor`/`DoMultiStepPlacement`, stub source) separately
+  reads the player controller's *live* rotation as an implicit routing
+  hint, completely independent of the disqualifier check and independent
+  of the correctly connector-anchored `FHitResult`s passed in. Symptom: a
+  `connectConveyor` call reports `success: true`, but the belt's far end
+  lands near wherever the player was actually looking, not the destination
+  — confirmed by the far endpoint's Y-coordinate matching the live player
+  Y to full float precision, and independently by direct visual
+  observation in-game ("visually it appears the player's camera position
+  affects belt placement"). **Fixed**: both functions now point the
+  controller at a *deterministic* target computed from the source/dest
+  connector positions themselves (never the player's real aim) before the
+  first click, and **re-assert it every poll tick** (`UpdateHologramPlacement`
+  can reset it). No manual player aiming is required or has any effect
+  anymore — connection results depend only on the two buildable IDs passed
+  in.
 - `ConstructPowerConnection` already had `ignoreAimLocation`/
   `ignoreWireSnap` params from earlier work — pass both `true` for
-  deterministic, player-independent power wiring.
-- A connection that "used to work but now fails for no code reason" after
-  the player moved is the signature of this whole class of bug. If it
-  recurs anywhere else, the fix is the same: replace the real (opaque)
+  deterministic, player-independent power wiring. (Not yet re-verified
+  against this same "internal pathing reads live camera" class of bug —
+  if power wiring shows the same symptom, the fix is the same shape:
+  deterministic `SetControlRotation()`, reasserted per tick.)
+- A connection that "used to work but now fails/mis-terminates for no code
+  reason" after the player moved is the signature of this whole class of
+  bug. The fix is always the same shape: replace the real (opaque)
   `CanConstruct()` poll-loop check with the manual disqualifier-ignore-list
-  pattern, not a `SetControlRotation()` workaround.
+  pattern **AND** point the controller at a value computed from the
+  buildable geometry, reasserted every tick — never leave the camera
+  either untouched (opaque internals may still read it) or a one-time-only
+  `SetControlRotation()` (can be overridden before a later poll tick).
 
 ## Belts
 
@@ -214,6 +331,27 @@ neighbors. Confirmed by direct user inspection in-game:
   Workaround: place at a slightly offset position rather than fighting it.
 - Transient `NO_PLAYER` errors on an otherwise-valid call have resolved on
   a simple retry — don't treat a single occurrence as a real failure.
+- **Colinear-overshoot connector mismatch** (2026-08-27, even after the
+  deterministic-look fix above): if two *different* buildables both have a
+  free input roughly along the same line from your source (e.g. a merger's
+  input, then a storage container's input ~500 units further along the
+  same axis), a `connectConveyor` call explicitly targeting the *nearer*
+  one can still land on the *farther* one instead - confirmed live via
+  `world.connections` showing the belt's other end genuinely attached to
+  the wrong building, not just a dangling stale point. `FindFreeFactoryConnection`
+  itself is correctly scoped to only the named destination buildable (read
+  from source), so this is happening downstream in the same opaque
+  spline/pathing internals already implicated elsewhere in this doc.
+  **Workaround**: connect the farther/"downstream" leg *first* so its free
+  connector is no longer available to be mistakenly claimed by an earlier,
+  nearer-intended connection - e.g. wire merger→storage before any
+  constructor→merger calls when they're roughly colinear. Always re-verify
+  via `world.connections` regardless.
+- **A belt can dangle unconnected on the very first attempt** even under
+  the deterministic-camera fix, for a short/simple run - retry with a
+  different `routeMode` before assuming something is actually blocked.
+  Live example: a 300-unit dead-straight run failed with `Straight`
+  ("Invalid Conveyor Belt shape!") but succeeded immediately with `Curve`.
 
 ## Debris discipline
 
@@ -221,3 +359,11 @@ Delete stray/failed test buildings (mergers, poles, belts) as soon as
 they're identified as unneeded, rather than leaving them for a later
 cleanup pass — leftover debris has repeatedly turned out to physically
 block or confuse later connection attempts in the same area.
+
+- **Sweep for stray `Build_ConveyorPole_C` actors too, not just belts**
+  (2026-08-27): a partially-failed or later-superseded belt construction
+  can leave behind an auto-placed support pole even after the belt itself
+  is deleted or was never fully connected. These don't show up when you
+  only search for `ConveyorBelt`/the buildable class you were placing -
+  include `ConveyorPole` in any post-cleanup `find_near` sweep of a work
+  area.

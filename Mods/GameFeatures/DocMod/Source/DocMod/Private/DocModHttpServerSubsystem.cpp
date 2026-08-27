@@ -353,10 +353,20 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		bool bIgnoreInvalidFloor = false;
 		ParamsObject->TryGetBoolField(TEXT("ignoreInvalidFloor"), bIgnoreInvalidFloor);
 
+		// Optional - an exact absolute world yaw in degrees. Takes priority
+		// over rotationScrollDelta entirely when present (see
+		// ConstructBuildingAtPosition's doc comment: Scroll() called
+		// repeatedly is non-linear for |N|>1, so this bypasses it for
+		// callers that need a specific, reliable orientation - which is
+		// every multi-building layout).
+		double TargetYawDegrees = 0.0;
+		const bool bHasTargetYaw = ParamsObject->TryGetNumberField(TEXT("yaw"), TargetYawDegrees);
+
 		// FHttpResultCallback is a TFunction, safe to copy - captured by
 		// value so it stays alive until the deferred poll actually calls it.
 		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta), static_cast<float>(GridSnapSize), static_cast<float>(ReferenceZ),
 			bIgnoreAimLocation, bIgnorePlayerEncroachment, bIgnoreClearance, bIgnoreInvalidFloor,
+			bHasTargetYaw, static_cast<float>(TargetYawDegrees),
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

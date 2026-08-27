@@ -47,6 +47,8 @@
 #include "FGRecipeManager.h"
 #include "Buildables/FGBuildableGenerator.h"
 #include "Buildables/FGBuildableResourceExtractorBase.h"
+#include "FGClearanceInterface.h"
+#include "FGClearanceData.h"
 
 namespace
 {
@@ -1907,7 +1909,7 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, the building WILL be constructed; see LogDocModAI for the real result"));
 }
 
-void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -2092,7 +2094,15 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	// caller can read the real effect back via LogDocModAI without a
 	// separate throwaway experiment.
 	const FRotator RotationBeforeScroll = Hologram->GetActorRotation();
-	if (RotationScrollDelta != 0)
+	if (bHasTargetYaw)
+	{
+		// See this function's header doc for why: Scroll() called N times
+		// synchronously is non-linear for |N|>1, so an exact target yaw is
+		// set directly instead. Re-asserted every poll tick below since
+		// UpdateHologramPlacement() may re-derive/reset yaw each tick.
+		Hologram->SetActorRotation(FRotator(0.0f, TargetYawDegrees, 0.0f));
+	}
+	else if (RotationScrollDelta != 0)
 	{
 		const int32 ScrollStep = RotationScrollDelta > 0 ? 1 : -1;
 		for (int32 i = 0; i < FMath::Abs(RotationScrollDelta); ++i)
@@ -2100,8 +2110,8 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 			Hologram->Scroll(ScrollStep);
 		}
 	}
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: rotationScrollDelta=%d rotationBeforeScroll=%s rotationAfterScroll=%s"),
-		RotationScrollDelta, *RotationBeforeScroll.ToString(), *Hologram->GetActorRotation().ToString());
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: rotationScrollDelta=%d hasTargetYaw=%s targetYaw=%.1f rotationBeforeScroll=%s rotationAfterScroll=%s"),
+		RotationScrollDelta, bHasTargetYaw ? TEXT("true") : TEXT("false"), TargetYawDegrees, *RotationBeforeScroll.ToString(), *Hologram->GetActorRotation().ToString());
 
 	struct FPollState
 	{
@@ -2117,6 +2127,8 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 		bool bIgnorePlayerEncroachment = false;
 		bool bIgnoreClearance = false;
 		bool bIgnoreInvalidFloor = false;
+		bool bHasTargetYaw = false;
+		float TargetYawDegrees = 0.0f;
 	};
 	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
 	PollState->Hologram = Hologram;
@@ -2128,6 +2140,8 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	PollState->bIgnorePlayerEncroachment = bIgnorePlayerEncroachment;
 	PollState->bIgnoreClearance = bIgnoreClearance;
 	PollState->bIgnoreInvalidFloor = bIgnoreInvalidFloor;
+	PollState->bHasTargetYaw = bHasTargetYaw;
+	PollState->TargetYawDegrees = TargetYawDegrees;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -2169,6 +2183,14 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 		}
 
 		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
+
+		// Re-assert the exact target yaw every tick too, for the same
+		// reason the camera look direction is re-asserted above -
+		// UpdateHologramPlacement() may have just reset it.
+		if (PollState->bHasTargetYaw)
+		{
+			PollHologram->SetActorRotation(FRotator(0.0f, PollState->TargetYawDegrees, 0.0f));
+		}
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
@@ -3609,6 +3631,67 @@ namespace
 	{
 		return Products.Num() > 0 && Products[0].ItemClass && Products[0].ItemClass->IsChildOf(UFGBuildingDescriptor::StaticClass());
 	}
+
+	FString ClearanceTypeToString(EClearanceType Type)
+	{
+		switch (Type)
+		{
+		case EClearanceType::CT_Default: return TEXT("Default");
+		case EClearanceType::CT_Soft: return TEXT("Soft");
+		case EClearanceType::CT_BlockEverything: return TEXT("BlockEverything");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	TSharedRef<FJsonObject> VectorToJson(const FVector& V)
+	{
+		const TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
+		Object->SetNumberField(TEXT("x"), V.X);
+		Object->SetNumberField(TEXT("y"), V.Y);
+		Object->SetNumberField(TEXT("z"), V.Z);
+		return Object;
+	}
+
+	// Shared by LogBuildableCatalogAsJson - a buildable's real footprint,
+	// for layout pre-planning (foundation counts, spacing for belt/pipe
+	// routing gaps). mClearanceData (FGClearanceData.h) is the SAME data
+	// FactoryGame's own construction-overlap checks use - a plain
+	// UPROPERTY(EditDefaultsOnly) array of FBox-based clearance volumes,
+	// safe to read on a CDO (unlike connector components elsewhere in
+	// this file, this is NOT added via Blueprint SCS). Retrieved via the
+	// IFGClearanceInterface BlueprintNativeEvent (Execute_ dispatch, not
+	// a direct call) since that's the documented, standard way to invoke
+	// it regardless of whether a given buildable overrides it further.
+	// Reports GetTransformedClearanceBox() (RelativeTransform already
+	// applied) so min/max/size are directly in the buildable's own local
+	// space - some buildables declare more than one clearance box (e.g.
+	// a base volume plus a separate one for an attached arm/platform), so
+	// this returns an array, not a single box.
+	TArray<TSharedPtr<FJsonValue>> ClearanceDataToJsonArray(const AFGBuildable* BuildableCDO)
+	{
+		TArray<TSharedPtr<FJsonValue>> Result;
+		if (!BuildableCDO->GetClass()->ImplementsInterface(UFGClearanceInterface::StaticClass()))
+		{
+			return Result;
+		}
+
+		TArray<FFGClearanceData> ClearanceData;
+		IFGClearanceInterface::Execute_GetClearanceData(const_cast<AFGBuildable*>(BuildableCDO), ClearanceData);
+
+		for (const FFGClearanceData& Clearance : ClearanceData)
+		{
+			if (!Clearance.IsValid()) { continue; }
+
+			const FBox Box = Clearance.GetTransformedClearanceBox();
+			const TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetObjectField(TEXT("min"), VectorToJson(Box.Min));
+			Entry->SetObjectField(TEXT("max"), VectorToJson(Box.Max));
+			Entry->SetObjectField(TEXT("size"), VectorToJson(Box.GetSize()));
+			Entry->SetStringField(TEXT("type"), ClearanceTypeToString(Clearance.Type));
+			Result.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+		return Result;
+	}
 }
 
 // LogRecipeCatalogAsJson/world.recipeCatalog, LogItemCatalogAsJson/
@@ -3799,6 +3882,7 @@ FString UDocModFunctionLibrary::LogBuildableCatalogAsJson(UObject* WorldContextO
 			EntryObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
 			EntryObject->SetStringField(TEXT("category"), Category);
 			EntryObject->SetArrayField(TEXT("constructionCost"), ItemAmountsToJsonArray(RecipeCDO->GetIngredients()));
+			EntryObject->SetArrayField(TEXT("clearance"), ClearanceDataToJsonArray(BuildableCDO));
 
 			if (const AFGBuildableFactory* FactoryCDO = Cast<AFGBuildableFactory>(BuildableCDO))
 			{
@@ -4087,17 +4171,32 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(), *SourceConnection->GetConnectorLocation(true).ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString(), *DestConnection->GetConnectorLocation(true).ToString());
 
-	// Player-independence (2026-08-26): this function used to point the
-	// controller at each connector to fight "Invalid aim location!" (a
-	// real fix at the time - see the removed comment in git history for
-	// the full incident). That's no longer needed now that the poll
-	// loop below permanently ignores UFGCDInvalidAimLocation instead of
-	// calling the real (opaque) CanConstruct() - see that block's own
-	// comment. Explicit user direction (2026-08-26): placement/connection
-	// results should not depend on player position or camera at all when
-	// the call is already anchored to explicit buildable IDs, so the
-	// SetControlRotation() workaround was removed rather than left as
-	// deadweight.
+	// Player-independence, take 2 (2026-08-27): the disqualifier-ignore
+	// alone was NOT sufficient - live-confirmed this session that
+	// AutoRouteSpline()/the belt's internal pathing (stub source, called
+	// from inside DoMultiStepPlacement/TrySnapToActor below) reads the
+	// player CONTROLLER's live rotation as an implicit routing hint,
+	// completely independent of the disqualifier check and independent
+	// of the correct, connector-anchored FHitResults built above. Proven
+	// live: identical connectConveyor calls against the same two
+	// buildables produced a genuinely mis-terminated belt (far end
+	// landing near the player's actual look direction, not the
+	// destination connector) when the player's camera was aimed
+	// elsewhere, and a correctly-terminated belt (verified via
+	// world.connections) once the player was aimed at the destination.
+	// Since this function is already anchored to explicit buildable IDs,
+	// there's no legitimate reason the result should depend on the
+	// player at all - so, same spirit as ConstructBuildingAtPosition's
+	// fix, point the controller at a DETERMINISTIC target computed from
+	// the two connectors themselves (never the player's real aim), and
+	// reassert it every poll tick below so it survives the hologram
+	// re-deriving state each tick (see that same "jetpack hovering"
+	// class of bug in ConstructBuildingAtPosition's history).
+	const FRotator BeltDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
+	if (AController* BeltController = Character->GetController())
+	{
+		BeltController->SetControlRotation(BeltDeterministicLook);
+	}
 
 	// Step 1 of the flow found live via DebugCheckConveyorSnap - fix the
 	// start point on the source's Output connection. UpdateHologramPlacement()
@@ -4156,6 +4255,7 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 		FString SourceBuildableId;
 		FString DestBuildableId;
 		bool bDryRun = true;
+		FRotator DeterministicLook;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FDocModOperationResult&)> OnComplete;
@@ -4167,6 +4267,7 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 	PollState->SourceBuildableId = SourceBuildableId;
 	PollState->DestBuildableId = DestBuildableId;
 	PollState->bDryRun = bDryRun;
+	PollState->DeterministicLook = BeltDeterministicLook;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -4183,6 +4284,21 @@ void UDocModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, 
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
 			return;
+		}
+
+		// Re-assert every tick, not just once before the poll started -
+		// AutoRouteSpline()/UpdateHologramPlacement() (stub source) re-reads
+		// the controller's CURRENT rotation each tick, so a live player
+		// moving their own camera between ticks (or just standing still
+		// while looking around) can still drag the resolved path off the
+		// one-time value set above. Same fix shape as
+		// ConstructBuildingAtPosition's "jetpack hovering" fix.
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
 		}
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
@@ -4464,10 +4580,17 @@ void UDocModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, 
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString());
 
-	// Player-independence (2026-08-26): see ConstructConveyorBelt's
-	// identical comment - the SetControlRotation() aim workaround that
-	// used to live here is no longer needed now that the poll loop below
-	// permanently ignores UFGCDInvalidAimLocation.
+	// Player-independence, take 2 (2026-08-27): see ConstructConveyorBelt's
+	// identical comment/incident - the disqualifier-ignore alone was not
+	// sufficient, since the belt/lift's internal pathing separately reads
+	// the player controller's live rotation. Point the controller at a
+	// deterministic target computed from the two connectors (never the
+	// player's real aim), reasserted every poll tick below.
+	const FRotator LiftDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
+	if (AController* LiftController = Character->GetController())
+	{
+		LiftController->SetControlRotation(LiftDeterministicLook);
+	}
 
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
 	LiftHologram->UpdateHologramPlacement(StartHit);
@@ -4507,6 +4630,7 @@ void UDocModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, 
 		FString SourceBuildableId;
 		FString DestBuildableId;
 		bool bDryRun = true;
+		FRotator DeterministicLook;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FDocModOperationResult&)> OnComplete;
@@ -4518,6 +4642,7 @@ void UDocModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, 
 	PollState->SourceBuildableId = SourceBuildableId;
 	PollState->DestBuildableId = DestBuildableId;
 	PollState->bDryRun = bDryRun;
+	PollState->DeterministicLook = LiftDeterministicLook;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -4534,6 +4659,17 @@ void UDocModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, 
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
 			return;
+		}
+
+		// Re-assert every tick - see ConstructConveyorBelt's identical block
+		// for the full rationale (player camera movement between ticks can
+		// still drag the resolved path off a one-time value).
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
 		}
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;

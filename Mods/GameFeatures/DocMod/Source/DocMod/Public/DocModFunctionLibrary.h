@@ -468,8 +468,29 @@ public:
 	 * InternalConstructHologram() either way - FactoryGame's own
 	 * server-side validation inside that function, if any, is
 	 * unverified from source and not bypassed by these flags.
+	 *
+	 * bHasTargetYaw/TargetYawDegrees (2026-08-27): RotationScrollDelta's
+	 * "call AFGHologram::Scroll(+-1) N times in a tight synchronous loop"
+	 * approach (see the .cpp's calibration comment) was live-confirmed
+	 * this session to be NON-LINEAR for |N|>1 - a sweep of delta=-1..-9
+	 * against the same recipe/location produced resolved yaws with no
+	 * consistent per-click increment (e.g. -10, +70, +40, 0, -50, -110,
+	 * -180, +90, +170 degrees - not a monotonic or evenly-spaced
+	 * sequence). Root cause unconfirmed (stub source), but calling
+	 * Scroll() repeatedly with zero real ticks between calls is the
+	 * prime suspect, since a real player's mouse-wheel notches are never
+	 * that close together. Rather than chase Scroll()'s internal
+	 * behavior further, bHasTargetYaw lets the caller specify the exact
+	 * final world yaw directly - when true, RotationScrollDelta is
+	 * ignored entirely and the hologram's actor rotation is force-set to
+	 * FRotator(0, TargetYawDegrees, 0) every poll tick (same
+	 * re-assertion pattern as the deterministic-look fix above, since
+	 * UpdateHologramPlacement() may re-derive yaw each tick). This is
+	 * the recommended way to get a specific orientation reliably -
+	 * RotationScrollDelta remains for callers that only care about SOME
+	 * rotation being applied, not a specific one.
 	 */
-	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * PLAN.md Phase 13/14: dry-run only, no-mutation experiment toward
@@ -837,7 +858,17 @@ public:
 	 * Each entry: recipeClass, buildableClass, category ("Generator"/
 	 * "Extractor"/"Manufacturer"/"Other" - determined by C++ class
 	 * hierarchy, not a FactoryGame-declared enum), constructionCost (same
-	 * shape as recipe ingredients), factoryInputCount/factoryOutputCount
+	 * shape as recipe ingredients), clearance (2026-08-27, per explicit
+	 * user request to pre-plan layouts/estimate foundation counts/space
+	 * for belt+pipe routing gaps - an array of the buildable's real
+	 * mClearanceData boxes, the SAME data FactoryGame's own construction-
+	 * overlap checks use, each with min/max/size in the buildable's local
+	 * space and "type" ("Default"/"Soft"/"BlockEverything") - most
+	 * buildables have exactly one entry, but some declare more than one
+	 * (e.g. a base volume plus a separate one for an attached arm), never
+	 * spawns anything since mClearanceData is a plain class-default
+	 * property, retrieved via the IFGClearanceInterface
+	 * BlueprintNativeEvent), factoryInputCount/factoryOutputCount
 	 * (solid connections), pipeInputCount/pipeOutputCount (fluid
 	 * connections), powerConnectionCount, overridesShardSlotCount +
 	 * potentialShardSlots (power-shard overclock slot count, via

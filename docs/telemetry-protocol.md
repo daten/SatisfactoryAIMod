@@ -545,6 +545,14 @@ produces (e.g. `Recipe_ConstructorMk1`'s product) — cross-check against
       "constructionCost": [
         { "itemClass": "...", "itemName": "Reinforced Iron Plate", "amount": 2 }
       ],
+      "clearance": [
+        {
+          "min": { "x": -400.0, "y": -600.0, "z": 0.0 },
+          "max": { "x": 400.0, "y": 600.0, "z": 800.0 },
+          "size": { "x": 800.0, "y": 1200.0, "z": 800.0 },
+          "type": "Default"
+        }
+      ],
       "runsOnPower": true,
       "idlePowerConsumption": 0.5,
       "producingPowerConsumptionBase": 4.0,
@@ -575,6 +583,23 @@ buildings most relevant to production planning. Non-factory buildables
 (foundations, walls, belts, poles...) still appear with category
 `"Other"`, but the power/potential fields are **omitted entirely** rather
 than reported as misleading zeros.
+
+`clearance` (2026-08-27, per explicit user request to pre-plan layouts —
+estimate foundation counts, and reserve space for belt/pipe routing gaps
+— before placing anything) is present on **every** entry, not just
+factory buildables. It's an array of the buildable's real
+`mClearanceData` boxes — the exact same data FactoryGame's own
+construction-overlap checks use, not an approximation — each with
+`min`/`max`/`size` (in the buildable's local space, `RelativeTransform`
+already applied) and `type` (`"Default"`/`"Soft"`/`"BlockEverything"`,
+see `FGClearanceData.h`'s `EClearanceType`). Most buildables declare
+exactly one box, but some declare more than one (e.g. a base volume plus
+a separate one for an attached arm or platform) — an empty array means no
+clearance data was found, not zero size. Retrieved via the
+`IFGClearanceInterface` `BlueprintNativeEvent` on each buildable class's
+CDO — safe, since (unlike connector components above) clearance data is
+a plain class-default property, not something added via a Blueprint's
+Simple Construction Script.
 
 Power/potential fields (`runsOnPower` through `canChangePotential`) are
 present for anything deriving from `AFGBuildableFactory` — Manufacturer,
