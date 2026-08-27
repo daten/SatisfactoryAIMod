@@ -5,6 +5,9 @@
 #include "EngineUtils.h"
 #include "Engine/Engine.h"
 #include "Resources/FGResourceNode.h"
+#include "Resources/FGResourceNodeBase.h"
+#include "Resources/FGResourceNodeFrackingCore.h"
+#include "Resources/FGResourceNodeFrackingSatellite.h"
 #include "Resources/FGItemDescriptor.h"
 #include "FGBuildableSubsystem.h"
 #include "Buildables/FGBuildable.h"
@@ -72,7 +75,42 @@ namespace
 		}
 	}
 
-	FDocModResourceNodeTelemetry MakeResourceNodeTelemetry(AFGResourceNode* Node)
+	// EResourceNodeType is confirmed present on AFGResourceNodeBase
+	// (FGResourceNodeBase.h:23-33) - real UENUM, manual switch for the
+	// same reason as the other To*String helpers in this file.
+	FString ResourceNodeTypeToString(EResourceNodeType Type)
+	{
+		switch (Type)
+		{
+		case EResourceNodeType::Node: return TEXT("Node");
+		case EResourceNodeType::FrackingSatellite: return TEXT("FrackingSatellite");
+		case EResourceNodeType::FrackingCore: return TEXT("FrackingCore");
+		case EResourceNodeType::Geyser: return TEXT("Geyser");
+		case EResourceNodeType::Deposit: return TEXT("Deposit");
+		default: return TEXT("Invalid");
+		}
+	}
+
+	FString FrackingSatelliteStateToString(EFrackingSatelliteState State)
+	{
+		switch (State)
+		{
+		case EFrackingSatelliteState::FSS_Untouched: return TEXT("Untouched");
+		case EFrackingSatelliteState::FSS_Active: return TEXT("Active");
+		case EFrackingSatelliteState::FSS_Inactive: return TEXT("Inactive");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	// AFGResourceNodeBase (2026-08-27, was AFGResourceNode) - widened
+	// alongside ConstructExtractorOnNode to also cover
+	// AFGResourceNodeFrackingCore (a Resource Well Pressurizer's real
+	// target, NOT an AFGResourceNode - see that function's doc comment).
+	// GetResourcePurity() only exists on AFGResourceNode (confirmed from
+	// source - FGResourceNode.h, not declared on the shared
+	// AFGResourceNodeBase), so it's read conditionally here; a Fracking
+	// Core has no meaningful purity of its own.
+	FDocModResourceNodeTelemetry MakeResourceNodeTelemetry(AFGResourceNodeBase* Node)
 	{
 		const TSubclassOf<UFGResourceDescriptor> ResourceClass = Node->GetResourceClass();
 
@@ -81,9 +119,28 @@ namespace
 		Telemetry.Id = Node->GetPathName();
 		Telemetry.Resource = ResourceClass ? UFGItemDescriptor::GetItemName(ResourceClass).ToString() : TEXT("Unknown");
 		Telemetry.ResourceClass = ResourceClass ? ResourceClass->GetPathName() : FString();
-		Telemetry.Purity = ResourcePurityToString(Node->GetResourcePurity());
 		Telemetry.Position = Node->GetActorLocation();
 		Telemetry.bOccupied = Node->IsOccupied();
+		Telemetry.NodeType = ResourceNodeTypeToString(Node->GetResourceNodeType());
+
+		if (const AFGResourceNode* PlainNode = Cast<AFGResourceNode>(Node))
+		{
+			Telemetry.Purity = ResourcePurityToString(PlainNode->GetResourcePurity());
+		}
+		else
+		{
+			Telemetry.Purity = TEXT("N/A");
+		}
+
+		if (AFGResourceNodeFrackingSatellite* Satellite = Cast<AFGResourceNodeFrackingSatellite>(Node))
+		{
+			Telemetry.SatelliteState = FrackingSatelliteStateToString(Satellite->GetState());
+			if (AFGResourceNodeFrackingCore* Core = Satellite->GetCore().Get())
+			{
+				Telemetry.CoreId = Core->GetPathName();
+			}
+		}
+
 		return Telemetry;
 	}
 
@@ -96,9 +153,9 @@ namespace
 	TArray<FDocModResourceNodeTelemetry> CollectResourceNodeTelemetry(UWorld* World)
 	{
 		TArray<FDocModResourceNodeTelemetry> Nodes;
-		for (TActorIterator<AFGResourceNode> It(World); It; ++It)
+		for (TActorIterator<AFGResourceNodeBase> It(World); It; ++It)
 		{
-			AFGResourceNode* Node = *It;
+			AFGResourceNodeBase* Node = *It;
 			if (!IsValid(Node))
 			{
 				continue;
@@ -686,6 +743,9 @@ FString UDocModFunctionLibrary::LogResourceNodesAsJson(UObject* WorldContextObje
 		NodeObject->SetStringField(TEXT("resource"), Node.Resource);
 		NodeObject->SetStringField(TEXT("resourceClass"), Node.ResourceClass);
 		NodeObject->SetStringField(TEXT("purity"), Node.Purity);
+		NodeObject->SetStringField(TEXT("nodeType"), Node.NodeType);
+		NodeObject->SetStringField(TEXT("coreId"), Node.CoreId);
+		NodeObject->SetStringField(TEXT("satelliteState"), Node.SatelliteState);
 
 		const TSharedRef<FJsonObject> PositionObject = MakeShared<FJsonObject>();
 		PositionObject->SetNumberField(TEXT("x"), Node.Position.X);
@@ -2843,7 +2903,7 @@ FDocModOperationResult UDocModFunctionLibrary::DebugCheckPowerConnection(UObject
 		TEXT("Scheduled via the real build gun - dry-run only, never constructs; see LogDocModAI for the real result"));
 }
 
-void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& RecipeClassPath, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -2859,8 +2919,15 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 		return;
 	}
 
-	AFGResourceNode* TargetNode = nullptr;
-	for (TActorIterator<AFGResourceNode> It(World); It; ++It)
+	// AFGResourceNodeBase (2026-08-27, was AFGResourceNode) - a strictly
+	// wider search. AFGResourceNode already covered normal nodes and
+	// Fracking Satellites (AFGResourceNodeFrackingSatellite : AFGResourceNode).
+	// AFGResourceNodeFrackingCore is NOT an AFGResourceNode - it derives
+	// from AFGResourceNodeBase directly - so a Resource Well Pressurizer's
+	// target node was previously unreachable here at all. See this
+	// function's header doc comment / docs/resource-well-research.md.
+	AFGResourceNodeBase* TargetNode = nullptr;
+	for (TActorIterator<AFGResourceNodeBase> It(World); It; ++It)
 	{
 		if (IsValid(*It) && It->GetPathName() == NodeId)
 		{
@@ -2880,21 +2947,21 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 		return;
 	}
 
-	const EResourceForm Form = UFGItemDescriptor::GetForm(TargetNode->GetResourceClass());
-	if (Form != EResourceForm::RF_SOLID)
+	// The RF_SOLID-only gate this function used to enforce manually is
+	// gone (2026-08-27) - see this function's header doc comment for why
+	// (it only ever existed from being written/tested against Miners
+	// first; the real engine-side gating already does this correctly for
+	// every extractor type, including rejecting a mismatched recipe/node
+	// pairing via UFGCDNeedsFrackingCoreNode/UFGCDNeedsFrackingSatelliteNode -
+	// trust CanConstruct() for it the same way this function already does
+	// for every other disqualifier).
+	UClass* ResolvedRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!ResolvedRecipeClass || !ResolvedRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
 	{
-		OnComplete(FDocModOperationResult::Failure(TEXT("UNSUPPORTED_RESOURCE_FORM"),
-			TEXT("This experiment only supports solid resource nodes (Miner Mk1) so far")));
+		OnComplete(FDocModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
 		return;
 	}
-
-	UClass* MinerRecipeClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_MinerMk1.Recipe_MinerMk1_C"));
-	if (!MinerRecipeClass || !MinerRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
-	{
-		OnComplete(FDocModOperationResult::Failure(TEXT("RECIPE_LOAD_FAILED"), TEXT("Failed to load Recipe_MinerMk1 as a UFGRecipe")));
-		return;
-	}
-	const TSubclassOf<UFGRecipe> RecipeClass = MinerRecipeClass;
+	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedRecipeClass;
 
 	Character->HotKeyRecipe(RecipeClass);
 
@@ -2954,6 +3021,20 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 
 	BuildGun->GetHitResult() = SyntheticHit;
 
+	// Player-independence (2026-08-27, applying the same fix already
+	// proven for ConstructConveyorBelt/ConstructConveyorLift/ConstructPipe -
+	// see their comments for the full incident): this function predates
+	// that fix and was never updated - live-confirmed this session it
+	// fails with "Invalid aim location!" even for a fully valid,
+	// unoccupied Fracking Core node. Point the controller at a
+	// deterministic target (the real placement location, never the
+	// player's actual aim), reasserted every poll tick below.
+	const FRotator ExtractorDeterministicLook = (PlacementLocation - Character->GetActorLocation()).Rotation();
+	if (AController* ExtractorController = Character->GetController())
+	{
+		ExtractorController->SetControlRotation(ExtractorDeterministicLook);
+	}
+
 	// TrySnapToActor() call added 2026-08-26 alongside the Distance fix
 	// above while chasing the same live UFGCDNeedsResourceNode failure -
 	// this function previously relied solely on UpdateHologramPlacement()
@@ -2977,10 +3058,11 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 	{
 		TWeakObjectPtr<AFGHologram> Hologram;
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
-		TWeakObjectPtr<AFGResourceNode> TargetNode;
+		TWeakObjectPtr<AFGResourceNodeBase> TargetNode;
 		TWeakObjectPtr<UWorld> World;
 		FString NodeId;
 		FHitResult SyntheticHit;
+		FRotator DeterministicLook;
 		TFunction<void(const FDocModOperationResult&)> OnComplete;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
@@ -2992,6 +3074,7 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 	PollState->World = World;
 	PollState->NodeId = NodeId;
 	PollState->SyntheticHit = SyntheticHit;
+	PollState->DeterministicLook = ExtractorDeterministicLook;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -3002,13 +3085,24 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 		AFGHologram* PollHologram = PollState->Hologram.Get();
 		UWorld* PollWorld = PollState->World.Get();
 		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
-		AFGResourceNode* PollTargetNode = PollState->TargetNode.Get();
+		AFGResourceNodeBase* PollTargetNode = PollState->TargetNode.Get();
 		if (!IsValid(PollHologram) || !PollWorld)
 		{
 			UE_LOG(LogDocModAI, Warning, TEXT("ConstructExtractorOnNode (deferred): hologram or world became invalid while polling (after %d tick(s)) - nothing built"), PollState->AttemptsTaken);
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
 			return;
+		}
+
+		// Re-assert every tick - see ConstructConveyorBelt's identical block
+		// for the full rationale (player camera movement between ticks can
+		// still drag the resolved result off a one-time value).
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
 		}
 
 		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
@@ -3024,13 +3118,22 @@ void UDocModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObjec
 			return;
 		}
 
-		const bool bCanConstruct = PollHologram->CanConstruct();
+		// Player-independence (2026-08-27) - same manual disqualifier-ignore
+		// pattern as ConstructConveyorBelt, replacing the real (opaque)
+		// CanConstruct() this function used to call directly.
+		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
 				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
-				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
 		}
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 

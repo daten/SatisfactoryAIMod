@@ -49,6 +49,39 @@ struct FDocModResourceNodeTelemetry
 
 	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
 	bool bOccupied = false;
+
+	/**
+	 * "Node" (a normal single-resource node - Miners/Water/Oil Pumps go
+	 * here), "FrackingCore" (a Resource Well Pressurizer's real target -
+	 * Recipe_FrackingSmasher), "FrackingSatellite" (a Resource Well
+	 * Extractor's target - Recipe_FrackingExtractor), "Geyser", "Deposit",
+	 * or "Invalid" (EResourceNodeType). Added 2026-08-27 alongside CoreId/
+	 * SatelliteState, per explicit user request to support Resource Well
+	 * Pressurizers/Extractors - see docs/resource-well-research.md.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FString NodeType = TEXT("Node");
+
+	/**
+	 * For a "FrackingSatellite" node only: the id of its
+	 * AFGResourceNodeFrackingCore (the node a Pressurizer must be built
+	 * on to eventually activate this satellite). Empty for every other
+	 * NodeType. Session-local only, same caveat as Id.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FString CoreId;
+
+	/**
+	 * For a "FrackingSatellite" node only: "Untouched" / "Active" /
+	 * "Inactive" (EFrackingSatelliteState). A Resource Well Extractor
+	 * cannot be constructed on a satellite while this is "Untouched" -
+	 * confirmed from source (UFGCDNeedsFrackingSatelliteNode,
+	 * docs/resource-well-research.md) - poll this after powering a
+	 * Pressurizer built on the satellite's core, rather than guessing
+	 * when it's safe to build extractors. Empty for every other NodeType.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FString SatelliteState;
 };
 
 /**

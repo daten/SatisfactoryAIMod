@@ -52,17 +52,65 @@ and deleted with zero issues; the other 7 were genuine, expected
 `"Missing materials!"` inventory shortages (not bugs - real construction
 cost the player's inventory didn't cover), not silent failures.
 
-**Separately (not yet fixed)**: `world.placeExtractor`
-(`ConstructExtractorOnNode`) itself is older than the deterministic
-camera-independence work elsewhere in this doc and doesn't have it -
-confirmed live it can fail with `"Invalid aim location!"` on a
-genuinely-valid, unoccupied node, consistently (not resolved by a simple
-retry), and has no `ignoreAimLocation`-style bypass param the way
-`world.placeBuilding`/`ConstructPowerConnection` do. If extractor
-placement needs to be reliable/player-independent going forward, this
-function needs the same treatment (point the controller at a
-deterministic target derived from the node's own location, reasserted
-per poll tick) - not yet done.
+**Fixed 2026-08-27** (was "not yet fixed" as of the note above):
+`world.placeExtractor` (`ConstructExtractorOnNode`) got the same
+deterministic-look + disqualifier-ignore-list treatment as
+`ConstructPipe`/belts - confirmed live it failed with `"Invalid aim
+location!"` on a genuinely-valid Fracking Core node before the fix, and
+placed correctly after it (see "Resource Well Pressurizers/Extractors
+now supported" below). `world.placeExtractor` still has no explicit
+`ignoreAimLocation` param the way `world.placeBuilding` does - the fix
+here is unconditional (the aim disqualifier is always ignored, matching
+belts/pipes' posture of "this is anchored to an explicit target ID, aim
+should never matter").
+
+## Resource Well Pressurizers/Extractors now supported (2026-08-27)
+
+Per explicit user request. `world.placeExtractor`/`ConstructExtractorOnNode`
+now accepts **any** extractor recipe via a new `recipeClass` param
+(default `Recipe_MinerMk1` for backward compatibility) - previously
+hardcoded to Miner Mk1 and restricted to solid resources only. The manual
+`RF_SOLID`-only gate is gone; the real engine-side gating
+(`mAllowedResourceForms`/`mRestrictToNodeType` and their disqualifiers)
+already handles every extractor type correctly, so it's trusted the same
+way `CanConstruct()` already is for everything else. Full mechanics in
+`docs/resource-well-research.md`.
+
+**The Pressurizer's real target is a distinct node type**
+(`AFGResourceNodeFrackingCore`, `nodeType: "FrackingCore"` in the new
+`world.resourceNodes` fields below) - **not** the same `AFGResourceNode`
+class a Miner or the satellite Extractor uses. The node lookup was
+widened from `AFGResourceNode` to `AFGResourceNodeBase` specifically to
+reach it; this is why the Pressurizer was completely unplaceable before
+today regardless of recipe/form fixes.
+
+**`world.resourceNodes` gained `nodeType`, `coreId`, `satelliteState`**
+specifically to make the required build order pollable instead of
+guessed: Pressurizer on the core → power it → **poll `satelliteState`
+until it leaves `"Untouched"`** (confirmed live: transitions to
+`"Active"` within moments of the Pressurizer's power connection landing,
+not a fixed/guessed delay) → only then can `Recipe_FrackingExtractor` be
+built on each satellite (a real, engine-enforced construction
+disqualifier, `UFGCDNeedsFrackingSatelliteNode` - not bypassable, and
+correctly not bypassed here).
+
+**A remote build site may have a much closer power option than a
+`PowerPole`-only search suggests** - confirmed live wiring a Pressurizer
+150 units from any existing pole/generator by finding a
+`Build_PowerTowerPlatform_C` ("Power Tower", a real distinct buildable
+class from `PowerPoleMk1/2/3`, built for very-long-distance transmission)
+only ~7000 units away. **Search `buildableClass` for `"PowerTower"` too,
+not just `"PowerPole"`, before concluding a site has no power option
+short of building a whole new generator.**
+
+**The satellite-extractor disqualifier flickered once even on an
+already-`"Active"` satellite** (`"Must be placed on an activated Fracking
+Satellite Node!"`, alongside a soft clearance disqualifier) - resolved by
+an immediate retry with zero other changes; two more extractors on
+different satellites both succeeded on the first attempt right after.
+Same "transient disqualifier flakiness, retry once" pattern documented
+elsewhere in this file - don't treat a single such failure as proof the
+activation state is wrong.
 
 ## Pipes fixed, Hypertube support added (2026-08-27)
 

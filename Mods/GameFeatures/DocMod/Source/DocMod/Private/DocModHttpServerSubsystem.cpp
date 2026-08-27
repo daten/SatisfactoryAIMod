@@ -393,7 +393,21 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 			return true;
 		}
 
-		UDocModFunctionLibrary::ConstructExtractorOnNode(GetGameInstance(), NodeId,
+		// Optional, defaults to Mk1 (prior hardcoded behavior) - any
+		// extractor recipe now works (2026-08-27, per explicit user
+		// request to support Resource Well Pressurizers/Extractors):
+		// Recipe_MinerMk1..Mk3, Recipe_WaterPump, Recipe_OilPump,
+		// Recipe_FrackingSmasher, Recipe_FrackingExtractor - see
+		// ConstructExtractorOnNode's doc comment for the node-type
+		// gating (Pressurizer needs a Fracking Core node, Extractor
+		// needs an ACTIVATED Fracking Satellite node).
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_MinerMk1.Recipe_MinerMk1_C");
+		}
+
+		UDocModFunctionLibrary::ConstructExtractorOnNode(GetGameInstance(), NodeId, RecipeClassPath,
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

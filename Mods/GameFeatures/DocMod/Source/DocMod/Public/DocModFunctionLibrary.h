@@ -580,8 +580,48 @@ public:
 	 * the rest of this file and because TrySnapToActor() is what
 	 * populates mSnappedExtractableResource, needed for the extractor to
 	 * actually function correctly, not just pass this one disqualifier.
+	 *
+	 * RecipeClassPath (2026-08-27, per explicit user request to support
+	 * Resource Well Pressurizers/Extractors): was hardcoded to
+	 * Recipe_MinerMk1 - now caller-chosen, any solid/liquid/gas extractor
+	 * recipe (Recipe_MinerMk1..Mk3, Recipe_WaterPump, Recipe_OilPump,
+	 * Recipe_FrackingSmasher, Recipe_FrackingExtractor). The RF_SOLID-only
+	 * gate this function used to enforce manually was removed - it only
+	 * ever existed because this function was written and tested against
+	 * Miners first; the real engine-side gating (AFGBuildableResourceExtractorBase::
+	 * mAllowedResourceForms, mRestrictToNodeType, and their disqualifiers)
+	 * already does this correctly for every extractor type, confirmed
+	 * from source (docs/resource-well-research.md) - trust it the same
+	 * way this function already trusts CanConstruct() for everything
+	 * else, rather than re-deriving a redundant, narrower check.
+	 *
+	 * NodeId now resolves against AFGResourceNodeBase (was AFGResourceNode) -
+	 * a strictly wider search, not a behavior change for existing
+	 * callers: AFGResourceNode (normal nodes and Fracking Satellites,
+	 * since AFGResourceNodeFrackingSatellite : AFGResourceNode) was
+	 * already covered; AFGResourceNodeFrackingCore (the Resource Well
+	 * Pressurizer's real target - NOT an AFGResourceNode, confirmed from
+	 * source) is the new case this makes reachable at all. See
+	 * docs/resource-well-research.md for the full class hierarchy and why
+	 * a Pressurizer must be built on a core node specifically, never a
+	 * satellite.
+	 *
+	 * Sequencing (NOT enforced by this function - a real, engine-side
+	 * construction-time gate, not a bypassable disqualifier): a Fracking
+	 * Satellite's construct disqualifier (UFGCDNeedsFrackingSatelliteNode)
+	 * requires the satellite to have been ACTIVATED by its core's own
+	 * Pressurizer already producing (AFGResourceNodeFrackingSatellite::
+	 * GetState() != FSS_Untouched) before Recipe_FrackingExtractor can be
+	 * built there at all - confirmed from source/localized disqualifier
+	 * text ("Must be placed on an activated Fracking Satellite Node!").
+	 * The real required order is: build the Pressurizer on the core,
+	 * power it, wait for GetState() to leave FSS_Untouched (poll
+	 * "world.resourceNodes" - see its satelliteState field), only then
+	 * build extractors on the satellites - this function will correctly
+	 * fail with CANNOT_CONSTRUCT if called on a not-yet-activated
+	 * satellite, it does not silently bypass the check.
 	 */
-	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& RecipeClassPath, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * PLAN.md Phase 13/14: RPC-drivable, genuinely asynchronous variant
