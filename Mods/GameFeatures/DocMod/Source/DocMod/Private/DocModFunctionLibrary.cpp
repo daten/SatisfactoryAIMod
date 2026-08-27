@@ -37,6 +37,7 @@
 #include "Hologram/FGHologramBuildModeDescriptor.h"
 #include "Hologram/FGPipelineHologram.h"
 #include "FGPipeConnectionComponent.h"
+#include "FGPipeConnectionComponentHyper.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/HitResult.h"
 #include "Engine/ActorInstanceHandle.h"
@@ -289,6 +290,34 @@ namespace
 		return nullptr;
 	}
 
+	// Hypertube connectors are a different shape than fluid pipe connectors
+	// (research 2026-08-27, docs/hypertube-research.md): they're all
+	// UFGPipeConnectionComponentHyper (a plain type-tag subclass of
+	// UFGPipeConnectionComponentBase - confirmed no added members from
+	// source) and their mPipeConnectionType stays the CDO default
+	// PCT_ANY, NOT PCT_PRODUCER/PCT_CONSUMER like fluid pipe machines -
+	// FindFreePipeConnection's exact-type-match filter would find nothing
+	// on any hypertube part. Hypertubes are also bidirectional (no real
+	// producer/consumer distinction), so both ends use this same finder.
+	// Skip PCT_SNAP_ONLY connectors (wall supports/poles) - those are
+	// explicitly not real endpoints (FGPipeConnectionComponent.h's
+	// IsConnected() doc comment), just structural snap points.
+	UFGPipeConnectionComponentBase* FindFreeHyperPipeConnection(AFGBuildable* Buildable)
+	{
+		TArray<UFGPipeConnectionComponentBase*> Connections;
+		Buildable->GetComponents<UFGPipeConnectionComponentBase>(Connections);
+		for (UFGPipeConnectionComponentBase* Connection : Connections)
+		{
+			if (IsValid(Connection) && Cast<UFGPipeConnectionComponentHyper>(Connection)
+				&& Connection->GetPipeConnectionType() != EPipeConnectionType::PCT_SNAP_ONLY
+				&& !Connection->IsConnected())
+			{
+				return Connection;
+			}
+		}
+		return nullptr;
+	}
+
 	TArray<FDocModBuildableTelemetry> CollectLightweightBuildableTelemetry(UWorld* World)
 	{
 		TArray<FDocModBuildableTelemetry> Result;
@@ -511,6 +540,81 @@ namespace
 				if (IsValid(Connection))
 				{
 					Result.Add(MakeConnectionTelemetry(OwnerId, Connection));
+				}
+			}
+		}
+
+		return Result;
+	}
+
+	FString PipeConnectionTypeToString(EPipeConnectionType Type)
+	{
+		switch (Type)
+		{
+		case EPipeConnectionType::PCT_ANY: return TEXT("Any");
+		case EPipeConnectionType::PCT_PRODUCER: return TEXT("Producer");
+		case EPipeConnectionType::PCT_CONSUMER: return TEXT("Consumer");
+		case EPipeConnectionType::PCT_SNAP_ONLY: return TEXT("SnapOnly");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	FDocModPipeConnectionTelemetry MakePipeConnectionTelemetry(const FString& OwnerId, UFGPipeConnectionComponentBase* Connection)
+	{
+		FDocModPipeConnectionTelemetry Telemetry;
+		Telemetry.OwnerBuildableId = OwnerId;
+		Telemetry.ConnectionType = PipeConnectionTypeToString(Connection->GetPipeConnectionType());
+		Telemetry.bIsHypertube = Cast<UFGPipeConnectionComponentHyper>(Connection) != nullptr;
+		Telemetry.bConnected = Connection->IsConnected();
+		Telemetry.Position = Connection->GetConnectorLocation();
+		Telemetry.Normal = Connection->GetConnectorNormal();
+
+		if (Telemetry.bConnected)
+		{
+			if (const UFGPipeConnectionComponentBase* Peer = Connection->GetConnection())
+			{
+				if (const AFGBuildable* PeerOwner = Cast<AFGBuildable>(Peer->GetOwner()))
+				{
+					Telemetry.ConnectedBuildableId = PeerOwner->GetPathName();
+				}
+			}
+		}
+		return Telemetry;
+	}
+
+	// Same generic-discovery pattern as CollectFactoryConnectionTelemetry -
+	// see that function's comment for why (three separate sibling
+	// hierarchies were found the hard way for factory connections; pipes
+	// are a fourth, entirely separate type hierarchy - UFGPipeConnectionComponentBase,
+	// not UFGFactoryConnectionComponent - covering both fluid pipes and
+	// hypertubes, since UFGPipeConnectionComponentHyper is a subclass of
+	// the same base, added 2026-08-27 after discovering live that no
+	// telemetry existed for either.
+	TArray<FDocModPipeConnectionTelemetry> CollectPipeConnectionTelemetry(UWorld* World)
+	{
+		TArray<FDocModPipeConnectionTelemetry> Result;
+
+		for (TActorIterator<AFGBuildable> It(World); It; ++It)
+		{
+			AFGBuildable* Buildable = *It;
+			if (!IsValid(Buildable))
+			{
+				continue;
+			}
+
+			TArray<UFGPipeConnectionComponentBase*> Connections;
+			Buildable->GetComponents<UFGPipeConnectionComponentBase>(Connections);
+			if (Connections.Num() == 0)
+			{
+				continue;
+			}
+
+			const FString OwnerId = Buildable->GetPathName();
+			for (UFGPipeConnectionComponentBase* Connection : Connections)
+			{
+				if (IsValid(Connection))
+				{
+					Result.Add(MakePipeConnectionTelemetry(OwnerId, Connection));
 				}
 			}
 		}
@@ -880,6 +984,74 @@ FString UDocModFunctionLibrary::LogFactoryConnectionsAsJson(UObject* WorldContex
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogDocModAI, Display, TEXT("LogFactoryConnectionsAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+TArray<FDocModPipeConnectionTelemetry> UDocModFunctionLibrary::GetPipeConnectionTelemetry(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("GetPipeConnectionTelemetry: no valid world context"));
+		return {};
+	}
+
+	return CollectPipeConnectionTelemetry(World);
+}
+
+void UDocModFunctionLibrary::LogPipeConnections(UObject* WorldContextObject)
+{
+	const TArray<FDocModPipeConnectionTelemetry> Connections = GetPipeConnectionTelemetry(WorldContextObject);
+
+	for (const FDocModPipeConnectionTelemetry& Connection : Connections)
+	{
+		UE_LOG(LogDocModAI, Display, TEXT("PipeConnection: owner=%s type=%s isHypertube=%s connected=%s connectedTo=%s position=%s normal=%s"),
+			*Connection.OwnerBuildableId, *Connection.ConnectionType, Connection.bIsHypertube ? TEXT("true") : TEXT("false"),
+			Connection.bConnected ? TEXT("true") : TEXT("false"), *Connection.ConnectedBuildableId, *Connection.Position.ToString(), *Connection.Normal.ToString());
+	}
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogPipeConnections: enumerated %d connection point(s)"), Connections.Num());
+}
+
+FString UDocModFunctionLibrary::LogPipeConnectionsAsJson(UObject* WorldContextObject)
+{
+	const TArray<FDocModPipeConnectionTelemetry> Connections = GetPipeConnectionTelemetry(WorldContextObject);
+
+	TArray<TSharedPtr<FJsonValue>> ConnectionJsonArray;
+	ConnectionJsonArray.Reserve(Connections.Num());
+
+	for (const FDocModPipeConnectionTelemetry& Connection : Connections)
+	{
+		const TSharedRef<FJsonObject> ConnectionObject = MakeShared<FJsonObject>();
+		ConnectionObject->SetStringField(TEXT("ownerBuildableId"), Connection.OwnerBuildableId);
+		ConnectionObject->SetStringField(TEXT("connectionType"), Connection.ConnectionType);
+		ConnectionObject->SetBoolField(TEXT("isHypertube"), Connection.bIsHypertube);
+		ConnectionObject->SetBoolField(TEXT("connected"), Connection.bConnected);
+		ConnectionObject->SetStringField(TEXT("connectedBuildableId"), Connection.ConnectedBuildableId);
+
+		const TSharedRef<FJsonObject> PositionObject = MakeShared<FJsonObject>();
+		PositionObject->SetNumberField(TEXT("x"), Connection.Position.X);
+		PositionObject->SetNumberField(TEXT("y"), Connection.Position.Y);
+		PositionObject->SetNumberField(TEXT("z"), Connection.Position.Z);
+		ConnectionObject->SetObjectField(TEXT("position"), PositionObject);
+
+		const TSharedRef<FJsonObject> NormalObject = MakeShared<FJsonObject>();
+		NormalObject->SetNumberField(TEXT("x"), Connection.Normal.X);
+		NormalObject->SetNumberField(TEXT("y"), Connection.Normal.Y);
+		NormalObject->SetNumberField(TEXT("z"), Connection.Normal.Z);
+		ConnectionObject->SetObjectField(TEXT("normal"), NormalObject);
+
+		ConnectionJsonArray.Add(MakeShared<FJsonValueObject>(ConnectionObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("connections"), ConnectionJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogPipeConnectionsAsJson: %s"), *JsonString);
 
 	return JsonString;
 }
@@ -4909,6 +5081,21 @@ void UDocModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FS
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(), *SourceConnection->GetConnectorLocation(true).ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString(), *DestConnection->GetConnectorLocation(true).ToString());
 
+	// Player-independence (2026-08-27, applying the same fix already
+	// proven for ConstructConveyorBelt/ConstructConveyorLift - see their
+	// comments for the full incident): this function predates that fix
+	// and was never updated - live-confirmed this session it fails with
+	// "Invalid aim location!" the same way belts used to, even for a
+	// completely valid connector pair with a real Distance apart. Point
+	// the controller at a deterministic target computed from the two
+	// connectors themselves (never the player's real aim), reasserted
+	// every poll tick below.
+	const FRotator PipeDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
+	if (AController* PipeController = Character->GetController())
+	{
+		PipeController->SetControlRotation(PipeDeterministicLook);
+	}
+
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
 	PipeHologram->UpdateHologramPlacement(StartHit);
 	PipeHologram->TrySnapToActor(StartHit);
@@ -4951,6 +5138,7 @@ void UDocModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FS
 		FString SourceBuildableId;
 		FString DestBuildableId;
 		bool bDryRun = true;
+		FRotator DeterministicLook;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FDocModOperationResult&)> OnComplete;
@@ -4962,6 +5150,7 @@ void UDocModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FS
 	PollState->SourceBuildableId = SourceBuildableId;
 	PollState->DestBuildableId = DestBuildableId;
 	PollState->bDryRun = bDryRun;
+	PollState->DeterministicLook = PipeDeterministicLook;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -4980,6 +5169,16 @@ void UDocModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FS
 			return;
 		}
 
+		// Re-assert every tick - see ConstructConveyorBelt's identical block
+		// for the full rationale.
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
+		}
+
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
 		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
@@ -4991,13 +5190,22 @@ void UDocModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FS
 			return;
 		}
 
-		const bool bCanConstruct = PollHologram->CanConstruct();
+		// Player-independence (2026-08-27) - same manual disqualifier-ignore
+		// pattern as ConstructConveyorBelt, replacing the real (opaque)
+		// CanConstruct() this function used to call directly.
+		bool bCanConstruct = true;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s)"),
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
 				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
-				UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass) ? TEXT("soft") : TEXT("hard")));
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
 		}
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 
@@ -5035,6 +5243,298 @@ void UDocModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FS
 		PollBuildState->InternalConstructHologram(ConstructionID);
 
 		UE_LOG(LogDocModAI, Display, TEXT("ConstructPipe (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		PollState->OnComplete(FDocModOperationResult::Success());
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// ConstructHypertube (2026-08-27, per explicit user request to test/add
+// hypertube support alongside longer pipe runs). Research finding (full
+// detail in docs/hypertube-research.md): despite the separate-looking
+// "Recipe_HyperTube*" family in the catalog (Junction/TJunction/
+// WallSupport/WallHole - those are ATTACHMENTS, not the tube), the actual
+// connecting tube is `Recipe_PipeHyper` -> AFGBuildablePipeHyper, and its
+// hologram (`Holo_PipeHyper_C`) is a Blueprint child of the SAME
+// AFGPipelineHologram class ConstructPipe already drives - confirmed from
+// the hologram BP's own uasset name table. This is deliberately a
+// near-mirror of ConstructPipe (same two-click TrySnapToActor +
+// DoMultiStepPlacement flow, same deferred poll/disqualifier-ignore/
+// deterministic-look pattern established this session), differing only
+// in: (1) hardcoded to Recipe_PipeHyper - no tiers exist, unlike
+// Recipe_Pipeline/PipelineMK2, so no recipeClass param; (2) connector
+// lookup via FindFreeHyperPipeConnection instead of FindFreePipeConnection,
+// since hypertube connectors are UFGPipeConnectionComponentHyper at
+// PCT_ANY, not PCT_PRODUCER/PCT_CONSUMER - the exact-type match that
+// works for fluid pipe machines finds nothing on any hypertube part; (3)
+// no real producer/consumer distinction - hypertubes are bidirectional,
+// so "source"/"dest" here are just which buildable's free connector each
+// end can find, not a meaningful flow direction.
+void UDocModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	AFGBuildable* SourceBuildable = FindBuildableById(World, SourceBuildableId);
+	if (!SourceBuildable)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *SourceBuildableId)));
+		return;
+	}
+	AFGBuildable* DestBuildable = FindBuildableById(World, DestBuildableId);
+	if (!DestBuildable)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *DestBuildableId)));
+		return;
+	}
+
+	UFGPipeConnectionComponentBase* SourceConnection = FindFreeHyperPipeConnection(SourceBuildable);
+	if (!SourceConnection)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PIPE_CONNECTION"), FString::Printf(TEXT("'%s' has no free hypertube connection component"), *SourceBuildableId)));
+		return;
+	}
+	UFGPipeConnectionComponentBase* DestConnection = FindFreeHyperPipeConnection(DestBuildable);
+	if (!DestConnection)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PIPE_CONNECTION"), FString::Printf(TEXT("'%s' has no free hypertube connection component"), *DestBuildableId)));
+		return;
+	}
+
+	UClass* HyperTubeRecipeClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PipeHyper.Recipe_PipeHyper_C"));
+	if (!HyperTubeRecipeClass || !HyperTubeRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("RECIPE_LOAD_FAILED"), TEXT("Failed to load Recipe_PipeHyper as a UFGRecipe")));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = HyperTubeRecipeClass;
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	AFGPipelineHologram* HyperHologram = Cast<AFGPipelineHologram>(Hologram);
+	if (!HyperHologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(Recipe_PipeHyper) did not result in an AFGPipelineHologram (got %s)"),
+				Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
+		return;
+	}
+
+	auto MakeHitAt = [](AFGBuildable* Buildable, UFGPipeConnectionComponentBase* Connection) -> FHitResult
+	{
+		FHitResult Hit;
+		Hit.Location = Connection->GetConnectorLocation();
+		Hit.ImpactPoint = Hit.Location;
+		Hit.Normal = Connection->GetConnectorNormal();
+		Hit.ImpactNormal = Hit.Normal;
+		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
+		Hit.bBlockingHit = true;
+		return Hit;
+	};
+
+	auto SummarizeDisqualifiers = [](AFGPipelineHologram* H) -> FString
+	{
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		H->GetConstructDisqualifiers(Disqualifiers);
+		TArray<FString> Texts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+		{
+			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
+		}
+		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
+	};
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructHypertube diagnostic: sourceConnectorLoc=%s sourceConnectorNormal=%s destConnectorLoc=%s destConnectorNormal=%s"),
+		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(),
+		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString());
+
+	// Player-independence, applied from day one here (not retrofitted like
+	// ConstructPipe/ConstructConveyorBelt above) - see those functions'
+	// comments for the full incident this pattern fixes.
+	const FRotator HyperDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
+	if (AController* HyperController = Character->GetController())
+	{
+		HyperController->SetControlRotation(HyperDeterministicLook);
+	}
+
+	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	HyperHologram->UpdateHologramPlacement(StartHit);
+	HyperHologram->TrySnapToActor(StartHit);
+	const bool bStartStepComplete = HyperHologram->DoMultiStepPlacement(true);
+	const ESplineHologramBuildStep StepAfterStart = HyperHologram->GetCurrentBuildStep();
+
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructHypertube: source=%s dest=%s after start click: stepComplete=%s step=%d disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bStartStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterStart), *SummarizeDisqualifiers(HyperHologram));
+
+	if (bStartStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
+		return;
+	}
+
+	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
+	HyperHologram->UpdateHologramPlacement(EndHit);
+	HyperHologram->TrySnapToActor(EndHit);
+	const bool bEndStepComplete = HyperHologram->DoMultiStepPlacement(true);
+	const ESplineHologramBuildStep StepAfterEnd = HyperHologram->GetCurrentBuildStep();
+	const bool bEndConnectionSnapped = HyperHologram->IsConnectionSnapped(false);
+
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructHypertube: source=%s dest=%s after end click: stepComplete=%s step=%d connectionSnapped=%s disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bEndStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterEnd), bEndConnectionSnapped ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(HyperHologram));
+
+	if (!bEndStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FDocModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"),
+			FString::Printf(TEXT("DoMultiStepPlacement() did not report complete after the end click - step=%d connectionSnapped=%s, may need a third step"), static_cast<int32>(StepAfterEnd), bEndConnectionSnapped ? TEXT("true") : TEXT("false"))));
+		return;
+	}
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGPipelineHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		bool bDryRun = true;
+		FRotator DeterministicLook;
+		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+		TFunction<void(const FDocModOperationResult&)> OnComplete;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = HyperHologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->SourceBuildableId = SourceBuildableId;
+	PollState->DestBuildableId = DestBuildableId;
+	PollState->bDryRun = bDryRun;
+	PollState->DeterministicLook = HyperDeterministicLook;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGPipelineHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("ConstructHypertube (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
+		}
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		bool bCanConstruct = true;
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructHypertube (deferred, resolved after %d real tick(s)): source=%s dest=%s dryRun=%s canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId, PollState->bDryRun ? TEXT("true") : TEXT("false"),
+			bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		if (!bCanConstruct)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		if (PollState->bDryRun)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Success());
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogDocModAI, Error, TEXT("ConstructHypertube (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructHypertube (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
 			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
 
 		if (IsValid(PollCharacter))

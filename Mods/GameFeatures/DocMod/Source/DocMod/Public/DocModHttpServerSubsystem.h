@@ -38,6 +38,10 @@ struct FHttpServerRequest;
  * malformed JSON, enforce a message-size limit, never deserialize
  * arbitrary executable objects. Read-only methods: "world.resourceNodes",
  * "world.buildables", "world.manufacturers", "world.connections",
+ * "world.pipeConnections" (same shape as "world.connections" but for
+ * UFGPipeConnectionComponentBase - fluid pipes AND hypertubes, see
+ * FDocModPipeConnectionTelemetry - added 2026-08-27, "world.connections"
+ * never covered these),
  * "world.conveyorBeltTiers" (each of Recipe_ConveyorBeltMk1..Mk6's real
  * queried AFGBuildableConveyorBase::GetSpeed() - see
  * LogConveyorBeltTiersAsJson's doc comment on why this is NOT a hardcoded
@@ -119,11 +123,17 @@ struct FHttpServerRequest;
  * "world.testPipe" (dry run) and "world.connectPipe" (real - both
  * {"sourceBuildableId","destBuildableId"}, plus optional "recipeClass"
  * (default Recipe_Pipeline - or Recipe_PipelineMK2, see
- * "world.pipelineTiers" above) - pipe groundwork, 2026-08-25, NOT YET
- * LIVE-TESTED, see ConstructPipe's doc comment for open questions)
+ * "world.pipelineTiers" above) - live-tested 2026-08-27 over a real
+ * ~4000-unit run once given the same deterministic-look player-
+ * independence fix as ConstructConveyorBelt (it predated that fix and
+ * failed with "Invalid aim location!" the same way belts used to),
+ * "world.testHypertube" (dry run) and "world.connectHypertube" (real -
+ * both {"sourceBuildableId","destBuildableId"}, no recipeClass -
+ * Recipe_PipeHyper is the only tube recipe) - hypertube tube-segment
+ * construction, 2026-08-27, see ConstructHypertube's doc comment)
  * (PLAN.md Phase 13/14) are
  * GENUINELY ASYNCHRONOUS methods - UDocModFunctionLibrary::ConstructBuildingAtPosition/
- * ConstructExtractorOnNode/ConstructPowerConnection/ConstructConveyorBelt/ConstructConveyorLift/ConstructPipe's completion callback may fire well after
+ * ConstructExtractorOnNode/ConstructPowerConnection/ConstructConveyorBelt/ConstructConveyorLift/ConstructPipe/ConstructHypertube's completion callback may fire well after
  * HandleRpcRequest returns (real-tick polling to resolve
  * UFGCDInitializing/CanConstruct(), typically 1 tick, capped ~2s) -
  * FHttpResultCallback is captured by value and invoked from the deferred

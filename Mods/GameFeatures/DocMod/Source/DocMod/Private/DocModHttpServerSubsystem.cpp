@@ -584,6 +584,39 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		return true;
 	}
 
+	// "world.testHypertube" (dry run) and "world.connectHypertube" (real)
+	// share UDocModFunctionLibrary::ConstructHypertube, differing only in
+	// bDryRun - same shape as world.testPipe/world.connectPipe above, but
+	// no recipeClass param (Recipe_PipeHyper is hardcoded - see
+	// ConstructHypertube's doc comment).
+	if (Method == TEXT("world.testHypertube") || Method == TEXT("world.connectHypertube"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			return true;
+		}
+
+		const bool bDryRunHyper = Method == TEXT("world.testHypertube");
+		UDocModFunctionLibrary::ConstructHypertube(GetGameInstance(), SourceBuildableId, DestBuildableId, bDryRunHyper,
+			[OnComplete, RequestId](const FDocModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
 	// not implement GetWorld(); UGameInstance does.
 	FString MethodResultJson;
@@ -602,6 +635,10 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	else if (Method == TEXT("world.connections"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogFactoryConnectionsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.pipeConnections"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogPipeConnectionsAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.conveyorBeltTiers"))
 	{

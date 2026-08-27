@@ -64,6 +64,72 @@ function needs the same treatment (point the controller at a
 deterministic target derived from the node's own location, reasserted
 per poll tick) - not yet done.
 
+## Pipes fixed, Hypertube support added (2026-08-27)
+
+- **`world.connectPipe`/`ConstructPipe` had the exact same untreated
+  camera-dependency bug** `ConstructExtractorOnNode` above still has -
+  it predated the deterministic-look fix and failed consistently with
+  `"Invalid aim location!"` even for a fully valid, in-range connector
+  pair. **Fixed** with the same pattern as belts/lifts (deterministic
+  look computed from the two connectors, reasserted every poll tick).
+  Live-verified over a real ~4000-unit run (near the 5600-unit tier cap)
+  - genuinely connected, confirmed by the resulting `Build_Pipeline`
+  segment (plus its flow indicator landing exactly at the midpoint), not
+  just `success: true`.
+- **New `world.testHypertube`/`world.connectHypertube`** construct real
+  Hypertube tube segments (`Recipe_PipeHyper` - NOT the
+  `Recipe_HyperTube*` family, which are all attachments; see
+  `docs/hypertube-research.md`), built with the camera-independence fix
+  from day one rather than retrofitted. No `recipeClass` param - only one
+  tube recipe exists.
+- **Hypertube entrance/junction connectors need the same "opposite
+  normals dock, same-direction normals don't" planning as every other
+  connector in this doc** - confirmed live and by direct user visual
+  observation: two entrances placed at the same default yaw both had
+  their single connector facing the *same* world direction, so a
+  "successful" `connectHypertube` call still produced a tube that curved
+  around one of them instead of running straight. Diagnosed and fixed
+  using the newly-added `world.pipeConnections` telemetry (below) rather
+  than guessing: read both connectors' real normals, rotated the
+  downstream entrance 180° (`world.placeBuilding`'s `yaw` param) so its
+  normal pointed back at the first entrance, re-verified via
+  `world.pipeConnections` that the normals were now opposite, then
+  reconnected - genuinely straight run, confirmed visually.
+- **New `world.pipeConnections`** (mirrors `world.connections`'
+  `{ownerBuildableId, connectionType, connected, connectedBuildableId,
+  position, normal}` shape, plus `isHypertube`) - added because
+  `world.connections` was discovered live to **only ever cover
+  `UFGFactoryConnectionComponent`** (belts/machines/splitters), leaving
+  no way to read a real pipe's or hypertube's connector position/normal
+  before placing one. Use this the same way `world.connections` is
+  already used elsewhere in this doc: read it before rotating anything,
+  don't guess.
+- **The stale-ID-echo quirk (see "Known engine quirks" below) bit hard
+  during the hypertube rotation fix**: a `world.deleteBuilding` +
+  `world.placeBuilding` pair used to re-place a rotated entrance returned
+  the *deleted* actor's ID in its response, not the genuinely new one -
+  querying/connecting against that stale ID silently operated on nothing
+  real. Always re-resolve via `world.buildables`/`find_near` by position
+  after a delete-then-place, exactly as that section already warns -
+  don't trust the `placeBuilding` response's `buildableId` blindly right
+  after a delete of something at the same spot.
+
+## Test builds: use a location near the player, not a remote floating test bed
+
+Earlier placement/deletion stress-testing in this session (and the first
+pipe/Hypertube tests) used a deliberately remote, high-altitude test area
+(`(400000+, -200000+, 20000)`) specifically to avoid any risk of
+interfering with the real build - reasonable for avoiding collisions, but
+it meant the user couldn't see any of it happening and said so directly.
+**Prefer placing test builds within a few hundred to ~1500 units of the
+player's own position** (`world.player`) instead, still using a Z clearly
+above real terrain when a level/deterministic float is needed (real
+terrain near the player can have a genuine slope - confirmed live, a
+196-unit height difference across 1000 units at this session's test
+spot - float above it rather than fighting it, same as the general
+"Coordinates and `z`" guidance above). Clean up test debris immediately
+after the user has had a chance to look, same as always.
+
 ## Golden rule: never trust `"success": true` alone
 
 Every RPC that reports success on a connection (`world.connectConveyor`,

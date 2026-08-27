@@ -134,6 +134,27 @@ public:
 	static FString LogFactoryConnectionsAsJson(UObject* WorldContextObject);
 
 	/**
+	 * Same purpose as GetFactoryConnectionTelemetry, for pipes
+	 * (UFGPipeConnectionComponentBase - covers both fluid pipes and
+	 * hypertubes, see FDocModPipeConnectionTelemetry's comment). Added
+	 * 2026-08-27 after discovering live that "world.connections" only
+	 * ever covered factory connections, leaving no way to read a real
+	 * pipe/hypertube connector's position/normal before placing one -
+	 * exactly the data needed to plan a straight run instead of guessing
+	 * rotation and hoping.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FDocModPipeConnectionTelemetry> GetPipeConnectionTelemetry(UObject* WorldContextObject);
+
+	/** Debug entry point: logs one line per pipe/hypertube connection point via LogDocModAI. */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogPipeConnections(UObject* WorldContextObject);
+
+	/** Serializes pipe connection telemetry to {"protocolVersion":1,"connections":[...]}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipeConnectionsAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Returns the local player character's current position/rotation
 	 * (see FDocModPlayerTelemetry's comment for why this exists) - player
 	 * index 0 only, single-player/local scope per PLAN.md/CLAUDE.md.
@@ -1058,4 +1079,29 @@ public:
 	 * as the other async entry points.
 	 */
 	static void ConstructPipe(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
+
+	/**
+	 * Constructs a real hypertube tube segment (Recipe_PipeHyper) between
+	 * two existing buildables' free hypertube connectors - a Hypertube
+	 * entrance/exit (AFGPipeHyperStart), a junction/T-junction, or another
+	 * tube segment. Despite the "Recipe_HyperTube*" naming of the
+	 * junction/support recipes in the catalog, the actual connecting tube
+	 * is `Recipe_PipeHyper`, and its hologram is a Blueprint child of the
+	 * SAME AFGPipelineHologram class ConstructPipe drives - confirmed from
+	 * source/asset research (docs/hypertube-research.md). Deliberately a
+	 * near-mirror of ConstructPipe (same two-click TrySnapToActor +
+	 * DoMultiStepPlacement flow, same deterministic-look/disqualifier-
+	 * ignore player-independence pattern established this session, applied
+	 * from the start here rather than retrofitted), differing only in:
+	 * (1) no recipeClass param - Recipe_PipeHyper is hardcoded, since no
+	 * hypertube tier variants exist; (2) connector lookup accepts
+	 * UFGPipeConnectionComponentHyper at PCT_ANY (not PCT_PRODUCER/
+	 * PCT_CONSUMER like fluid pipes - confirmed from source that hypertube
+	 * connectors never override the PCT_ANY default); (3) no producer/
+	 * consumer distinction - hypertubes are bidirectional, so
+	 * source/dest just mean "which buildable's free connector each end
+	 * uses", not a flow direction. Not a UFUNCTION - same reason as the
+	 * other async entry points.
+	 */
+	static void ConstructHypertube(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 };

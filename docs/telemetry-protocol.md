@@ -212,6 +212,45 @@ takes the `buildables` and `connections` payloads and produces a directed
 graph (one edge per connected `"Output"` row, since `"Input"` rows are
 the same physical link seen from the other end).
 
+## pipeConnections (`method: "world.pipeConnections"`)
+
+```json
+{
+  "protocolVersion": 1,
+  "connections": [
+    {
+      "ownerBuildableId": "/Game/Maps/.../Build_PipeHyperStart_C_1",
+      "connectionType": "Any",
+      "isHypertube": true,
+      "connected": false,
+      "connectedBuildableId": "",
+      "position": { "x": 0.0, "y": 0.0, "z": 0.0 },
+      "normal": { "x": 1.0, "y": 0.0, "z": 0.0 }
+    }
+  ]
+}
+```
+
+Same shape and purpose as `connections` above, for `UFGPipeConnectionComponentBase`
+— **fluid pipes AND Hypertube tubes**, discovered the same generic
+`AActor::GetComponents<>()` way (added 2026-08-27 after discovering live
+that `world.connections` only ever covered `UFGFactoryConnectionComponent`,
+leaving no way to read a real pipe/hypertube connector's position/normal
+before placing one). `connectionType` is one of `"Any"`, `"Producer"`,
+`"Consumer"`, `"SnapOnly"` (`EPipeConnectionType`) — fluid pipe machines
+generally use `"Producer"`/`"Consumer"`, Hypertube connectors stay at the
+CDO default `"Any"` (confirmed from source — see
+`docs/hypertube-research.md`), and `"SnapOnly"` connectors (wall
+supports/poles) are structural snap points, not real endpoints.
+`isHypertube` is `true` for `UFGPipeConnectionComponentHyper` (a
+type-tag-only subclass with no added members) and `false` for a regular
+fluid `UFGPipeConnectionComponent`. Same `normal`/docking convention as
+`connections`: a straight run needs the destination's `normal` to equal
+the negation of the source's `normal` — confirmed live this matters for
+Hypertube entrances specifically, which have exactly one connector each,
+so two entrances placed at default rotation both face the same world
+direction and need one rotated 180° for a straight (non-curving) tube.
+
 ## conveyorBeltTiers (`method: "world.conveyorBeltTiers"`)
 
 ```json

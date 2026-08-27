@@ -212,6 +212,62 @@ struct FDocModFactoryConnectionTelemetry
 };
 
 /**
+ * Same shape/purpose as FDocModFactoryConnectionTelemetry, for pipes
+ * (UFGPipeConnectionComponentBase) - added 2026-08-27 after discovering
+ * live that "world.connections" only ever covered
+ * UFGFactoryConnectionComponent (belts/machines/splitters), leaving no
+ * way to read a fluid pipe's or hypertube's real connector
+ * position/normal/facing - the exact information needed to plan a
+ * straight (non-curving) pipe/tube run instead of guessing rotation, the
+ * same way FDocModFactoryConnectionTelemetry already lets a caller do for
+ * belts. Pipes and hypertubes share this one struct/RPC method rather
+ * than getting separate ones, since they share the same real component
+ * base class (UFGPipeConnectionComponentHyper adds no members of its own -
+ * see docs/hypertube-research.md) - BIsHypertube distinguishes them.
+ */
+USTRUCT(BlueprintType)
+struct FDocModPipeConnectionTelemetry
+{
+	GENERATED_BODY()
+
+	/** Id of the AFGBuildable that owns this connection component. Session-local only. */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FString OwnerBuildableId;
+
+	/** "Any" / "Producer" / "Consumer" / "SnapOnly" (EPipeConnectionType). */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FString ConnectionType;
+
+	/**
+	 * True if this connector is a UFGPipeConnectionComponentHyper
+	 * (hypertube) rather than a regular fluid UFGPipeConnectionComponent -
+	 * both derive from the same UFGPipeConnectionComponentBase this
+	 * struct otherwise reads generically.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	bool bIsHypertube = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	bool bConnected = false;
+
+	/** Id of the AFGBuildable on the other end, or empty if bConnected is false. Session-local only. */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FString ConnectedBuildableId;
+
+	/** The connector's real world position (GetConnectorLocation(), no clearance offset). */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FVector Position = FVector::ZeroVector;
+
+	/**
+	 * The connector's real outward-facing world normal
+	 * (GetConnectorNormal()) - same "opposite normals dock cleanly"
+	 * convention as FDocModFactoryConnectionTelemetry::Normal above.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "DocMod|Telemetry")
+	FVector Normal = FVector::ZeroVector;
+};
+
+/**
  * The local player character's current position/rotation (PLAN.md
  * Phase 13/14). Exists specifically so RPC-driven placement
  * (ConstructBuildingAtPosition/"world.placeBuilding") has a real
