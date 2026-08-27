@@ -345,6 +345,40 @@ neighbors. Confirmed by direct user inspection in-game:
 - Missing-materials failures (e.g. "Missing materials!") are a real
   inventory constraint, not a placement bug — check the player's/dimensional
   depot's inventory rather than debugging code.
+- **A `Build_PowerPoleMk1` genuinely supports (at least) 4 simultaneous
+  wire connections in this build**, confirmed live 2026-08-27 (one pole
+  successfully took a grid link + 3 separate machine connections, only
+  failing on a 5th attempt with `"has no free power connection
+  component"`) — don't assume the commonly-cited "2 slots" figure without
+  checking; it under-plans real capacity here.
+- **There is no read RPC for power connection/circuit state** - to verify
+  a wire genuinely exists (the same "never trust `success: true` alone"
+  rule as belts), the reliable proxy is counting real `Build_PowerLine_C`
+  actors near a pole via `world.buildables`/`find_near` (each real wire is
+  its own actor - a pole with N genuine connections shows N `PowerLine`
+  objects at/near its position), or - the real ground truth - checking
+  whether downstream machines' `productionStatus`/`productivity` in
+  `world.manufacturers` actually change over successive polls (a real,
+  live-changing `productionProgress` proves genuine power+throughput, not
+  just a stale one-time snapshot).
+- **A freshly-placed pole can be silently corrupted** even when it reports
+  a real, sane landing position (distinct from the "lands at (0,0,0)"
+  total-failure case elsewhere in this doc): confirmed live a pole that
+  accepted exactly one real connection, then refused every subsequent
+  connection attempt (`"No empty Power Line connections!"`/`"Already
+  connected with another wire!"`) even from a fresh, unrelated pole placed
+  right next to it - while an otherwise-identical pole elsewhere in the
+  same session genuinely supported 4 connections. Verified via the
+  `PowerLine`-counting technique above that the stuck pole really did only
+  have 1 real wire, ruling out "it's actually full." **Fix**: delete and
+  re-place the pole (at a slightly offset position, per the general
+  debris-avoidance pattern) rather than debugging further - this
+  immediately resolved it.
+- When the nearest pole with free capacity is farther than the ~10000 unit
+  wire cap, split the gap with an intermediate pole roughly at the
+  midpoint rather than assuming the route is infeasible - a single
+  ~13000 unit gap was successfully bridged this way with one extra pole,
+  two ~6600 unit segments.
 
 ## Known engine quirks to watch for
 
