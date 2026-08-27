@@ -1118,6 +1118,18 @@ public:
 	 * posture as ConstructConveyorBelt. Not a UFUNCTION - same reason
 	 * as the other async entry points.
 	 */
+	/**
+	 * FindFreeFluidPipeConnection fallback (2026-08-27, per explicit user
+	 * request to connect pipes to a Storage Tank and merge multiple lines
+	 * through Pipeline Junctions): a genuine producer/consumer distinction
+	 * (PCT_PRODUCER/PCT_CONSUMER) only exists on machines that actually
+	 * have one (Refineries, Pumps, Blenders). Confirmed live that Storage
+	 * Tanks (Recipe_PipeStorageTank) and Pipeline Junctions (Cross/T) have
+	 * ONLY PCT_ANY connectors - the exact-type match used to find nothing
+	 * on either, making it impossible to build a pipe to/from them at
+	 * all. Now falls back to any free PCT_ANY connector once the exact
+	 * match fails, so both work.
+	 */
 	static void ConstructPipe(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**

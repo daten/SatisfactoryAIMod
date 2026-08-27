@@ -616,3 +616,49 @@ block or confuse later connection attempts in the same area.
   sweep immediately after its own successful delete, then was gone on a
   second check moments later). If a just-deleted actor still shows up
   once, re-check before concluding the delete failed.
+
+## Storage Tanks and Pipeline Junctions are `PCT_ANY`-only, not Producer/Consumer (fixed 2026-08-27)
+
+`ConstructPipe`'s original connector lookup used
+`FindFreePipeConnection(Buildable, PCT_PRODUCER/PCT_CONSUMER)` - an exact
+`EPipeConnectionType` match. This works for machines that explicitly tag
+their connectors (Refineries, Pumps, Blenders, Fracking Extractors -
+`Producer`; consumers - `Consumer`), but **`Recipe_PipeStorageTank` (the
+"liquid storage buffer") and `Recipe_PipelineJunction_Cross`/`_T` never
+override the type - every one of their connectors stays at the base
+`PCT_ANY`**, confirmed live via probe placements read back through
+`world.pipeConnections` (Storage Tank: 2 connectors, both `Any`; Junction
+Cross: 4 connectors, all `Any`, a real N/E/S/W cross). The strict
+Producer/Consumer lookup found nothing on either, so `ConstructPipe` could
+never connect to a Storage Tank or a Junction at all.
+
+**Fixed** with a new `FindFreeFluidPipeConnection(Buildable, PreferredType)`
+helper: tries the exact `PreferredType` match first (unchanged behavior for
+Refineries/Pumps/etc.), then falls back to any free `PCT_ANY` connector
+(explicitly excluding `UFGPipeConnectionComponentHyper` and `PCT_SNAP_ONLY`
+connectors). `ConstructPipe`'s two connector lookups now both route through
+this helper. Live-verified building a real 7-extractor → 2 new Junctions →
+existing Junction → Storage Tank network (see below) - every segment a
+genuine `Build_Pipeline` actor, confirmed via `world.pipeConnections`
+showing all connectors `connected: true`.
+
+**Real fluid pipe max spline length is ~5600 units** (`Recipe_Pipeline`
+and `Recipe_PipelineMK2` both report `maxSplineLength: 5600.1` via
+`world.pipelineTiers` - notably shorter than Hypertube's ~10000 limit).
+A `connectPipe` attempt beyond this distance fails with `"Pipe is too
+long!"` as a hard disqualifier - not bypassable via any `bIgnore*` flag,
+since it's a real geometric constraint of the spline hologram, not an
+aim/clearance check. When extractors are farther than ~5600 units from
+the target buffer, route through an intermediate Pipeline Junction placed
+so both its extractor-side and buffer-side hops stay under the limit,
+rather than assuming every source can reach the destination directly.
+
+**Merging N sources into a buffer with only 2 connectors**: use Pipeline
+Junction Cross buildings (4 `Any` connectors each) as a merge tree. Reserve
+one connector on the junction nearest the buffer for the buffer connection
+itself - e.g. for 7 sources feeding one tank: junction C (nearest the tank)
+takes 1 direct extractor + 2 uplinks from junctions B and D + the tank,
+using all 4 connectors; B and D each take 3 extractors + 1 uplink to C.
+This fits exactly (3+3+1 = 7 sources, 3 junctions, 10 pipe segments total)
+and leaves the tank's second connector free. Confirmed live 2026-08-27 on
+the `BP_FrackingCore10` water cluster.

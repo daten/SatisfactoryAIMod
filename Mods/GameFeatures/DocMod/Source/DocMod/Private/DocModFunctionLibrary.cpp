@@ -347,6 +347,41 @@ namespace
 		return nullptr;
 	}
 
+	// Fluid pipe machines with a genuine producer/consumer distinction
+	// (Refineries, Pumps, Blenders, etc.) match via FindFreePipeConnection's
+	// exact PCT_PRODUCER/PCT_CONSUMER filter above. But confirmed live
+	// 2026-08-27 that several real, common fluid-pipe buildables -
+	// Storage Tanks (Recipe_PipeStorageTank) and Pipeline Junctions
+	// (Cross/T) - have ONLY PCT_ANY connectors (a fresh Storage Tank's 2
+	// connectors and a Cross Junction's 4 were all "Any", none
+	// Producer/Consumer) - the strict match finds nothing on either, so
+	// ConstructPipe could never reach a storage buffer or merge multiple
+	// lines through a junction. Falls back to any free PCT_ANY connector
+	// once the exact match fails - explicitly excludes
+	// UFGPipeConnectionComponentHyper (that's FindFreeHyperPipeConnection's
+	// job) and PCT_SNAP_ONLY (structural, not a real endpoint - same
+	// exclusion as the hyper finder above).
+	UFGPipeConnectionComponentBase* FindFreeFluidPipeConnection(AFGBuildable* Buildable, EPipeConnectionType PreferredType)
+	{
+		if (UFGPipeConnectionComponentBase* Exact = FindFreePipeConnection(Buildable, PreferredType))
+		{
+			return Exact;
+		}
+
+		TArray<UFGPipeConnectionComponentBase*> Connections;
+		Buildable->GetComponents<UFGPipeConnectionComponentBase>(Connections);
+		for (UFGPipeConnectionComponentBase* Connection : Connections)
+		{
+			if (IsValid(Connection) && !Cast<UFGPipeConnectionComponentHyper>(Connection)
+				&& Connection->GetPipeConnectionType() == EPipeConnectionType::PCT_ANY
+				&& !Connection->IsConnected())
+			{
+				return Connection;
+			}
+		}
+		return nullptr;
+	}
+
 	// Hypertube connectors are a different shape than fluid pipe connectors
 	// (research 2026-08-27, docs/hypertube-research.md): they're all
 	// UFGPipeConnectionComponentHyper (a plain type-tag subclass of
@@ -5102,16 +5137,16 @@ void UDocModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FS
 		return;
 	}
 
-	UFGPipeConnectionComponentBase* SourceConnection = FindFreePipeConnection(SourceBuildable, EPipeConnectionType::PCT_PRODUCER);
+	UFGPipeConnectionComponentBase* SourceConnection = FindFreeFluidPipeConnection(SourceBuildable, EPipeConnectionType::PCT_PRODUCER);
 	if (!SourceConnection)
 	{
-		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PIPE_CONNECTION"), FString::Printf(TEXT("'%s' has no free Producer pipe connection component"), *SourceBuildableId)));
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PIPE_CONNECTION"), FString::Printf(TEXT("'%s' has no free Producer or Any pipe connection component"), *SourceBuildableId)));
 		return;
 	}
-	UFGPipeConnectionComponentBase* DestConnection = FindFreePipeConnection(DestBuildable, EPipeConnectionType::PCT_CONSUMER);
+	UFGPipeConnectionComponentBase* DestConnection = FindFreeFluidPipeConnection(DestBuildable, EPipeConnectionType::PCT_CONSUMER);
 	if (!DestConnection)
 	{
-		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PIPE_CONNECTION"), FString::Printf(TEXT("'%s' has no free Consumer pipe connection component"), *DestBuildableId)));
+		OnComplete(FDocModOperationResult::Failure(TEXT("NO_PIPE_CONNECTION"), FString::Printf(TEXT("'%s' has no free Consumer or Any pipe connection component"), *DestBuildableId)));
 		return;
 	}
 
