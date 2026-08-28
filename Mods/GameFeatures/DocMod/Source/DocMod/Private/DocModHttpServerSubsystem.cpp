@@ -770,6 +770,63 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		return true;
 	}
 
+	if (Method == TEXT("world.movePortableMinerToInventory"))
+	{
+		const FDocModOperationResult Result = UDocModFunctionLibrary::MovePortableMinerToInventory(GetGameInstance());
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.simulatedCraft"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		const FDocModOperationResult Result = UDocModFunctionLibrary::SimulatedCraft(GetGameInstance(), RecipeClassPath);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.withdrawFromCentralStorage"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ItemClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClassPath) || ItemClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.itemClass must be a non-empty string")));
+			return true;
+		}
+		double Amount = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("amount"), Amount) || Amount <= 0.0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.amount must be a positive number")));
+			return true;
+		}
+
+		const FDocModOperationResult Result = UDocModFunctionLibrary::WithdrawFromCentralStorage(GetGameInstance(), ItemClassPath, static_cast<int32>(Amount));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous, unlike the buildable-placement RPCs above -
 	// UDocModFunctionLibrary::SpawnCreatureNearPlayer calls
 	// AFGCreatureSubsystem::BeginSpawningCreature directly (a plain C++
@@ -1120,6 +1177,10 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	else if (Method == TEXT("world.portableMiners"))
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogPortableMinersAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.centralStorage"))
+	{
+		MethodResultJson = UDocModFunctionLibrary::LogCentralStorageAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.cleanupOrphanedFlowIndicators"))
 	{

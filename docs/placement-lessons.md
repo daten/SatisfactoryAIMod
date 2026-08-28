@@ -7,6 +7,34 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## CRITICAL: `world.placeExtractor` for solid ore Miners (Mk1/2/3) requires a real Portable Miner ITEM in inventory (discovered 2026-08-28)
+
+Verified directly from `world.recipeCatalog`, not guessed: `Recipe_MinerMk1`,
+`Recipe_MinerMk2`, and `Recipe_MinerMk3` all list one **Portable Miner**
+(`BP_ItemDescriptorPortableMiner`) as a real construction-cost ingredient,
+alongside the expected Iron Plate/Concrete - i.e. building a permanent
+stationary Miner genuinely *consumes* a Portable Miner item, on top of raw
+parts. `Recipe_WaterPump` and `Recipe_OilPump` do **not** have this
+requirement - it's specific to solid-ore extractors.
+
+If the player has zero Portable Miners in inventory, `world.placeExtractor`
+fails with `CANNOT_CONSTRUCT` / `"Missing materials!"` even when targeting a
+perfectly valid, unoccupied node - the error is real, not a bug in this
+mod. Since `world.placePortableMiner`'s underlying `Server_SpawnPortableMiner`
+call is still unresolved (see the Portable Miner section elsewhere in this
+file / RPC_REFERENCE.md), there is currently **no RPC path to manufacture a
+Portable Miner from scratch** - the player must already have one (crafted by
+hand, or via the working ARMS-equip flow if one already exists), or enable
+"Unlimited Resources for RPC Builds" in DocMod's mod settings (untested
+whether that bypass covers this specific ingredient check, but it's designed
+to cover exactly this class of disqualifier).
+
+**Practical implication**: before starting ANY solid-resource extraction
+chain via RPC (a build request that needs Miners, not just Water/Oil
+Pumps), consider checking for this failure mode early rather than assuming
+a "Missing materials!" on a Miner placement is about Iron Plate/Concrete
+alone.
+
 ## CRITICAL: never use `world.placeBuilding` for extractor recipes (fixed 2026-08-27)
 
 `world.placeBuilding` (`ConstructBuildingAtPosition`) is the generic
@@ -946,4 +974,106 @@ already existed and was already proven reliable - they don't add new
 tolerance, fallback logic, or silent auto-correction on the construction
 path itself. A call that fails now still fails loudly for a real reason;
 it just doesn't require the caller to already know an internal mod quirk
+
+## Multi-story stacked builds (foundation → wall → roof): audit every layer's real Z before computing the next (2026-08-28)
+
+A player-requested "2x2 foundation house with a doorway" (4 foundations,
+8 walls, 4 roof pieces) needed **five** separate rebuild passes before
+the walls sat level and the roof cleared the walls, live-diagnosed by
+comparing what was *requested* against what `world.buildables` reported
+was *actually* placed at every step. The underlying lessons apply to any
+build that stacks one buildable on top of another, not just houses:
+
+### A buildable's reported "position" is its pivot, not necessarily its top surface
+
+`Recipe_Foundation_8x4_01` is a 4m-thick foundation slab (confirmed by
+the user's own domain knowledge before this was root-caused). Its
+`world.buildables`/`world.placeBuilding` "position" is the PIVOT, sitting
+at the BOTTOM of that 4m block - the real TOP surface (where a wall
+should rest) is `pivot.z + 200` (half the slab thickness) for this
+specific recipe. Walls placed using the raw foundation pivot Z as their
+search center sink 200 units into the foundation - visually, the
+foundation fills most of the interior and the walls all end up flush
+with each other but at the WRONG (too low) height.
+
+**Never assume a "position" value is a usable surface height for
+stacking.** Verify the real top surface with `world.groundHeight` at a
+point already covered by the piece you're stacking on (e.g. query at a
+foundation's center once at least one foundation is placed) BEFORE
+computing the next layer's Z. This one query - `world.groundHeight` at
+the foundation center, right after placing foundations - would have
+caught the 200-unit-pivot mistake on the very first pass instead of the
+fourth.
+
+### Ground-trace-based Z placement (`world.placeBuilding`'s `"z"`) can miss real geometry sitting exactly on a tile-edge boundary, non-deterministically
+
+Wall segments sit exactly on a foundation tile's edge by design (that's
+what makes a flush perimeter). Live-confirmed: placing a wall's search
+X/Y exactly on that boundary line sometimes finds the foundation's real
+top surface and sometimes falls through to a much lower real surface
+(raw terrain beneath/around the foundation) - **for the identical X/Y/Z
+request, repeated back-to-back**. This is not a fixed function of input
+coordinates; it visibly changed between otherwise-identical calls during
+this session (proven by an isolated single-position test giving a
+different result than the same request inside a batch moments later).
+
+**Workaround, verified empirically**: nudge the search X/Y **100 units**
+inward (i.e. all the way to the next `gridSnapSize` line, not a token 10
+units - 10 units made no difference in this session's testing) toward
+the piece you're trying to land on. This reliably escapes the edge
+ambiguity. The tradeoff: because 100 units happens to also be exactly
+one `gridSnapSize` step, this can shift the FINAL snapped position to a
+different grid cell than intended (confirmed: a 50-unit nudge snapped to
+the *next* grid line over, landing 100 units off from the un-nudged
+edge). **Always audit the result's real X/Y/Z after every placement**
+(`world.buildables`, matched by the returned `buildableId`) - never trust
+the RPC's `success:true` alone for a stacked/edge-adjacent placement, and
+budget for occasionally needing 2-4 delete-and-retry cycles per
+problem piece even with the nudge applied.
+
+### Ground-trace placement cannot resolve a Z above open interior space at all
+
+A roof piece centered over the middle of a room (i.e. NOT directly above
+any wall) has nothing solid within the trace's search range at roof
+height - only the far-below floor. `world.placeBuilding`'s ground-trace
+will walk straight past the intended (empty-air) roof height and land on
+the floor instead, every time, regardless of the requested `"z"` search
+center - confirmed by testing search values from the correct height all
+the way up to +1000 units higher with no change in the (wrong, floor-
+level) result.
+
+The trace DOES fall back to a literal flat placement at the exact
+requested `"z"` when nothing is found within roughly 1000 units either
+side of the search center (confirmed: a deliberately absurd search
+height like 2500, over 1000 units from the nearest real surface,
+produces a placement at ~2500) - but this only helps when the *intended*
+height is itself more than ~1000 units from the nearest real surface,
+which a roof sitting one wall-height above a foundation floor (~400
+units) is not. There is currently no way to place a buildable at a
+precise literal height directly above open interior space through
+`world.placeBuilding`.
+
+**Working mitigation**: anchor the roof piece's search X/Y directly
+above a REAL WALL SEGMENT (not the tile's open center) - the trace then
+correctly finds that wall's top surface. This does mean the roof's pivot
+ends up aligned with a wall line rather than perfectly centered over its
+tile; for a 2x2 grid this is a minor, acceptable-looking offset, not a
+structural problem, but it is a real compromise worth calling out to
+whoever's reviewing the result rather than silently declaring the build
+"done." If a future task needs precisely-centered elevated pieces, that
+likely needs a genuine C++ addition (an explicit "place at this literal
+world Z, skip ground-trace entirely" mode) rather than another RPC-level
+workaround.
+
+### General workflow this earns: build one layer, audit before computing the next
+
+Don't compute an entire multi-layer plan (foundation Z → wall Z → roof
+Z) up front from assumed offsets and batch-place all of it. Per layer:
+place it, query `world.buildables` for the REAL resulting position of at
+least one representative piece (or `world.groundHeight` at a point now
+covered by that layer), and only THEN compute the next layer's Z from
+that verified number. This is slower per-layer but produces a correct
+result on the first real attempt instead of requiring a full audit-and-
+rebuild pass after the fact - exactly the class of mistake this section
+exists to prevent repeating.
 to get the *inputs* right in the first place.

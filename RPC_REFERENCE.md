@@ -443,6 +443,54 @@ output into the player's own inventory. Errors: `TARGET_NOT_FOUND`,
 `NOTHING_TO_RETRIEVE` (output empty), `INVENTORY_FULL` (output has items
 but none fit — nothing is lost, they just stay in the miner for later).
 
+### `world.movePortableMinerToInventory` — synchronous, no params
+Moves a Portable Miner item from the player's ARMS equipment slot back
+into their general inventory. Needed because a stationary Miner's real
+construction-cost check does not see items equipped in ARMS — confirmed
+live: `world.placeExtractor` failed `"Missing materials!"` for the
+Portable Miner ingredient despite one being equipped. No-op success (not
+an error) if ARMS does not currently hold one — the general inventory may
+already have one, or the player may genuinely have none.
+
+### `world.simulatedCraft` — synchronous, `result.buildableId` on success
+`params: {"recipeClass"}`. Simulates crafting a **handheld item only** —
+every product of the recipe must resolve to a `UFGEquipmentDescriptor`
+subclass (`NOT_HANDHELD_ITEM` otherwise), rejecting building/part/bulk-
+component recipes entirely. A deliberate alternative to driving the real
+Workshop/WorkBench crafting UI (never implemented), for a player who has
+the real ingredients but cannot reach a bench — e.g.
+`/Game/FactoryGame/Recipes/Equipment/Recipe_PortableMiner.Recipe_PortableMiner_C`
+(2 Iron Plate + 4 Iron Rod → 1 Portable Miner). Real inventory mutation:
+verifies every ingredient is affordable first (`INSUFFICIENT_INGREDIENTS`,
+naming what is short, if not) before removing any of them, then grants
+the product(s) in the recipe's own stated amounts. Other error:
+`INVALID_RECIPE`.
+
+### `world.centralStorage` — read-only, no params
+```json
+{ "protocolVersion": 1, "isCentralStorageBuilt": true, "items": [{"itemClass","itemName","amount"}, ...] }
+```
+Reports everything currently held in the Dimensional Depot (real class
+name `AFGCentralStorageSubsystem` — "Dimensional Depot" is only the
+in-game display name). **Important**: items here are NOT automatically
+usable for RPC-driven construction — `world.placeBuilding` and friends
+only check the player's carried inventory, not Depot storage. Per the
+user, real interactive player building pulls from both pools
+automatically (with a player-configurable draw-order preference); this
+RPC surface does not yet replicate that. Use
+`world.withdrawFromCentralStorage` first if a build is failing
+`"Missing materials!"` despite the Depot showing plenty.
+
+### `world.withdrawFromCentralStorage` — synchronous
+`params: {"itemClass","amount"}`. Moves items from the Dimensional Depot
+into the player's carried inventory, making them usable for subsequent
+construction calls. Clamps to whatever is actually in the Depot — asking
+for more than available is not an error, it withdraws what it can.
+Errors: `NO_CENTRAL_STORAGE` (no Depot Uploader built yet),
+`NOTHING_WITHDRAWN` (Depot has none of the requested item),
+`INVENTORY_FULL` (some of the withdrawn amount did not fit in inventory —
+that portion is genuinely lost, no way to redeposit it programmatically).
+
 ### `world.spawnCreature` — synchronous, `result.buildableId` on success
 `params: {"creatureClass" (required), "distanceFromPlayer" (optional,
 default 800, clamped to [100, 5000]), "scale" (optional, default 1.0,

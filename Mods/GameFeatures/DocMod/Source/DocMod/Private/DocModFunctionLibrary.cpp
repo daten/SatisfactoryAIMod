@@ -65,6 +65,7 @@
 #include "Resources/FGEquipmentDescriptor.h"
 #include "FGBuildablePipelineFlowIndicator.h"
 #include "FGCreatureSubsystem.h"
+#include "FGCentralStorageSubsystem.h"
 #include "Creature/FGCreature.h"
 
 namespace
@@ -4193,6 +4194,244 @@ void UDocModFunctionLibrary::RetrievePortableMinerInventory(UObject* WorldContex
 	UE_LOG(LogDocModAI, Display, TEXT("RetrievePortableMinerInventory: moved %d item(s) from %s to player inventory"), TotalMoved, *PortableMinerId);
 
 	OnComplete(FDocModOperationResult::Success());
+}
+
+FDocModOperationResult UDocModFunctionLibrary::MovePortableMinerToInventory(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	UFGInventoryComponentEquipment* ArmsSlot = Character->GetEquipmentSlot(EEquipmentSlot::ES_ARMS);
+	if (!PlayerInventory || !ArmsSlot)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No player/ARMS equipment slot inventory found"));
+	}
+
+	const TSubclassOf<UFGItemDescriptor> PortableMinerItemClass = LoadObject<UClass>(nullptr,
+		TEXT("/Game/FactoryGame/Resource/Equipment/PortableMiner/BP_ItemDescriptorPortableMiner.BP_ItemDescriptorPortableMiner_C"));
+
+	int32 FoundIndex = INDEX_NONE;
+	for (int32 i = 0; i < ArmsSlot->GetSizeLinear(); ++i)
+	{
+		FInventoryStack Stack;
+		if (ArmsSlot->GetStackFromIndex(i, Stack) && Stack.HasItems() && Stack.Item.GetItemClass() == PortableMinerItemClass)
+		{
+			FoundIndex = i;
+			break;
+		}
+	}
+
+	if (FoundIndex == INDEX_NONE)
+	{
+		// Not an error - the general inventory may already have one, or
+		// the player may genuinely have none at all (a different failure
+		// the caller will see when it actually tries to build).
+		return FDocModOperationResult::Success();
+	}
+
+	ArmsSlot->RemoveFromIndex(FoundIndex, 1, PlayerInventory);
+
+	UE_LOG(LogDocModAI, Display, TEXT("MovePortableMinerToInventory: moved 1 Portable Miner from ARMS slot to general inventory"));
+	return FDocModOperationResult::Success();
+}
+
+FDocModOperationResult UDocModFunctionLibrary::SimulatedCraft(UObject* WorldContextObject, const FString& RecipeClassPath)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	if (!PlayerInventory)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No player inventory found"));
+	}
+
+	// Same narrow "load and validate one specific type" pattern as
+	// RecipeClassPath elsewhere in this file.
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_RECIPE"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath));
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
+
+	// Deliberately scoped to handheld items only - see this function's
+	// header comment. Every product must be equipment, not a building,
+	// raw part, or bulk factory component.
+	const TArray<FItemAmount> Products = UFGRecipe::GetProducts(RecipeClass);
+	if (Products.Num() == 0)
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_RECIPE"), TEXT("Recipe has no products"));
+	}
+	for (const FItemAmount& Product : Products)
+	{
+		if (!Product.ItemClass || !Product.ItemClass->IsChildOf(UFGEquipmentDescriptor::StaticClass()))
+		{
+			return FDocModOperationResult::Failure(TEXT("NOT_HANDHELD_ITEM"),
+				FString::Printf(TEXT("'%s' produces a non-equipment item ('%s') - simulated crafting is scoped to handheld items only"),
+					*RecipeClassPath, Product.ItemClass ? *Product.ItemClass->GetName() : TEXT("<null>")));
+		}
+	}
+
+	// Verify affordability of EVERY ingredient before changing anything -
+	// never partially consume ingredients for a craft that can't complete.
+	const TArray<FItemAmount> Ingredients = UFGRecipe::GetIngredients(World, RecipeClass);
+	TArray<FString> ShortfallDescriptions;
+	for (const FItemAmount& Ingredient : Ingredients)
+	{
+		if (!Ingredient.ItemClass || !PlayerInventory->HasItems(Ingredient.ItemClass, Ingredient.Amount))
+		{
+			const int32 Have = Ingredient.ItemClass ? PlayerInventory->GetNumItems(Ingredient.ItemClass) : 0;
+			ShortfallDescriptions.Add(FString::Printf(TEXT("%s (need %d, have %d)"),
+				Ingredient.ItemClass ? *Ingredient.ItemClass->GetName() : TEXT("<null>"), Ingredient.Amount, Have));
+		}
+	}
+	if (!ShortfallDescriptions.IsEmpty())
+	{
+		return FDocModOperationResult::Failure(TEXT("INSUFFICIENT_INGREDIENTS"),
+			FString::Printf(TEXT("Missing: %s"), *FString::Join(ShortfallDescriptions, TEXT("; "))));
+	}
+
+	for (const FItemAmount& Ingredient : Ingredients)
+	{
+		PlayerInventory->Remove(Ingredient.ItemClass, Ingredient.Amount);
+	}
+	for (const FItemAmount& Product : Products)
+	{
+		PlayerInventory->AddStack(FInventoryStack(Product.Amount, Product.ItemClass), /*allowPartialAdd=*/true);
+	}
+
+	UE_LOG(LogDocModAI, Display, TEXT("SimulatedCraft: crafted %s (recipe %s)"), *Products[0].ItemClass->GetName(), *RecipeClassPath);
+	return FDocModOperationResult::Success();
+}
+
+FString UDocModFunctionLibrary::LogCentralStorageAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("LogCentralStorageAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	AFGCentralStorageSubsystem* CentralStorage = AFGCentralStorageSubsystem::Get(World);
+
+	TArray<TSharedPtr<FJsonValue>> ItemsArray;
+	if (CentralStorage && CentralStorage->IsCentralStorageBuilt())
+	{
+		TArray<FItemAmount> AllItems;
+		CentralStorage->GetAllItemsFromCentralStorage(AllItems);
+		for (const FItemAmount& Item : AllItems)
+		{
+			const TSharedRef<FJsonObject> ItemObject = MakeShared<FJsonObject>();
+			ItemObject->SetStringField(TEXT("itemClass"), Item.ItemClass ? Item.ItemClass->GetPathName() : TEXT(""));
+			ItemObject->SetStringField(TEXT("itemName"), Item.ItemClass ? Item.ItemClass->GetName() : TEXT(""));
+			ItemObject->SetNumberField(TEXT("amount"), Item.Amount);
+			ItemsArray.Add(MakeShared<FJsonValueObject>(ItemObject));
+		}
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetBoolField(TEXT("isCentralStorageBuilt"), CentralStorage && CentralStorage->IsCentralStorageBuilt());
+	RootObject->SetArrayField(TEXT("items"), ItemsArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogDocModAI, Display, TEXT("LogCentralStorageAsJson: %d item type(s)"), ItemsArray.Num());
+
+	return JsonString;
+}
+
+FDocModOperationResult UDocModFunctionLibrary::WithdrawFromCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	if (Amount <= 0)
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Amount must be greater than 0"));
+	}
+
+	AFGCentralStorageSubsystem* CentralStorage = AFGCentralStorageSubsystem::Get(World);
+	if (!CentralStorage || !CentralStorage->IsCentralStorageBuilt())
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_CENTRAL_STORAGE"), TEXT("No Dimensional Depot Uploader has been built yet"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	if (!PlayerInventory)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No player inventory found"));
+	}
+
+	// Same narrow "load and validate one specific type" pattern as
+	// RecipeClassPath elsewhere in this file.
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *ItemClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGItemDescriptor::StaticClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_ITEM_CLASS"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGItemDescriptor subclass"), *ItemClassPath));
+	}
+	const TSubclassOf<UFGItemDescriptor> ItemClass = ResolvedClass;
+
+	// TryRemoveItemsFromCentralStorage itself clamps to what's actually
+	// available - a request for more than the Depot holds is not an
+	// error, it just withdraws whatever it can (own doc comment: "If
+	// count is more than the items available, a partial remove is done").
+	const int32 NumRemoved = CentralStorage->TryRemoveItemsFromCentralStorage(ItemClass, Amount);
+	if (NumRemoved <= 0)
+	{
+		return FDocModOperationResult::Failure(TEXT("NOTHING_WITHDRAWN"),
+			FString::Printf(TEXT("Dimensional Depot has none of '%s'"), *ItemClassPath));
+	}
+
+	// No API exists to deposit a raw amount back into the Depot (only
+	// UploadItemFromInventoryToCentralStorage, which needs the item to
+	// already be sitting in a real inventory slot) - if the player's
+	// inventory can't hold all of it, whatever doesn't fit is genuinely
+	// lost rather than silently stuck in limbo. Reported honestly below,
+	// not hidden.
+	const int32 NumAdded = PlayerInventory->AddStack(FInventoryStack(NumRemoved, ItemClass), /*allowPartialAdd=*/true);
+
+	UE_LOG(LogDocModAI, Display, TEXT("WithdrawFromCentralStorage: withdrew %d of %s from Dimensional Depot to player inventory (requested %d)"),
+		NumAdded, *ItemClassPath, Amount);
+
+	if (NumAdded < NumRemoved)
+	{
+		return FDocModOperationResult::Failure(TEXT("INVENTORY_FULL"),
+			FString::Printf(TEXT("Withdrew %d of %d requested, but only %d fit in inventory - the rest was lost (inventory was full)"), NumRemoved, Amount, NumAdded));
+	}
+
+	return FDocModOperationResult::Success();
 }
 
 FString UDocModFunctionLibrary::CleanupOrphanedFlowIndicatorsAsJson(UObject* WorldContextObject)

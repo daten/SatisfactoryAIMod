@@ -937,6 +937,87 @@ public:
 	static void RetrievePortableMinerInventory(UObject* WorldContextObject, const FString& PortableMinerId, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
+	 * Moves a Portable Miner item from the player's ARMS equipment slot
+	 * back into their general inventory, added 2026-08-28. Needed because
+	 * the ARMS slot is a genuinely separate inventory component (see
+	 * ConstructPortableMinerOnNode's doc comment) that a stationary
+	 * Miner's real construction-cost affordability check does not see -
+	 * confirmed live: world.placeExtractor failed with "Missing
+	 * materials!" for a Portable Miner ingredient even though the player
+	 * had one equipped as their active item. No-ops successfully (returns
+	 * Success with no change) if the ARMS slot doesn't currently hold a
+	 * Portable Miner - not an error, since the general inventory may
+	 * already have one. Uses the real UFGInventoryComponent::
+	 * RemoveFromIndex(idx, num, targetInventory) transfer overload, not a
+	 * separate Remove()+AddStack() pair.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult MovePortableMinerToInventory(UObject* WorldContextObject);
+
+	/**
+	 * Simulated handheld-item crafting, added 2026-08-28 per explicit
+	 * user request - a deliberate alternative to driving the real
+	 * Workshop/WorkBench crafting UI (never implemented - see
+	 * docs/placement-lessons.md and the manual-crafting research this
+	 * session), for the specific case of a player who has the real
+	 * ingredients for a handheld item but can't reach a bench, or (the
+	 * motivating case) needs a Portable Miner and world.placePortableMiner's
+	 * underlying Server_SpawnPortableMiner RPC is still unresolved.
+	 *
+	 * Deliberately scoped to HANDHELD ITEMS ONLY, not a generic "spawn any
+	 * item" capability (CLAUDE.md's Safety and Stability Boundary) - the
+	 * recipe's real UFGRecipe::GetProducts() is checked and EVERY product
+	 * must resolve to a UFGEquipmentDescriptor subclass, rejecting recipes
+	 * for raw parts, buildings, or bulk factory components entirely.
+	 * Fails with NOT_HANDHELD_ITEM if the recipe produces anything else.
+	 *
+	 * Real inventory mutation, not a synthesized grant with no cost: reads
+	 * the recipe's actual UFGRecipe::GetIngredients() and verifies the
+	 * player's real inventory (UFGInventoryComponent::HasItems()) can
+	 * afford ALL of them before changing anything - fails with
+	 * INSUFFICIENT_INGREDIENTS (naming what's short) rather than partially
+	 * consuming ingredients for a craft that can't complete. Only on a
+	 * full pass does it Remove() each ingredient and AddStack() each
+	 * product, in the recipe's own stated amounts (single craft, no
+	 * multiplier).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult SimulatedCraft(UObject* WorldContextObject, const FString& RecipeClassPath);
+
+	/**
+	 * Reports every item currently held in the Dimensional Depot (real
+	 * class name AFGCentralStorageSubsystem - "Dimensional Depot" is only
+	 * the in-game display name), added 2026-08-28. Root-caused live: the
+	 * player had 2500 Concrete "in dimensional storage" yet
+	 * world.placeBuilding kept failing "Missing materials!" on a 2-
+	 * Concrete wall. Per the user, real interactive player building pulls
+	 * from both the Depot and carried inventory automatically (with a
+	 * player-configurable preference for draw order) - this mod's
+	 * Construct* functions do NOT yet replicate that, they only check
+	 * carried UFGInventoryComponent. See WithdrawFromCentralStorage for
+	 * the current manual workaround. Empty {"items":[]} if
+	 * IsCentralStorageBuilt() is false (no Depot Uploader exists yet)
+	 * rather than an error - a legitimately empty state.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogCentralStorageAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Withdraws items from the Dimensional Depot into the player's
+	 * general inventory, added 2026-08-28 alongside
+	 * LogCentralStorageAsJson - see that function's doc comment for why
+	 * this is needed (Depot storage and carried inventory are genuinely
+	 * separate, confirmed live). Uses the real
+	 * AFGCentralStorageSubsystem::TryRemoveItemsFromCentralStorage(),
+	 * which itself clamps to whatever is actually available (a request
+	 * for more than the Depot holds is not an error - it withdraws
+	 * whatever it can). Fails with NO_CENTRAL_STORAGE if no Depot exists,
+	 * or NOTHING_WITHDRAWN if the Depot holds none of the requested item.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult WithdrawFromCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);
+
+	/**
 	 * Deletes every AFGBuildablePipelineFlowIndicator in the world that
 	 * isn't the real, currently-attached indicator of any live
 	 * AFGBuildablePipeline - added 2026-08-27 per explicit user request,
