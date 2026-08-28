@@ -314,6 +314,17 @@ private:
 	 */
 	int32 LastSeenChatMessageCount = 0;
 
+	/**
+	 * Duplicate-submission guard (2026-08-28) - see
+	 * HandlePlayerChatMessageAdded's doc comment. Confirmed live that the
+	 * game's own chat system can submit the same literal player message
+	 * dozens of times for a single keystroke; suppresses re-acking the
+	 * same text within half a second, without touching the upstream
+	 * cause (which isn't in this file).
+	 */
+	FString LastAckedMessageText;
+	double LastAckedMessageTime = -1.0;
+
 	TSharedPtr<IHttpRouter> Router;
 	FHttpRouteHandle RpcRouteHandle;
 };

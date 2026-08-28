@@ -19,6 +19,7 @@
 #include "Configuration/ConfigManager.h"
 #include "FGChatManager.h"
 #include "Engine/World.h"
+#include "HAL/PlatformTime.h"
 
 namespace
 {
@@ -315,10 +316,35 @@ void UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded()
 		// without this a real ack would count as "new" too.
 		if (Message.MessageType == EFGChatMessageType::CMT_PlayerMessage && Message.bIsLocalPlayerMessage)
 		{
-			const bool bAutoAck = UDocModFunctionLibrary::GetDocModConfigBool(GetGameInstance(), TEXT("AutoAcknowledgeChatMessages"), true);
-			if (bAutoAck)
+			// Duplicate-submission guard, added 2026-08-28: root-caused
+			// live via the diagnostic logging above - confirmed the
+			// game's own chat system can submit the SAME literal message
+			// dozens of times for a single keystroke (seen once, for the
+			// first message of a session: 49 back-to-back identical
+			// "first" entries, same millisecond). That's upstream of
+			// DocMod entirely (nothing here adds player-typed messages),
+			// not something fixable from this file, but acking each
+			// duplicate individually floods chat regardless of the root
+			// cause. A real human retyping the exact same text takes far
+			// longer than this - suppress only when the same text repeats
+			// within half a second of the last ack.
+			const FString MessageText = Message.MessageText.ToString();
+			const double NowSeconds = FPlatformTime::Seconds();
+			const bool bIsRepeatSpam = (MessageText == LastAckedMessageText) && (NowSeconds - LastAckedMessageTime) < 0.5;
+
+			if (bIsRepeatSpam)
 			{
-				UDocModFunctionLibrary::SendChatMessage(GetGameInstance(), TEXT("received, thinking..."), TEXT("DocMod"));
+				UE_LOG(LogDocModAI, Verbose, TEXT("HandlePlayerChatMessageAdded: suppressing ack for duplicate \"%s\" (upstream repeat-submission, not a new player action)"), *MessageText);
+			}
+			else
+			{
+				const bool bAutoAck = UDocModFunctionLibrary::GetDocModConfigBool(GetGameInstance(), TEXT("AutoAcknowledgeChatMessages"), true);
+				if (bAutoAck)
+				{
+					UDocModFunctionLibrary::SendChatMessage(GetGameInstance(), TEXT("received, thinking..."), TEXT("DocMod"));
+				}
+				LastAckedMessageText = MessageText;
+				LastAckedMessageTime = NowSeconds;
 			}
 		}
 	}
