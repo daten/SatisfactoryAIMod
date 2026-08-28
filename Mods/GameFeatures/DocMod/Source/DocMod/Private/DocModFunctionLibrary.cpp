@@ -2526,6 +2526,16 @@ FDocModOperationResult UDocModFunctionLibrary::SpawnCreatureNearPlayer(UObject* 
 			TEXT("AFGCreatureSubsystem::BeginSpawningCreature returned null - see LogDocModAI"));
 	}
 
+	// "Begin..." naming mirrors AFGBuildableSubsystem::BeginSpawnBuildable,
+	// whose doc comment is explicit: "you need to call FinishSpawning...
+	// to finalize the spawning" - a standard Unreal deferred-actor-spawn
+	// pattern (AActor::FinishSpawning, Actor.h). Confirmed live
+	// (2026-08-28): without this call the creature spawned but was frozen
+	// (no animation, no movement, no AI) - Actor.h's own comment on why:
+	// "Whether FinishSpawning has been called for this Actor. If it has
+	// not, the Actor is in a malformed state."
+	NewCreature->FinishSpawning(SpawnTransform);
+
 	UE_LOG(LogDocModAI, Display, TEXT("SpawnCreatureNearPlayer: spawned %s"), *NewCreature->GetPathName());
 	return FDocModOperationResult::SuccessWithBuildableId(NewCreature->GetPathName());
 }
