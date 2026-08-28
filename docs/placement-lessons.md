@@ -830,6 +830,59 @@ only falls back to moving the item there via
 present - with the item restored to the general inventory if the move
 itself fails, so a failed RPC call never leaves the player short an item.
 
+## Reflective UFUNCTION calls need the function's OWN property layout, not a hand-rolled struct (2026-08-28)
+
+Follow-up to the Portable Miner section above. The first live attempt at
+calling `Server_SpawnPortableMiner` via reflection (`FindFunction`+
+`ProcessEvent` with a hand-rolled `struct { FVector Location;
+AFGResourceNode* ResourceNode; }` as the params buffer) compiled clean,
+ran with `success: true` on the equip step, and reported no error - but
+**silently produced no real actor** (`world.portableMiners` came back
+empty after the call). No exception, no log warning, nothing - it just
+quietly did nothing useful.
+
+**Root cause**: a plain C++ struct's memory layout (size/alignment/
+padding) is not guaranteed to match the `UFunction`'s own
+UHT-generated parameter layout (`SpawnFunction->ParmsSize` and each
+property's real offset) - there's no contract that a struct declared by
+hand lines up byte-for-byte with what `ProcessEvent` actually expects to
+find at each property's offset. `ProcessEvent` doesn't validate the
+buffer's shape against anything; it just reads whatever bytes are at
+each property's known offset, so a mismatch reads garbage (most likely
+here: a garbage/invalid `AFGResourceNode*`) rather than crashing or
+erroring - which is exactly why this failed silently instead of loudly.
+
+**Fixed**: build the params buffer using the `UFunction`'s own
+reflection data instead of assuming a layout:
+```cpp
+TArray<uint8> ParamsBuffer;
+ParamsBuffer.SetNumZeroed(SpawnFunction->ParmsSize);
+for (TFieldIterator<FProperty> PropIt(SpawnFunction); PropIt; ++PropIt)
+{
+    FProperty* Prop = *PropIt;
+    if (Prop->GetName() == TEXT("location"))
+    {
+        auto* StructProp = CastField<FStructProperty>(Prop);
+        *StructProp->ContainerPtrToValuePtr<FVector>(ParamsBuffer.GetData()) = TargetLocation;
+    }
+    else if (Prop->GetName() == TEXT("resourceNode"))
+    {
+        auto* ObjectProp = CastField<FObjectProperty>(Prop);
+        ObjectProp->SetObjectPropertyValue_InContainer(ParamsBuffer.GetData(), TargetNode);
+    }
+}
+Dispenser->ProcessEvent(SpawnFunction, ParamsBuffer.GetData());
+```
+Matching by the exact parameter NAME (`"location"`, `"resourceNode"` -
+read directly from the function's declaration, not guessed) rather than
+positional order. **This is the general, correct pattern for calling any
+non-exported UFUNCTION reflectively in this codebase going forward** -
+never assume a hand-rolled struct matches a UFunction's real layout,
+always build the params buffer from `ParmsSize`+`TFieldIterator<FProperty>`.
+Not yet confirmed this fully resolves the Portable Miner spawn (pending
+redeploy + retest), but the earlier silent-failure symptom is now
+explained and addressed.
+
 ## Orphaned pipe flow indicators: exact cleanup via `GetFlowIndicator()`, not proximity guessing (2026-08-27)
 
 Follow-up to the section above - `AFGBuildablePipeline` has a real,

@@ -3830,18 +3830,55 @@ void UDocModFunctionLibrary::ConstructPortableMinerOnNode(UObject* WorldContextO
 			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Server_SpawnPortableMiner UFUNCTION not found via reflection")));
 			return;
 		}
-		struct FSpawnPortableMinerParams
+		// Build the params buffer using the UFunction's OWN reflection
+		// data (property offsets/size) instead of a hand-rolled struct -
+		// live-confirmed 2026-08-27 this matters: a plain
+		// {FVector; AFGResourceNode*} struct compiled clean and ran with
+		// no error, but silently produced no real actor (no alignment/
+		// packing guarantee that a hand-rolled struct matches the
+		// UFunction's real generated parameter layout). Setting named
+		// properties (by the exact param names from the declaration -
+		// "location", "resourceNode") via FProperty is the robust way to
+		// call an arbitrary UFunction reflectively.
+		TArray<uint8> ParamsBuffer;
+		ParamsBuffer.SetNumZeroed(SpawnFunction->ParmsSize);
+		uint8* ParamsPtr = ParamsBuffer.GetData();
+
+		bool bSetLocation = false;
+		bool bSetResourceNode = false;
+		for (TFieldIterator<FProperty> PropIt(SpawnFunction); PropIt; ++PropIt)
 		{
-			FVector Location;
-			AFGResourceNode* ResourceNode;
-		};
-		FSpawnPortableMinerParams Params;
-		Params.Location = PollTargetNode->GetActorLocation();
-		Params.ResourceNode = PollTargetNode;
-		Dispenser->ProcessEvent(SpawnFunction, &Params);
+			FProperty* Prop = *PropIt;
+			if (Prop->GetName() == TEXT("location"))
+			{
+				if (FStructProperty* StructProp = CastField<FStructProperty>(Prop))
+				{
+					*StructProp->ContainerPtrToValuePtr<FVector>(ParamsPtr) = PollTargetNode->GetActorLocation();
+					bSetLocation = true;
+				}
+			}
+			else if (Prop->GetName() == TEXT("resourceNode"))
+			{
+				if (FObjectProperty* ObjectProp = CastField<FObjectProperty>(Prop))
+				{
+					ObjectProp->SetObjectPropertyValue_InContainer(ParamsPtr, PollTargetNode);
+					bSetResourceNode = true;
+				}
+			}
+		}
+
+		if (!bSetLocation || !bSetResourceNode)
+		{
+			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+				FString::Printf(TEXT("Server_SpawnPortableMiner's real parameters didn't match expectations (location found=%s, resourceNode found=%s) - reflection call aborted"),
+					bSetLocation ? TEXT("true") : TEXT("false"), bSetResourceNode ? TEXT("true") : TEXT("false"))));
+			return;
+		}
+
+		Dispenser->ProcessEvent(SpawnFunction, ParamsPtr);
 
 		UE_LOG(LogDocModAI, Display, TEXT("ConstructPortableMinerOnNode: invoked Server_SpawnPortableMiner at %s for node %s"),
-			*Params.Location.ToString(), *PollTargetNode->GetPathName());
+			*PollTargetNode->GetActorLocation().ToString(), *PollTargetNode->GetPathName());
 
 		// Poll again for the real actor to appear before reporting success -
 		// never trust an RPC call alone (this project's established
