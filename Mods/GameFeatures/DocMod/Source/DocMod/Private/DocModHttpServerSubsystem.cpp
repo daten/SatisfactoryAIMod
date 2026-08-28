@@ -625,6 +625,13 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		double ReferenceZ = -1000000.0;
 		ParamsObject->TryGetNumberField(TEXT("z"), ReferenceZ);
 
+		// Optional, default false - skips the ground trace entirely and
+		// places at the literal (x, y, z) given. See
+		// ConstructBuildingAtPosition's doc comment on bIgnoreGroundTrace.
+		// Requires "z" to be provided; fails MISSING_REFERENCE_Z otherwise.
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
 		// Optional, all default false (today's strict behavior) - see
 		// ConstructBuildingAtPosition's doc comment. Named, scoped
 		// bypasses of specific UX-only disqualifiers, per explicit user
@@ -659,7 +666,7 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		// FHttpResultCallback is a TFunction, safe to copy - captured by
 		// value so it stays alive until the deferred poll actually calls it.
 		UDocModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta), static_cast<float>(GridSnapSize), static_cast<float>(ReferenceZ),
-			bIgnoreAimLocation, bIgnorePlayerEncroachment, bIgnoreClearance, bIgnoreInvalidFloor,
+			bIgnoreGroundTrace, bIgnoreAimLocation, bIgnorePlayerEncroachment, bIgnoreClearance, bIgnoreInvalidFloor,
 			bHasTargetYaw, static_cast<float>(TargetYawDegrees), FaceBuildableId,
 			[OnComplete, RequestId](const FDocModOperationResult& Result)
 			{

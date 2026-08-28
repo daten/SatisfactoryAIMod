@@ -409,6 +409,18 @@ Posts into the player's in-game chat as a `"CustomMessage"`.
   where a real player's aim/proximity isn't meaningful. Using these accepts
   real collision/overlap risk; every *other* disqualifier (resource
   requirements, structural validity, snap requirements) still applies.
+- `ignoreGroundTrace` (optional bool, default `false`) — skips the ground
+  trace entirely and places at the literal `(x, y, z)` given, instead of
+  letting a line trace resolve the real Z. **Requires `z` to be provided**
+  (fails `MISSING_REFERENCE_Z` otherwise). The ground trace is unreliable
+  in two confirmed ways this exists to route around: at an exact
+  foundation-tile edge it can non-deterministically find either the real
+  top surface or unrelated lower terrain, and above open interior space
+  (e.g. a roof over a room) it always falls through to the floor below
+  rather than the intended height. Use `world.groundHeight` once against a
+  known real surface nearby, compute the true target Z from that (see
+  `docs/placement-lessons.md`), then pass it here for a placement no trace
+  can perturb.
 
 **Never use this for an extractor recipe** (Miner/Water Pump/Fracking
 building) — it will refuse with `WRONG_METHOD_FOR_EXTRACTOR`; use

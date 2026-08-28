@@ -600,6 +600,19 @@ public:
 	 * for deterministic multi-step layouts. Sentinel -1000000 means
 	 * not provided, falls back to player Z.
 	 *
+	 * bIgnoreGroundTrace: skips the ground trace entirely and places at
+	 * the literal (X, Y, ReferenceZ) - requires ReferenceZ to be
+	 * explicitly provided (fails MISSING_REFERENCE_Z otherwise). Added
+	 * because the trace is unreliable in two confirmed ways: (1) at an
+	 * exact foundation tile edge, the same request can non-
+	 * deterministically find either the real top surface or fall through
+	 * to unrelated lower terrain; (2) above open interior space (e.g. a
+	 * roof over a room, nothing solid within +/-1000 units), it always
+	 * falls through to the floor below, never the intended height. Use
+	 * world.groundHeight once to find a real surface Z nearby, compute
+	 * the true target Z from that (see docs/placement-lessons.md), then
+	 * pass it here for a placement no game-thread trace can perturb.
+	 *
 	 * bIgnoreAimLocation/bIgnorePlayerEncroachment/bIgnoreClearance/
 	 * bIgnoreInvalidFloor: named, scoped bypasses of specific UX-only
 	 * disqualifiers, for large autonomous layouts that accept the
@@ -615,7 +628,7 @@ public:
 	 * Orients the whole building only, not a specific connector on a
 	 * multi-connector building.
 	 */
-	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FDocModOperationResult&)> OnComplete);
+	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreGroundTrace, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
 	 * PLAN.md Phase 13/14: dry-run only, no-mutation experiment toward

@@ -2582,7 +2582,7 @@ FDocModOperationResult UDocModFunctionLibrary::DespawnCreature(UObject* WorldCon
 		FString::Printf(TEXT("No live AFGCreature found with id '%s'"), *CreatureId));
 }
 
-void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FDocModOperationResult&)> OnComplete)
+void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreGroundTrace, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -2696,19 +2696,44 @@ void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextOb
 	// planned placement rather than player-relative guessing. Sentinel
 	// -1000000 (an unrealistic in-game Z) means "not provided" and
 	// preserves the prior player-Z-anchored behavior.
-	const FVector PlayerLocation = Character->GetActorLocation();
-	const float ZSearchCenter = (ReferenceZ > -1000000.0f) ? ReferenceZ : PlayerLocation.Z;
-
-	const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
-	if (!GroundTrace.bFound)
+	const bool bHasReferenceZ = ReferenceZ > -1000000.0f;
+	if (bIgnoreGroundTrace && !bHasReferenceZ)
 	{
-		UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingAtPosition: ground trace found nothing at (%.0f, %.0f) around Z=%.0f - falling back to that Z"), X, Y, ZSearchCenter);
+		OnComplete(FDocModOperationResult::Failure(TEXT("MISSING_REFERENCE_Z"),
+			TEXT("bIgnoreGroundTrace requires an explicit referenceZ - there is no ground trace to fall back to")));
+		return;
 	}
 
-	FHitResult SyntheticHit = GroundTrace.Hit;
+	FHitResult SyntheticHit;
+	bool bGroundTraceFound = false;
+	if (bIgnoreGroundTrace)
+	{
+		// See this function's header doc comment - deliberately skips
+		// FindGroundAtXY entirely, since the whole point is to place at a
+		// caller-computed Z no line trace can perturb (edge non-determinism,
+		// or open-interior-space fall-through).
+		SyntheticHit.Location = FVector(X, Y, ReferenceZ);
+		SyntheticHit.ImpactPoint = SyntheticHit.Location;
+		SyntheticHit.Normal = FVector::UpVector;
+		SyntheticHit.ImpactNormal = FVector::UpVector;
+		SyntheticHit.bBlockingHit = true;
+	}
+	else
+	{
+		const FVector PlayerLocation = Character->GetActorLocation();
+		const float ZSearchCenter = bHasReferenceZ ? ReferenceZ : PlayerLocation.Z;
 
-	UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: recipe=%s groundTraceHit=%s location=%s"),
-		*RecipeClassPath, GroundTrace.bFound ? TEXT("true") : TEXT("false"), *SyntheticHit.Location.ToString());
+		const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+		if (!GroundTrace.bFound)
+		{
+			UE_LOG(LogDocModAI, Warning, TEXT("ConstructBuildingAtPosition: ground trace found nothing at (%.0f, %.0f) around Z=%.0f - falling back to that Z"), X, Y, ZSearchCenter);
+		}
+		SyntheticHit = GroundTrace.Hit;
+		bGroundTraceFound = GroundTrace.bFound;
+	}
+
+	UE_LOG(LogDocModAI, Display, TEXT("ConstructBuildingAtPosition: recipe=%s ignoreGroundTrace=%s groundTraceHit=%s location=%s"),
+		*RecipeClassPath, bIgnoreGroundTrace ? TEXT("true") : TEXT("false"), bGroundTraceFound ? TEXT("true") : TEXT("false"), *SyntheticHit.Location.ToString());
 
 	// faceBuildableId (2026-08-27) - computes TargetYawDegrees from the
 	// REAL placement location and an existing buildable's REAL position,

@@ -1076,4 +1076,35 @@ that verified number. This is slower per-layer but produces a correct
 result on the first real attempt instead of requiring a full audit-and-
 rebuild pass after the fact - exactly the class of mistake this section
 exists to prevent repeating.
-to get the *inputs* right in the first place.
+
+### Fixed 2026-08-28: `ignoreGroundTrace` gives real literal-coordinate placement - the two workarounds above are now superseded
+
+Both problems above (edge non-determinism, roof-over-open-space
+fall-through) share one root cause: `world.placeBuilding` always resolves
+Z via a real line trace, and a line trace can only find Z where something
+solid actually exists to hit. `world.placeBuilding` now takes an
+`ignoreGroundTrace` bool - when `true`, it skips the trace entirely and
+places at the literal `(x, y, z)` given, with no line trace involved at
+all. Requires `z` to be provided explicitly (fails `MISSING_REFERENCE_Z`
+otherwise).
+
+**Correct usage pattern**: query `world.groundHeight` once against a
+point where a REAL surface is known to exist (an already-placed wall's
+own reported Z from `world.buildables`, or a foundation's top via the
+pivot+thickness/2 formula above), compute the true target Z for the NEW
+piece algebraically from that known-good number, then place with
+`ignoreGroundTrace:true` at the TRUE intended X/Y (the tile edge, the
+quadrant center - whatever geometry actually calls for) and the computed
+Z. No inward nudge needed for walls; no wall-anchoring-instead-of-
+centering needed for roofs, since Z no longer depends on what a trace
+happens to hit at that X/Y.
+
+**This was root-caused live** (the house's roof tiles were found
+overhanging 50% outside the walls, because they'd been centered on wall
+corners rather than the quadrant center per the older workaround) but
+**the fix itself has not yet been live-tested** - implemented and
+compiled clean the same session the bug was found, after the game had
+already been closed for the day. First priority next session: rebuild
+the house's roof with `ignoreGroundTrace`, and re-run the wall perimeter
+without the 100-unit nudge, to confirm this actually resolves both
+issues before relying on it for new builds.
