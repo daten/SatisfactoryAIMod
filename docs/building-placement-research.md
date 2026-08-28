@@ -7,7 +7,7 @@ as [resource-node-research.md](resource-node-research.md) and
 `Source/FactoryGame/Private/Hologram/FGHologram.cpp:99`,
 `AFGBuildableSubsystem::BeginSpawnBuildable(...){ return nullptr; }` at
 `Source/FactoryGame/Private/FGBuildableSubsystem.cpp:92`). This document
-is research only — **no building-placement code exists in DocMod, and
+is research only — **no building-placement code exists in AIMod, and
 none is being written as part of this pass.** See "Why this stops here"
 below.
 

@@ -1,8 +1,8 @@
 """Normalized protocol models, mirroring docs/telemetry-protocol.md.
 
 Plain dataclasses independent of any Unreal/game-engine concept - the
-Python-side counterpart to DocMod's FDocModResourceNodeTelemetry
-(Mods/GameFeatures/DocMod/Source/DocMod/Public/DocModTelemetryTypes.h).
+Python-side counterpart to AIMod's FAIModResourceNodeTelemetry
+(Mods/GameFeatures/AIMod/Source/AIMod/Public/AIModTelemetryTypes.h).
 Kept in sync by hand for now; there is no schema-generation step.
 """
 
@@ -28,7 +28,7 @@ class Position:
 
 @dataclass(frozen=True)
 class ResourceNode:
-    """Mirrors FDocModResourceNodeTelemetry.
+    """Mirrors FAIModResourceNodeTelemetry.
 
     id is NOT save-stable - see docs/telemetry-protocol.md and
     docs/resource-node-research.md Sec.4. It is a session-local debug
@@ -72,7 +72,7 @@ class Rotation:
 
 @dataclass(frozen=True)
 class Buildable:
-    """Mirrors FDocModBuildableTelemetry. Generic fields for any placed
+    """Mirrors FAIModBuildableTelemetry. Generic fields for any placed
     AFGBuildable - see ManufacturerInfo for recipe/clock/production
     fields, which only apply to manufacturing buildings.
 
@@ -96,7 +96,7 @@ class Buildable:
 
 @dataclass(frozen=True)
 class FactoryConnection:
-    """Mirrors FDocModFactoryConnectionTelemetry - one connection point,
+    """Mirrors FAIModFactoryConnectionTelemetry - one connection point,
     not a constructed edge. See satisfactory_ai.graph for how these are
     turned into a WorldGraph, and satisfactory_ai.layout for how
     position/normal are used to plan new-building placement.
@@ -264,7 +264,7 @@ class ConveyorAttachmentInfo:
     Splitter variants (both backed by the same native
     AFGBuildableSplitterSmart class) - flags a REAL, separate,
     not-yet-built capability gap: per-output item-type routing needs
-    its own future write operation DocMod does not have yet. Placement
+    its own future write operation AIMod does not have yet. Placement
     and belt connection work today for every variant regardless of this
     flag.
     """

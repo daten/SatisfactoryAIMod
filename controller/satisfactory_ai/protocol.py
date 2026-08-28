@@ -1,7 +1,7 @@
-"""Envelope parsing for the DocMod telemetry protocol.
+"""Envelope parsing for the AIMod telemetry protocol.
 
 See docs/telemetry-protocol.md at the repo root for the authoritative
-schema. This parses the payload shapes DocMod's Log*AsJson functions
+schema. This parses the payload shapes AIMod's Log*AsJson functions
 produce (and what the "world.*" RPC methods on the Phase 9 /rpc endpoint
 return in their "result" field) - not the RPC request/response envelope
 itself, which this package doesn't have a client for yet (see

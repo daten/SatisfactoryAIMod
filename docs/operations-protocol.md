@@ -7,7 +7,7 @@ this file). Per PLAN.md's "First Write Operations" guidance, these are
 exactly the two operations it names as the safe on-ramp: `SetRecipe` and
 `SetClockRate`.
 
-**This is the first genuinely game-mutating capability in DocMod.** Test
+**This is the first genuinely game-mutating capability in AIMod.** Test
 it against a save you don't mind corrupting, not your main save, until
 it's been exercised enough to trust — see
 [manual-verification.md](manual-verification.md).
@@ -34,8 +34,8 @@ save/reload invalidates it; re-fetch `world.manufacturers` first).
 `clockSpeedPercent` is a percentage (100 = normal speed, matching the
 in-game overclock slider).
 
-**Validation, in order** (`UDocModFunctionLibrary::SetManufacturerClockSpeed`,
-`Mods/GameFeatures/DocMod/Source/DocMod/Private/DocModFunctionLibrary.cpp`):
+**Validation, in order** (`UAIModFunctionLibrary::SetManufacturerClockSpeed`,
+`Mods/GameFeatures/AIMod/Source/AIMod/Private/AIModFunctionLibrary.cpp`):
 
 1. `buildableId` resolves to an actual `AFGBuildableManufacturer` — else
    `TARGET_NOT_FOUND` (404).

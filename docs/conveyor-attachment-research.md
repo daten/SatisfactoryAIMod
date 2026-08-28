@@ -123,7 +123,7 @@ wrapper function — it would just be a thin, unnecessary duplicate of
 
 **What genuinely IS a gap, not yet built:** Smart/Programmable splitter
 per-output item-type routing. `AFGBuildableSplitterSmart::AddSortRule()`
-and friends are real, public, but DocMod has no RPC method calling them
+and friends are real, public, but AIMod has no RPC method calling them
 yet — a placed Smart/Programmable splitter can be connected exactly like
 a plain one, but cannot yet be configured to route by item type. This
 would need its own future write operation (e.g. `world.setSplitterSortRule`)

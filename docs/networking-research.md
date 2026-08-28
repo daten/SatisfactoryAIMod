@@ -9,7 +9,7 @@ Recorded 2026-08-24. Read-only research before implementing PLAN.md Phase 9
 The engine ships a built-in `HTTPServer` module
 (`Engine/Source/Runtime/Online/HTTPServer/`, UBT module name `"HTTPServer"`,
 `Build.cs` at `.../HttpServer.Build.cs:5` — private deps `Core`, `HTTP`,
-`Sockets`, so DocMod only needs to add `"HTTPServer"` itself, not those).
+`Sockets`, so AIMod only needs to add `"HTTPServer"` itself, not those).
 This is a Runtime module, not a plugin — no `.uplugin` enablement needed.
 
 Two alternatives exist in this engine and were rejected:
@@ -56,7 +56,7 @@ Traced to `Engine/Source/Runtime/Online/HTTPServer/Private/HttpServerConfig.cpp:
 requirement to "bind only to loopback by default" / "do not expose the API
 to the LAN by default." This setting is project-wide, presumably intended
 for some other FactoryGame/Epic Online Services HTTP use, not something
-DocMod should change globally — doing so could affect other systems that
+AIMod should change globally — doing so could affect other systems that
 rely on the current default, and is out of scope for a mod-specific safety
 requirement.
 
@@ -76,7 +76,7 @@ DefaultBindAddress=any
 
 This is an **additive** (`+`) entry — it does not remove or alter the
 existing `DefaultBindAddress=any` line, so nothing else that may depend on
-the global default is affected. Only port `51902` (DocMod's RPC port, see
+the global default is affected. Only port `51902` (AIMod's RPC port, see
 below) is forced to loopback-only. Verified directly against
 `HttpListener.cpp:68-71`: `BindAddress.Compare(TEXT("localhost"),
 ESearchCase::IgnoreCase)` → `BindAddress->SetLoopbackAddress()`.
@@ -97,26 +97,26 @@ which only applies to sessions run *from this project* (Development
 Editor Play-In-Editor). The actual game the user plays is a separate,
 already-installed Steam copy of Satisfactory
 (`ExecutableName: FactoryGameSteam-Win64-Shipping.exe`, confirmed from
-`FactoryGame.log`) that DocMod gets deployed *into* via Alpakit — Alpakit
+`FactoryGame.log`) that AIMod gets deployed *into* via Alpakit — Alpakit
 packages the plugin, not this project's own top-level `Config/` folder,
 so the override never reached the running game at all.
 
 **Two-layer fix applied:**
 
 1. **Defense-in-depth (verified as the real safety net, not
-   config-dependent):** `UDocModHttpServerSubsystem::HandleRpcRequest`
+   config-dependent):** `UAIModHttpServerSubsystem::HandleRpcRequest`
    now checks `FHttpServerRequest::PeerAddress` directly and rejects
    anything that isn't `127.0.0.1`/`::1` with `403 FORBIDDEN`, before
    doing anything else with the request — regardless of what the socket
    is actually bound to. This is the fix to trust.
 2. **Attempted root-cause fix, NOT yet verified:** added
-   `Mods/GameFeatures/DocMod/Config/DefaultEngine.ini` with the same
+   `Mods/GameFeatures/AIMod/Config/DefaultEngine.ini` with the same
    `+ListenerOverrides` entry — UE plugins can ship their own
    `Config/Default*.ini` files that get merged into the corresponding
    project config at startup, which (unlike the project-level file)
    should be part of what Alpakit packages and deploys with the plugin.
    **This is a hypothesis, not a confirmed fix** — GameFeature plugins
-   specifically (DocMod is one) may have different config-merge timing
+   specifically (AIMod is one) may have different config-merge timing
    than a regular always-on plugin, since they're designed to be
    activated/deactivated at runtime, potentially after the engine's
    normal startup ini-merging pass has already run. Needs another live
@@ -128,7 +128,7 @@ so the override never reached the running game at all.
 
 Re-ran `netstat -an` (via the `grep ":51902"` filter) against a live
 Steam session after deploying the plugin-level
-`Mods/GameFeatures/DocMod/Config/DefaultEngine.ini` (added specifically
+`Mods/GameFeatures/AIMod/Config/DefaultEngine.ini` (added specifically
 to test this) — **still `0.0.0.0:51902 LISTENING`**, not
 `127.0.0.1:51902`. The hypothesis that a GameFeature plugin's own
 `Config/DefaultEngine.ini` gets merged into the packaged build the same
@@ -137,7 +137,7 @@ least for this specific Alpakit-deployed setup — the config-merge timing
 concern flagged when this was added has turned out to be real.
 
 **The application-layer fix (item 1 above,
-`UDocModHttpServerSubsystem::HandleRpcRequest`'s `PeerAddress` check,
+`UAIModHttpServerSubsystem::HandleRpcRequest`'s `PeerAddress` check,
 commit `870e1fdfee`) remains the actual protection** and is unaffected
 by this — it doesn't depend on the socket binding at all. The raw socket
 being reachable from the LAN is still not ideal (a determined actor on
@@ -184,4 +184,4 @@ delegated research for anything load-bearing):
 first: Satisfactory itself uses `7777-7827` (`MinPort`/`MaxPort`, beacon/game
 ports) and `443` (`ServerPort`, online services). `51902` is outside both
 and not a well-known port. Configurable if it ever collides with something
-else on a given machine — see `UDocModHttpServerSubsystem::ListenPort`.
+else on a given machine — see `UAIModHttpServerSubsystem::ListenPort`.

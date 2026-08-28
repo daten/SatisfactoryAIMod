@@ -1,8 +1,8 @@
-# DocMod RPC Reference
+# AIMod RPC Reference
 
-For an agent that only has access to a **running, deployed DocMod instance** —
+For an agent that only has access to a **running, deployed AIMod instance** —
 no repo checkout, no C++ source. Everything here is derived from the actual
-dispatch code (`DocModHttpServerSubsystem.cpp`), not from memory, and should
+dispatch code (`AIModHttpServerSubsystem.cpp`), not from memory, and should
 be complete as of this file's last update. If a call behaves differently than
 documented here, trust the live response over this file — the mod may have
 moved on since this was written.
@@ -18,7 +18,7 @@ request has been decided.
 - **Endpoint**: `POST http://127.0.0.1:51902/rpc` — loopback only by default,
   fixed port (not configurable, no discovery endpoint).
 - **Remote access**: rejected by default. The player can enable it from
-  DocMod's entry in the game's mod settings menu ("Allow Remote Connections")
+  AIMod's entry in the game's mod settings menu ("Allow Remote Connections")
   — if you're not on the same machine and get a `FORBIDDEN` response, that's
   why.
 - **Content-Type**: `application/json`. Body is a single JSON object, one
@@ -383,7 +383,7 @@ Forces the day/night cycle to that time; the cycle continues advancing
 normally afterward (a one-shot jump, not a pause).
 
 ### `world.sendChatMessage`
-`params: {"message" (required), "sender" (optional, default "DocMod AI")}`.
+`params: {"message" (required), "sender" (optional, default "AIMod AI")}`.
 Posts into the player's in-game chat as a `"CustomMessage"`.
 
 ### `world.placeBuilding` — asynchronous, `result.buildableId` on success
@@ -520,7 +520,7 @@ hardcoded independent of visual scale, so extreme values may look/behave
 oddly even when they spawn cleanly.
 
 **Off by default.** The player must explicitly enable "Allow Creature
-Spawning" in DocMod's mod settings first — this is one of only two
+Spawning" in AIMod's mod settings first — this is one of only two
 capabilities (with `UnlimitedResources`) an external AI controller can never
 turn on itself. A disabled request fails with `CREATURE_SPAWNING_DISABLED`
 rather than silently no-op'ing. Other errors: `INVALID_CREATURE_CLASS`
@@ -595,7 +595,7 @@ reference, not position guessing, so it's safe to run any time.
 - **Player-facing safety settings can silently change behavior**: if a
   request that used to work now fails with `BUILD_DISTANCE_EXCEEDED`, or a
   request that used to fail with a material-cost error now succeeds, the
-  player has toggled one of DocMod's mod settings ("Limit RPC Build
+  player has toggled one of AIMod's mod settings ("Limit RPC Build
   Distance From Player" / "Unlimited Resources for RPC Builds") — these are
   player-controlled and cannot be set by a request; if their state matters
   to you, ask the player rather than assuming.
@@ -604,7 +604,7 @@ reference, not position guessing, so it's safe to run any time.
 
 - **Recipe-chain math** (how many machines of what, to hit a target rate) —
   compute this yourself from `world.recipeCatalog`/`world.buildableCatalog`
-  data; DocMod deliberately doesn't do this arithmetic itself. See
+  data; AIMod deliberately doesn't do this arithmetic itself. See
   `PLAYBOOK.md` for the "worked example" this project already ran once
   (Heavy Modular Frames).
 - **Manual/hand-crafting** (Craft Bench / Workshop, no automated machine) —

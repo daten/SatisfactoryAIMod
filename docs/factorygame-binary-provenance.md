@@ -28,7 +28,7 @@ ships as part of the modding SDK.
   `Slate`, `UnrealEd` — base **engine** modules — with no `FactoryGame`,
   `FactoryEditor`, or `DummyHeaders` subdirectory at all. Zero `.obj`
   files exist anywhere for `FactoryGame` under this target.
-- By contrast, `DocMod` and `SML` (the actual modder-authored plugin
+- By contrast, `AIMod` and `SML` (the actual modder-authored plugin
   content under `Mods/`) *do* have full intermediate build trees with
   real `.obj` files for every source file, confirming UBT genuinely
   compiles those from source on every `tools/build-editor.ps1` run — the
@@ -45,7 +45,7 @@ faithful description of the **real, currently-installed game version's**
 API surface (matches CLAUDE.md's "installed headers are especially
 important because documentation can lag behind the currently installed
 game/SML version"). The `.cpp` stub bodies are placeholders that exist
-only so UBT can generate a linkable module shape for compiling DocMod/SML
+only so UBT can generate a linkable module shape for compiling AIMod/SML
 against — they are never actually what runs. **The real implementation
 Coffee Stain wrote is what's loaded at runtime**, in the precompiled
 `UnrealEditor-FactoryGame.dll`.
@@ -64,7 +64,7 @@ Practically:
   running inside the actual Editor/PIE/packaged-game process is calling
   into the real compiled game logic, not the stub bodies visible in this
   repo's source tree.
-- It also means DocMod cannot "fix" or meaningfully influence
+- It also means AIMod cannot "fix" or meaningfully influence
   `FactoryGame`'s own internals by editing `Source/FactoryGame/` — those
   edits would only affect a local recompile that (per the evidence above)
   isn't how the actual running binary gets produced in this environment.
@@ -78,6 +78,6 @@ Since the real FactoryGame implementation is what's actually running,
 tests that execute inside a loaded game world (PIE, standalone, or a
 packaged build) genuinely exercise production game logic — enumerating
 real resource nodes, reading real recipe/production state, etc. This is
-why `Mods/GameFeatures/DocMod/Source/DocMod/Private/DocModSelfTest.cpp`
+why `Mods/GameFeatures/AIMod/Source/AIMod/Private/AIModSelfTest.cpp`
 (added alongside this doc) is worth having: its checks are validating
-DocMod's code against the real game, not against stub placeholders.
+AIMod's code against the real game, not against stub placeholders.

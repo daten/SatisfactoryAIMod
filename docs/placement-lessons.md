@@ -1,7 +1,7 @@
 # Placement lessons
 
 A living reference of practical rules for placing and connecting buildables
-via DocMod's RPC interface. Unlike the `*-research.md` docs (which are
+via AIMod's RPC interface. Unlike the `*-research.md` docs (which are
 dated investigation logs), this document is meant to be **read before doing
 placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
@@ -25,7 +25,7 @@ call is still unresolved (see the Portable Miner section elsewhere in this
 file / RPC_REFERENCE.md), there is currently **no RPC path to manufacture a
 Portable Miner from scratch** - the player must already have one (crafted by
 hand, or via the working ARMS-equip flow if one already exists), or enable
-"Unlimited Resources for RPC Builds" in DocMod's mod settings (untested
+"Unlimited Resources for RPC Builds" in AIMod's mod settings (untested
 whether that bypass covers this specific ingredient check, but it's designed
 to cover exactly this class of disqualifier).
 

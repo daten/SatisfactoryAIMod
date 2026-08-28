@@ -163,7 +163,7 @@ build the Pressurizer on the core → connect power to the Pressurizer →
 wait for the satellites' `GetState()` to leave `FSS_Untouched` → only
 then can `Recipe_FrackingExtractor` be constructed on each satellite.
 This is now exposed as `satelliteState` in `world.resourceNodes` (new
-`FDocModResourceNodeTelemetry::SatelliteState`/`NodeType`/`CoreId`
+`FAIModResourceNodeTelemetry::SatelliteState`/`NodeType`/`CoreId`
 fields) specifically so this can be polled for real instead of guessed
 at with a fixed delay.
 

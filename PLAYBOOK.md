@@ -1,7 +1,7 @@
-# DocMod Playbook — Requesting Builds in Plain Language
+# AIMod Playbook — Requesting Builds in Plain Language
 
-This file is for **playing** the game with DocMod's AI interface, not developing
-the mod. If you're working on DocMod's own C++/Python source, see `CLAUDE.md` /
+This file is for **playing** the game with AIMod's AI interface, not developing
+the mod. If you're working on AIMod's own C++/Python source, see `CLAUDE.md` /
 `AGENTS.md` instead.
 
 This is a first draft, meant to be edited. Nothing here is enforced by code —

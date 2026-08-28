@@ -22,9 +22,9 @@ placeholder code.
 
 ## What it checks
 
-`Mods/GameFeatures/DocMod/Source/DocMod/Private/DocModSelfTest.cpp`,
-called from `FDocModModule::RunPerWorldSetup`
-(`Mods/GameFeatures/DocMod/Source/DocMod/Private/DocMod.cpp`) whenever a
+`Mods/GameFeatures/AIMod/Source/AIMod/Private/AIModSelfTest.cpp`,
+called from `FAIModModule::RunPerWorldSetup`
+(`Mods/GameFeatures/AIMod/Source/AIMod/Private/AIMod.cpp`) whenever a
 real game world finishes loading (`World->IsGameWorld()` —
 menu/editor-preview worlds are skipped). Two delegates feed
 `RunPerWorldSetup`, de-duplicated via a `LastSetupWorld` weak pointer:
@@ -75,23 +75,23 @@ Confirmed section for the incident writeup).
 
 ## Reading the output
 
-Look for `LogDocModAI` output bracketed by `=====` lines:
+Look for `LogAIModAI` output bracketed by `=====` lines:
 
 ```
-LogDocModAI: Display: ===== DocMod self-test: 12 passed, 0 failed (of 12) =====
-LogDocModAI: Display:   [PASS] GetInterfaceVersion - expected "0.1.0", got "0.1.0"
-LogDocModAI: Display:   [PASS] ResourceNodeTelemetry.shape - 631 node(s)
-LogDocModAI: Display:   [PASS] ResourceNodeTelemetry.json - 118392 bytes
-LogDocModAI: Display:   [PASS] BuildableTelemetry.shape - 83 buildable(s)
-LogDocModAI: Display:   [PASS] BuildableTelemetry.json - 6104 bytes
-LogDocModAI: Display:   [PASS] ManufacturerTelemetry.shape - 12 manufacturer(s)
-LogDocModAI: Display:   [PASS] ManufacturerTelemetry.json - 2841 bytes
-LogDocModAI: Display:   [PASS] FactoryConnectionTelemetry.shape - 156 connection point(s)
-LogDocModAI: Display:   [PASS] FactoryConnectionTelemetry.reciprocity - 0 Output connection(s) with no matching Input row on the peer
-LogDocModAI: Display:   [PASS] FactoryConnectionTelemetry.json - 9210 bytes
-LogDocModAI: Display:   [PASS] SetManufacturerClockSpeed.rejectsUnknownTarget - success=false code="TARGET_NOT_FOUND"
-LogDocModAI: Display:   [PASS] SetManufacturerRecipe.rejectsUnknownTarget - success=false code="TARGET_NOT_FOUND"
-LogDocModAI: Display: ============================================================
+LogAIModAI: Display: ===== AIMod self-test: 12 passed, 0 failed (of 12) =====
+LogAIModAI: Display:   [PASS] GetInterfaceVersion - expected "0.1.0", got "0.1.0"
+LogAIModAI: Display:   [PASS] ResourceNodeTelemetry.shape - 631 node(s)
+LogAIModAI: Display:   [PASS] ResourceNodeTelemetry.json - 118392 bytes
+LogAIModAI: Display:   [PASS] BuildableTelemetry.shape - 83 buildable(s)
+LogAIModAI: Display:   [PASS] BuildableTelemetry.json - 6104 bytes
+LogAIModAI: Display:   [PASS] ManufacturerTelemetry.shape - 12 manufacturer(s)
+LogAIModAI: Display:   [PASS] ManufacturerTelemetry.json - 2841 bytes
+LogAIModAI: Display:   [PASS] FactoryConnectionTelemetry.shape - 156 connection point(s)
+LogAIModAI: Display:   [PASS] FactoryConnectionTelemetry.reciprocity - 0 Output connection(s) with no matching Input row on the peer
+LogAIModAI: Display:   [PASS] FactoryConnectionTelemetry.json - 9210 bytes
+LogAIModAI: Display:   [PASS] SetManufacturerClockSpeed.rejectsUnknownTarget - success=false code="TARGET_NOT_FOUND"
+LogAIModAI: Display:   [PASS] SetManufacturerRecipe.rejectsUnknownTarget - success=false code="TARGET_NOT_FOUND"
+LogAIModAI: Display: ============================================================
 ```
 
 A `[FAIL]` line also logs at `Error` level individually (so it's visible
@@ -119,8 +119,8 @@ automatically the first time a real save loaded.
 
 ## Extending it
 
-Add a `Check*()` function to `DocModSelfTest.cpp` and call it from
-`RunAll()` whenever new DocMod functionality is added, rather than only
+Add a `Check*()` function to `AIModSelfTest.cpp` and call it from
+`RunAll()` whenever new AIMod functionality is added, rather than only
 adding a manual-verification.md entry for it. Keep new checks within the
 same safety boundary as the existing ones: read-only assertions or
 negative/validation-path checks only — never a positive-path mutation
@@ -128,9 +128,9 @@ against real game state.
 
 ## Why it's compiled out of Shipping builds
 
-`FDocModModule`'s binding of both `FWorldDelegates::OnWorldInitializedActors`
+`FAIModModule`'s binding of both `FWorldDelegates::OnWorldInitializedActors`
 and `FCoreUObjectDelegates::PostLoadMapWithWorld` is wrapped in
-`#if !UE_BUILD_SHIPPING` (`DocMod.cpp`/`DocMod.h`) — the self-test code
+`#if !UE_BUILD_SHIPPING` (`AIMod.cpp`/`AIMod.h`) — the self-test code
 doesn't exist at all in a Shipping build, not merely disabled at runtime.
 This is a development-time convenience; it has no reason to run for
 players of a released mod, and per CLAUDE.md's Safety and Stability

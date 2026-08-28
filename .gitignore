@@ -38,7 +38,7 @@ Mods/**/Metadata/Crypto.json
 !Mods/GameFeatures/
 Mods/GameFeatures/*
 !Mods/GameFeatures/ExampleMod/
-!Mods/GameFeatures/DocMod/
+!Mods/GameFeatures/AIMod/
 
 # Mods binaries
 Mods/**/Binaries/*

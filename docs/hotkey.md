@@ -42,13 +42,13 @@ conflict by binding priority, only by picking a different key.
 
 Since a real collision surfaced on the first pick, the key is now
 configurable rather than hardcoded a second time — see
-`UDocModDeveloperSettings::HotkeyKey`
-(`Mods/GameFeatures/DocMod/Source/DocMod/Public/DocModDeveloperSettings.h`).
+`UAIModDeveloperSettings::HotkeyKey`
+(`Mods/GameFeatures/AIMod/Source/AIMod/Public/AIModDeveloperSettings.h`).
 Change it either way, no rebuild required:
 
-- **In the Editor:** Project Settings → Plugins → DocMod → Hotkey.
-- **By hand:** `Config/DefaultDocMod.ini`,
-  `[/Script/DocMod.DocModDeveloperSettings]` section, e.g.
+- **In the Editor:** Project Settings → Plugins → AIMod → Hotkey.
+- **By hand:** `Config/DefaultAIMod.ini`,
+  `[/Script/AIMod.AIModDeveloperSettings]` section, e.g.
   `HotkeyKey=(KeyName="F6")`.
 
 Both require relaunching the session to take effect — the key is only
@@ -60,7 +60,7 @@ the read site), not live-reloaded if changed mid-session.
 Unlike the chat command (`docs/chat-and-console-commands.md`), this
 needed no Editor step at all to exist — the whole input action + mapping
 context + key binding is constructed in pure C++ at runtime
-(`Mods/GameFeatures/DocMod/Source/DocMod/Private/DocModHotkey.cpp`):
+(`Mods/GameFeatures/AIMod/Source/AIMod/Private/AIModHotkey.cpp`):
 
 - `AFGPlayerController::AddMappingContextImmediately(UInputMappingContext*)`
   — a real, public FactoryGame function (`FGPlayerController.h:674`) for
@@ -68,14 +68,14 @@ context + key binding is constructed in pure C++ at runtime
   reading the header rather than assumed.
 - `UInputMappingContext::MapKey(const UInputAction*, FKey)` — builds the
   key mapping programmatically, using whatever `FKey` came from
-  `UDocModDeveloperSettings::HotkeyKey`.
+  `UAIModDeveloperSettings::HotkeyKey`.
 - Both the `UInputAction` and `UInputMappingContext` are constructed via
   `NewObject<>()` and held for the module's lifetime via
   `TStrongObjectPtr` (since the owning code isn't itself a `UObject`, so
   can't hold them via a `UPROPERTY`).
 - Bound once per world load from the same
   `FWorldDelegates::OnWorldInitializedActors` hook the self-test uses
-  (`DocMod.cpp`), via `UEnhancedInputComponent::BindActionValueLambda`.
+  (`AIMod.cpp`), via `UEnhancedInputComponent::BindActionValueLambda`.
 
 Chat delivery: `USMLRemoteCallObject::SendChatMessage` — the exact same
 underlying call SML's own `UPlayerCommandSender::SendChatMessage` uses
@@ -86,16 +86,16 @@ since a keypress has no `UCommandSender` to go through.
 
 ## Why it's gated out of Shipping
 
-The binding call (`DocModHotkey::SetupForWorld`) sits behind the same
+The binding call (`AIModHotkey::SetupForWorld`) sits behind the same
 `#if !UE_BUILD_SHIPPING` guard as the automatic self-test
-(`DocMod.cpp`'s `OnWorldInitializedActors`). Unlike the read-only
+(`AIMod.cpp`'s `OnWorldInitializedActors`). Unlike the read-only
 console/chat commands (which stay available in all configs since they
 only run on explicit invocation with no side effects), this one
 *mutates real game state* on a keypress — a real player of a released
 mod pressing the hotkey by accident and having a random machine's clock
 speed changed would be a bad, confusing experience for what's explicitly
 a developer testing aid, not a feature. The underlying
-`DocModHotkey.cpp`/`GetTargetedManufacturer`/`SetManufacturerClockSpeed`
+`AIModHotkey.cpp`/`GetTargetedManufacturer`/`SetManufacturerClockSpeed`
 code all still compiles and exists in Shipping — only the automatic
 binding is skipped.
 

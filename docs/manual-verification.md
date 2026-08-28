@@ -7,9 +7,9 @@ automatically now.
 **Most of the "does it crash / is the returned data well-formed" checking
 below is now automatic** — see
 [self-test.md](self-test.md). Every time a game world loads (Editor PIE,
-standalone, or a packaged build), `DocModSelfTest::RunAll` exercises every
+standalone, or a packaged build), `AIModSelfTest::RunAll` exercises every
 read-only telemetry function and the write operations' validation logic,
-and logs a `PASS`/`FAIL` summary block to `LogDocModAI` with no manual
+and logs a `PASS`/`FAIL` summary block to `LogAIModAI` with no manual
 Blueprint work or HTTP calls needed. **Check that summary block first** —
 if everything in it passes, most of the "shape/doesn't-crash" items below
 are already covered, and what's left is the things a fixed self-test
@@ -35,14 +35,14 @@ whichever's less friction for that item:
 equivalent, e.g. `LogResourceNodes`'s human-readable log format):
 
 1. Load a level that actually has the game state you're checking (an
-   in-game map — `RootGameWorld_DocMod` is a bare test level, likely
+   in-game map — `RootGameWorld_AIMod` is a bare test level, likely
    empty).
 2. **Blueprints** menu → **Open Level Blueprint**.
 3. Right-click empty graph space → search **"BeginPlay"** → add
    `Event BeginPlay` if it's not already there.
 4. Drag off its exec pin, release, search for the function's display
    name (e.g. **"Log Resource Nodes"**) — it's filed under the
-   `DocMod | AI Interface` category. Click to add it, wired to
+   `AIMod | AI Interface` category. Click to add it, wired to
    `BeginPlay`.
 5. Functions taking a world-context object auto-hide that pin and wire
    it to the graph's implicit **Self** (the Level Blueprint actor) — you
@@ -53,12 +53,12 @@ equivalent, e.g. `LogResourceNodes`'s human-readable log format):
    `BeginPlay` actually runs, i.e. once you're playing, not just after
    compiling.
 8. Check **Window → Developer Tools → Output Log** for the
-   `LogDocModAI` lines.
+   `LogAIModAI` lines.
 
 **Console command** (no Blueprint editing, works immediately — see
 [chat-and-console-commands.md](chat-and-console-commands.md)): open the
-in-game/PIE console (`~`) and type e.g. `DocMod.SelfTest` or
-`DocMod.ResourceNodes`. Also usable via `/docmod <subcommand>` in chat,
+in-game/PIE console (`~`) and type e.g. `AIMod.SelfTest` or
+`AIMod.ResourceNodes`. Also usable via `/aimod <subcommand>` in chat,
 but that needs a one-time Editor wiring step first — see the same doc.
 
 **RPC endpoint** (Phase 9+, no Blueprint editing — works for anything
@@ -94,7 +94,7 @@ Calls every RPC method and reports PASS/FAIL — see
 - Check the Output Log (Editor) or `%LOCALAPPDATA%\FactoryGame\Saved\Logs\FactoryGame.log`
   (Satisfactory) for:
   ```
-  LogDocModAI: Display: DocMod AI interface module initialized
+  LogAIModAI: Display: AIMod AI interface module initialized
   ```
 - **Expected:** the line appears once, near other plugin/module startup
   messages, on every load.
@@ -103,23 +103,23 @@ Calls every RPC method and reports PASS/FAIL — see
 
 Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
 
-- Open the `RootGameWorld_DocMod` level (or any Blueprint), add a
-  **Get Interface Version** node (category `DocMod | AI Interface`), wire
+- Open the `RootGameWorld_AIMod` level (or any Blueprint), add a
+  **Get Interface Version** node (category `AIMod | AI Interface`), wire
   to Print String, run.
 - **Expected:** node is findable in the palette, and prints `0.1.0`.
 
 ### 3. Resource node enumeration (Phase 4, Task 7)
 
 - Load a save (or the default level) that actually has resource nodes in
-  it — `RootGameWorld_DocMod` is a bare test level and may not have any;
+  it — `RootGameWorld_AIMod` is a bare test level and may not have any;
   loading an actual Satisfactory map is likely needed here.
-- Call **Log Resource Nodes** (category `DocMod | AI Interface`) from any
+- Call **Log Resource Nodes** (category `AIMod | AI Interface`) from any
   Blueprint (Level Blueprint `BeginPlay` is fine for a one-off test),
   passing `self` as the world context.
-- Check `LogDocModAI` output for lines like:
+- Check `LogAIModAI` output for lines like:
   ```
-  LogDocModAI: Display: ResourceNode: id=... resource="Iron Ore" purity=Pure pos=(12345.0, -6789.0, 890.0) occupied=false
-  LogDocModAI: Display: LogResourceNodes: enumerated 47 resource node(s)
+  LogAIModAI: Display: ResourceNode: id=... resource="Iron Ore" purity=Pure pos=(12345.0, -6789.0, 890.0) occupied=false
+  LogAIModAI: Display: LogResourceNodes: enumerated 47 resource node(s)
   ```
 - **Expected:** resource names/purity/positions look plausible for real
   nodes on the loaded map (not all zeros, not obviously wrong), and the
@@ -132,9 +132,9 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
 
 ### 4. JSON telemetry output (Phase 4, Task 9 / PLAN.md Phase 6)
 
-- Call **Log Resource Nodes As Json** (category `DocMod | AI Interface`)
+- Call **Log Resource Nodes As Json** (category `AIMod | AI Interface`)
   the same way as above.
-- Check `LogDocModAI` for a single-line JSON blob starting with
+- Check `LogAIModAI` for a single-line JSON blob starting with
   `{"protocolVersion":1,"resourceNodes":[...`.
 - **Expected:** valid JSON (paste it into any JSON validator, or
   `python -m json.tool` it) containing one object per node with
@@ -153,9 +153,9 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
 ### 5. Localhost HTTP transport (Phase 9)
 
 - Launch the Editor or Satisfactory with the mod loaded.
-- Check `LogDocModAI` for:
+- Check `LogAIModAI` for:
   ```
-  LogDocModAI: Display: DocMod HTTP server listening on http://127.0.0.1:51902/rpc (loopback only - see Config/DefaultEngine.ini ListenerOverrides)
+  LogAIModAI: Display: AIMod HTTP server listening on http://127.0.0.1:51902/rpc (loopback only - see Config/DefaultEngine.ini ListenerOverrides)
   ```
 - **Critical safety check:** run `netstat -an | findstr 51902` (Windows)
   while the game is running. **Expected:** a line showing `127.0.0.1:51902`
@@ -165,7 +165,7 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
   [networking-research.md](networking-research.md)'s "Confirmed broken
   live" note for the root cause and the two-layer fix applied
   (application-layer `PeerAddress` check + a new
-  `Mods/GameFeatures/DocMod/Config/DefaultEngine.ini`). **Re-checked
+  `Mods/GameFeatures/AIMod/Config/DefaultEngine.ini`). **Re-checked
   2026-08-25: still `0.0.0.0:51902`** — the plugin-level ini fix did not
   work (see networking-research.md's "Plugin-level ini fix confirmed NOT
   working" note). The application-layer `PeerAddress` check remains the
@@ -191,13 +191,13 @@ Full steps in [blueprint-smoke-test.md](blueprint-smoke-test.md). Summary:
 
 - Load a save with actual buildings placed (constructors, smelters, etc).
 - Call **Log Buildables** and **Log Manufacturers** (category
-  `DocMod | AI Interface`) from any Blueprint.
-- Check `LogDocModAI` for plausible output, e.g.:
+  `AIMod | AI Interface`) from any Blueprint.
+- Check `LogAIModAI` for plausible output, e.g.:
   ```
-  LogDocModAI: Display: Buildable: id=... class=.../Build_ConstructorMk1.Build_ConstructorMk1_C pos=(...) rot=(...)
-  LogDocModAI: Display: LogBuildables: enumerated 83 buildable(s)
-  LogDocModAI: Display: Manufacturer: id=... class=... recipe="Iron Plate" clock=100% status=Producing progress=0.42 productivity=1.00 inputItems=1 outputItems=1
-  LogDocModAI: Display: LogManufacturers: enumerated 12 manufacturer(s)
+  LogAIModAI: Display: Buildable: id=... class=.../Build_ConstructorMk1.Build_ConstructorMk1_C pos=(...) rot=(...)
+  LogAIModAI: Display: LogBuildables: enumerated 83 buildable(s)
+  LogAIModAI: Display: Manufacturer: id=... class=... recipe="Iron Plate" clock=100% status=Producing progress=0.42 productivity=1.00 inputItems=1 outputItems=1
+  LogAIModAI: Display: LogManufacturers: enumerated 12 manufacturer(s)
   ```
 - **Expected:** buildable count is plausible for the map (not 0, not
   absurd), classes look like real building asset paths, and for
@@ -249,7 +249,7 @@ against a save you don't mind corrupting — duplicate your save file
 first, or use a throwaway creative-mode save — not your main
 progression save,** until it's been exercised enough to trust.
 
-**Fastest way to try this:** walk up to a machine and press the DocMod
+**Fastest way to try this:** walk up to a machine and press the AIMod
 hotkey (**F6** by default — F11 was tried first and found to collide
 with the engine's fullscreen toggle; configurable, see
 [hotkey.md](hotkey.md)). It prints the targeted machine and attempts a
@@ -264,7 +264,7 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
 - Find a manufacturer's `buildableId` either via `world.manufacturers`
   (item 6 above), or — easier — stand in front of the specific machine
   you want to test on in-game and use `world.targetedManufacturer` /
-  `DocMod.Target` / `/docmod target` (item 9 below) instead of picking
+  `AIMod.Target` / `/aimod target` (item 9 below) instead of picking
   one out of a potentially huge list. Ids are session-local either way,
   so re-fetch every session.
 - **Clock speed:** call `world.setClockSpeed` with a valid percent (e.g.
@@ -305,7 +305,7 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
 
 - Look directly at a manufacturing machine in-game (close enough that
   you'd normally see the interact prompt).
-- Call `world.targetedManufacturer`, `DocMod.Target`, or `/docmod target`
+- Call `world.targetedManufacturer`, `AIMod.Target`, or `/aimod target`
   (all equivalent — see [chat-and-console-commands.md](chat-and-console-commands.md)).
 - **Expected:** returns that specific machine's telemetry (recipe, clock
   speed, id, etc.) — not some other, arbitrary machine. Look away from
@@ -324,33 +324,33 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
   Coal/Limestone/etc - not Crude Oil/Water/SAM, which are out of scope
   for this first pass) from a normal build-range distance, close enough
   that you're clearly aiming at it, not just nearby.
-- Run `DocMod.TargetNode` first to confirm it found the node you're
+- Run `AIMod.TargetNode` first to confirm it found the node you're
   looking at (prints resource/purity/occupied/id, or "not currently
   looking at a resource node"). This now uses
   `AFGCharacterPlayer::GetBestUsableActor()` - the same game-truth
-  targeting `DocMod.Target` uses for manufacturers - so it should agree
+  targeting `AIMod.Target` uses for manufacturers - so it should agree
   with whatever the game's own "Press E to start mining..." prompt shows
   (see `docs/extractor-placement-research.md`'s correction note: an
   earlier heuristic-based version failed this exact check live and was
   replaced).
-- Once `DocMod.TargetNode` finds it, run `DocMod.TestExtractorPlacement`.
+- Once `AIMod.TargetNode` finds it, run `AIMod.TestExtractorPlacement`.
   **This never calls `Construct()` and never touches your save** - it
   spawns a temporary hologram, checks it, and destroys it before
   returning, regardless of outcome.
 - **Expected, and what we're actually trying to learn:**
-  - `DocMod: CanConstruct() = true - placement would succeed` — the best
+  - `AIMod: CanConstruct() = true - placement would succeed` — the best
     outcome: confirms both the synthetic `FHitResult` snapping and
     buildgun-free hologram construction assumptions hold for the happy
     path. This is the strongest possible signal to move forward with an
     actual `Construct()` call next.
-  - `DocMod: CanConstruct() = false - ...` with a **specific, sensible**
+  - `AIMod: CanConstruct() = false - ...` with a **specific, sensible**
     disqualifier (e.g. "Too close to another building", "Resource node
     is occupied") — also a good outcome: means the flow up through
     `UpdateHologramPlacement`/`CanConstruct` genuinely works and is
     correctly evaluating real placement rules, just not on this
     particular spot/node. Try a different unobstructed node if this
     happens on a clearly-valid spot.
-  - `DocMod: CanConstruct() = false - <none>` (empty disqualifier list)
+  - `AIMod: CanConstruct() = false - <none>` (empty disqualifier list)
     or a disqualifier that reads as clearly wrong for what you're
     looking at (e.g. `UFGCDNeedsResourceNode` while aiming directly at a
     node) — **this is the signal that the synthetic hit result isn't
@@ -363,15 +363,15 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
     implies from a non-buildgun caller (§5's risk). A crash specifically
     should be reported immediately with the exact log output leading up
     to it.
-- Check `LogDocModAI` regardless of the console output shown - it logs
+- Check `LogAIModAI` regardless of the console output shown - it logs
   the full disqualifier list with each one's soft/hard status, more
   detail than the one-line console summary.
-- **Standalone hologram (`DocMod.TestExtractorPlacement`): consistently
+- **Standalone hologram (`AIMod.TestExtractorPlacement`): consistently
   `CANNOT_CONSTRUCT: Initializing (hard)` across five fix attempts** -
   see `docs/extractor-placement-research.md`'s "will not clear" section.
-  Node targeting itself is confirmed correct (`DocMod.TargetNode`
+  Node targeting itself is confirmed correct (`AIMod.TargetNode`
   matches the game's own "Press E to mine" prompt).
-- **Build-gun-driven hologram (`DocMod.TestExtractorPlacementViaBuildGun`)
+- **Build-gun-driven hologram (`AIMod.TestExtractorPlacementViaBuildGun`)
   — SUCCEEDED, first real test, twice in a row (2026-08-24):
   `canConstruct=true disqualifiers=[<none>]`, resolved after 1 real
   tick.** See `docs/buildgun-driven-placement-research.md`'s "Result"
@@ -380,7 +380,7 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
   testing. **This command visibly equips the build gun** (shows the
   normal build-mode HUD briefly) unlike the standalone one - expected,
   not a bug.
-- **`DocMod.ConstructExtractorOnTargetedNode` — first real building
+- **`AIMod.ConstructExtractorOnTargetedNode` — first real building
   placement, SUCCEEDED on the first attempt (2026-08-24).** Log showed
   `nodeNowOccupied=true` plus the real `SK_MinerMk1` mesh loading via the
   game's own build-effect system - independent confirmation, not just a
@@ -399,17 +399,17 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
   the node) once powered - lower priority, registration/persistence was
   the real open question.
 
-### 11. Generalized building placement (`DocMod.PlaceBuildingNearPlayer`)
+### 11. Generalized building placement (`AIMod.PlaceBuildingNearPlayer`)
 
 - Stand somewhere with reasonably open, roughly flat ground in front of
   you (a real vertical trace finds the actual floor height, but there's
   no clearance-avoidance logic - if the spot 800 units in front of you
   overlaps something, `CanConstruct()` will correctly say no).
-- Run `DocMod.PlaceBuildingNearPlayer` with no argument (defaults to
+- Run `AIMod.PlaceBuildingNearPlayer` with no argument (defaults to
   Constructor Mk1), or with a specific recipe class path, e.g.
-  `DocMod.PlaceBuildingNearPlayer /Game/FactoryGame/Recipes/Buildings/Recipe_AssemblerMk1.Recipe_AssemblerMk1_C`.
+  `AIMod.PlaceBuildingNearPlayer /Game/FactoryGame/Recipes/Buildings/Recipe_AssemblerMk1.Recipe_AssemblerMk1_C`.
 - **Expected:** same visible build-gun-equip side effect as the other
-  build-gun-driven commands, then `LogDocModAI` reports either a
+  build-gun-driven commands, then `LogAIModAI` reports either a
   successful construction (with the real placement location logged) or
   a specific `CANNOT_CONSTRUCT` disqualifier if the spot wasn't valid -
   try moving to different ground and re-running if so.
@@ -434,10 +434,10 @@ percent, bad recipe path, etc.) that the hotkey doesn't exercise.
 Reviewed `%LOCALAPPDATA%\FactoryGame\Saved\Logs\FactoryGame.log` from an
 actual launched-game session. Real findings, not a synthetic test:
 
-- **Item 1 (module startup) — confirmed.** `DocMod AI interface module
-  initialized` and `DocMod AI interface module shutting down` both fired
+- **Item 1 (module startup) — confirmed.** `AIMod AI interface module
+  initialized` and `AIMod AI interface module shutting down` both fired
   correctly at session start/end.
-- **Item 5 (HTTP transport) — partially confirmed.** `DocMod HTTP server
+- **Item 5 (HTTP transport) — partially confirmed.** `AIMod HTTP server
   listening on http://127.0.0.1:51902/rpc...` fired correctly. **Still
   not done:** the `netstat` loopback-binding check, and an actual HTTP
   round-trip request (the self-test calls the underlying functions
@@ -536,10 +536,10 @@ The user reported "F6 has no obvious in-game effect" after a save-load
 session. Log review showed something more specific than a hotkey bug:
 **neither the self-test summary nor the hotkey-binding message appeared
 at all** for that session, even though item 1's module-startup line was
-present. The user then manually ran `DocMod.SelfTest` and `DocMod.Target`
+present. The user then manually ran `AIMod.SelfTest` and `AIMod.Target`
 from the console mid-session specifically to generate fresh log output
 for diagnosis — both worked perfectly (self-test produced a normal
-PASS/FAIL summary; `DocMod.Target` correctly reported the manufacturer
+PASS/FAIL summary; `AIMod.Target` correctly reported the manufacturer
 being looked at), proving the underlying self-test/hotkey/targeting logic
 was never the problem.
 
@@ -576,7 +576,7 @@ time.
 ### 2026-08-24 (fourth playtest) — reciprocity fix confirmed, F6 root cause found, and a real security gap found and fixed
 
 User launched a fresh session, tried F6 (no effect), then manually ran
-`DocMod.SelfTest`/`DocMod.Target` from the console. Reviewing
+`AIMod.SelfTest`/`AIMod.Target` from the console. Reviewing
 `FactoryGame.log`:
 
 - **Reciprocity fix (Bug A from the third playtest) — confirmed working.**
@@ -587,8 +587,8 @@ User launched a fresh session, tried F6 (no effect), then manually ran
 - **F6/self-test root cause was not the dual-hook fix at all — it was
   never going to run in this build.** The log's `ExecutableName` line
   confirms the session runs `FactoryGameSteam-Win64-Shipping.exe`, a
-  genuine Shipping build. `DocMod.cpp`'s automatic self-test hook and
-  `DocModHotkey::SetupForWorld` are both wrapped in `#if
+  genuine Shipping build. `AIMod.cpp`'s automatic self-test hook and
+  `AIModHotkey::SetupForWorld` are both wrapped in `#if
   !UE_BUILD_SHIPPING` (a deliberate choice, citing CLAUDE.md's "dev-only
   capabilities shouldn't linger into a shipped build") — that code
   doesn't exist at all in this binary, so the previous session's
@@ -616,7 +616,7 @@ User launched a fresh session, tried F6 (no effect), then manually ran
   actively `Producing`, where a cycle will complete during the test.
 - **A real security gap found and fixed.** Ran the long-pending `netstat`
   loopback check for the first time ever — it failed:
-  `0.0.0.0:51902 LISTENING`, not `127.0.0.1:51902`. The DocMod RPC API
+  `0.0.0.0:51902 LISTENING`, not `127.0.0.1:51902`. The AIMod RPC API
   (including write operations) was reachable from the LAN, not just this
   machine, this entire time the mod has been in use. Root cause and fix
   documented in detail in
@@ -624,10 +624,10 @@ User launched a fresh session, tried F6 (no effect), then manually ran
   live" section: the loopback-forcing ini override lived only in this
   dev workspace's project-level config, which doesn't reach the
   Alpakit-packaged, Steam-deployed mod. Fixed with two layers: (1)
-  `UDocModHttpServerSubsystem::HandleRpcRequest` now rejects any request
+  `UAIModHttpServerSubsystem::HandleRpcRequest` now rejects any request
   whose `PeerAddress` isn't loopback, regardless of socket binding — this
   is the fix to trust; (2) added
-  `Mods/GameFeatures/DocMod/Config/DefaultEngine.ini` with the same
+  `Mods/GameFeatures/AIMod/Config/DefaultEngine.ini` with the same
   override, hypothesized to actually reach the packaged deploy via UE's
   plugin-config-merging mechanism — **unverified, may not work for a
   GameFeature plugin specifically.** **Next session must re-run
@@ -639,7 +639,7 @@ User launched a fresh session, tried F6 (no effect), then manually ran
 
 Three follow-ups from the prior session, all resolved:
 
-- **Placement-override fix confirmed live.** `DocMod.PlaceBuildingNearPlayer`
+- **Placement-override fix confirmed live.** `AIMod.PlaceBuildingNearPlayer`
   (Constructor Mk1): ground-trace candidate `X=-54853.050 Y=160796.653
   Z=3337.826`, actual constructed location `X=-54853.103 Y=160796.700
   Z=3341.401` - matching to within a unit. Every pre-fix test had

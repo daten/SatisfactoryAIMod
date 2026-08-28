@@ -1,12 +1,12 @@
 """Export the live recipe/item/buildable catalog to a local JSON cache.
 
 Like `live_check.py`, this REQUIRES Satisfactory (or the Editor in
-Play-In-Editor) to actually be running, with DocMod loaded and its HTTP
+Play-In-Editor) to actually be running, with AIMod loaded and its HTTP
 server up (default http://127.0.0.1:51902/rpc). It is deliberately a
 snapshot-on-demand tool, not documentation: `world.recipeCatalog`/
 `world.itemCatalog`/`world.buildableCatalog` (docs/telemetry-protocol.md)
 are the actual source of truth, and can change whenever the game patches
-or DocMod's catalog logic changes. Re-run this whenever you want a fresh
+or AIMod's catalog logic changes. Re-run this whenever you want a fresh
 snapshot rather than trusting an old one - the output file's `exportedAt`
 field makes staleness visible at a glance.
 
@@ -61,7 +61,7 @@ def fetch_catalog(url: str, timeout: float) -> dict[str, Any]:
         if not response.get("success"):
             raise RuntimeError(f"{method} failed: {response.get('error')}")
         result = response["result"]
-        # DocMod's LogXAsJson methods return their JSON already-decoded
+        # AIMod's LogXAsJson methods return their JSON already-decoded
         # as the "result" object (not a further-nested string) - see
         # docs/telemetry-protocol.md's examples for each method's shape.
         items = result.get(key)
@@ -74,7 +74,7 @@ def fetch_catalog(url: str, timeout: float) -> dict[str, Any]:
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--url", default=DEFAULT_URL, help=f"DocMod /rpc endpoint (default: {DEFAULT_URL})")
+    parser.add_argument("--url", default=DEFAULT_URL, help=f"AIMod /rpc endpoint (default: {DEFAULT_URL})")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="Per-request timeout in seconds")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help=f"Output path (default: {DEFAULT_OUTPUT})")
     args = parser.parse_args(argv)
@@ -85,7 +85,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     except Exception as exc:  # noqa: BLE001 - deliberately broad, this is a CLI tool
         print(f"FAILED: {exc}", file=sys.stderr)
         print(
-            "Is Satisfactory/the Editor running with DocMod loaded? "
+            "Is Satisfactory/the Editor running with AIMod loaded? "
             "See docs/manual-verification.md item 5.",
             file=sys.stderr,
         )

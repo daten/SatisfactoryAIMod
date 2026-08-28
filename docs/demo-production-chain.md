@@ -15,7 +15,7 @@ the RPC response's `buildableId` named a `Build_FoundryMk1_C` instance,
 `world.buildables` confirmed no `SmelterMk1` was created anywhere near
 the build spot, and the user independently confirmed visually that a
 Foundry appeared in-game. This is a genuine asset-naming trap, not a
-DocMod bug — do not assume a recipe's filename matches its actual
+AIMod bug — do not assume a recipe's filename matches its actual
 product building without verifying live.
 
 **The correct recipe for an actual Smelter is `Recipe_SmelterBasicMk1.uasset`**
@@ -133,7 +133,7 @@ lines) is 7000+ units away, presumably back at the main base. Both
 machines still report `productionStatus:"Error"` after connecting -
 electrical continuity between two unpowered machines doesn't create
 power. **User decision: skip getting real electricity flowing for now**
-(options considered: a local Biomass Burner needing manual fuel DocMod
+(options considered: a local Biomass Burner needing manual fuel AIMod
 can't insert yet, or a long power-pole chain back to the main base, both
 real effort) - move on to belts, revisit power later if needed.
 

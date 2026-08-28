@@ -1,4 +1,4 @@
-# DocMod telemetry tests
+# AIMod telemetry tests
 
 PLAN.md Phase 8 / Task 10: a small, dependency-free Python test that
 consumes recorded telemetry JSON and validates it against the schema
@@ -7,7 +7,7 @@ This deliberately does **not** contain an LLM dependency, an optimization
 solver, or any game-control intelligence — per PLAN.md Phase 8, the
 external controller starts out only representing/validating protocol
 models. This is narrower than that: just enough to prove the JSON shape
-`UDocModFunctionLibrary::LogResourceNodesAsJson` emits is well-formed and
+`UAIModFunctionLibrary::LogResourceNodesAsJson` emits is well-formed and
 Python-consumable, without needing Satisfactory running.
 
 ## Fixture provenance

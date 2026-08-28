@@ -1,4 +1,4 @@
-"""Throwaway mock of DocMod's /rpc endpoint, used only to sanity-check
+"""Throwaway mock of AIMod's /rpc endpoint, used only to sanity-check
 live_check.py's HTTP client logic without needing the real game running.
 Not part of the package - deleted after use, or kept as a dev utility if
 useful later for offline testing of the live_check script itself.

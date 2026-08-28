@@ -413,7 +413,7 @@ etc.) still applies.
 
 **Implementation note:** `AFGHologram::CanConstruct()`'s real logic is
 unreadable (stub source, like most of this SDK) and can't be
-selectively overridden from outside the class - so DocMod no longer
+selectively overridden from outside the class - so AIMod no longer
 calls it at all for this function. Instead it replicates the
 documented "any non-soft (hard) disqualifier blocks construction" rule
 directly, using the same `UFGConstructDisqualifier::GetIsSoftDisqualifier()`
@@ -422,5 +422,5 @@ skipping whichever classes the caller opted to ignore. This still
 calls the real `InternalConstructHologram()` to actually build -
 whatever validation FactoryGame performs server-side inside that
 function, if any, is unverified from source and NOT bypassed by these
-flags; they only change DocMod's own decision about whether to attempt
+flags; they only change AIMod's own decision about whether to attempt
 construction. **Not yet live-tested** - same redeploy dependency as §5.

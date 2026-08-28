@@ -102,7 +102,7 @@ All on `AFGBuildableFactory`:
   confirmed directly — `IS_NONE`, `IS_PRODUCING`,
   `IS_PRODUCING_WITH_CRYSTAL`, `IS_STANDBY`, `IS_ERROR`, `IS_MAX`), **not**
   a `UENUM`, so there's no `UEnum::GetDisplayValueAsText` reflection path
-  available — `DocModFunctionLibrary.cpp` converts it with a manual
+  available — `AIModFunctionLibrary.cpp` converts it with a manual
   `switch`.
 - `virtual float GetProductionProgress() const` (`:193`, overridden on
   the manufacturer, `FGBuildableManufacturer.h:138`) — "[0,1]".
@@ -168,7 +168,7 @@ Phase 11's world graph):
   anything that moves items) exposes its connection points this way.
 
 **Fact exposed, not a graph:** one row per connection point
-(`FDocModFactoryConnectionTelemetry` — owner buildable id, direction,
+(`FAIModFactoryConnectionTelemetry` — owner buildable id, direction,
 connected bool, connected-to buildable id). A single physical belt/pipe
 link between two buildings therefore produces **two** rows (an Output row
 on the source, an Input row on the destination), each naming the other.

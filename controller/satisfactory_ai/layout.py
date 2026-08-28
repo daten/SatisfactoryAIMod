@@ -116,7 +116,7 @@ def learn_connector_profile(buildable: Buildable, connection: FactoryConnection)
     than assuming yaw=0, even though reliable RPC-driven placement
     rotation is a separate, still-open investigation (see
     ConstructBuildingAtPosition's rotationScrollDelta doc comment in
-    DocModFunctionLibrary.h) - a profile learned from a building
+    AIModFunctionLibrary.h) - a profile learned from a building
     sitting at any yaw is still valid input to
     predict_connector_world_state() for a hypothetical future placement
     at a different yaw, once placement rotation is reliable.

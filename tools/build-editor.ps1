@@ -8,7 +8,7 @@
     EngineAssociation via the per-user engine registration registry key,
     then invokes the engine's own Build.bat (UnrealBuildTool) with the
     exact arguments Visual Studio's generated project files use for the
-    "Development Editor" configuration. DocMod (and any other enabled
+    "Development Editor" configuration. AIMod (and any other enabled
     Mods/GameFeatures plugin) is compiled as part of this target because
     it is discovered as an enabled Game Feature plugin, not because it is
     named explicitly here.
@@ -21,7 +21,7 @@
 .PARAMETER Target
     UBT target name. Defaults to FactoryEditor (the Development Editor
     target that pulls in FactoryGame + all enabled Mods/GameFeatures
-    plugins, including DocMod).
+    plugins, including AIMod).
 
 .PARAMETER Platform
     Build platform. Defaults to Win64.

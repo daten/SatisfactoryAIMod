@@ -190,11 +190,11 @@ pass.
 ## Implementation status (2026-08-24)
 
 The recommended small experiment above is now written:
-`UDocModFunctionLibrary::GetTargetedResourceNode` and
+`UAIModFunctionLibrary::GetTargetedResourceNode` and
 `DebugCheckExtractorPlacementOnTargetedNode`
-(`Mods/GameFeatures/DocMod/Source/DocMod/{Public,Private}/DocModFunctionLibrary.{h,cpp}`,
-commit `796a74818a`), console commands `DocMod.TargetNode` /
-`DocMod.TestExtractorPlacement`.
+(`Mods/GameFeatures/AIMod/Source/AIMod/{Public,Private}/AIModFunctionLibrary.{h,cpp}`,
+commit `796a74818a`), console commands `AIMod.TargetNode` /
+`AIMod.TestExtractorPlacement`.
 
 **`GetTargetedResourceNode` correction, found live (2026-08-24):** the
 first version used a hand-rolled view-angle-cone + distance heuristic,

@@ -1,168 +1,82 @@
-# Mod Rename Migration: DocMod → AIMod
+# Mod Rename Migration: DocMod → AIMod (complete, 2026-08-28)
 
-Prep/research for renaming the mod ahead of matching the GitHub project name.
-This is a checklist for when the fresh SML-generated template exists in the
-editor — nothing here has been executed yet.
+The mod formerly known as `DocMod` is now `AIMod` — plugin, module,
+`ModReference`, every `U`/`F` class prefix, the `LogAIModAI` log category,
+every `AIMod.*` console command, the `/aimod` chat command, and every doc
+reference. This was executed as one atomic pass once the user generated a
+fresh `AIMod` template via the SML editor tooling
+(`Mods/GameFeatures/AIMod/`), per the naming decision below.
 
-## Naming decision
+## Naming decision (unchanged from the original plan)
 
-Recommend **`AIMod`** as the plugin/module/ModReference identifier, not
-`SatisfactoryAIMod`.
+`AIMod`, not `SatisfactoryAIMod` — the plugin/module/`ModReference` stays
+bare, matching the `ExampleMod` convention already used in this SML starter
+(no redundant "Satisfactory" prefix inside a Satisfactory-only modding
+ecosystem). `.uplugin`'s `FriendlyName` is decoupled from that identifier
+(confirmed via `ExampleMod.uplugin`), so the GitHub repo name
+(`SatisfactoryAIMod`) and the in-engine `FriendlyName` ("AIMod", set by the
+user in the fresh template) can differ from the C++ identifier without
+forcing a longer string into every symbol.
 
-Evidence from the existing repo:
+## What actually happened
 
-- `ExampleMod` (the SML starter's own sample mod) uses a bare `<Name>Mod`
-  pattern with no `Satisfactory` prefix — the game name is redundant inside
-  a Satisfactory-only modding ecosystem.
-- SML's `ModReference` (used by `ModLoadingLibrary`, `WorldModuleManager`,
-  `ChatCommandLibrary`, save-tagged mod data, and Alpakit's deployment
-  folder name) is **not** a separate JSON field in `.uplugin` — it's derived
-  from the plugin's own name (the `.uplugin` filename / folder name), which
-  is exactly what SML's `FModInfo.Name` reads.
-- `.uplugin` has a *separate* `FriendlyName` field, decoupled from that
-  identifier — confirmed by `ExampleMod.uplugin`: identifier `ExampleMod`,
-  `FriendlyName: "Example Mod"`. So the GitHub repo can stay named
-  `SatisfactoryAIMod` (or whatever) without forcing that string into every
-  C++ symbol; the in-engine `FriendlyName` can independently be something
-  descriptive like `"Satisfactory AI Interface"`.
+1. All 19 files under `Source/DocMod/{Public,Private}` + `DocMod.Build.cs`
+   copied into the user's fresh `Source/AIMod/` template, filenames and
+   every `DocMod`/`docmod`/`DOCMOD_API` occurrence replaced with the
+   `AIMod`/`aimod`/`AIMOD_API` equivalent (case-sensitive three-pass sed -
+   catches the mixed-case class prefixes, the lowercase `/aimod` chat
+   command, and the all-caps module export macro in one pass each).
+2. `AIMod.Build.cs` ported from `DocMod.Build.cs` wholesale (not the fresh
+   template's placeholder version) - preserves the real accumulated
+   dependencies (`HTTPServer`, `Sockets`, active `EnhancedInput`) the fresh
+   template didn't have yet.
+3. `Config/DefaultEngine.ini`'s loopback-binding block ported into the new
+   module's `Config/`, with the `AIModHttpServerSubsystem` path/port-match
+   comment updated. The root-level `Config/DefaultEngine.ini`'s mirrored
+   comment updated too. `AccessTransformers.ini`/`PluginSettings.ini` were
+   already identical between the fresh template and the old mod, so those
+   needed no changes.
+4. Compiled clean (`FactoryEditor Win64 Development`) with both `DocMod`
+   and `AIMod` present side by side first, confirming the port didn't
+   silently depend on anything only the old module provided, then again
+   after deleting `Mods/GameFeatures/DocMod/` entirely, confirming nothing
+   else in the build depended on the old module either.
+5. Every doc/prose reference to `DocMod` rewritten to `AIMod` (full
+   replacement, not an annotated rename, per the user's confirmation that
+   commit history preserves the old name if ever needed): `AGENTS.md`,
+   `CLAUDE.md`, `PLAN.md`, `PLAYBOOK.md`, `README.md`, `RPC_REFERENCE.md`,
+   every file under `docs/`, `controller/` (including its Python source,
+   not just docs), `tests/`, `tools/build-editor.ps1`, and the root
+   `.gitignore`'s `!Mods/GameFeatures/AIMod/` allowlist entry.
 
-If you'd rather keep the longer name for the ModReference itself, everything
-below still applies — just substitute `SatisfactoryAIMod` for `AIMod`
-throughout.
+## What was deliberately NOT ported
 
-## Why this has to be one atomic pass
+`Mods/GameFeatures/DocMod/Content/` had leftover SML-template demo assets
+never used by the mod's real functionality - `Recipe_DocRecipe.uasset`,
+`Schematic_DocSchem.uasset`/`Icon_SchemDoc.uasset`, and
+`RootGameWorld_DocMod.uasset`. Confirmed via source grep that nothing in
+`DocMod`'s C++ referenced any of them by name. These were left behind when
+the old directory was deleted, not carried into `AIMod`'s own fresh
+`Content/` - the fresh template's own `Content/AIMod.uasset`
+(`GameFeatureData`) is the user's own creation from the editor tooling, not
+something this migration touched or should have touched (Content/asset
+work belongs in the editor per `CLAUDE.md`'s Blueprint Boundary section,
+not a scripted text migration). If anything in the old `DocMod`'s
+`GameFeatureData` asset referenced `RootGameWorld_DocMod` as a per-mod
+level (not detectable via text search - `.uasset` is binary), verify in
+the editor that `AIMod`'s own `GameFeatureData` doesn't need an equivalent;
+not verified either way here.
 
-Unreal Build Tool requires `Source/<ModuleName>/<ModuleName>.Build.cs` to
-physically match the module name declared in `.uplugin`'s `Modules[].Name`.
-The directory move, the `.uplugin` edit, the `Build.cs` rename, and the
-`IMPLEMENT_MODULE` macro all have to land together — there's no working
-intermediate state with old files + new identifiers or vice versa.
+## Environment note unrelated to the rename itself
 
-## Concrete file/symbol inventory (current DocMod state)
-
-### Directory + plugin identity
-- `Mods/GameFeatures/DocMod/` → `Mods/GameFeatures/AIMod/`
-- `DocMod.uplugin` → `AIMod.uplugin`
-  - `"Modules": [{"Name": "DocMod", ...}]` → `"Name": "AIMod"`
-  - `"FriendlyName": "DocMod"` → something descriptive (decoupled, see above)
-- `Config/DefaultEngine.ini` (mod-local) — just has comments referencing
-  `DocMod`/`DocModHttpServerSubsystem` paths, update for accuracy.
-
-### Source/DocMod/ → Source/AIMod/
-- `DocMod.Build.cs` → `AIMod.Build.cs`, `public class DocMod : ModuleRules` → `public class AIMod`
-- `Public/DocMod.h` → `Public/AIMod.h`
-  - `DECLARE_LOG_CATEGORY_EXTERN(LogDocModAI, ...)` → `LogAIModAI` (also
-    update CLAUDE.md's "Preferred conceptual name: LogDocModAI" line)
-  - `class FDocModModule` → `FAIModModule`
-- `Private/DocMod.cpp` → `Private/AIMod.cpp`
-  - `DEFINE_LOG_CATEGORY(LogDocModAI)`, `#define LOCTEXT_NAMESPACE "FDocModModule"`
-  - `IMPLEMENT_MODULE(FDocModModule, DocMod)` → `IMPLEMENT_MODULE(FAIModModule, AIMod)`
-  - ~14 console command names as string literals: `DocMod.SelfTest`,
-    `DocMod.ResourceNodes`, `DocMod.Buildables`, `DocMod.Manufacturers`,
-    `DocMod.Connections`, `DocMod.Target`, `DocMod.TargetNode`,
-    `DocMod.TestExtractorPlacement`, `DocMod.TestExtractorPlacementViaBuildGun`,
-    `DocMod.ConstructExtractorOnTargetedNode`, `DocMod.PlaceBuildingNearPlayer`,
-    `DocMod.TestPowerConnection` — rename to `AIMod.*` for consistency (these
-    are just console-command strings, no compatibility constraint).
-  - All log/output strings referencing "DocMod" by name (cosmetic, but ~30
-    occurrences in this file alone).
-- Remaining paired `.h`/`.cpp` files, each with a `DocMod`-prefixed class:
-  - `DocModChatCommand.{h,cpp}` — chat command class
-  - `DocModConfiguration.{h,cpp}` — `UDocModConfiguration : UModConfiguration`
-  - `DocModDeveloperSettings.{h,cpp}`
-  - `DocModFunctionLibrary.{h,cpp}` — `UDocModFunctionLibrary`, by far the
-    largest file (all RPC-backing telemetry/construction functions)
-  - `DocModHotkey.{h,cpp}`
-  - `DocModHttpServerSubsystem.{h,cpp}` — `UDocModHttpServerSubsystem`
-  - `DocModOperationTypes.h` — `FDocModOperationResult` and friends
-  - `DocModSelfTest.{h,cpp}`
-  - `DocModTelemetryTypes.h` — `FDocModResourceNodeTelemetry`,
-    `FDocModManufacturerTelemetry`, etc.
-
-  Each needs: filename rename, `#include "DocModX.h"` → `"AIModX.h"` at every
-  call site, and the `U`/`F` class-prefix rename (`UDocMod*` → `UAIMod*`,
-  `FDocMod*` → `FAIMod*`). This is the bulk of the work — grep for
-  `\bDocMod` across `Source/DocMod/` to catch every symbol reference once the
-  directory exists to work in.
-
-### Documentation cleanup (string references only, no compile dependency)
-
-User has confirmed commit history isn't a concern, so this is a full rewrite
-of every `DocMod` mention to `AIMod` — not a "formerly DocMod" annotation or
-a preserved historical note. Applies to prose, file paths, class names
-mentioned in text, console-command names, and the log category name
-(`LogDocModAI` → `LogAIModAI`) everywhere it's referenced in docs.
-
-Complete list of files with confirmed `DocMod` references (from a repo-wide
-grep, excluding `Intermediate`/`Binaries`/generated build output):
-
-- `AGENTS.md`
-- `CLAUDE.md` — includes the "Preferred conceptual name: LogDocModAI" line
-  under Logging
-- `PLAYBOOK.md`
-- `RPC_REFERENCE.md`
-- `README.md`
-- `PLAN.md`
-- `controller/README.md`
-- `tests/README.md`
-- `Config/DefaultEngine.ini` (root, comment lines only)
-- `docs/blueprint-smoke-test.md`
-- `docs/build.md`
-- `docs/buildable-research.md`
-- `docs/buildgun-driven-placement-research.md`
-- `docs/building-placement-research.md`
-- `docs/chat-and-console-commands.md`
-- `docs/conveyor-attachment-research.md`
-- `docs/conveyor-power-connection-research.md`
-- `docs/current-environment.md`
-- `docs/demo-production-chain.md`
-- `docs/extractor-placement-research.md`
-- `docs/factorygame-binary-provenance.md`
-- `docs/hotkey.md`
-- `docs/lightweight-buildable-research.md`
-- `docs/manual-verification.md`
-- `docs/networking-research.md`
-- `docs/operations-protocol.md`
-- `docs/placement-lessons.md`
-- `docs/resource-well-research.md`
-- `docs/self-test.md`
-- `docs/telemetry-protocol.md`
-
-Re-run `grep -ril DocMod` across the repo (excluding generated build output)
-right before this step to catch anything added between now and the actual
-rename — this list is a snapshot as of 2026-08-28, not guaranteed exhaustive
-by then.
-
-### Config/DefaultGame.ini and Config/DefaultEngine.ini (root)
-Checked directly: `DefaultGame.ini` has **no** `DocMod` string references
-(GameFeature activation isn't keyed by name there). `DefaultEngine.ini`
-(root) only has comment-line references pointing at the mod's port-binding
-config — update for accuracy, not load-bearing.
-
-### Not code — things to decide about, not just rename
-- **Alpakit deployment folder name** changes from `DocMod` to `AIMod` in the
-  installed Satisfactory mods directory. For a solo dev setup this is a
-  non-issue (just uninstall the old one), but worth remembering it's not a
-  silent swap.
-- **Existing save data**: if any world state ever got save-tagged under the
-  `DocMod` ModReference (per CLAUDE.md's save-compatibility section), it
-  would need explicit handling. Believed not applicable yet — this mod is
-  read/telemetry + RPC-driven construction, not itself persisting SML mod
-  config into saves beyond the standard `UConfigManager` settings, but worth
-  a real check (`grep` the save-relevant SML save subsystem usage) before
-  the actual rename if this becomes a concern.
-
-## Suggested execution order (when you're in the editor)
-
-1. Generate the fresh template with the new name via the SML tooling.
-2. Copy `Source/DocMod/*` content into the new module's `Source/AIMod/`,
-   renaming files and symbols together (this is where an editor-assisted
-   rename or a scripted sed pass across the new directory helps).
-3. Port `Config/DefaultEngine.ini`'s loopback-binding block into the new
-   module's config.
-4. Build, fix compile errors from any missed symbol.
-5. Rewrite every file in the Documentation cleanup list above in the same
-   commit — full replacement, not an annotated rename, per the user's
-   confirmation that commit history preserves the old name if it's ever
-   needed.
-6. Verify Layer 2/3 per CLAUDE.md's testing strategy before considering it done.
+Mid-migration, the project's local `Engine\` convenience junction (used for
+`Engine\Build\BatchFiles\Build.bat`-relative CLI builds) had disappeared -
+unrelated to any file this migration touched. Builds during this migration
+used the real engine directly:
+`tools/build-editor.ps1` (already in the repo, resolves the engine from
+the `.uproject`'s `EngineAssociation` via the registry - the failure-proof
+way to find it) or the literal path `F:\Claude\Unreal Engine - CSS` for a
+manual invocation. Worth using `tools/build-editor.ps1` first next time
+rather than guessing a path by hand - it would have avoided one failed
+attempt against a different, incomplete `F:\Claude\UnrealEngine` copy this
+session hit before finding the right one.

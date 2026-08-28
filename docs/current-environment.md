@@ -32,7 +32,7 @@ F:\Claude\SatisfactoryModLoader\        (game project root, "FactoryGame")
         WwisePatches\                    (tracked)
         GameFeatures\
             ExampleMod\                  (tracked, reference implementation)
-            DocMod\                      (our mod — NOT tracked by git, see below)
+            AIMod\                      (our mod — NOT tracked by git, see below)
     Config\
     Plugins\                             (engine/third-party plugins, e.g. Wwise)
 ```
@@ -49,7 +49,7 @@ known entry point.
 files have already been generated at least once; regeneration is not
 required to build from the command line via `Build.bat`.
 
-## DocMod is currently untracked by git
+## AIMod is currently untracked by git
 
 Root `.gitignore` contains:
 
@@ -65,49 +65,49 @@ Mods/*
 !Mods/GameFeatures/ExampleMod/
 ```
 
-`Mods/GameFeatures/DocMod/` is **not** in the allow-list, so every file under
+`Mods/GameFeatures/AIMod/` is **not** in the allow-list, so every file under
 it (including hand-written `Source/` C++) is currently untracked and
-`git status` shows nothing for it. `git log` for any DocMod path returns no
+`git status` shows nothing for it. `git log` for any AIMod path returns no
 history. This is a pre-existing condition, not something introduced this
 session — worth flagging to the user before any future commit, since work
-on DocMod is presently invisible to git and unprotected by version control.
+on AIMod is presently invisible to git and unprotected by version control.
 No .gitignore change was made in Phase 0.
 
-Other pre-existing uncommitted changes (unrelated to DocMod, not touched):
+Other pre-existing uncommitted changes (unrelated to AIMod, not touched):
 `Config/DefaultGame.ini` and `Mods/SML/SML.uplugin`/`PluginLocalization.ini`
 show trivial UTF-8 BOM-removal diffs, plus `Mods/GameFeatures/ExampleMod` and
 `Mods/SMLEditor` localization file changes. Left as-is.
 
-## DocMod plugin identity
+## AIMod plugin identity
 
-`Mods/GameFeatures/DocMod/DocMod.uplugin`:
+`Mods/GameFeatures/AIMod/AIMod.uplugin`:
 
-- `FriendlyName`: `DocMod`
+- `FriendlyName`: `AIMod`
 - `Version` / `VersionName`: `1.0.0`
 - `GameVersion`: `>=502094`
 - `CanContainContent`: `true`
 - `BuiltInInitialFeatureState`: `Active` (Game Feature is active by default)
 - Depends on plugin `SML` (`^3.12.0`, semver-compatible range)
 - Declares one module:
-  - `Name`: `DocMod`
+  - `Name`: `AIMod`
   - `Type`: `Runtime`
   - `LoadingPhase`: `Default`
 
-`Content/DocMod.uasset` is an `FGGameFeatureData` asset named `DocMod`
-(package `/DocMod/DocMod`), referencing primary asset scan directories
-`/DocMod/Schematics`, `/DocMod/Schematics/Research`, `/DocMod/Settings`.
+`Content/AIMod.uasset` is an `FGGameFeatureData` asset named `AIMod`
+(package `/AIMod/AIMod`), referencing primary asset scan directories
+`/AIMod/Schematics`, `/AIMod/Schematics/Research`, `/AIMod/Settings`.
 Confirms the mod is wired up as a proper Satisfactory Game Feature, not a
 bare Unreal plugin.
 
 Installed `SML.uplugin` (`Mods/SML/SML.uplugin`) reports `SemVersion: 3.12.0`,
-`GameVersion: >=502094` — matches the `>=502094` the DocMod project also
+`GameVersion: >=502094` — matches the `>=502094` the AIMod project also
 targets, and matches the latest commit message ("Update headers to
 CL502094"). SML's own module (`SML`, `Runtime`, `PostDefault`) loads after
-default-phase modules, i.e. after `DocMod`'s module.
+default-phase modules, i.e. after `AIMod`'s module.
 
-Existing Content assets in DocMod: `Recipes/Recipe_DocRecipe.uasset`,
+Existing Content assets in AIMod: `Recipes/Recipe_DocRecipe.uasset`,
 `Schematics/Schematic_DocSchem.uasset`, `Schematics/Icon_SchemDoc.uasset`,
-plus the root `RootGameWorld_DocMod.uasset` level. These are the
+plus the root `RootGameWorld_AIMod.uasset` level. These are the
 template-generated Blueprint/content pieces referenced in CLAUDE.md as
 "Blueprint example mod" — not modified.
 
@@ -116,27 +116,27 @@ section with no entries) — no access transformers currently applied.
 `Config/PluginSettings.ini` only sets `+AdditionalNonUSFDirectories=Resources`
 for staging.
 
-Unlike `ExampleMod` (which has `Config/Alpakit.ini`), **DocMod has no
-`Config/Alpakit.ini`**. Alpakit packaging settings for DocMod are presumably
+Unlike `ExampleMod` (which has `Config/Alpakit.ini`), **AIMod has no
+`Config/Alpakit.ini`**. Alpakit packaging settings for AIMod are presumably
 using defaults or are configured only inside the Unreal Editor UI (Alpakit
 settings can be stored outside the ini if never customized) — this needs
 confirming in the editor before Phase where packaging is exercised, but is
 out of scope for Phase 0.
 
-## C++ module: `DocMod`
+## C++ module: `AIMod`
 
 Files (all present, all template-generated, none hand-modified yet):
 
-- `Source/DocMod/DocMod.Build.cs`
-- `Source/DocMod/Public/DocMod.h`
-- `Source/DocMod/Private/DocMod.cpp`
+- `Source/AIMod/AIMod.Build.cs`
+- `Source/AIMod/Public/AIMod.h`
+- `Source/AIMod/Private/AIMod.cpp`
 
 ### Module class and macro
 
-`DocMod.h` declares:
+`AIMod.h` declares:
 
 ```cpp
-class FDocModModule : public IModuleInterface
+class FAIModModule : public IModuleInterface
 {
 public:
     virtual void StartupModule() override;
@@ -144,21 +144,21 @@ public:
 };
 ```
 
-`DocMod.cpp` implements empty `StartupModule`/`ShutdownModule` bodies (just
+`AIMod.cpp` implements empty `StartupModule`/`ShutdownModule` bodies (just
 comments, no logging yet — Phase 2 work) and registers the module with:
 
 ```cpp
-IMPLEMENT_MODULE(FDocModModule, DocMod)
+IMPLEMENT_MODULE(FAIModModule, AIMod)
 ```
 
-No custom log category exists yet (`LogDocModAI` from CLAUDE.md/PLAN.md is
+No custom log category exists yet (`LogAIModAI` from CLAUDE.md/PLAN.md is
 not yet defined anywhere in the module). No Blueprint-callable functions
 exist yet. This is a completely stock Epic-generated module skeleton —
 matches the "initial generated C++ template" note in CLAUDE.md.
 
 ### Build.cs dependencies
 
-`DocMod.Build.cs` (module rules class `DocMod : ModuleRules`):
+`AIMod.Build.cs` (module rules class `AIMod : ModuleRules`):
 
 - `PCHUsage`: `UseExplicitOrSharedPCHs`
 - `CppStandard`: `Cpp20`
@@ -185,14 +185,14 @@ matches the "initial generated C++ template" note in CLAUDE.md.
   `DynamicallyLoadedModuleNames` blocks are empty template placeholders.
 
 This is the standard SML "Starter Project" mod template — nothing here is
-DocMod-specific beyond the name.
+AIMod-specific beyond the name.
 
 ### Confirmed prior successful build
 
-`Mods/GameFeatures/DocMod/Binaries/Win64/` already contains
-`UnrealEditor-DocMod.dll` and `.pdb`, and
-`Intermediate/Build/Win64/x64/UnrealEditor/Development/DocMod/` contains a
-full set of UBT intermediates (`Module.DocMod.cpp.obj`, `.dep.json`,
+`Mods/GameFeatures/AIMod/Binaries/Win64/` already contains
+`UnrealEditor-AIMod.dll` and `.pdb`, and
+`Intermediate/Build/Win64/x64/UnrealEditor/Development/AIMod/` contains a
+full set of UBT intermediates (`Module.AIMod.cpp.obj`, `.dep.json`,
 `LiveCodingInfo.json`, etc.) for target `UnrealEditor`, platform `Win64`,
 configuration `Development`. This corroborates CLAUDE.md's claim that a
 successful `Development Editor` compile has already occurred for this exact
@@ -229,7 +229,7 @@ public class FactoryEditorTarget : TargetRules
 
 So the actual UBT target name to build is **`FactoryEditor`**, platform
 `Win64`, configuration `Development` (Unreal's "Development Editor" is
-`-Target=FactoryEditor Win64 Development`). `DocMod` is not itself a UBT
+`-Target=FactoryEditor Win64 Development`). `AIMod` is not itself a UBT
 target — it is a plugin module that gets pulled in automatically because
 it's an enabled Game Feature plugin under `Mods/GameFeatures/`, discovered
 by the project's plugin search (Mods-as-plugins is an SML Starter Project
@@ -258,35 +258,35 @@ dependencies declared per-module (`AdditionalDependencies`).
 
 ## Differences between the repository and PLAN.md/CLAUDE.md assumptions
 
-1. **DocMod is not under version control.** PLAN.md Phase 0 asks to
+1. **AIMod is not under version control.** PLAN.md Phase 0 asks to
    "determine whether the project is already under Git" — the project root
-   is a git repo, but the DocMod mod directory specifically is excluded by
+   is a git repo, but the AIMod mod directory specifically is excluded by
    `.gitignore`'s `Mods/*` blanket rule (only `ExampleMod`, `SML`,
    `SMLEditor`, `Alpakit`, `AccessTransformers`, `WwisePatches` are
    allow-listed). Nothing in CLAUDE.md or PLAN.md flags this. Recommend
    deciding explicitly (and asking the user) whether to add
-   `!Mods/GameFeatures/DocMod/` before any further hand-written C++ is
+   `!Mods/GameFeatures/AIMod/` before any further hand-written C++ is
    considered safely persisted.
 2. **No log category exists yet.** CLAUDE.md/PLAN.md both assume
-   `LogDocModAI` as a starting point; it doesn't exist in the current
-   `DocMod.cpp`/`.h` — this is genuinely Phase 2 work, not something to
+   `LogAIModAI` as a starting point; it doesn't exist in the current
+   `AIMod.cpp`/`.h` — this is genuinely Phase 2 work, not something to
    discover, confirming PLAN.md's own sequencing is accurate here.
 3. **JSON support is already wired into Build.cs** (`Json`, `JsonUtilities`
    public dependencies), ahead of where PLAN.md Phase 6 expects to add it.
    No Build.cs change needed when that phase arrives.
-4. **No `Config/Alpakit.ini` for DocMod**, unlike `ExampleMod`. Packaging
+4. **No `Config/Alpakit.ini` for AIMod**, unlike `ExampleMod`. Packaging
    configuration should be verified in-editor before Alpakit is exercised
-   again for DocMod specifically.
-5. **A `Development Editor` build of DocMod already exists** in
+   again for AIMod specifically.
+5. **A `Development Editor` build of AIMod already exists** in
    `Binaries/Win64/` and `Intermediate/`, consistent with CLAUDE.md's claim
    that compilation has already succeeded — Phase 1 is about making that
    *reproducible from the CLI*, not about achieving a first successful
    compile.
-6. **The UBT target name is `FactoryEditor`, not `DocMod`.** PLAN.md
+6. **The UBT target name is `FactoryEditor`, not `AIMod`.** PLAN.md
    correctly anticipates `Project: FactoryGame` with `Configuration:
    Development Editor`, but the concrete UBT `-Target=` value that
    `tools/build-editor.ps1` (Phase 1) will need is `FactoryEditor`, and
-   `DocMod` is compiled as a dependency of that target via the plugin
+   `AIMod` is compiled as a dependency of that target via the plugin
    system, not as its own target.
 7. **`FactoryGame.sln` and engine registry association already exist** — no
    project-file generation or engine-path discovery work is required before

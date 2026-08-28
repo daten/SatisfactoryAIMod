@@ -22,7 +22,7 @@ kept as plain instance data (`FRuntimeBuildableInstanceData`: a
 only "materialized" into a real, temporary `AFGBuildable*` on demand
 (e.g. when a player aims at one to dismantle it).
 
-Every DocMod telemetry/mutation function up to this point
+Every AIMod telemetry/mutation function up to this point
 (`world.buildables`, `world.connections`, `DismantleBuildable`, the
 proximity-based buildable-id lookup after construction) was built
 around `AFGBuildableSubsystem::GetAllBuildablesRef()`/
@@ -35,7 +35,7 @@ participate in.
 
 Lightweight buildables have no `GetPathName()` (there's no actor).
 Identity is instead `(BuildableClass, index into
-GetAllLightweightBuildableInstances()[BuildableClass])`. DocMod encodes
+GetAllLightweightBuildableInstances()[BuildableClass])`. AIMod encodes
 this as a string id:
 
 ```text
@@ -50,7 +50,7 @@ nesting), but never `|`. Regular buildable ids (`GetPathName()`) always
 start with `/Game/...`, never `lightweight:`, so the two id shapes never
 collide. Helpers: `MakeLightweightBuildableId`,
 `IsLightweightBuildableId`, `ParseLightweightBuildableId` (all in the
-anonymous namespace at the top of `DocModFunctionLibrary.cpp`).
+anonymous namespace at the top of `AIModFunctionLibrary.cpp`).
 
 ### Index stability — CORRECTED 2026-08-25, indices are NOT stable
 

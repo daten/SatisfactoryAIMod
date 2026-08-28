@@ -1,7 +1,7 @@
-"""Live integration check against a running DocMod HTTP server.
+"""Live integration check against a running AIMod HTTP server.
 
 Unlike everything else in this package, this REQUIRES Satisfactory (or
-the Editor in Play-In-Editor) to actually be running, with DocMod loaded
+the Editor in Play-In-Editor) to actually be running, with AIMod loaded
 and its HTTP server up (docs/networking-research.md - default
 http://127.0.0.1:51902/rpc). Not part of `python -m unittest discover`
 for that reason - it isn't a repeatable, dependency-free test, it's a
@@ -72,7 +72,7 @@ def rpc_call(
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        # DocMod returns a real JSON body with a structured error even on
+        # AIMod returns a real JSON body with a structured error even on
         # non-2xx status (see docs/operations-protocol.md -
         # UNKNOWN_METHOD/TARGET_NOT_FOUND map to 404, etc.) - urllib
         # otherwise treats any non-2xx as a hard failure and discards the
@@ -187,7 +187,7 @@ CHECKS: list[Callable[[str], CheckResult]] = [
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--url", default=DEFAULT_URL, help=f"DocMod /rpc endpoint (default: {DEFAULT_URL})")
+    parser.add_argument("--url", default=DEFAULT_URL, help=f"AIMod /rpc endpoint (default: {DEFAULT_URL})")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="Per-request timeout in seconds")
     args = parser.parse_args(argv)
 
@@ -205,7 +205,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     if failed and any("request failed" in r.detail for r in failed):
         print(
             "\nNote: at least one check couldn't even connect - is Satisfactory/the "
-            "Editor running with DocMod loaded? See docs/manual-verification.md item 5.",
+            "Editor running with AIMod loaded? See docs/manual-verification.md item 5.",
             file=sys.stderr,
         )
 

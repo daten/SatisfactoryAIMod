@@ -33,13 +33,13 @@ F:\Claude\SatisfactoryModLoader\
 Current mod:
 
 ```text
-F:\Claude\SatisfactoryModLoader\Mods\GameFeatures\DocMod\
+F:\Claude\SatisfactoryModLoader\Mods\GameFeatures\AIMod\
 ```
 
 Current native source:
 
 ```text
-F:\Claude\SatisfactoryModLoader\Mods\GameFeatures\DocMod\Source\
+F:\Claude\SatisfactoryModLoader\Mods\GameFeatures\AIMod\Source\
 ```
 
 The current mod was generated through the Satisfactory/SML tooling.
@@ -66,7 +66,7 @@ Do not spend time recreating these prerequisites unless an actual problem is det
 
 The current mod reference is:
 
-`DocMod`
+`AIMod`
 
 Do **not** rename the mod, module, plugin, directory, or existing Game Feature assets unless explicitly instructed to perform a rename.
 
@@ -368,7 +368,7 @@ Use a dedicated Unreal C++ log category for this project.
 Preferred conceptual name:
 
 ```text
-LogDocModAI
+LogAIModAI
 ```
 
 Use appropriate levels:
@@ -884,7 +884,7 @@ The current milestone is:
 The required progression is:
 
 ```text
-1. Inspect existing DocMod source.
+1. Inspect existing AIMod source.
 2. Verify repeatable C++ build.
 3. Establish dedicated logging.
 4. Expose minimal C++ function to Blueprint.

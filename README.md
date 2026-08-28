@@ -1,4 +1,4 @@
-# Satisfactory AI Interface (DocMod)
+# Satisfactory AI Interface (AIMod)
 
 An experimental Satisfactory Mod Loader (SML) mod that exposes a
 controlled, machine-readable interface between a running Satisfactory
@@ -14,7 +14,7 @@ controller talking to it over a local RPC protocol.
 Satisfactory (FactoryGame / Unreal Engine)
         |
         v
-   SML / DocMod C++        <- this repo
+   SML / AIMod C++        <- this repo
         |
    loopback HTTP RPC
         |
@@ -68,9 +68,9 @@ operation — see CLAUDE.md's Safety and Stability Boundary.
 ## Where things live
 
 - **Mod C++ source** (the actual interface):
-  [`Mods/GameFeatures/DocMod/Source/DocMod`](Mods/GameFeatures/DocMod/Source/DocMod)
-  — `DocModFunctionLibrary.cpp/.h` implements the construction/telemetry
-  logic, `DocModHttpServerSubsystem.cpp/.h` is the RPC transport and
+  [`Mods/GameFeatures/AIMod/Source/AIMod`](Mods/GameFeatures/AIMod/Source/AIMod)
+  — `AIModFunctionLibrary.cpp/.h` implements the construction/telemetry
+  logic, `AIModHttpServerSubsystem.cpp/.h` is the RPC transport and
   method dispatch.
 - **External controller** (Python side):
   [`controller/`](controller) — `satisfactory_ai/` is a toolkit of
@@ -97,7 +97,7 @@ This started from the standard [SML Starter
 Project](https://docs.ficsit.app/) template and still contains the full
 SML loader/Alpakit tooling needed to build and deploy the mod. See the
 [Satisfactory Modding docs](https://docs.ficsit.app/) for general
-SML/Alpakit setup instructions unrelated to DocMod itself.
+SML/Alpakit setup instructions unrelated to AIMod itself.
 
 ## Disclaimer
 

@@ -1,4 +1,4 @@
-"""Schema validation for DocMod resource-node telemetry JSON.
+"""Schema validation for AIMod resource-node telemetry JSON.
 
 PLAN.md Phase 8 / Task 10. Stdlib only - no LLM dependency, no
 optimization solver, no game-control intelligence, per PLAN.md Phase 8's

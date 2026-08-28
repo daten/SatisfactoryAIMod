@@ -4,9 +4,9 @@ PLAN.md Phase 8. The first platform-neutral external component. Currently
 contains:
 
 - `satisfactory_ai/models.py` — `Position`, `Rotation`, `ResourceNode`,
-  `Buildable`, `FactoryConnection` dataclasses mirroring DocMod's
-  `FDocMod*Telemetry` structs
-  (`Mods/GameFeatures/DocMod/Source/DocMod/Public/DocModTelemetryTypes.h`).
+  `Buildable`, `FactoryConnection` dataclasses mirroring AIMod's
+  `FAIMod*Telemetry` structs
+  (`Mods/GameFeatures/AIMod/Source/AIMod/Public/AIModTelemetryTypes.h`).
 - `satisfactory_ai/protocol.py` — parses the JSON shapes documented in
   [docs/telemetry-protocol.md](../docs/telemetry-protocol.md)
   (resourceNodes / buildables / connections) into those models, rejecting
@@ -88,7 +88,7 @@ contains:
   construction code or chaining pattern to build a toolkit around.
 
 - `live_check.py` — a network client, but a diagnostic one, not part of
-  the "controller" proper: connects to a **running** DocMod `/rpc`
+  the "controller" proper: connects to a **running** AIMod `/rpc`
   server (`http://127.0.0.1:51902/rpc` by default) and checks every RPC
   method against real (or at least live) game state, printing PASS/FAIL
   per method and exiting non-zero on any failure. See "Live integration
@@ -126,7 +126,7 @@ session) rather than duplicating them.
 ## Live integration check
 
 Requires Satisfactory (or the Editor in Play-In-Editor) actually running
-with DocMod loaded and its HTTP server up:
+with AIMod loaded and its HTTP server up:
 
 ```powershell
 python controller/live_check.py

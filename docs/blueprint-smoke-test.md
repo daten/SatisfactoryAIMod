@@ -5,23 +5,23 @@ Satisfactory` works before any real telemetry code is written.
 
 ## What was added
 
-`Mods/GameFeatures/DocMod/Source/DocMod/Public/DocModFunctionLibrary.h` /
-`Private/DocModFunctionLibrary.cpp`:
+`Mods/GameFeatures/AIMod/Source/AIMod/Public/AIModFunctionLibrary.h` /
+`Private/AIModFunctionLibrary.cpp`:
 
 ```cpp
 UCLASS()
-class DOCMOD_API UDocModFunctionLibrary : public UBlueprintFunctionLibrary
+class AIMOD_API UAIModFunctionLibrary : public UBlueprintFunctionLibrary
 {
     GENERATED_BODY()
 public:
-    UFUNCTION(BlueprintPure, Category = "DocMod|AI Interface", meta = (BlueprintThreadSafe))
+    UFUNCTION(BlueprintPure, Category = "AIMod|AI Interface", meta = (BlueprintThreadSafe))
     static FString GetInterfaceVersion();
 };
 ```
 
 `GetInterfaceVersion()` returns the literal string `0.1.0` and also logs at
-`Verbose` level to `LogDocModAI` (see [current-environment.md](current-environment.md)
-/ the Phase 2 log category work) so it's visible with `-LogCmds="LogDocModAI Verbose"`
+`Verbose` level to `LogAIModAI` (see [current-environment.md](current-environment.md)
+/ the Phase 2 log category work) so it's visible with `-LogCmds="LogAIModAI Verbose"`
 or in the editor Output Log with the log category's verbosity raised.
 
 This mirrors SML's own `UBlueprintVersionLibrary` pattern
@@ -41,13 +41,13 @@ performed yet — they need to be run manually.
 
 1. Open `FactoryGame.uproject` in Unreal Editor (Development Editor
    configuration — the one just built).
-2. Open the `DocMod` content, e.g.
-   `Mods/GameFeatures/DocMod/Content/RootGameWorld_DocMod` level (or any
+2. Open the `AIMod` content, e.g.
+   `Mods/GameFeatures/AIMod/Content/RootGameWorld_AIMod` level (or any
    other convenient Blueprint graph — a Level Blueprint works fine for a
    throwaway smoke test).
 3. Open its Level Blueprint (Blueprints menu -> Open Level Blueprint).
 4. On the `Event BeginPlay` node (or any convenient event), add a
-   **Get Interface Version** node — search for it under the `DocMod | AI
+   **Get Interface Version** node — search for it under the `AIMod | AI
    Interface` category to confirm it's actually exposed to Blueprint.
 5. Wire it into a **Print String** node so the returned value is visible
    on-screen/in the log when the level runs.
@@ -61,7 +61,7 @@ it returns the string `0.1.0` both in-editor and in the packaged/deployed
 build. If the node does not appear in the palette, the most likely causes
 are a stale Blueprint asset cache (recompile via Editor "Compile" button /
 restart editor) or the module not being loaded because the Game Feature
-isn't active — check `LogDocModAI` for the Phase 2 startup message first.
+isn't active — check `LogAIModAI` for the Phase 2 startup message first.
 
 Do not claim this phase is runtime-verified until these manual steps have
 actually been run — a successful compile only proves the code is

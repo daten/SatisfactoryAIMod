@@ -2,7 +2,7 @@
 
 Phase 1 deliverable. This documents how to compile `FactoryEditor`
 (Win64, Development) — which includes `FactoryGame` and every enabled
-Game Feature plugin under `Mods/GameFeatures/`, including `DocMod` — without
+Game Feature plugin under `Mods/GameFeatures/`, including `AIMod` — without
 opening Visual Studio.
 
 ## Prerequisites
@@ -35,7 +35,7 @@ This resolves the engine path from the registry and runs, verbatim:
 
 This is the exact same invocation Visual Studio's generated project files
 use for the "Development Editor" build configuration (verified against
-`Intermediate\ProjectFiles\DocMod.vcxproj` / `UECommon.props`, which define
+`Intermediate\ProjectFiles\AIMod.vcxproj` / `UECommon.props`, which define
 `NMakeBuildCommandLine` as `$(BuildBatchScript) FactoryEditor Win64
 Development -Project="$(SolutionDir)FactoryGame.uproject" -WaitMutex
 -FromMsBuild -architecture=x64`). The script omits `-FromMsBuild` since
@@ -91,14 +91,14 @@ Total execution time: 1.13 seconds
 Build succeeded.
 ```
 
-Exit code was `0`. `FactoryEditor`/`DocMod` were already built from a
+Exit code was `0`. `FactoryEditor`/`AIMod` were already built from a
 previous Editor session (see [current-environment.md](current-environment.md)),
 so UBT correctly reported "Target is up to date" rather than recompiling —
 this still proves the CLI path resolves the engine, invokes UBT with the
 correct target, and returns UBT's real result rather than a false positive.
 The script has not yet been exercised on a path that forces actual
-recompilation (e.g. after touching a DocMod `.cpp`/`.h` file); that will
-happen naturally once Phase 2+ starts editing `DocMod.cpp`.
+recompilation (e.g. after touching a AIMod `.cpp`/`.h` file); that will
+happen naturally once Phase 2+ starts editing `AIMod.cpp`.
 
 ### Known benign warning
 
@@ -118,7 +118,7 @@ Noted here so a future session doesn't mistake it for a real failure.
 
 ## Not yet done
 
-- No log category exists yet, so this build doesn't exercise any DocMod
+- No log category exists yet, so this build doesn't exercise any AIMod
   code changes (Phase 2).
 - The script has not been validated on a *failing* build (e.g. deliberately
   broken source) to confirm error output surfaces cleanly and the exit code

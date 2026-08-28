@@ -1,9 +1,9 @@
 # Telemetry protocol v1
 
 Defined by PLAN.md Phases 5-6 / Task 8-9, expanded in Phase 10. These are
-the concrete JSON shapes `UDocModFunctionLibrary`'s `Log*AsJson` functions
+the concrete JSON shapes `UAIModFunctionLibrary`'s `Log*AsJson` functions
 produce, and what PLAN.md Phase 9's `/rpc` endpoint
-(`UDocModHttpServerSubsystem`) returns in the `result` field for each
+(`UAIModHttpServerSubsystem`) returns in the `result` field for each
 `method`. See [networking-research.md](networking-research.md) for the RPC
 envelope itself (`{"protocolVersion","requestId","method"}` request →
 `{"protocolVersion","requestId","success","result"|"error"}` response).
@@ -34,8 +34,8 @@ envelope itself (`{"protocolVersion","requestId","method"}` request →
   resource node actor. Unique within a running session/map load, but not
   guaranteed to survive save/load, actor respawn, or map transition. See
   [resource-node-research.md](resource-node-research.md) §4 and
-  `FDocModResourceNodeTelemetry`'s header comment
-  (`Mods/GameFeatures/DocMod/Source/DocMod/Public/DocModTelemetryTypes.h`).
+  `FAIModResourceNodeTelemetry`'s header comment
+  (`Mods/GameFeatures/AIMod/Source/AIMod/Public/AIModTelemetryTypes.h`).
   PLAN.md Phase 7 will need to replace this with a real stable identifier
   design before this telemetry is used for anything beyond debug logging.
 - `resource` — human-readable name from `UFGItemDescriptor::GetItemName()`,
@@ -50,7 +50,7 @@ envelope itself (`{"protocolVersion","requestId","method"}` request →
   -text UI markup, not plain text (`"<Bold>(Normal)</>"`), caught by
   `docs/self-test.md`'s automatic self-test on its first real run. See
   the fix commit and `ResourcePurityToString()` in
-  `DocModFunctionLibrary.cpp`.
+  `AIModFunctionLibrary.cpp`.
 - `position` — world-space `{x, y, z}` in Unreal units (centimeters), from
   `AActor::GetActorLocation()`.
 - `occupied` — whether an extractor currently occupies the node
@@ -700,10 +700,10 @@ caller can target `world.setClockSpeed`/`world.setRecipe` at whatever the
 player is currently looking at instead of picking a `buildableId` out of
 the full `world.manufacturers` list — see
 [chat-and-console-commands.md](chat-and-console-commands.md) for the
-matching `DocMod.Target` console command / `/docmod target` chat
+matching `AIMod.Target` console command / `/aimod target` chat
 subcommand. Source:
-`UDocModFunctionLibrary::GetTargetedManufacturer`/`LogTargetedManufacturerAsJson`
-in `DocModFunctionLibrary.cpp`.
+`UAIModFunctionLibrary::GetTargetedManufacturer`/`LogTargetedManufacturerAsJson`
+in `AIModFunctionLibrary.cpp`.
 
 ## Common field notes
 
@@ -714,7 +714,7 @@ in `DocModFunctionLibrary.cpp`.
   load, but not guaranteed to survive save/load, actor respawn, or map
   transition. See [resource-node-research.md](resource-node-research.md)
   §4 / [buildable-research.md](buildable-research.md) §1 and
-  `DocModTelemetryTypes.h`'s struct comments. PLAN.md Phase 7 must design
+  `AIModTelemetryTypes.h`'s struct comments. PLAN.md Phase 7 must design
   a real stable identifier before this telemetry is used for anything
   beyond debug logging/local testing.
 - `position` — world-space `{x, y, z}` in Unreal units (centimeters), from
@@ -734,7 +734,7 @@ resourceNodes-specific:
   -text UI markup, not plain text (`"<Bold>(Normal)</>"`), caught by
   `docs/self-test.md`'s automatic self-test on its first real run. See
   the fix commit and `ResourcePurityToString()` in
-  `DocModFunctionLibrary.cpp`.
+  `AIModFunctionLibrary.cpp`.
 - `occupied` — whether an extractor currently occupies the node
   (`IFGExtractableResourceInterface::IsOccupied()`). Does **not** identify
   *which* extractor — see resource-node-research.md §5; that requires a
@@ -743,11 +743,11 @@ resourceNodes-specific:
 ## Source of truth
 
 The actual serialization code is
-`UDocModFunctionLibrary::LogResourceNodesAsJson` /
+`UAIModFunctionLibrary::LogResourceNodesAsJson` /
 `LogBuildablesAsJson` / `LogManufacturersAsJson` in
-`Mods/GameFeatures/DocMod/Source/DocMod/Private/DocModFunctionLibrary.cpp`
+`Mods/GameFeatures/AIMod/Source/AIMod/Private/AIModFunctionLibrary.cpp`
 — built manually with `FJsonObject`/`FJsonSerializer` (Unreal's own Json
-module, already a `DocMod.Build.cs` dependency) rather than reflection-based
+module, already a `AIMod.Build.cs` dependency) rather than reflection-based
 struct-to-json conversion, so the wire field names/casing here are exactly
 what's documented and don't silently change if the C++ struct's property
 names change.

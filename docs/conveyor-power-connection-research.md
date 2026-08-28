@@ -92,7 +92,7 @@ requirements (exact snap-target-selection logic lives in the stubbed
 A `friend class FGBlueprintOpenFactoryConnectionManager` exists on
 `AFGConveyorBeltHologram` with a `ConnectStateDirectly`/
 `CanDirectlyConnectOpenState` fast-path used internally by blueprint
-open-connection wiring — **not usable from DocMod's module** (friend
+open-connection wiring — **not usable from AIMod's module** (friend
 grants aren't extensible from outside the declaring module), and it
 explicitly bypasses spawning any real belt actor (only for
 directly-overlapping connections). Not a shortcut for the general case.
@@ -137,7 +137,7 @@ operation built on it:
   machine, no pole needed in between.
 
 **Implication for this project**: `FindFreePowerConnection` (in
-`DebugCheckPowerConnection`, `DocModFunctionLibrary.cpp`) looks for a
+`DebugCheckPowerConnection`, `AIModFunctionLibrary.cpp`) looks for a
 `UFGPowerConnectionComponent` with `GetNumFreeConnections() > 0` on each
 machine. If the daisy-chain unlock isn't active in the target save, a
 production machine likely only has its one slot, reserved conceptually
@@ -221,7 +221,7 @@ that updated the picture above:
   site's newly-chained pole stayed on `productionStatus: "Error"` after
   a geometrically-valid connection to a distant pre-existing pole. The
   user manually reconnected that pole to the real grid in-game to
-  unblock the test. DocMod currently has NO telemetry to distinguish a
+  unblock the test. AIMod currently has NO telemetry to distinguish a
   "live" pole from an "orphaned" one - flagged as a future
   `world.powerCircuits`/per-connection `"circuitId"` addition, not yet
   built.

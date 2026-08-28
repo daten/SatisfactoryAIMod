@@ -29,11 +29,11 @@ The current Satisfactory modding workspace is:
 
 The existing example mod is:
 
-`F:\Claude\SatisfactoryModLoader\Mods\GameFeatures\DocMod\`
+`F:\Claude\SatisfactoryModLoader\Mods\GameFeatures\AIMod\`
 
 Current C++ source is located under:
 
-`F:\Claude\SatisfactoryModLoader\Mods\GameFeatures\DocMod\Source\`
+`F:\Claude\SatisfactoryModLoader\Mods\GameFeatures\AIMod\Source\`
 
 The environment currently has:
 
@@ -42,7 +42,7 @@ The environment currently has:
 - Coffee Stain/Satisfactory custom Unreal Engine.
 - SML Starter Project.
 - Alpakit.
-- Existing `DocMod` Game Feature mod.
+- Existing `AIMod` Game Feature mod.
 - Working Blueprint example content.
 - Initial generated C++/C# templates.
 - Successful C++ compilation.
@@ -67,7 +67,7 @@ The intended architecture is:
 │   FactoryGame / Unreal Engine        │
 │               │                      │
 │               ▼                      │
-│        SML / DocMod C++              │
+│        SML / AIMod C++              │
 │                                      │
 │  - World inspection                  │
 │  - Object identification             │
@@ -162,14 +162,14 @@ Autonomous progression
 
 ## Goal
 
-Understand the existing generated `DocMod` project before changing it.
+Understand the existing generated `AIMod` project before changing it.
 
 ## Tasks
 
 Claude should inspect:
 
-- `Mods/GameFeatures/DocMod/DocMod.uplugin`
-- `Mods/GameFeatures/DocMod/Source/`
+- `Mods/GameFeatures/AIMod/AIMod.uplugin`
+- `Mods/GameFeatures/AIMod/Source/`
 - all `.Build.cs` files
 - all `.h` files
 - all `.cpp` files
@@ -194,7 +194,7 @@ Determine:
 
 ## Rules
 
-Do not rename `DocMod`.
+Do not rename `AIMod`.
 
 Do not reorganize directories.
 
@@ -279,7 +279,7 @@ Create a dedicated Unreal log category for this mod.
 
 Preferred conceptual name:
 
-`LogDocModAI`
+`LogAIModAI`
 
 or another project-specific name consistent with existing module naming.
 
@@ -293,7 +293,7 @@ Add log messages for:
 Example desired runtime behavior:
 
 ```text
-LogDocModAI: Display: DocMod AI interface module initialized
+LogAIModAI: Display: AIMod AI interface module initialized
 ```
 
 Use Unreal's normal C++ logging system.
@@ -425,7 +425,7 @@ Avoid:
 
 ## Output
 
-Initially simply log discovered nodes through `LogDocModAI`.
+Initially simply log discovered nodes through `LogAIModAI`.
 
 Add a debug command or Blueprint-callable entry point that triggers enumeration.
 
@@ -1096,7 +1096,7 @@ Claude should initially work only through these tasks:
 
 ## Task 1
 
-Inspect the current `DocMod` source and document its actual structure.
+Inspect the current `AIMod` source and document its actual structure.
 
 No significant code changes.
 
