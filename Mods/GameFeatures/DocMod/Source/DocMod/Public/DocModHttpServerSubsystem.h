@@ -145,6 +145,14 @@ struct FHttpServerRequest;
  * ({"portableMinerId"}, SYNCHRONOUS) empties one into the player's own
  * inventory - all three added 2026-08-27 per explicit user request.
  *
+ * "world.spawnCreature" ({"creatureClass","distanceFromPlayer"?},
+ * SYNCHRONOUS - see SpawnCreatureNearPlayer, added 2026-08-28) spawns a
+ * real AFGCreature near the player via AFGCreatureSubsystem's own
+ * BeginSpawningCreature. Off by default - gated behind the
+ * "AllowCreatureSpawning" mod setting, the only capability besides
+ * bUnlimitedResources that an external AI controller can never enable
+ * itself, only the player from DocMod's settings menu.
+ *
  * Instant chat acknowledgment (2026-08-28, per explicit user request):
  * independent of "world.chatHistory"/"world.sendChatMessage" below, this
  * class also binds directly to AFGChatManager::OnChatMessageAdded

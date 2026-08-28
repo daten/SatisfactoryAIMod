@@ -64,6 +64,8 @@
 #include "FGInventoryComponentEquipment.h"
 #include "Resources/FGEquipmentDescriptor.h"
 #include "FGBuildablePipelineFlowIndicator.h"
+#include "FGCreatureSubsystem.h"
+#include "Creature/FGCreature.h"
 
 namespace
 {
@@ -2462,6 +2464,70 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 
 	return FDocModOperationResult::Failure(TEXT("PENDING"),
 		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, the building WILL be constructed; see LogDocModAI for the real result"));
+}
+
+FDocModOperationResult UDocModFunctionLibrary::SpawnCreatureNearPlayer(UObject* WorldContextObject, const FString& CreatureClassPath, float DistanceFromPlayer)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	// Player-opt-in-only gate, off by default - see this function's header
+	// comment and DocModConfiguration.h. Checked first, before any other
+	// validation, so a disabled request never even resolves the class or
+	// touches the world.
+	if (!UDocModFunctionLibrary::GetDocModConfigBool(World, TEXT("AllowCreatureSpawning"), false))
+	{
+		return FDocModOperationResult::Failure(TEXT("CREATURE_SPAWNING_DISABLED"),
+			TEXT("Creature spawning is off by default - enable \"Allow Creature Spawning\" in DocMod's mod settings to allow this"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FDocModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	// Same narrow "load and validate one specific type" pattern as
+	// RecipeClassPath elsewhere in this file - not a generic "spawn any
+	// actor" capability.
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *CreatureClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(AFGCreature::StaticClass()))
+	{
+		return FDocModOperationResult::Failure(TEXT("INVALID_CREATURE_CLASS"),
+			FString::Printf(TEXT("'%s' did not resolve to an AFGCreature subclass"), *CreatureClassPath));
+	}
+	const TSubclassOf<AFGCreature> CreatureClass = ResolvedClass;
+
+	AFGCreatureSubsystem* CreatureSubsystem = AFGCreatureSubsystem::Get(World);
+	if (!CreatureSubsystem)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGCreatureSubsystem::Get() returned null"));
+	}
+
+	const float ClampedDistance = FMath::Clamp(DistanceFromPlayer > 0.0f ? DistanceFromPlayer : 800.0f, 100.0f, 5000.0f);
+	const FVector PlayerLocation = Character->GetActorLocation();
+	const FVector PlayerForward2D = Character->GetActorForwardVector().GetSafeNormal2D();
+	const FVector CandidateXY = PlayerLocation + PlayerForward2D * ClampedDistance;
+
+	const FGroundTraceResult GroundTrace = FindGroundAtXY(World, CandidateXY.X, CandidateXY.Y, PlayerLocation.Z, Character);
+	const FVector SpawnLocation = GroundTrace.Hit.Location + FVector(0.0f, 0.0f, 50.0f);
+	const FTransform SpawnTransform(Character->GetActorRotation(), SpawnLocation);
+
+	UE_LOG(LogDocModAI, Display, TEXT("SpawnCreatureNearPlayer: class=%s distance=%.0f groundTraceHit=%s location=%s"),
+		*CreatureClassPath, ClampedDistance, GroundTrace.bFound ? TEXT("true") : TEXT("false"), *SpawnLocation.ToString());
+
+	AFGCreature* NewCreature = CreatureSubsystem->BeginSpawningCreature(CreatureClass, SpawnTransform);
+	if (!NewCreature)
+	{
+		return FDocModOperationResult::Failure(TEXT("SPAWN_FAILED"),
+			TEXT("AFGCreatureSubsystem::BeginSpawningCreature returned null - see LogDocModAI"));
+	}
+
+	UE_LOG(LogDocModAI, Display, TEXT("SpawnCreatureNearPlayer: spawned %s"), *NewCreature->GetPathName());
+	return FDocModOperationResult::SuccessWithBuildableId(NewCreature->GetPathName());
 }
 
 void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FDocModOperationResult&)> OnComplete)

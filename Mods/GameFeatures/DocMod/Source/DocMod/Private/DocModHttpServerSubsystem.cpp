@@ -656,6 +656,39 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		return true;
 	}
 
+	// Synchronous, unlike the buildable-placement RPCs above -
+	// UDocModFunctionLibrary::SpawnCreatureNearPlayer calls
+	// AFGCreatureSubsystem::BeginSpawningCreature directly (a plain C++
+	// function, not a hologram/RPC dispatch), so the result is known
+	// immediately. Off by default - see the "AllowCreatureSpawning" mod
+	// setting; a disabled request comes back as CREATURE_SPAWNING_DISABLED.
+	if (Method == TEXT("world.spawnCreature"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString CreatureClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("creatureClass"), CreatureClassPath) || CreatureClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.creatureClass must be a non-empty string")));
+			return true;
+		}
+
+		// Optional, defaults to 800 (see SpawnCreatureNearPlayer, which
+		// also clamps to [100, 5000] regardless of what's passed here).
+		double DistanceFromPlayer = 800.0;
+		ParamsObject->TryGetNumberField(TEXT("distanceFromPlayer"), DistanceFromPlayer);
+
+		const FDocModOperationResult Result = UDocModFunctionLibrary::SpawnCreatureNearPlayer(GetGameInstance(), CreatureClassPath, static_cast<float>(DistanceFromPlayer));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
 	// "world.testPowerConnection" (dry run, never touches the save) and
 	// "world.connectPower" (real - see

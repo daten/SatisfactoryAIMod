@@ -44,6 +44,13 @@
  * reply, see UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded), not
  * a safety/capability trade-off, and defaults ON rather than off.
  *
+ * A sixth property, also added 2026-08-28, is back to the off-by-default,
+ * player-opt-in-only character of the original four - bAllowCreatureSpawning
+ * gates UDocModFunctionLibrary::SpawnCreatureNearPlayer. There's no existing
+ * in-game equivalent of a player spawning a creature, so this is treated
+ * like bUnlimitedResources: an external AI controller can never enable it
+ * itself, only the player from this settings menu.
+ *
  * See DocModFunctionLibrary::GetDocModConfigBool/GetDocModConfigFloat for
  * how these are read at construction time, and
  * UDocModHttpServerSubsystem::Initialize for registration and where

@@ -443,6 +443,24 @@ output into the player's own inventory. Errors: `TARGET_NOT_FOUND`,
 `NOTHING_TO_RETRIEVE` (output empty), `INVENTORY_FULL` (output has items
 but none fit — nothing is lost, they just stay in the miner for later).
 
+### `world.spawnCreature` — synchronous, `result.buildableId` on success
+`params: {"creatureClass" (required), "distanceFromPlayer" (optional,
+default 800, clamped to [100, 5000])}`. Spawns a real `AFGCreature` a short
+distance in front of the player, on real ground (same trace as
+`world.placeBuilding`). `creatureClass` must resolve to an
+`AFGCreature`-derived Blueprint generated class, e.g.
+`/Game/FactoryGame/Character/Creature/Wildlife/SpaceRabbit/Char_SpaceRabbit.Char_SpaceRabbit_C`
+for the harmless passive critter, or `Char_Hog`/`Char_Stinger`/`Char_SpitterForestSmall`
+etc. under `Character/Creature/Enemy/` for hostile ones — check
+`Content/FactoryGame/Character/Creature/` for the full roster.
+
+**Off by default.** The player must explicitly enable "Allow Creature
+Spawning" in DocMod's mod settings first — this is one of only two
+capabilities (with `UnlimitedResources`) an external AI controller can never
+turn on itself. A disabled request fails with `CREATURE_SPAWNING_DISABLED`
+rather than silently no-op'ing. Other errors: `INVALID_CREATURE_CLASS`
+(didn't resolve to an `AFGCreature` subclass), `SPAWN_FAILED`.
+
 ### `world.testPowerConnection` / `world.connectPower` — asynchronous
 Same params, `test` is a dry run (never touches the save), `connect` is
 real. `params: {"buildableIdA", "buildableIdB", "ignoreAimLocation"

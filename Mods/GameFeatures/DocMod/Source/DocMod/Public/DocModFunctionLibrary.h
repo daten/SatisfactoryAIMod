@@ -549,6 +549,34 @@ public:
 	static FDocModOperationResult ConstructBuildingNearPlayer(UObject* WorldContextObject, const FString& RecipeClassPath);
 
 	/**
+	 * Spawns a real AFGCreature near the player, added 2026-08-28 per
+	 * explicit user request. Gated behind the "AllowCreatureSpawning" mod
+	 * setting (see DocModConfiguration.h), OFF by default - unlike
+	 * construction, there is no existing in-game equivalent of "a player
+	 * manually spawns a creature", so this is treated as the same
+	 * category of player-opt-in-only capability as bUnlimitedResources,
+	 * not something an external AI controller can ever enable itself.
+	 *
+	 * CreatureClassPath must resolve to a real TSubclassOf<AFGCreature> -
+	 * same narrow "load and validate one specific type" pattern as
+	 * RecipeClassPath elsewhere in this file (INVALID_CREATURE_CLASS if
+	 * not), not a generic "spawn any actor" capability - see CLAUDE.md's
+	 * Safety and Stability Boundary.
+	 *
+	 * Genuinely synchronous, unlike the buildable placement functions -
+	 * AFGCreatureSubsystem::BeginSpawningCreature is a plain (non-UFUNCTION,
+	 * non-RPC) public C++ function that returns the spawned AFGCreature*
+	 * directly, so no hologram/real-tick polling is needed here.
+	 *
+	 * DistanceFromPlayer is clamped to [100, 5000] units in front of the
+	 * player; the actual spawn Z comes from a real ground trace at that
+	 * X/Y (see FindGroundAtXY), same fallback-to-flat behavior as
+	 * ConstructBuildingNearPlayer if nothing is hit.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult SpawnCreatureNearPlayer(UObject* WorldContextObject, const FString& CreatureClassPath, float DistanceFromPlayer);
+
+	/**
 	 * PLAN.md Phase 13/14: RPC-drivable building placement at an
 	 * explicit position, for scenarios (like placing several buildings
 	 * a controlled distance apart for a production chain) where "near

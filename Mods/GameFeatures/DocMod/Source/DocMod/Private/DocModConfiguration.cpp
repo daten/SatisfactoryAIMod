@@ -71,4 +71,19 @@ UDocModConfiguration::UDocModConfiguration()
 	AutoAcknowledgeChatMessages->DefaultValue = true;
 	AutoAcknowledgeChatMessages->Value = true;
 	Section->SectionProperties.Add(TEXT("AutoAcknowledgeChatMessages"), AutoAcknowledgeChatMessages);
+
+	// A sixth property, added 2026-08-28 - back to the "off by default,
+	// player-opt-in-only" character of the original four. There is no
+	// existing in-game equivalent of "a player spawns a creature", so
+	// this is treated the same as bUnlimitedResources: a capability an
+	// external AI controller can never enable itself, only the player
+	// from this settings menu. See UDocModFunctionLibrary::SpawnCreatureNearPlayer.
+	UConfigPropertyBool* AllowCreatureSpawning = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("AllowCreatureSpawning"));
+	AllowCreatureSpawning->DisplayName = FText::FromString(TEXT("Allow Creature Spawning"));
+	AllowCreatureSpawning->Tooltip = FText::FromString(TEXT(
+		"Off by default. When enabled, an external AI controller can spawn real creatures near you on request "
+		"via DocMod's RPC interface. Off means every such request is rejected regardless of what's asked."));
+	AllowCreatureSpawning->DefaultValue = false;
+	AllowCreatureSpawning->Value = false;
+	Section->SectionProperties.Add(TEXT("AllowCreatureSpawning"), AllowCreatureSpawning);
 }
