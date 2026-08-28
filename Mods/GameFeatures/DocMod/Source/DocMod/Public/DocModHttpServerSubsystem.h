@@ -10,6 +10,7 @@
 
 class IHttpRouter;
 struct FHttpServerRequest;
+struct FActorsInitializedParams;
 
 /**
  * PLAN.md Phase 9: localhost-only JSON RPC transport for the DocMod AI
@@ -145,13 +146,16 @@ struct FHttpServerRequest;
  * ({"portableMinerId"}, SYNCHRONOUS) empties one into the player's own
  * inventory - all three added 2026-08-27 per explicit user request.
  *
- * "world.spawnCreature" ({"creatureClass","distanceFromPlayer"?},
+ * "world.spawnCreature" ({"creatureClass","distanceFromPlayer"?,"scale"?},
  * SYNCHRONOUS - see SpawnCreatureNearPlayer, added 2026-08-28) spawns a
  * real AFGCreature near the player via AFGCreatureSubsystem's own
  * BeginSpawningCreature. Off by default - gated behind the
  * "AllowCreatureSpawning" mod setting, the only capability besides
  * bUnlimitedResources that an external AI controller can never enable
- * itself, only the player from DocMod's settings menu.
+ * itself, only the player from DocMod's settings menu. "scale" is an
+ * optional uniform scale factor (default 1.0, clamped to [0.05, 20.0]).
+ * "world.despawnCreature" ({"creatureId"}, SYNCHRONOUS) removes a
+ * creature by its GetPathName() id.
  *
  * Instant chat acknowledgment (2026-08-28, per explicit user request):
  * independent of "world.chatHistory"/"world.sendChatMessage" below, this
@@ -161,6 +165,21 @@ struct FHttpServerRequest;
  * not subject to an external polling loop's latency floor. Gated by the
  * "Auto-Acknowledge Chat Messages" mod setting (default ON, unlike the
  * four safety/capability toggles above).
+ *
+ * Fixed 2026-08-28 (same day): confirmed live that binding only once, in
+ * Initialize(), produces a burst of dozens of duplicate acks the moment a
+ * save actually loads into a real game world, then goes completely silent
+ * for genuinely new messages after that. AFGChatManager is a world/actor-
+ * based subsystem (see TryBindChatManagerDelegate's own doc comment) -
+ * GameInstanceSubsystem::Initialize() runs long before the player's save
+ * finishes loading into its real world (often at the main menu), so the
+ * original binding was against a ChatManager/message-count snapshot from
+ * before the real session existed. Now also rebinds on every real game
+ * world's initialization, mirroring FDocModModule::RunPerWorldSetup's own
+ * established two-delegate pattern (OnWorldInitializedActors +
+ * PostLoadMapWithWorld, de-duplicated via LastRebindWorld) for exactly the
+ * same reason documented there: a save-load via ProcessServerTravel doesn't
+ * reliably fire both.
  *
  * "world.chatHistory" (read-only, no params) reports
  * {"messages":[{"sender","text","type","timestamp","isLocalPlayerMessage"},...]}
@@ -272,10 +291,18 @@ private:
 	 */
 	void TryBindChatManagerDelegate();
 
+	/** Re-triggers TryBindChatManagerDelegate on real game world init - see this class's header doc comment ("Fixed 2026-08-28"). */
+	void OnWorldInitializedActorsForChat(const FActorsInitializedParams& Params);
+	void OnPostLoadMapWithWorldForChat(UWorld* World);
+	void RebindChatManagerForWorld(UWorld* World);
+
 	UFUNCTION()
 	void HandlePlayerChatMessageAdded();
 
 	FTimerHandle ChatManagerBindRetryTimer;
+	FDelegateHandle ChatWorldInitializedActorsHandle;
+	FDelegateHandle ChatPostLoadMapWithWorldHandle;
+	TWeakObjectPtr<UWorld> LastRebindWorld;
 
 	/**
 	 * Index into AFGChatManager::GetReceivedChatMessages() of the last

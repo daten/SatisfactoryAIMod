@@ -2466,7 +2466,7 @@ FDocModOperationResult UDocModFunctionLibrary::ConstructBuildingNearPlayer(UObje
 		TEXT("Scheduled via the real build gun - if CanConstruct() resolves true, the building WILL be constructed; see LogDocModAI for the real result"));
 }
 
-FDocModOperationResult UDocModFunctionLibrary::SpawnCreatureNearPlayer(UObject* WorldContextObject, const FString& CreatureClassPath, float DistanceFromPlayer)
+FDocModOperationResult UDocModFunctionLibrary::SpawnCreatureNearPlayer(UObject* WorldContextObject, const FString& CreatureClassPath, float DistanceFromPlayer, float Scale)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -2514,10 +2514,20 @@ FDocModOperationResult UDocModFunctionLibrary::SpawnCreatureNearPlayer(UObject* 
 
 	const FGroundTraceResult GroundTrace = FindGroundAtXY(World, CandidateXY.X, CandidateXY.Y, PlayerLocation.Z, Character);
 	const FVector SpawnLocation = GroundTrace.Hit.Location + FVector(0.0f, 0.0f, 50.0f);
-	const FTransform SpawnTransform(Character->GetActorRotation(), SpawnLocation);
 
-	UE_LOG(LogDocModAI, Display, TEXT("SpawnCreatureNearPlayer: class=%s distance=%.0f groundTraceHit=%s location=%s"),
-		*CreatureClassPath, ClampedDistance, GroundTrace.bFound ? TEXT("true") : TEXT("false"), *SpawnLocation.ToString());
+	// Uniform scale, applied via the same FTransform BeginSpawningCreature/
+	// FinishSpawning already take - untested against FactoryGame's actual
+	// creature Blueprints (collision capsules and AI behavior-tree
+	// distances are often hardcoded rather than derived from RootComponent
+	// scale, so an extreme value may look/behave oddly even if it spawns
+	// cleanly). Clamped well short of 0 to avoid a degenerate/inverted
+	// actor; not clamped tightly otherwise since "abnormally scaled" is
+	// the explicit point of this parameter.
+	const float ClampedScale = FMath::Clamp(Scale > 0.0f ? Scale : 1.0f, 0.05f, 20.0f);
+	const FTransform SpawnTransform(Character->GetActorRotation(), SpawnLocation, FVector(ClampedScale));
+
+	UE_LOG(LogDocModAI, Display, TEXT("SpawnCreatureNearPlayer: class=%s distance=%.0f scale=%.2f groundTraceHit=%s location=%s"),
+		*CreatureClassPath, ClampedDistance, ClampedScale, GroundTrace.bFound ? TEXT("true") : TEXT("false"), *SpawnLocation.ToString());
 
 	AFGCreature* NewCreature = CreatureSubsystem->BeginSpawningCreature(CreatureClass, SpawnTransform);
 	if (!NewCreature)

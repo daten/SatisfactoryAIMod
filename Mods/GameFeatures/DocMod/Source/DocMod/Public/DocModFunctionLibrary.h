@@ -572,9 +572,15 @@ public:
 	 * player; the actual spawn Z comes from a real ground trace at that
 	 * X/Y (see FindGroundAtXY), same fallback-to-flat behavior as
 	 * ConstructBuildingNearPlayer if nothing is hit.
+	 *
+	 * Scale is a uniform scale factor applied to the spawn transform
+	 * (default/invalid values treated as 1.0, clamped to [0.05, 20.0]) -
+	 * untested against FactoryGame's own creature Blueprints, since
+	 * collision/AI ranges are often hardcoded independent of
+	 * RootComponent scale.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
-	static FDocModOperationResult SpawnCreatureNearPlayer(UObject* WorldContextObject, const FString& CreatureClassPath, float DistanceFromPlayer);
+	static FDocModOperationResult SpawnCreatureNearPlayer(UObject* WorldContextObject, const FString& CreatureClassPath, float DistanceFromPlayer, float Scale);
 
 	/**
 	 * Despawns a creature previously spawned via SpawnCreatureNearPlayer

@@ -445,14 +445,19 @@ but none fit — nothing is lost, they just stay in the miner for later).
 
 ### `world.spawnCreature` — synchronous, `result.buildableId` on success
 `params: {"creatureClass" (required), "distanceFromPlayer" (optional,
-default 800, clamped to [100, 5000])}`. Spawns a real `AFGCreature` a short
-distance in front of the player, on real ground (same trace as
-`world.placeBuilding`). `creatureClass` must resolve to an
-`AFGCreature`-derived Blueprint generated class, e.g.
+default 800, clamped to [100, 5000]), "scale" (optional, default 1.0,
+clamped to [0.05, 20.0])}`. Spawns a real `AFGCreature` a short distance in
+front of the player, on real ground (same trace as `world.placeBuilding`).
+`creatureClass` must resolve to an `AFGCreature`-derived Blueprint generated
+class, e.g.
 `/Game/FactoryGame/Character/Creature/Wildlife/SpaceRabbit/Char_SpaceRabbit.Char_SpaceRabbit_C`
 for the harmless passive critter, or `Char_Hog`/`Char_Stinger`/`Char_SpitterForestSmall`
 etc. under `Character/Creature/Enemy/` for hostile ones — check
-`Content/FactoryGame/Character/Creature/` for the full roster.
+`Content/FactoryGame/Character/Creature/` for the full roster. `scale` is a
+uniform scale factor applied to the spawn transform — untested against
+FactoryGame's own creature Blueprints, since collision/AI ranges are often
+hardcoded independent of visual scale, so extreme values may look/behave
+oddly even when they spawn cleanly.
 
 **Off by default.** The player must explicitly enable "Allow Creature
 Spawning" in DocMod's mod settings first — this is one of only two
@@ -460,6 +465,11 @@ capabilities (with `UnlimitedResources`) an external AI controller can never
 turn on itself. A disabled request fails with `CREATURE_SPAWNING_DISABLED`
 rather than silently no-op'ing. Other errors: `INVALID_CREATURE_CLASS`
 (didn't resolve to an `AFGCreature` subclass), `SPAWN_FAILED`.
+
+### `world.despawnCreature` — synchronous
+`params: {"creatureId" (required, a spawnCreature `result.buildableId`)}`.
+Removes a creature by id. Narrowly scoped to `AFGCreature` lookup, not a
+generic "destroy any actor" capability. Errors: `TARGET_NOT_FOUND`.
 
 ### `world.testPowerConnection` / `world.connectPower` — asynchronous
 Same params, `test` is a dry run (never touches the save), `connect` is

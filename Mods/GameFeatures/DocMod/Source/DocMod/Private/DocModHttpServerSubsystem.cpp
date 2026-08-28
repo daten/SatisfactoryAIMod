@@ -18,6 +18,7 @@
 #include "DocModConfiguration.h"
 #include "Configuration/ConfigManager.h"
 #include "FGChatManager.h"
+#include "Engine/World.h"
 
 namespace
 {
@@ -143,10 +144,21 @@ void UDocModHttpServerSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	UE_LOG(LogDocModAI, Display, TEXT("DocMod HTTP server listening on http://127.0.0.1:%u/rpc (loopback only - see Config/DefaultEngine.ini ListenerOverrides)"), ListenPort);
 
 	TryBindChatManagerDelegate();
+
+	// See this class's header doc comment ("Fixed 2026-08-28") - Initialize()
+	// alone runs too early (often at the main menu, before the player's
+	// save has finished loading into its real world), so also rebind on
+	// every real game world's init, mirroring FDocModModule::RunPerWorldSetup's
+	// two-delegate pattern for the same ProcessServerTravel reliability reason.
+	ChatWorldInitializedActorsHandle = FWorldDelegates::OnWorldInitializedActors.AddUObject(this, &UDocModHttpServerSubsystem::OnWorldInitializedActorsForChat);
+	ChatPostLoadMapWithWorldHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UDocModHttpServerSubsystem::OnPostLoadMapWithWorldForChat);
 }
 
 void UDocModHttpServerSubsystem::Deinitialize()
 {
+	FWorldDelegates::OnWorldInitializedActors.Remove(ChatWorldInitializedActorsHandle);
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(ChatPostLoadMapWithWorldHandle);
+
 	if (UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr)
 	{
 		World->GetTimerManager().ClearTimer(ChatManagerBindRetryTimer);
@@ -165,6 +177,34 @@ void UDocModHttpServerSubsystem::Deinitialize()
 	UE_LOG(LogDocModAI, Display, TEXT("DocMod HTTP server stopped"));
 
 	Super::Deinitialize();
+}
+
+void UDocModHttpServerSubsystem::OnWorldInitializedActorsForChat(const FActorsInitializedParams& Params)
+{
+	RebindChatManagerForWorld(Params.World);
+}
+
+void UDocModHttpServerSubsystem::OnPostLoadMapWithWorldForChat(UWorld* World)
+{
+	RebindChatManagerForWorld(World);
+}
+
+void UDocModHttpServerSubsystem::RebindChatManagerForWorld(UWorld* World)
+{
+	// Fires for every world load, including menu/editor-preview worlds -
+	// skip anything that isn't a real game world, and de-duplicate since
+	// both delegates can fire for the same world (see FDocModModule::
+	// RunPerWorldSetup's matching comment).
+	if (!World || !World->IsGameWorld() || LastRebindWorld == World)
+	{
+		return;
+	}
+	LastRebindWorld = World;
+
+	// Clear any pending retry from an earlier (now-stale) world before
+	// trying again against this one.
+	World->GetTimerManager().ClearTimer(ChatManagerBindRetryTimer);
+	TryBindChatManagerDelegate();
 }
 
 void UDocModHttpServerSubsystem::TryBindChatManagerDelegate()
@@ -696,7 +736,12 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		double DistanceFromPlayer = 800.0;
 		ParamsObject->TryGetNumberField(TEXT("distanceFromPlayer"), DistanceFromPlayer);
 
-		const FDocModOperationResult Result = UDocModFunctionLibrary::SpawnCreatureNearPlayer(GetGameInstance(), CreatureClassPath, static_cast<float>(DistanceFromPlayer));
+		// Optional, defaults to 1.0 (normal size) - see SpawnCreatureNearPlayer,
+		// which clamps to [0.05, 20.0] regardless of what's passed here.
+		double Scale = 1.0;
+		ParamsObject->TryGetNumberField(TEXT("scale"), Scale);
+
+		const FDocModOperationResult Result = UDocModFunctionLibrary::SpawnCreatureNearPlayer(GetGameInstance(), CreatureClassPath, static_cast<float>(DistanceFromPlayer), static_cast<float>(Scale));
 		OnComplete(MakeOperationResponse(Result, RequestId));
 		return true;
 	}
