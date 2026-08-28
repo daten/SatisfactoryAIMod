@@ -292,6 +292,22 @@ void UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded()
 		const FChatMessageStruct Message = Messages[LastSeenChatMessageCount];
 		++LastSeenChatMessageCount;
 
+		// Diagnostic logging, added 2026-08-28: two prior fix attempts
+		// (idempotent binding, world-rebind, bulk-load guard) have not
+		// stopped a live-confirmed burst of dozens of acks per real
+		// keystroke, and the burst turned out to be dozens of SEPARATE
+		// sequential broadcasts (not one batch), so the bulk-load guard
+		// never even triggers. This logs every message's real content as
+		// it's processed, to settle definitively whether the repeated
+		// entries are literally the same player text re-added many times
+		// (pointing to an upstream chat-submission bug outside DocMod) or
+		// old historical entries somehow being replayed with corrupted
+		// type/sender metadata (pointing to a save-restore issue) -
+		// needed before attempting another fix blind.
+		UE_LOG(LogDocModAI, Display, TEXT("HandlePlayerChatMessageAdded: index=%d sender=\"%s\" text=\"%s\" type=%d isLocal=%s"),
+			LastSeenChatMessageCount - 1, *Message.MessageSender.ToString(), *Message.MessageText.ToString(),
+			static_cast<int32>(Message.MessageType), Message.bIsLocalPlayerMessage ? TEXT("true") : TEXT("false"));
+
 		// Only a genuine player-typed message ("/"-prefixed text never
 		// reaches this array at all - diverted to chat command dispatch -
 		// so no separate check is needed for that). Explicitly excludes
