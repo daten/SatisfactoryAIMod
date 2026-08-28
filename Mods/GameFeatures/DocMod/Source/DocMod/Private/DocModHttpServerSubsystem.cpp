@@ -259,6 +259,26 @@ void UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded()
 	TArray<FChatMessageStruct> Messages;
 	ChatManager->GetReceivedChatMessages(Messages);
 
+	// Bulk-load guard, added 2026-08-28: confirmed live, twice, that a
+	// burst of dozens of messages can appear between one broadcast and
+	// the next - a save actually finishing its load into the real world
+	// restores its persisted chat history in one go, and (whether due to
+	// lossy type/sender persistence or some other restore-path quirk not
+	// fully root-caused from source alone) entries that were never real
+	// live player input can end up satisfying the PlayerMessage+local
+	// check below. A genuine live keystroke can only ever add exactly
+	// ONE message per broadcast - anything more than that in a single
+	// invocation is unambiguously not real-time typing, so silently
+	// catch up the watermark without acking rather than flooding chat.
+	const int32 NewMessageCount = Messages.Num() - LastSeenChatMessageCount;
+	if (NewMessageCount > 1)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("HandlePlayerChatMessageAdded: %d messages appeared at once (was %d, now %d) - treating as a bulk history load, not live typing, and skipping acks for all of them"),
+			NewMessageCount, LastSeenChatMessageCount, Messages.Num());
+		LastSeenChatMessageCount = Messages.Num();
+		return;
+	}
+
 	// Re-entrancy note: SendChatMessage below calls AddChatMessageToReceived,
 	// which fires THIS SAME delegate again, synchronously, before this call
 	// returns. Advancing LastSeenChatMessageCount BEFORE reacting (not
