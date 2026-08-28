@@ -4,6 +4,7 @@
 #include "Configuration/Properties/ConfigPropertyBool.h"
 #include "Configuration/Properties/ConfigPropertyFloat.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Configuration/Properties/WidgetExtension/CP_Section.h"
 
 UDocModConfiguration::UDocModConfiguration()
 {
@@ -53,6 +54,17 @@ UDocModConfiguration::UDocModConfiguration()
 
 	UConfigPropertySection* Section = CastChecked<UConfigPropertySection>(CreateDefaultSubobject(TEXT("RootSection"), UConfigPropertySection::StaticClass(), SectionClass, true, false));
 	RootSection = Section;
+
+	// BP_ConfigPropertySection derives from UCP_Section (CP_Section.h),
+	// which adds a WidgetType enum controlling Horizontal-with-scrollbar
+	// vs Vertical layout for its child rows - defaults to Horizontal.
+	// Confirmed live (2026-08-28): the six DocMod toggles rendered in a
+	// horizontal scrolling row by default; force Vertical instead, since
+	// that's the layout every other section in this settings menu uses.
+	if (UCP_Section* SectionExtended = Cast<UCP_Section>(Section))
+	{
+		SectionExtended->WidgetType = ECP_SectionWidgetType::CPS_Vertical;
+	}
 
 	UConfigPropertyBool* AllowRemoteConnections = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("AllowRemoteConnections"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	AllowRemoteConnections->DisplayName = FText::FromString(TEXT("Allow Remote Connections"));
