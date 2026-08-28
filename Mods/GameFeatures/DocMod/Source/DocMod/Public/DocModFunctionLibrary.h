@@ -344,48 +344,31 @@ public:
 	static FDocModOperationResult SetManufacturerRecipe(UObject* WorldContextObject, const FString& BuildableId, const FString& RecipeClassPath);
 
 	/**
-	 * Dismantles an existing buildable via the real, safe
-	 * IFGDismantleInterface (Execute_CanDismantle/Execute_Dismantle) -
-	 * NOT AActor::Destroy(), per CLAUDE.md's "No Direct Memory
-	 * Manipulation"/"perform explicitly supported game operations" -
-	 * AFGBuildable::Dismantle_Implementation() (FGBuildable.cpp) properly
-	 * clears factory/circuit connections, dismantles attached wires,
-	 * empties and locks inventories, and removes the buildable from
-	 * AFGBuildableSubsystem before network-replicated destruction, the
-	 * same real cleanup a player's in-game dismantle does. Added
-	 * 2026-08-25 specifically so live RPC-driven testing (e.g. rotation
-	 * calibration - docs/buildgun-driven-placement-research.md §4) can
-	 * clean up stray test buildables between attempts instead of
-	 * accumulating them or relying on spacing/error-text alone to avoid
-	 * cross-test collisions.
+	 * Dismantles an existing buildable via the real IFGDismantleInterface
+	 * (Execute_CanDismantle/Execute_Dismantle), not AActor::Destroy() -
+	 * per CLAUDE.md's "No Direct Memory Manipulation", this is the same
+	 * cleanup path (connections, attached wires, inventories,
+	 * AFGBuildableSubsystem removal) a player's in-game dismantle uses.
+	 * Synchronous, no hologram involved. Fails TARGET_NOT_FOUND if the id
+	 * does not resolve, or CANNOT_DISMANTLE if the buildable refuses
+	 * (already dismantled, or an un-dismantled parent like integrated
+	 * railroad track).
 	 *
-	 * Synchronous - no build gun/hologram involved, unlike construction.
-	 * Fails with TARGET_NOT_FOUND if the id doesn't resolve, or
-	 * CANNOT_DISMANTLE (with Execute_CanDismantle()'s reason where
-	 * available) if the buildable refuses - e.g. an already-dismantled
-	 * actor, or one with an un-dismantled parent (integrated sub-
-	 * buildables like railroad platform track).
+	 * Also handles "lightweight:<ClassPath>|<Index>" ids (see
+	 * docs/lightweight-buildable-research.md): foundations and other
+	 * mass-placed pieces are not AFGBuildable actors but
+	 * FRuntimeBuildableInstanceData in AFGLightweightBuildableSubsystem -
+	 * materializes a temporary AFGBuildable* via
+	 * FindOrSpawnBuildableForRuntimeData() and reuses Execute_Dismantle(),
+	 * which has a dedicated branch for removing the lightweight instance.
 	 *
-	 * Also handles "lightweight:<ClassPath>|<Index>" ids (2026-08-25 -
-	 * see docs/lightweight-buildable-research.md): foundations, and
-	 * likely other mass-placed pieces, aren't AFGBuildable actors at all
-	 * - they're FRuntimeBuildableInstanceData in
-	 * AFGLightweightBuildableSubsystem. For these, materializes a real
-	 * temporary AFGBuildable* via FindOrSpawnBuildableForRuntimeData()
-	 * and reuses the exact same Execute_Dismantle() call -
-	 * AFGBuildable::Dismantle_Implementation() already has a dedicated
-	 * branch that correctly removes the lightweight instance for us.
-	 *
-	 * Also dismantles any IFGDismantleInterface::GetChildDismantleActors()
-	 * children first (fixed 2026-08-27) - some buildables reference a
-	 * separate, independently-existing actor that Dismantle_Implementation()
-	 * itself does not clean up (e.g. AFGBuildablePipeline's mFlowIndicator,
-	 * a distinct AFGBuildablePipelineFlowIndicator actor, not a child
-	 * component). The real player-driven dismantle path
-	 * (UFGBuildGunStateDismantle) consults GetChildDismantleActors;
-	 * Execute_Dismantle() alone does not. Without this, deleting a pipe
-	 * left its fluid-fill indicator floating in place after the pipe
-	 * itself disappeared - confirmed live, reported by the user.
+	 * Also dismantles GetChildDismantleActors() children first - some
+	 * buildables reference a separate actor that Dismantle_Implementation
+	 * itself does not clean up (e.g. AFGBuildablePipeline's
+	 * mFlowIndicator). The real player dismantle path
+	 * (UFGBuildGunStateDismantle) consults this; Execute_Dismantle alone
+	 * does not - without it, a dismantled pipe left its fluid indicator
+	 * floating in place, confirmed live.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId);
@@ -594,139 +577,43 @@ public:
 	static FDocModOperationResult DespawnCreature(UObject* WorldContextObject, const FString& CreatureId);
 
 	/**
-	 * PLAN.md Phase 13/14: RPC-drivable building placement at an
-	 * explicit position, for scenarios (like placing several buildings
-	 * a controlled distance apart for a production chain) where "near
-	 * the player, facing forward" isn't good enough. Not a UFUNCTION -
-	 * TFunction callbacks aren't UHT-compatible - this is a plain C++
-	 * entry point for UDocModHttpServerSubsystem specifically, not
-	 * exposed to Blueprint.
+	 * Building placement at an explicit X/Y (not near-player). Not a
+	 * UFUNCTION - TFunction callbacks are not UHT-compatible - plain C++
+	 * entry point for UDocModHttpServerSubsystem only. Same validated
+	 * flow as ConstructBuildingNearPlayer (real-tick polling for
+	 * CanConstruct, re-asserted every tick for deterministic placement).
+	 * Genuinely asynchronous: OnComplete fires exactly once, sync or
+	 * after polling resolves.
 	 *
-	 * Same validated flow, scope, and safety posture as
-	 * ConstructBuildingNearPlayer (HotKeyRecipe, real-tick polling for
-	 * CanConstruct(), UpdateHologramPlacement() re-asserted every tick
-	 * to make position deterministic - see
-	 * docs/buildgun-driven-placement-research.md's §3 correction) -
-	 * simple/single-step/non-snapping buildings only. The only
-	 * difference: X/Y come directly from the caller instead of being
-	 * computed from the player's position/facing; a vertical line trace
-	 * at that X/Y (falling back to the player's own Z if nothing is hit)
-	 * still finds the real ground height, same as the near-player
-	 * version.
+	 * RotationScrollDelta: applies AFGHologram::Scroll(sign) that many
+	 * times. Non-linear for magnitude greater than 1 and terrain
+	 * dependent - see docs/buildgun-driven-placement-research.md.
+	 * Prefer bHasTargetYaw/TargetYawDegrees for a reliable result.
 	 *
-	 * Genuinely asynchronous, not "PENDING then log": OnComplete is
-	 * invoked exactly once, either synchronously (for early validation
-	 * failures) or after real-tick polling resolves - this is what lets
-	 * UDocModHttpServerSubsystem hold an HTTP response open and reply
-	 * with the real result instead of returning a placeholder over the
-	 * wire.
+	 * GridSnapSize: rounds X/Y to the nearest multiple before placing.
+	 * 0 disables. Independent of any per-building internal snap.
 	 *
-	 * RotationScrollDelta (2026-08-25, live-calibrated - see
-	 * docs/buildgun-driven-placement-research.md §4 for the full
-	 * investigation): applied as AFGHologram::Scroll(sign) called
-	 * |RotationScrollDelta| times (NOT Scroll(RotationScrollDelta) once
-	 * - a single call with |N|>1 was found to behave identically to
-	 * Scroll(1), and negative values didn't decrement, matching a
-	 * per-call clamped input handler built for one wheel notch per
-	 * call) before the placement poll begins. NOT camera-direction-
-	 * dependent (ruled out live). The resulting orientation is
-	 * context/terrain-dependent, not a fixed default or a clean
-	 * degrees-per-unit constant: on a foundation, rotation appears to
-	 * hard-snap to 90-degree multiples; on raw terrain, one live
-	 * calibration point measured Scroll(1) ~= +10 degrees, but only a
-	 * narrow window of deltas kept the placement's aim location valid
-	 * at that specific spot - ground slope constrains which
-	 * orientations are even valid. Pass 0 for the pre-rotation-control
-	 * behavior (still context-dependent, just no additional scroll).
-	 * Treat any delta as a candidate to verify via the constructed
-	 * buildable's real rotation.yaw (world.buildables), not a
-	 * guaranteed/precomputed result.
-	 *
-	 * GridSnapSize (2026-08-25): if > 0, X and Y are each rounded to the
-	 * nearest multiple of this value before ground-tracing/placement.
-	 * Added per explicit project direction to snap buildables to the
-	 * world grid when possible, so layout planning
-	 * (controller/satisfactory_ai/layout.py) works with tidy, predictable
-	 * coordinates instead of arbitrary floats carried forward from live
-	 * telemetry. This is a caller-chosen general-purpose snap, distinct
-	 * from and in addition to whatever per-hologram-class grid snapping
-	 * FactoryGame's own AFGBuildableHologram::mGridSnapSize applies
-	 * internally (protected, no public accessor, varies per building
-	 * type - not read or relied on here). Pass 0 to disable (the prior
-	 * behavior).
-	 *
-	 * ReferenceZ (2026-08-25): anchors the ground trace's vertical search
-	 * range (+/-1000 units) to this Z instead of the player's current Z.
-	 * Found live to matter, not just in theory: the player's elevation
-	 * at call time is otherwise load-bearing for where a building
-	 * actually lands - if the player is somewhere unrelated (standing on
-	 * top of another building, on a walkway far above/below the real
-	 * target), the trace can miss real terrain and fall back to that
-	 * irrelevant Z, landing nowhere near the intended spot on any axis.
-	 * Pass a KNOWN, FIXED reference (e.g. an existing buildable's own Z
-	 * from world.buildables) for deterministic placement independent of
-	 * where the player happens to be standing - the recommended approach
-	 * for any multi-step layout (foundations, then buildings on them)
-	 * rather than relying on player position at every step. Sentinel
-	 * -1000000 (an unrealistic in-game Z) means "not provided", which
-	 * preserves the prior player-Z-anchored behavior.
+	 * ReferenceZ: anchors the ground trace to this Z instead of the
+	 * player current Z - needed because the trace search range is only
+	 * +/-1000 units, so an unrelated player position can miss real
+	 * terrain entirely. Pass an existing buildable Z (world.buildables)
+	 * for deterministic multi-step layouts. Sentinel -1000000 means
+	 * not provided, falls back to player Z.
 	 *
 	 * bIgnoreAimLocation/bIgnorePlayerEncroachment/bIgnoreClearance/
-	 * bIgnoreInvalidFloor (2026-08-25, all default false = today's
-	 * strict behavior): per explicit user direction - player-proximity/
-	 * camera-direction gates don't scale for large, autonomous,
-	 * multi-building layouts, and the user explicitly accepts the risk
-	 * of invalid terrain collisions in exchange. When set, the
-	 * corresponding UFGCDInvalidAimLocation/UFGCDEncroachingPlayer/
-	 * UFGCDEncroachingClearance/UFGCDInvalidFloor disqualifier class is
-	 * excluded from DocMod's own "does this block construction" gate
-	 * (which replicates the documented "any non-soft disqualifier
-	 * blocks" rule itself here, rather than calling the real
-	 * AFGHologram::CanConstruct() - see this function's .cpp for why:
-	 * that function's actual logic is unreadable, stub source). Every
-	 * OTHER disqualifier (structural validity, resource requirements,
-	 * snap requirements, etc.) still applies normally - this is a
-	 * scoped, named bypass of specific UX-only gates, not a generic
-	 * "ignore everything" switch. Still calls the real
-	 * InternalConstructHologram() either way - FactoryGame's own
-	 * server-side validation inside that function, if any, is
-	 * unverified from source and not bypassed by these flags.
+	 * bIgnoreInvalidFloor: named, scoped bypasses of specific UX-only
+	 * disqualifiers, for large autonomous layouts that accept the
+	 * collision risk. Every other disqualifier still applies.
 	 *
-	 * bHasTargetYaw/TargetYawDegrees (2026-08-27): RotationScrollDelta's
-	 * "call AFGHologram::Scroll(+-1) N times in a tight synchronous loop"
-	 * approach (see the .cpp's calibration comment) was live-confirmed
-	 * this session to be NON-LINEAR for |N|>1 - a sweep of delta=-1..-9
-	 * against the same recipe/location produced resolved yaws with no
-	 * consistent per-click increment (e.g. -10, +70, +40, 0, -50, -110,
-	 * -180, +90, +170 degrees - not a monotonic or evenly-spaced
-	 * sequence). Root cause unconfirmed (stub source), but calling
-	 * Scroll() repeatedly with zero real ticks between calls is the
-	 * prime suspect, since a real player's mouse-wheel notches are never
-	 * that close together. Rather than chase Scroll()'s internal
-	 * behavior further, bHasTargetYaw lets the caller specify the exact
-	 * final world yaw directly - when true, RotationScrollDelta is
-	 * ignored entirely and the hologram's actor rotation is force-set to
-	 * FRotator(0, TargetYawDegrees, 0) every poll tick (same
-	 * re-assertion pattern as the deterministic-look fix above, since
-	 * UpdateHologramPlacement() may re-derive yaw each tick). This is
-	 * the recommended way to get a specific orientation reliably -
-	 * RotationScrollDelta remains for callers that only care about SOME
-	 * rotation being applied, not a specific one.
+	 * bHasTargetYaw/TargetYawDegrees: sets an exact final world yaw
+	 * directly, bypassing RotationScrollDelta - the reliable way to get
+	 * a specific orientation.
 	 *
-	 * FaceBuildableId (2026-08-27, optional, empty = unused): resolves an
-	 * existing buildable's real position (FindBuildableById) and computes
-	 * TargetYawDegrees from it automatically - (Target - PlacementLocation)
-	 * .Rotation().Yaw - instead of requiring the caller to fetch that
-	 * buildable's position separately and do the vector math themselves.
-	 * Takes priority over an explicit bHasTargetYaw/TargetYawDegrees if
-	 * both are given. Fails with FACE_TARGET_NOT_FOUND if the id doesn't
-	 * resolve. Added per explicit user request to make orientation
-	 * "not require special knowledge on the side of the agent" - this
-	 * automates the exact manual "read connector normal, compute delta,
-	 * rotate, reverify" dance repeated all session for splitters/mergers/
-	 * hypertube entrances. Only orients the WHOLE building to face the
-	 * target's position - does not (yet) reason about which SPECIFIC
-	 * connector on a multi-connector building ends up facing it.
+	 * FaceBuildableId: resolves an existing buildable position and
+	 * computes TargetYawDegrees to face it automatically. Takes
+	 * priority over an explicit yaw. Fails with FACE_TARGET_NOT_FOUND.
+	 * Orients the whole building only, not a specific connector on a
+	 * multi-connector building.
 	 */
 	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
@@ -760,139 +647,63 @@ public:
 	static FDocModOperationResult DebugCheckPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB);
 
 	/**
-	 * PLAN.md Phase 13/14: RPC-drivable variant of
-	 * ConstructExtractorOnTargetedNode - places a real Miner Mk1 on a
-	 * resource node identified by session-local id (e.g. from
-	 * GetResourceNodeTelemetry/"world.resourceNodes"), instead of
-	 * requiring the player to actually be looking at it. Not a
-	 * UFUNCTION - TFunction callbacks aren't UHT-compatible - a plain
-	 * C++ entry point for UDocModHttpServerSubsystem, same shape as
+	 * Places a real extractor on a resource node by session-local id
+	 * (world.resourceNodes), instead of requiring the player to be
+	 * looking at it. Not a UFUNCTION - plain C++ entry point for
+	 * UDocModHttpServerSubsystem, same async shape as
 	 * ConstructBuildingAtPosition.
 	 *
-	 * Same validated flow, scope, and safety posture as
-	 * ConstructExtractorOnTargetedNode (solid resources only,
-	 * GetPlacementLocation/GetPlacementRotation for the synthetic hit,
-	 * UpdateHologramPlacement() re-asserted every poll tick,
-	 * InternalConstructHologram() only once CanConstruct() genuinely
-	 * resolves true) and genuinely asynchronous like
-	 * ConstructBuildingAtPosition (OnComplete invoked once, with
-	 * ResultBuildableId set on success).
+	 * The synthetic FHitResult must set a real Distance field (not the
+	 * 0.f default) - AFGResourceExtractorHologram sanity-checks it, a
+	 * default value fails with "Must be placed on a Resource Node!"
+	 * even on a valid node. Also calls Hologram->TrySnapToActor(Hit),
+	 * which populates mSnappedExtractableResource.
 	 *
-	 * FIXED 2026-08-26 - live-diagnosed a real, reproducible regression:
-	 * consistently failed with UFGCDNeedsResourceNode ("Must be placed
-	 * on a Resource Node!") across three different fresh Pure,
-	 * unoccupied resource nodes. Root cause, CONFIRMED live via a
-	 * two-round diagnostic pass (ruled out bad GetPlacementLocation()/
-	 * GetPlacementRotation() values and a wrong hologram class first):
-	 * the synthetic FHitResult's `Distance` field was left at its
-	 * default (0.f) while every other field (Location/Normal/Component/
-	 * HitObjectHandle) was deliberately populated to look like a real
-	 * trace result - AFGResourceExtractorHologram's internal placement
-	 * validation evidently sanity-checks Distance. Now sets it to the
-	 * real player-to-placement-point distance. Also added an explicit
-	 * `Hologram->TrySnapToActor(Hit)` call (previously relied solely on
-	 * UpdateHologramPlacement(), unlike every other click-driven
-	 * Construct* function in this file) in the same redeploy - its own
-	 * contribution to the fix is unconfirmed, kept for consistency with
-	 * the rest of this file and because TrySnapToActor() is what
-	 * populates mSnappedExtractableResource, needed for the extractor to
-	 * actually function correctly, not just pass this one disqualifier.
+	 * RecipeClassPath is caller-chosen (any solid/liquid/gas extractor
+	 * recipe) - engine-side gating on AFGBuildableResourceExtractorBase
+	 * already restricts which recipe fits which node type correctly, no
+	 * need to re-derive that here. NodeId resolves against the wider
+	 * AFGResourceNodeBase, which also reaches Fracking Core nodes (a
+	 * Resource Well Pressurizer target, not an AFGResourceNode - see
+	 * docs/resource-well-research.md).
 	 *
-	 * RecipeClassPath (2026-08-27, per explicit user request to support
-	 * Resource Well Pressurizers/Extractors): was hardcoded to
-	 * Recipe_MinerMk1 - now caller-chosen, any solid/liquid/gas extractor
-	 * recipe (Recipe_MinerMk1..Mk3, Recipe_WaterPump, Recipe_OilPump,
-	 * Recipe_FrackingSmasher, Recipe_FrackingExtractor). The RF_SOLID-only
-	 * gate this function used to enforce manually was removed - it only
-	 * ever existed because this function was written and tested against
-	 * Miners first; the real engine-side gating (AFGBuildableResourceExtractorBase::
-	 * mAllowedResourceForms, mRestrictToNodeType, and their disqualifiers)
-	 * already does this correctly for every extractor type, confirmed
-	 * from source (docs/resource-well-research.md) - trust it the same
-	 * way this function already trusts CanConstruct() for everything
-	 * else, rather than re-deriving a redundant, narrower check.
-	 *
-	 * NodeId now resolves against AFGResourceNodeBase (was AFGResourceNode) -
-	 * a strictly wider search, not a behavior change for existing
-	 * callers: AFGResourceNode (normal nodes and Fracking Satellites,
-	 * since AFGResourceNodeFrackingSatellite : AFGResourceNode) was
-	 * already covered; AFGResourceNodeFrackingCore (the Resource Well
-	 * Pressurizer's real target - NOT an AFGResourceNode, confirmed from
-	 * source) is the new case this makes reachable at all. See
-	 * docs/resource-well-research.md for the full class hierarchy and why
-	 * a Pressurizer must be built on a core node specifically, never a
-	 * satellite.
-	 *
-	 * Sequencing (NOT enforced by this function - a real, engine-side
-	 * construction-time gate, not a bypassable disqualifier): a Fracking
-	 * Satellite's construct disqualifier (UFGCDNeedsFrackingSatelliteNode)
-	 * requires the satellite to have been ACTIVATED by its core's own
-	 * Pressurizer already producing (AFGResourceNodeFrackingSatellite::
-	 * GetState() != FSS_Untouched) before Recipe_FrackingExtractor can be
-	 * built there at all - confirmed from source/localized disqualifier
-	 * text ("Must be placed on an activated Fracking Satellite Node!").
-	 * The real required order is: build the Pressurizer on the core,
-	 * power it, wait for GetState() to leave FSS_Untouched (poll
-	 * "world.resourceNodes" - see its satelliteState field), only then
-	 * build extractors on the satellites - this function will correctly
-	 * fail with CANNOT_CONSTRUCT if called on a not-yet-activated
-	 * satellite, it does not silently bypass the check.
+	 * Fracking Satellite sequencing is a real engine-side gate, not
+	 * bypassable here: a satellite extractor needs its core Pressurizer
+	 * already producing (poll world.resourceNodes' satelliteState)
+	 * before it can be built - this function correctly fails rather
+	 * than silently skipping that check.
 	 */
 	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& RecipeClassPath, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
-	 * Places a Portable Miner (AFGPortableMiner) on a resource node - added
-	 * 2026-08-27 per explicit user request. Architecturally unrelated to
-	 * every other Construct* function in this file: the Portable Miner is
-	 * NOT an AFGBuildable and is never driven by AFGBuildGunStateBuild/a
-	 * hologram at all (confirmed from source - AFGPortableMiner derives
-	 * directly from AActor). It's deployed as EQUIPMENT (like the Golf
-	 * Cart), via AFGPortableMinerDispenser : AFGEquipment, whose real
-	 * placement logic is a `protected UFUNCTION(Server, Reliable)
-	 * Server_SpawnPortableMiner(location, resourceNode)`.
+	 * Places a Portable Miner (AFGPortableMiner) on a resource node.
+	 * Architecturally unlike every other Construct* function here: a
+	 * Portable Miner is not an AFGBuildable, never driven by a hologram.
+	 * It is deployed as EQUIPMENT via AFGPortableMinerDispenser, whose
+	 * real placement logic is a protected
+	 * Server_SpawnPortableMiner(location, resourceNode).
 	 *
-	 * Real flow, reverse-engineered from FGPortableMiner.h/
-	 * FGPortableMinerDispenser.h/FGInventoryComponentEquipment.h/
-	 * FGCharacterPlayer.h (no .cpp bodies available - this SDK's
-	 * FactoryGame .cpp files are stub source):
-	 * 1. The player must already have a real Portable Miner ITEM in
-	 *    inventory (ItemClassPath, default the real
-	 *    BP_ItemDescriptorPortableMiner path) - it's consumed on
-	 *    placement like a real player crafting+placing one, not
-	 *    synthesized. Fails with PORTABLE_MINER_NOT_IN_INVENTORY if absent.
-	 * 2. Moves the item from the player's general inventory into the ARMS
-	 *    equipment slot (a genuinely SEPARATE small
-	 *    UFGInventoryComponentEquipment, not a view over the backpack -
-	 *    live-confirmed 2026-08-27: an item just sitting in the general
-	 *    inventory does not automatically appear here), finds the index
-	 *    it landed at, then calls the REAL, public, BlueprintCallable
-	 *    SetActiveEquipmentIndex(index) - the same sanctioned path a
-	 *    player's own hotbar key-press uses (internally spawns+equips
-	 *    the dispenser) - deliberately NOT calling
-	 *    AFGCharacterPlayer::SpawnEquipment directly, since that's a
-	 *    private, non-reflected C++ method with no public/reflectable
-	 *    entry point at all. If the move itself fails, the item is
-	 *    restored to the general inventory rather than left stranded.
-	 * 3. Polls (real ticks, same pattern as every other deferred
-	 *    Construct* function) until AFGCharacterPlayer::GetEquipmentInSlot
-	 *    (ES_ARMS) resolves to a real AFGPortableMinerDispenser instance.
-	 * 4. Calls that dispenser's protected Server_SpawnPortableMiner via
-	 *    Unreal reflection (FindFunction+ProcessEvent - UFUNCTION
-	 *    reflection isn't gated by C++ access specifiers) with the
-	 *    resolved node's OWN real location, not a camera trace - this
-	 *    deliberately bypasses TraceForPortableMinerPlacementLocation's
-	 *    camera-dependent aim entirely, matching this project's
-	 *    established player-independence pattern for every other
-	 *    Construct* function.
-	 * 5. Polls again for a new AFGPortableMiner actor whose
-	 *    mExtractResourceNode matches the target node, then unequips
-	 *    (UnequipEquipment) to return to a clean state.
+	 * Flow: (1) requires a real Portable Miner item already in inventory
+	 * (ItemClassPath, PORTABLE_MINER_NOT_IN_INVENTORY if absent) - real
+	 * consumption, not synthesized; (2) moves it into the ARMS
+	 * equipment slot (a genuinely separate inventory component from the
+	 * general backpack) and calls the real SetActiveEquipmentIndex to
+	 * equip the dispenser; (3) polls for the dispenser to actually
+	 * exist in that slot; (4) calls Server_SpawnPortableMiner with the
+	 * node real location (not a camera trace, matching this file player-
+	 * independence pattern elsewhere); (5) polls for the new actor and
+	 * unequips.
 	 *
-	 * NodeId uses the same AFGResourceNodeBase-based lookup as
-	 * ConstructExtractorOnNode (any real, unoccupied node). Fails with
-	 * NODE_OCCUPIED if IsOccupied() is already true, matching real game
-	 * behavior (a Portable Miner still occupies the node like any other
-	 * extractor).
+	 * STILL UNRESOLVED as of 2026-08-28: step 4 executes with no error
+	 * and correct parameters (confirmed via log), but no real actor
+	 * appears - true even when called as a direct C++ member call via a
+	 * protected-access-bypass accessor (see the .cpp), not just via
+	 * reflection. Root cause not found; something inside the real,
+	 * stub-source compiled implementation is rejecting it.
+	 *
+	 * NodeId uses the same AFGResourceNodeBase lookup as
+	 * ConstructExtractorOnNode. Fails with NODE_OCCUPIED if already
+	 * occupied, matching real game behavior.
 	 */
 	static void ConstructPortableMinerOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& ItemClassPath, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
@@ -1043,148 +854,61 @@ public:
 	static FString CleanupOrphanedFlowIndicatorsAsJson(UObject* WorldContextObject);
 
 	/**
-	 * PLAN.md Phase 13/14: RPC-drivable, genuinely asynchronous variant
-	 * of the DebugCheckPowerConnection dry-run - calls
+	 * Connects power between two buildings via
 	 * AFGWireHologram::SetConnection(0/1, ...) directly with a single
-	 * GetHitResult() assignment for ConnectionA, no click/snap step.
+	 * GetHitResult() assignment for ConnectionA - the only mechanism
+	 * confirmed to work for machine-to-machine wire connections. A
+	 * click-based TrySnapToActor rewrite never populated
+	 * GetConnection(0)/(1) for wires at all; do not repeat without new
+	 * evidence.
 	 *
-	 * CONFIRMED LIVE, TWICE (2026-08-25), that this exact mechanism is
-	 * the only one that works at all for machine<->machine connections -
-	 * two mechanism deviations were tried and both regressed it: (1) a
-	 * click-based UpdateHologramPlacement()+TrySnapToActor()+
-	 * DoMultiStepPlacement() rewrite mirroring belts/pipes -
-	 * TrySnapToActor() never populated AFGWireHologram::GetConnection(0)/(1)
-	 * for wires at all; (2) also setting GetHitResult() for ConnectionB
-	 * (not just A) before SetConnection(1,...) - broke ConnectionA's own
-	 * validation. Do not repeat either without new evidence.
+	 * bIgnoreAimLocation/bIgnoreWireSnap are named, per-disqualifier
+	 * bypasses (manually walks GetConstructDisqualifiers rather than
+	 * trusting the opaque CanConstruct bool) added after diagnosing
+	 * real disqualifier flakiness - the same connection pair returning
+	 * different disqualifiers across identical repeated calls.
+	 * UFGCDWireTooLong is deliberately not ignorable, since it reflects
+	 * a real deterministic length check. Not yet live-verified to
+	 * resolve the flakiness.
 	 *
-	 * SEPARATELY diagnosed (also 2026-08-25, same mechanism, no code
-	 * change): repeated identical dry-run calls against the exact same
-	 * pair of buildables returned THREE DIFFERENT disqualifiers across
-	 * attempts - UFGCDWireSnap ("Must be hooked up to a connection!"),
-	 * UFGCDWireTooLong ("Wire is too long!" - despite the real 3D
-	 * distance being well under the real queried maxLength=10000), and
-	 * UFGCDInvalidAimLocation ("Invalid aim location!") - with success
-	 * on other attempts, still no change. This matches the same class of
-	 * live-camera-dependent flakiness already solved for building
-	 * placement (ConstructBuildingAtPosition's bIgnoreAimLocation etc.),
-	 * not a genuine geometry problem this function's own logic gets
-	 * wrong.
-	 *
-	 * Added bIgnoreAimLocation/bIgnoreWireSnap (mirroring
-	 * ConstructBuildingAtPosition's named, per-disqualifier bypass
-	 * pattern - manually walks GetConstructDisqualifiers() instead of
-	 * trusting the opaque CanConstruct() bool, skipping only the named
-	 * classes the caller opts into ignoring) to test whether bypassing
-	 * these two resolves the flakiness. UFGCDWireTooLong is deliberately
-	 * NOT ignorable - presumed to reflect the real, deterministic
-	 * mMaxLength check, unlike the other two. NOT YET LIVE-VERIFIED to
-	 * actually resolve the flakiness, only diagnosed and hypothesized.
-	 *
-	 * Same bDryRun switch and real-construction posture as
-	 * ConstructExtractorOnNode/ConstructBuildingAtPosition: only calls
-	 * InternalConstructHologram() once CanConstruct() genuinely resolves
-	 * true. Not a UFUNCTION - same reason as the other async entry
-	 * points.
-	 *
-	 * See docs/conveyor-power-connection-research.md's separate note on
-	 * the pole-vs-daisy-chain gameplay constraint that may make direct
-	 * machine-to-machine connection unavailable depending on the save's
-	 * progression state - a CANNOT_CONSTRUCT/NO_POWER_CONNECTION result
-	 * may correctly reflect that, not indicate a bug; distinct from the
-	 * disqualifier-flakiness this addition targets.
+	 * Same bDryRun/async pattern as ConstructExtractorOnNode. A
+	 * CANNOT_CONSTRUCT/NO_POWER_CONNECTION result may correctly reflect
+	 * a real pole-vs-daisy-chain progression gate (see
+	 * docs/conveyor-power-connection-research.md), not a bug.
 	 */
 	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
-	 * PLAN.md Phase 13/14: the smallest possible conveyor belt
-	 * experiment - deliberately NOT a full placement attempt. Per
-	 * docs/conveyor-power-connection-research.md's plan ("start even
-	 * smaller: confirm a single TrySnapToActor call can fix a start
-	 * point before attempting the full sequence"), this spawns a real
-	 * AFGConveyorBeltHologram (via HotKeyRecipe(Recipe_ConveyorBeltMk1)),
-	 * finds a free Output UFGFactoryConnectionComponent on
-	 * SourceBuildableId, feeds a synthetic FHitResult at that
-	 * connection's location through three different entry points in
-	 * sequence (UpdateHologramPlacement(), TrySnapToActor(), a single
-	 * DoMultiStepPlacement() "click"), logging the build step/
-	 * IsConnectionSnapped()/GetAnyConnectedBuildables() state after each
-	 * - widened from a single TrySnapToActor() call after that alone
-	 * produced contradictory evidence (returned true but no state
-	 * indicator actually changed) on the first live test. Never checks
-	 * CanConstruct() or calls Construct(). No polling, nothing deferred -
-	 * reports synchronously. Never touches the save.
+	 * Diagnostic only, not a real placement attempt: spawns a real belt
+	 * hologram and feeds a synthetic hit at a free output connection
+	 * through three entry points (UpdateHologramPlacement, TrySnapToActor,
+	 * a single click), logging the resulting connection state after
+	 * each. Never calls CanConstruct/Construct, never touches the save,
+	 * reports synchronously.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FDocModOperationResult DebugCheckConveyorSnap(UObject* WorldContextObject, const FString& SourceBuildableId);
 
 	/**
-	 * PLAN.md Phase 13/14: builds on DebugCheckConveyorSnap's finding
-	 * (2026-08-25, live) that a belt's start point genuinely snaps via
-	 * TrySnapToActor() + a single DoMultiStepPlacement(true) "click"
-	 * together - neither alone was sufficient, but combined the build
-	 * step advanced from SHBS_FindStart straight to
-	 * SHBS_PlacePoleOrSnapEnding and GetAnyConnectedBuildables() went
-	 * from empty to containing the source buildable. This repeats that
-	 * same TrySnapToActor+click pair a second time at the destination's
-	 * free Input connection, then polls real ticks for the same
-	 * UFGCDInitializing disqualifier seen on the first click to clear
-	 * (identical pattern to every other build-gun-driven function in
-	 * this file) before checking CanConstruct(). Same bDryRun switch and
-	 * real-construction posture as ConstructPowerConnection - only calls
-	 * InternalConstructHologram() once CanConstruct() genuinely resolves
-	 * true. Whether the second click actually completes the sequence
-	 * (DoMultiStepPlacement returning true) is itself still an open
-	 * question this function's first live run will answer - if it
-	 * doesn't, the real result will report exactly that rather than
-	 * guessing further blindly. Not a UFUNCTION - same reason as the
+	 * Connects a conveyor belt between two connectors via the real
+	 * TrySnapToActor()+DoMultiStepPlacement() click sequence, once at
+	 * the source and once at the dest, polling for UFGCDInitializing to
+	 * clear before checking CanConstruct(). Same bDryRun/async pattern
+	 * as ConstructPowerConnection. Not a UFUNCTION, same reason as the
 	 * other async entry points.
 	 *
-	 * RecipeClassPath (2026-08-25, was hardcoded to Recipe_ConveyorBeltMk1
-	 * before this): any of Recipe_ConveyorBeltMk1..Mk6 (all six exist on
-	 * disk, confirmed) resolve the same way ConstructBuildingAtPosition's
-	 * recipe param does - loaded and required to be a real UFGRecipe.
-	 * Belt tier selection by desired throughput, or a too-far-apart
-	 * source/dest needing multiple chained segments, is deliberately NOT
-	 * done here or anywhere in DocMod - see LogConveyorBeltTiersAsJson/
-	 * "world.conveyorBeltTiers" for each tier's real queried speed/
-	 * maxSplineLength/bendRadius/maxInclineDegrees, and
-	 * controller/satisfactory_ai/layout.py and
-	 * controller/satisfactory_ai/conveyors.py for where a rate->tier or
-	 * routing decision should live instead, per this project's
-	 * established toolkit-not-solver direction. This function connects
-	 * exactly one source connector to one dest connector in a single
-	 * belt segment - SourceBuildableId/DestBuildableId are NOT required
-	 * to be machines: any AFGBuildable with a free
-	 * UFGFactoryConnectionComponent works, which includes belts
-	 * themselves (AFGBuildableConveyorBase::GetConnection0()/
-	 * GetConnection1() are UFGFactoryConnectionComponents too) - chaining
-	 * multiple calls (machine -> belt, belt -> belt, belt -> machine)
-	 * should therefore let an agent build multi-segment routes, though
-	 * this has NOT been live-tested, only every machine-to-machine
-	 * single-segment case has.
+	 * RecipeClassPath: any of Recipe_ConveyorBeltMk1..Mk6. Tier/rate
+	 * selection is deliberately not done here - see
+	 * world.conveyorBeltTiers and controller/satisfactory_ai/conveyors.py.
+	 * Source/dest are not required to be machines - any AFGBuildable
+	 * with a free UFGFactoryConnectionComponent works, including belts
+	 * themselves, so chaining calls should build multi-segment routes
+	 * (not live-tested beyond single machine-to-machine segments).
 	 *
-	 * RouteMode (2026-08-25, added after live-diagnosing a real, well-
-	 * evidenced gap): the 2-click TrySnapToActor flow above reliably
-	 * fails - "Conveyor Belt is too long!"/"Invalid placement!" - for ANY
-	 * meaningful direction mismatch between the source's output and the
-	 * dest's input, confirmed across many distances (600-4100+ units)
-	 * and mismatch angles (20-90+ degrees), even when straight-line
-	 * distance was well under the real queried maxSplineLength. One of
-	 * "Straight"/"Curve"/"Auto" (case-insensitive; empty/omitted leaves
-	 * the hologram's own default mode untouched, matching prior
-	 * behavior) - maps to the real, disk-confirmed
-	 * `/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_*`
-	 * assets via `AFGHologram::SetBuildModeOverride()` (public,
-	 * FGHologram.h) - `AFGConveyorBeltHologram::mBuildModeStraight`/
-	 * `mBuildModeCurve` are the two it exposes past the implicit default
-	 * ("Auto"). `AutoRouteSpline()`'s own doc comment ("routes the spline
-	 * to the new location, inserting bends and straights") is the
-	 * evidence "Curve" should be the fix for the bend-failure gap above -
-	 * NOT YET LIVE-VERIFIED to actually resolve it, only a well-evidenced
-	 * hypothesis, since the private engine logic behind
-	 * SetBuildModeOverride()/AutoRouteSpline() is stub-source in this SDK
-	 * like everything else here.
+	 * RouteMode: one of Straight/Curve/Auto (case-insensitive, empty
+	 * leaves the hologram default). Added because the basic click
+	 * sequence reliably fails on any real direction mismatch between
+	 * source and dest connectors - not yet live-verified to resolve it.
 	 */
 	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
@@ -1243,43 +967,26 @@ public:
 	static void ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FDocModOperationResult&)> OnComplete);
 
 	/**
-	 * Telemetry, not a mutation - same LogXAsJson convention as
-	 * LogConveyorBeltTiersAsJson/LogPipelineTiersAsJson. Added 2026-08-25
-	 * per the user's request to research/verify/build splitter+merger
-	 * support.
+	 * Telemetry. KEY FINDING (see docs/conveyor-attachment-research.md):
+	 * splitters/mergers use AFGConveyorAttachmentHologram :
+	 * AFGFactoryHologram : AFGBuildableHologram, the same simple single-
+	 * step lineage as Miners/Smelters/Constructors, not the
+	 * AFGSplineHologram branch belts/pipes need multi-click driving for.
+	 * So ConstructBuildingAtPosition + ConstructConveyorBelt (both
+	 * already generic) place and connect them with zero new construction
+	 * code - deliberately no ConstructSplitter wrapper.
 	 *
-	 * KEY FINDING (see docs/conveyor-attachment-research.md): splitters
-	 * and mergers use AFGConveyorAttachmentHologram : AFGFactoryHologram
-	 * : AFGBuildableHologram - the SAME simple, single-step hologram
-	 * lineage already proven for Miners/Smelters/Constructors, NOT the
-	 * AFGSplineHologram branch belts/pipes needed special multi-click
-	 * driving for. This means ConstructBuildingAtPosition/
-	 * world.placeBuilding and ConstructConveyorBelt/world.connectConveyor
-	 * (both already generic - source/dest never restricted to machines)
-	 * place and connect splitters/mergers with ZERO new construction
-	 * code - deliberately no ConstructSplitter-style wrapper was added.
-	 *
-	 * Reports the real recipe catalog (plain Splitter/Merger plus Smart/
-	 * Programmable Splitter and Priority Merger variants - all five
-	 * confirmed present on disk) with each variant's real
-	 * "inputCount"/"outputCount", read generically via GetDirection() on
-	 * each buildable class CDO's UFGFactoryConnectionComponents (via
-	 * AFGBuildable::GetDefaultComponents<>() - a plain CDO
-	 * GetComponents<>() scan finds nothing here, since these connectors
-	 * are added via the Blueprint's Simple Construction Script, not a
-	 * native CreateDefaultSubobject; fixed 2026-08-27, see this
-	 * function's .cpp comment - the original version of this function
-	 * reported 0/0 for every entry, undetected until then) rather than
-	 * hardcoding the commonly-known 1-in/3-out (splitter) / 3-in/1-out
-	 * (merger) figures - AFGBuildableConveyorAttachment's header doesn't
-	 * declare them as a literal constant anywhere. Also reports
-	 * "supportsSortRules" (true only for the Smart/Programmable variants,
-	 * which share the AFGBuildableSplitterSmart native class) - a real,
-	 * separate, NOT-yet-built capability gap: per-output item-type
-	 * routing (mSortRules/AddSortRule/etc., confirmed public on
-	 * FGBuildableSplitterSmart.h) needs its own future write operation:
-	 * placement/connection alone does not let an agent configure routing
-	 * rules on a Smart/Programmable splitter yet.
+	 * Reports the real recipe catalog (Splitter/Merger plus Smart/
+	 * Programmable Splitter and Priority Merger) with each variant's
+	 * real inputCount/outputCount, read via GetDirection() on each CDO's
+	 * connectors via GetDefaultComponents<>() - plain GetComponents<>()
+	 * finds nothing here since these connectors are Blueprint-SCS-added,
+	 * not native CreateDefaultSubobject (fixed 2026-08-27; this
+	 * previously silently reported 0/0 for every entry). Also reports
+	 * supportsSortRules (true only for Smart/Programmable variants) -
+	 * per-output item-type routing (mSortRules/AddSortRule, public on
+	 * FGBuildableSplitterSmart.h) has no write operation yet; placement
+	 * alone does not let an agent configure routing rules.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogConveyorAttachmentCatalogAsJson(UObject* WorldContextObject);
@@ -1326,133 +1033,68 @@ public:
 	static FString LogItemCatalogAsJson(UObject* WorldContextObject);
 
 	/**
-	 * world.buildableCatalog (2026-08-27) - companion to
-	 * LogRecipeCatalogAsJson/LogItemCatalogAsJson, see LogRecipeCatalogAsJson's
-	 * doc comment for the shared AFGRecipeManager/stub-source caveats.
-	 * Derived from the recipe catalog (filters to isBuildingRecipe==true,
-	 * resolves each to its real AFGBuildable class via
-	 * UFGBuildingDescriptor::GetBuildableClass()) rather than a separate
-	 * enumeration source, so a building's construction cost is always
-	 * exactly its recipe's ingredients.
+	 * world.buildableCatalog - full field list in RPC_REFERENCE.md.
+	 * Derived from the recipe catalog (filters isBuildingRecipe==true,
+	 * resolves each to its AFGBuildable via
+	 * UFGBuildingDescriptor::GetBuildableClass()) so construction cost is
+	 * always exactly the recipe's ingredients. Clearance boxes are the
+	 * buildable's real mClearanceData - the same data FactoryGame's own
+	 * overlap checks use - read via IFGClearanceInterface, class-default
+	 * only, never spawns anything.
 	 *
-	 * Each entry: recipeClass, buildableClass, category ("Generator"/
-	 * "Extractor"/"Manufacturer"/"Other" - determined by C++ class
-	 * hierarchy, not a FactoryGame-declared enum), constructionCost (same
-	 * shape as recipe ingredients), clearance (2026-08-27, per explicit
-	 * user request to pre-plan layouts/estimate foundation counts/space
-	 * for belt+pipe routing gaps - an array of the buildable's real
-	 * mClearanceData boxes, the SAME data FactoryGame's own construction-
-	 * overlap checks use, each with min/max/size in the buildable's local
-	 * space and "type" ("Default"/"Soft"/"BlockEverything") - most
-	 * buildables have exactly one entry, but some declare more than one
-	 * (e.g. a base volume plus a separate one for an attached arm), never
-	 * spawns anything since mClearanceData is a plain class-default
-	 * property, retrieved via the IFGClearanceInterface
-	 * BlueprintNativeEvent), factoryInputCount/factoryOutputCount
-	 * (solid connections), pipeInputCount/pipeOutputCount (fluid
-	 * connections), powerConnectionCount, overridesShardSlotCount +
-	 * potentialShardSlots (power-shard overclock slot count, via
-	 * reflection - mMaxPotential/GetMaxPotential() is explicitly
-	 * documented as the un-shard baseline, this is what tells a caller
-	 * how much headroom shards can add on top of it - BUT
-	 * potentialShardSlots is only meaningful when
-	 * overridesShardSlotCount is true; live-confirmed most buildings
-	 * report the override off, meaning the real slot count falls back to
-	 * a global default this per-building read cannot see - a real,
-	 * documented gap, not a wrong number) - all read off each buildable
-	 * class's CDO via AFGBuildable::GetDefaultComponents<>() (NOT plain
-	 * GetComponents<>(), which misses every Blueprint-SCS-added connector
-	 * - see LogConveyorAttachmentCatalogAsJson's doc comment for the same
-	 * fix and why it was needed), class-level defaults only, never
-	 * spawned in the world.
-	 *
-	 * For anything deriving from AFGBuildableFactory (Manufacturer,
-	 * Extractor, Generator all do): runsOnPower, idlePowerConsumption,
-	 * producingPowerConsumptionBase, defaultProducingPowerConsumption,
-	 * minPotential/maxPotential (clock speed range, i.e. what power shards
-	 * can reach), canChangePotential. For AFGBuildableGenerator
-	 * specifically, additionally: powerProductionCapacity/
-	 * defaultPowerProductionCapacity (real MW output). Non-factory
-	 * buildables (foundations, walls, belts, poles...) still appear with
-	 * category "Other" and omit these power/potential fields entirely
-	 * (rather than reporting misleading zeros).
+	 * potentialShardSlots is only meaningful when overridesShardSlotCount
+	 * is true; most buildings report the override off, meaning the real
+	 * slot count falls back to a global default this per-building read
+	 * cannot see - a real, documented gap, not a wrong number. Components
+	 * are read via GetDefaultComponents<>() not GetComponents<>(), which
+	 * misses Blueprint-SCS-added connectors (see
+	 * LogConveyorAttachmentCatalogAsJson).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogBuildableCatalogAsJson(UObject* WorldContextObject);
 
 	/**
-	 * Telemetry, not a mutation - follows the LogXAsJson return-a-JSON-
-	 * string convention used elsewhere in this file (world.resourceNodes/
-	 * world.buildables/etc.), not FDocModOperationResult.
+	 * Telemetry (JSON string, not FDocModOperationResult). Returns
+	 * AFGBuildableConveyorBase::GetSpeed() for each Recipe_ConveyorBeltMk1..
+	 * Mk6 buildable class, read live off each CDO. GetSpeed()'s unit is
+	 * unconfirmed from source (FactoryGame's own header just says "Speed
+	 * of this conveyor") - treat values as relative/comparable across
+	 * tiers, not confirmed items-per-minute. A recipe whose class fails
+	 * to load is simply omitted, not a hard error.
 	 *
-	 * Returns AFGBuildableConveyorBase::GetSpeed() for the buildable
-	 * class each of Recipe_ConveyorBeltMk1..Mk6 produces, read live from
-	 * each class's CDO (LoadObject + GetDefaultObject) - not a hardcoded
-	 * or assumed table. Added 2026-08-25 so belt-tier selection can be
-	 * based on real queried data instead of remembered/assumed
-	 * items-per-minute figures. NOTE: GetSpeed() is FactoryGame's own
-	 * internal conveyor simulation speed (unit unconfirmed from source -
-	 * AFGBuildableConveyorBase.h only comments it as "Speed of this
-	 * conveyor", no unit given) - this is NOT necessarily
-	 * items-per-minute directly. Treat the returned values as
-	 * relative/comparable across tiers (useful for "pick the belt whose
-	 * speed is at least this multiple of Mk1's" reasoning) until/unless
-	 * a live comparison against the game's own displayed
-	 * items-per-minute figures confirms the exact conversion - a recipe
-	 * whose class fails to load is simply omitted from the result, not
-	 * a hard error, so this still reports on whichever tiers succeed.
-	 *
-	 * Also reports, per tier (2026-08-25, all via
-	 * ResolveConveyorBeltHologramClassForRecipe -> the HOLOGRAM class's
-	 * CDO, a different descriptor accessor - UFGBuildDescriptor::
-	 * GetHologramClass - than the buildable class GetSpeed() reads
-	 * off): "maxSplineLength"/"bendRadius"
-	 * (AFGConveyorBeltHologram::GetMaxSplineLength()/GetBendRadius(),
-	 * public getters) and "maxInclineDegrees" (mMaxIncline, degrees per
-	 * its own doc comment - no public getter exists, read via
-	 * FindFProperty<FFloatProperty> reflection instead, a single
-	 * hardcoded read-only field lookup, not a generic property-access
-	 * capability). Added so an agent can tell BEFORE attempting a
-	 * connection whether two connectors are too far apart or the
-	 * required incline is too steep for a single belt segment, and
-	 * needs either a taller/shorter platform or multiple chained
-	 * segments instead - see ConstructConveyorBelt's doc comment on
-	 * chaining. These three fields are omitted (not a hard error) for
-	 * any tier whose hologram class doesn't resolve.
+	 * Also reports maxSplineLength/bendRadius (public hologram getters)
+	 * and maxInclineDegrees (mMaxIncline, no public getter, read via
+	 * FindFProperty reflection - a single hardcoded field lookup, not a
+	 * generic property-access capability), read off each recipe's
+	 * hologram class CDO via
+	 * ResolveConveyorBeltHologramClassForRecipe/GetHologramClass (a
+	 * different accessor than the buildable class GetSpeed() reads off).
+	 * Lets a caller check before connecting whether two connectors are
+	 * too far apart or too steep for one belt segment and need chaining
+	 * (see ConstructConveyorBelt). Omitted per-tier if the hologram class
+	 * does not resolve.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogConveyorBeltTiersAsJson(UObject* WorldContextObject);
 
 	/**
-	 * Telemetry, not a mutation - same LogXAsJson convention as
-	 * LogConveyorBeltTiersAsJson.
+	 * Telemetry. Returns Recipe_PowerLine's buildable class
+	 * (AFGBuildableWire) CDO's mMaxLength/mMaxPowerTowerLength/
+	 * mLengthPerCost - public EditDefaultsOnly UPROPERTYs with a
+	 * documented "[cm]" unit, unlike the belt tier data's ambiguous-unit
+	 * GetSpeed(). Only one power line tier exists (no Mk1..N), so this
+	 * returns a single flat object, not an array.
 	 *
-	 * Returns Recipe_PowerLine's buildable class (AFGBuildableWire) CDO's
-	 * mMaxLength/mMaxPowerTowerLength/mLengthPerCost - all three are
-	 * PUBLIC EditDefaultsOnly UPROPERTYs with a documented unit ("[cm]"
-	 * per FGBuildableWire.h's own doc comments), unlike the belt tier
-	 * data's ambiguous-unit GetSpeed() - no reflection needed, this is a
-	 * plain public member read. Added 2026-08-25 directly motivated by
-	 * the user's question about whether power (like conveyors) needs
-	 * distance-limit/intermediate-pole handling - it does, and this is
-	 * the real number to check a candidate connection's distance
-	 * against. Only one power line tier exists in this game (no Mk1..N
-	 * like belts), so this returns a single flat object, not an array.
-	 *
-	 * ConstructPowerConnection/world.connectPower's source/dest were
-	 * already generic (FindFreePowerConnection searches any AFGBuildable
-	 * for a free UFGPowerConnectionComponent via GetComponents<>(), not
-	 * hardcoded to machines) - a real power pole
-	 * (Recipe_PowerPoleMk1/Mk2/Mk3, confirmed present on disk) should
-	 * therefore already work as an intermediate relay for a connection
-	 * exceeding mMaxLength, chaining multiple world.connectPower calls,
-	 * with NO C++ changes needed for that part - only untested live
-	 * (every power connection built so far has been one direct
-	 * machine-to-machine segment). See docs/conveyor-power-connection-research.md's
-	 * pole-vs-daisy-chain note: a machine's default single power slot
-	 * may require routing through a pole even for a SHORT connection if
-	 * the daisy-chain unlock isn't active in the current save, separate
-	 * from the mMaxLength distance question entirely.
+	 * ConstructPowerConnection's source/dest lookup is already generic
+	 * (FindFreePowerConnection searches any AFGBuildable, not hardcoded
+	 * to machines), so a real power pole should work as an intermediate
+	 * relay for a connection exceeding mMaxLength by chaining
+	 * world.connectPower calls - untested live so far, every power
+	 * connection built has been one direct machine-to-machine segment.
+	 * See docs/conveyor-power-connection-research.md: a machine's
+	 * default single power slot may require routing through a pole even
+	 * for a short connection if the daisy-chain unlock is not active in
+	 * the current save, separate from the mMaxLength question.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogPowerLineLimitsAsJson(UObject* WorldContextObject);
@@ -1486,56 +1128,32 @@ public:
 	static FString LogPipelineTiersAsJson(UObject* WorldContextObject);
 
 	/**
-	 * PLAN.md Phase 13/14 pipe groundwork (2026-08-25) - a deliberate
-	 * near-exact mirror of ConstructConveyorBelt, same build-gun-driven
-	 * two-click mechanism (TrySnapToActor + DoMultiStepPlacement(true)
-	 * at the source connector, then again at the dest connector),
-	 * applying every fix already discovered live for belts up front:
-	 * UpdateHologramPlacement() before each TrySnapToActor(), and the
-	 * connector's real GetConnectorNormal() (not a placeholder
-	 * UpVector) in the synthetic FHitResult. AFGPipelineHologram is a
-	 * sibling of AFGConveyorBeltHologram - both derive directly from
-	 * AFGSplineHologram, confirmed from source - and
-	 * UFGPipeConnectionComponentBase/EPipeConnectionType is pipes' own
-	 * parallel connection-type hierarchy (PCT_PRODUCER/PCT_CONSUMER),
-	 * NOT UFGFactoryConnectionComponent/EFactoryConnectionDirection.
+	 * Near-exact mirror of ConstructConveyorBelt: same build-gun two-
+	 * click mechanism (TrySnapToActor + DoMultiStepPlacement(true) at
+	 * source, then dest), including the UpdateHologramPlacement-before-
+	 * TrySnapToActor and real GetConnectorNormal fixes. AFGPipelineHologram
+	 * is a sibling of AFGConveyorBeltHologram (both derive from
+	 * AFGSplineHologram), but pipes use their own parallel connection
+	 * hierarchy - UFGPipeConnectionComponentBase/EPipeConnectionType
+	 * (PCT_PRODUCER/PCT_CONSUMER) - not UFGFactoryConnectionComponent.
 	 *
-	 * NOT YET LIVE-TESTED - unlike ConstructConveyorBelt, none of this
-	 * has been run against a real game session; this is groundwork
-	 * ahead of the next testing session, same posture as the belt-tier
-	 * and power-limit telemetry added earlier tonight. Two known
-	 * pipe-specific open questions going into that first live test:
-	 * (1) AFGSplineHologram (the shared base) has no
-	 * GetAnyConnectedBuildables() - only AFGConveyorBeltHologram
-	 * declares that - so the post-end-click diagnostic here uses
-	 * IsConnectionSnapped(false) instead, an indicator already noted
-	 * (DebugCheckConveyorSnap's findings) as not fully reliable even
-	 * for belts; (2) fluid type compatibility
-	 * (UFGCDPipeFluidTypeMismatch, confirmed present in
-	 * FGConstructDisqualifier.h) is NOT pre-validated here - the real
-	 * CanConstruct() disqualifier check is trusted to catch it, same as
-	 * every other disqualifier this function doesn't special-case; (3)
-	 * no standalone Recipe_PipelineSupport/pole recipe was found on
-	 * disk (unlike Recipe_ConveyorPole for belts) even though
-	 * Build_PipelineSupport.uasset exists as a buildable - whether
-	 * chaining ConstructPipe calls through an intermediate pole works
-	 * the same way it does for belts/power, or whether pipe poles are
-	 * only auto-spawned internally by the hologram's own
-	 * mDefaultPipelineSupportRecipe mechanism during placement, is an
-	 * open question for the first live pipe test to answer, not
-	 * assumed either way here.
+	 * AFGSplineHologram has no GetAnyConnectedBuildables (only
+	 * AFGConveyorBeltHologram declares that), so the post-end-click
+	 * diagnostic here uses IsConnectionSnapped(false) instead, the same
+	 * not-fully-reliable indicator noted on DebugCheckConveyorSnap.
+	 * Fluid type mismatch (UFGCDPipeFluidTypeMismatch) is left to the
+	 * real CanConstruct() disqualifier check, same as any other
+	 * disqualifier this function does not special-case. Whether
+	 * chaining calls through an intermediate pipe support pole works
+	 * like it does for belts/power, or poles only auto-spawn internally
+	 * via the hologram's own default support recipe, is unconfirmed.
 	 *
 	 * RecipeClassPath: Recipe_Pipeline or Recipe_PipelineMK2 (see
-	 * LogPipelineTiersAsJson/"world.pipelineTiers" for each tier's real
-	 * queried flowLimit/maxSplineLength/bendRadius/minBendRadius). Tier
-	 * selection and multi-segment routing decisions are deliberately
-	 * NOT made here - see the planned controller/satisfactory_ai/pipes.py
-	 * toolkit module for where that belongs, per this project's
-	 * established toolkit-not-solver direction. SourceBuildableId/
-	 * DestBuildableId are NOT required to be machines: any AFGBuildable
-	 * with a free UFGPipeConnectionComponentBase works, same generic
-	 * posture as ConstructConveyorBelt. Not a UFUNCTION - same reason
-	 * as the other async entry points.
+	 * world.pipelineTiers for each tier's real flowLimit/
+	 * maxSplineLength/bendRadius). Tier selection and multi-segment
+	 * routing are deliberately not decided here. Source/dest need not
+	 * be machines - any AFGBuildable with a free
+	 * UFGPipeConnectionComponentBase works.
 	 */
 	/**
 	 * FindFreeFluidPipeConnection fallback (2026-08-27, per explicit user
