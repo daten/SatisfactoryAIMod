@@ -813,9 +813,36 @@ dispensed" machine was found** - searched for other `AFGEquipment`-based
 and `AFGPortableMinerDispenser` exist. Portable Miner appears to be
 unique in this category, not one of several similar devices.
 
-Not yet live-tested at time of writing - compiled clean, pending redeploy
-and a real run (place on a node, verify a real `AFGPortableMiner` exists
-and targets it, let it produce, retrieve its output).
+**Live-tested 2026-08-27, found and fixed a real bug**: the ARMS
+equipment slot (`UFGInventoryComponentEquipment`) turned out to be a
+genuinely SEPARATE small inventory component, not a view/filter over the
+player's general backpack inventory. Confirmed two ways: (1) a Portable
+Miner sitting only in the general inventory never showed up scanning the
+ARMS slot's own stacks - `world.placePortableMiner` failed with
+`PORTABLE_MINER_NOT_IN_INVENTORY` even though `HasItems()` on the general
+inventory returned true; (2) once the user manually moved the item into
+the ARMS slot via the in-game UI, the ORIGINAL check (which only looked
+at the general inventory) failed instead - proving the two locations are
+mutually exclusive, not a mirror. **Fixed**: `ConstructPortableMinerOnNode`
+now checks the ARMS slot FIRST (covers "already equipped/slotted"), and
+only falls back to moving the item there via
+`Remove()`+`AddStack()` from the general inventory if it's not already
+present - with the item restored to the general inventory if the move
+itself fails, so a failed RPC call never leaves the player short an item.
+
+## Orphaned pipe flow indicators: exact cleanup via `GetFlowIndicator()`, not proximity guessing (2026-08-27)
+
+Follow-up to the section above - `AFGBuildablePipeline` has a real,
+public, `BlueprintCallable` accessor for its own `mFlowIndicator`
+UPROPERTY: `AFGBuildablePipelineFlowIndicator* GetFlowIndicator() const`.
+No reflection needed (unlike the Portable Miner's protected Server RPC).
+`world.cleanupOrphanedFlowIndicators` (no params) builds the set of every
+indicator any live pipe's own `GetFlowIndicator()` actually returns, then
+deletes every `AFGBuildablePipelineFlowIndicator` actor in the world NOT
+in that set, via the same real `IFGDismantleInterface::Execute_Dismantle()`
+path as `DismantleBuildable` - not `AActor::Destroy()`. This is exact,
+not a guess, and safe to run even in a dense pipe cluster where proximity
+heuristics were rejected as unreliable (see above).
 
 ## Two new determinism tools: `world.groundHeight` and `faceBuildableId` (2026-08-27)
 

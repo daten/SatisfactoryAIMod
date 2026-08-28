@@ -63,6 +63,7 @@
 #include "Equipment/FGPortableMinerDispenser.h"
 #include "FGInventoryComponentEquipment.h"
 #include "Resources/FGEquipmentDescriptor.h"
+#include "FGBuildablePipelineFlowIndicator.h"
 
 namespace
 {
@@ -3701,20 +3702,25 @@ void UDocModFunctionLibrary::ConstructPortableMinerOnNode(UObject* WorldContextO
 	}
 
 	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
-	if (!PlayerInventory || !PlayerInventory->HasItems(ItemClass, 1))
-	{
-		OnComplete(FDocModOperationResult::Failure(TEXT("PORTABLE_MINER_NOT_IN_INVENTORY"),
-			FString::Printf(TEXT("Player has no '%s' in inventory - craft one first"), *EffectiveItemClassPath)));
-		return;
-	}
-
 	UFGInventoryComponentEquipment* ArmsSlot = Character->GetEquipmentSlot(EEquipmentSlot::ES_ARMS);
-	if (!ArmsSlot)
+	if (!PlayerInventory || !ArmsSlot)
 	{
-		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No ARMS equipment slot found on player")));
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No player/ARMS equipment slot inventory found")));
 		return;
 	}
 
+	// The ARMS equipment slot is a genuinely SEPARATE small inventory
+	// component (UFGInventoryComponentEquipment), not a view/filter over
+	// the player's general backpack inventory - live-confirmed 2026-08-27
+	// two different ways: (1) an item sitting only in the general
+	// inventory never showed up scanning this component's own stacks,
+	// and (2) once the user manually moved the item into this slot via
+	// the in-game UI, it correctly stopped showing up in the general
+	// inventory's HasItems() check - the two are mutually exclusive
+	// locations, not a view/mirror. So: check the ARMS slot FIRST (covers
+	// "already equipped/slotted" including the user's own manual move),
+	// and only fall back to moving it from the general inventory if it's
+	// not already there.
 	int32 FoundIndex = INDEX_NONE;
 	for (int32 i = 0; i < ArmsSlot->GetSizeLinear(); ++i)
 	{
@@ -3727,8 +3733,39 @@ void UDocModFunctionLibrary::ConstructPortableMinerOnNode(UObject* WorldContextO
 	}
 	if (FoundIndex == INDEX_NONE)
 	{
-		OnComplete(FDocModOperationResult::Failure(TEXT("PORTABLE_MINER_NOT_IN_INVENTORY"),
-			FString::Printf(TEXT("'%s' found in main inventory but not in the ARMS equipment slot - unexpected inventory layout"), *EffectiveItemClassPath)));
+		if (!PlayerInventory->HasItems(ItemClass, 1))
+		{
+			OnComplete(FDocModOperationResult::Failure(TEXT("PORTABLE_MINER_NOT_IN_INVENTORY"),
+				FString::Printf(TEXT("Player has no '%s' in the general inventory or the ARMS equipment slot - craft one first"), *EffectiveItemClassPath)));
+			return;
+		}
+
+		PlayerInventory->Remove(ItemClass, 1);
+		const int32 NumAdded = ArmsSlot->AddStack(FInventoryStack(1, ItemClass), /*allowPartialAdd=*/false);
+		if (NumAdded <= 0)
+		{
+			// Put it back - never leave the player's inventory short an
+			// item because of a failed internal move.
+			PlayerInventory->AddStack(FInventoryStack(1, ItemClass), /*allowPartialAdd=*/true);
+			OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+				FString::Printf(TEXT("'%s' could not be moved into the ARMS equipment slot inventory"), *EffectiveItemClassPath)));
+			return;
+		}
+
+		for (int32 i = 0; i < ArmsSlot->GetSizeLinear(); ++i)
+		{
+			FInventoryStack Stack;
+			if (ArmsSlot->GetStackFromIndex(i, Stack) && Stack.HasItems() && Stack.Item.GetItemClass() == ItemClass)
+			{
+				FoundIndex = i;
+				break;
+			}
+		}
+	}
+	if (FoundIndex == INDEX_NONE)
+	{
+		OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+			FString::Printf(TEXT("'%s' was moved into the ARMS equipment slot but its resulting index could not be found"), *EffectiveItemClassPath)));
 		return;
 	}
 
@@ -4009,6 +4046,68 @@ void UDocModFunctionLibrary::RetrievePortableMinerInventory(UObject* WorldContex
 	UE_LOG(LogDocModAI, Display, TEXT("RetrievePortableMinerInventory: moved %d item(s) from %s to player inventory"), TotalMoved, *PortableMinerId);
 
 	OnComplete(FDocModOperationResult::Success());
+}
+
+FString UDocModFunctionLibrary::CleanupOrphanedFlowIndicatorsAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogDocModAI, Warning, TEXT("CleanupOrphanedFlowIndicatorsAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	// Exact, not proximity-based - see this function's header doc comment
+	// for why proximity guessing was rejected as unsafe in a dense pipe
+	// cluster. AFGBuildablePipeline::GetFlowIndicator() is the real,
+	// public accessor for the mFlowIndicator UPROPERTY - no reflection
+	// needed, unlike the Portable Miner's protected Server RPC.
+	TSet<AFGBuildablePipelineFlowIndicator*> AttachedIndicators;
+	for (TActorIterator<AFGBuildablePipeline> It(World); It; ++It)
+	{
+		if (!IsValid(*It))
+		{
+			continue;
+		}
+		if (AFGBuildablePipelineFlowIndicator* Indicator = It->GetFlowIndicator())
+		{
+			AttachedIndicators.Add(Indicator);
+		}
+	}
+
+	TArray<AFGBuildablePipelineFlowIndicator*> Orphans;
+	for (TActorIterator<AFGBuildablePipelineFlowIndicator> It(World); It; ++It)
+	{
+		if (IsValid(*It) && !AttachedIndicators.Contains(*It))
+		{
+			Orphans.Add(*It);
+		}
+	}
+
+	TArray<TSharedPtr<FJsonValue>> DeletedIdsArray;
+	int32 TotalIndicators = AttachedIndicators.Num() + Orphans.Num();
+	for (AFGBuildablePipelineFlowIndicator* Orphan : Orphans)
+	{
+		const FString OrphanId = Orphan->GetPathName();
+		// Real, safe dismantle - same IFGDismantleInterface path as
+		// DismantleBuildable, not AActor::Destroy().
+		IFGDismantleInterface::Execute_Dismantle(Orphan);
+		DeletedIdsArray.Add(MakeShared<FJsonValueString>(OrphanId));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetNumberField(TEXT("totalIndicators"), TotalIndicators);
+	RootObject->SetNumberField(TEXT("attachedCount"), AttachedIndicators.Num());
+	RootObject->SetNumberField(TEXT("orphanCount"), Orphans.Num());
+	RootObject->SetArrayField(TEXT("deletedIds"), DeletedIdsArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogDocModAI, Display, TEXT("CleanupOrphanedFlowIndicatorsAsJson: %d total, %d attached, %d orphan(s) deleted"),
+		TotalIndicators, AttachedIndicators.Num(), Orphans.Num());
+
+	return JsonString;
 }
 
 void UDocModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FDocModOperationResult&)> OnComplete)

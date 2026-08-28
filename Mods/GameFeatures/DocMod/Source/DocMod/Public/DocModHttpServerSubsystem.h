@@ -128,6 +128,14 @@ struct FHttpServerRequest;
  * buildable's real position and computes yaw automatically, instead of
  * the caller fetching it and doing the vector math themselves.
  *
+ * "world.cleanupOrphanedFlowIndicators" (no params) deletes every
+ * AFGBuildablePipelineFlowIndicator not currently returned by any live
+ * AFGBuildablePipeline's own GetFlowIndicator() - exact, not
+ * proximity-based (see CleanupOrphanedFlowIndicatorsAsJson's doc
+ * comment for why proximity guessing was rejected). Added 2026-08-27 to
+ * clean up debris from pipes deleted before this session's
+ * DismantleBuildable child-actor-cleanup fix existed.
+ *
  * "world.portableMiners" (read-only, no params) lists every AFGPortableMiner
  * with its position/node/output inventory - "world.placePortableMiner"
  * ({"nodeId","itemClass"}, itemClass optional) equips+places one (real

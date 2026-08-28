@@ -866,6 +866,13 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 	{
 		MethodResultJson = UDocModFunctionLibrary::LogPortableMinersAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.cleanupOrphanedFlowIndicators"))
+	{
+		// A real write operation (deletes actors) but takes no params, so
+		// it fits this simple dispatch shape rather than the params-object
+		// one. See CleanupOrphanedFlowIndicatorsAsJson's doc comment.
+		MethodResultJson = UDocModFunctionLibrary::CleanupOrphanedFlowIndicatorsAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.groundHeight"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;

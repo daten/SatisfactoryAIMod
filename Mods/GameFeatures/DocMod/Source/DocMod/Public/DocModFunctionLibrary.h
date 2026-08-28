@@ -815,15 +815,19 @@ public:
 	 *    BP_ItemDescriptorPortableMiner path) - it's consumed on
 	 *    placement like a real player crafting+placing one, not
 	 *    synthesized. Fails with PORTABLE_MINER_NOT_IN_INVENTORY if absent.
-	 * 2. Finds which inventory slot index (within the ARMS equipment
-	 *    slot's UFGInventoryComponentEquipment) holds that item, then
-	 *    calls the REAL, public, BlueprintCallable
+	 * 2. Moves the item from the player's general inventory into the ARMS
+	 *    equipment slot (a genuinely SEPARATE small
+	 *    UFGInventoryComponentEquipment, not a view over the backpack -
+	 *    live-confirmed 2026-08-27: an item just sitting in the general
+	 *    inventory does not automatically appear here), finds the index
+	 *    it landed at, then calls the REAL, public, BlueprintCallable
 	 *    SetActiveEquipmentIndex(index) - the same sanctioned path a
-	 *    player's own hotbar key-press uses (internally
-	 *    spawns+equips the dispenser) - deliberately NOT calling
+	 *    player's own hotbar key-press uses (internally spawns+equips
+	 *    the dispenser) - deliberately NOT calling
 	 *    AFGCharacterPlayer::SpawnEquipment directly, since that's a
 	 *    private, non-reflected C++ method with no public/reflectable
-	 *    entry point at all.
+	 *    entry point at all. If the move itself fails, the item is
+	 *    restored to the general inventory rather than left stranded.
 	 * 3. Polls (real ticks, same pattern as every other deferred
 	 *    Construct* function) until AFGCharacterPlayer::GetEquipmentInSlot
 	 *    (ES_ARMS) resolves to a real AFGPortableMinerDispenser instance.
@@ -886,6 +890,31 @@ public:
 	 * player's inventory.
 	 */
 	static void RetrievePortableMinerInventory(UObject* WorldContextObject, const FString& PortableMinerId, TFunction<void(const FDocModOperationResult&)> OnComplete);
+
+	/**
+	 * Deletes every AFGBuildablePipelineFlowIndicator in the world that
+	 * isn't the real, currently-attached indicator of any live
+	 * AFGBuildablePipeline - added 2026-08-27 per explicit user request,
+	 * after position-proximity heuristics turned out to be unreliable for
+	 * telling an orphaned indicator apart from a legitimate one in a
+	 * dense pipe cluster (see docs/placement-lessons.md).
+	 *
+	 * Exact, not a guess: for every AFGBuildablePipeline in the world,
+	 * calls its own public GetFlowIndicator() (a real accessor for the
+	 * mFlowIndicator UPROPERTY, no reflection needed) to build the set of
+	 * genuinely-attached indicators; any AFGBuildablePipelineFlowIndicator
+	 * actor not in that set is a confirmed orphan - real debris left
+	 * behind by a pipe deleted before this project's
+	 * DismantleBuildable child-actor-cleanup fix existed (see that
+	 * function's doc comment), not a false positive from proximity
+	 * matching. Deletes orphans via the same real
+	 * IFGDismantleInterface::Execute_Dismantle() path as
+	 * DismantleBuildable, not AActor::Destroy(). Returns
+	 * {"protocolVersion":1,"totalIndicators","attachedCount","orphanCount",
+	 * "deletedIds":[...]}.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString CleanupOrphanedFlowIndicatorsAsJson(UObject* WorldContextObject);
 
 	/**
 	 * PLAN.md Phase 13/14: RPC-drivable, genuinely asynchronous variant
