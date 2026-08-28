@@ -39,6 +39,11 @@
  *    other side of the map"), so it defaults OFF to preserve today's
  *    unrestricted behavior for existing remote-testing workflows.
  *
+ * A fifth property, added 2026-08-28, is a different character entirely -
+ * bAutoAcknowledgeChatMessages is a pure UX nicety (an instant "seen" chat
+ * reply, see UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded), not
+ * a safety/capability trade-off, and defaults ON rather than off.
+ *
  * See DocModFunctionLibrary::GetDocModConfigBool/GetDocModConfigFloat for
  * how these are read at construction time, and
  * UDocModHttpServerSubsystem::Initialize for registration and where

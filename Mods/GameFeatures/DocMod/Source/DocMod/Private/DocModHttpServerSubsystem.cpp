@@ -17,6 +17,7 @@
 #include "IPAddress.h"
 #include "DocModConfiguration.h"
 #include "Configuration/ConfigManager.h"
+#include "FGChatManager.h"
 
 namespace
 {
@@ -140,10 +141,21 @@ void UDocModHttpServerSubsystem::Initialize(FSubsystemCollectionBase& Collection
 	HttpServerModule.StartAllListeners();
 
 	UE_LOG(LogDocModAI, Display, TEXT("DocMod HTTP server listening on http://127.0.0.1:%u/rpc (loopback only - see Config/DefaultEngine.ini ListenerOverrides)"), ListenPort);
+
+	TryBindChatManagerDelegate();
 }
 
 void UDocModHttpServerSubsystem::Deinitialize()
 {
+	if (UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr)
+	{
+		World->GetTimerManager().ClearTimer(ChatManagerBindRetryTimer);
+	}
+	if (AFGChatManager* ChatManager = AFGChatManager::Get(GetGameInstance()))
+	{
+		ChatManager->OnChatMessageAdded.RemoveDynamic(this, &UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded);
+	}
+
 	if (Router.IsValid() && RpcRouteHandle.IsValid())
 	{
 		Router->UnbindRoute(RpcRouteHandle);
@@ -153,6 +165,75 @@ void UDocModHttpServerSubsystem::Deinitialize()
 	UE_LOG(LogDocModAI, Display, TEXT("DocMod HTTP server stopped"));
 
 	Super::Deinitialize();
+}
+
+void UDocModHttpServerSubsystem::TryBindChatManagerDelegate()
+{
+	AFGChatManager* ChatManager = AFGChatManager::Get(GetGameInstance());
+	if (!ChatManager)
+	{
+		// AFGChatManager is a world/actor-based subsystem, unlike
+		// UConfigManager - it may not exist yet this early. Retry on a
+		// short repeating timer until it does, then stop (see this
+		// function's header doc comment).
+		if (UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr)
+		{
+			World->GetTimerManager().SetTimer(ChatManagerBindRetryTimer, this, &UDocModHttpServerSubsystem::TryBindChatManagerDelegate, 1.0f, /*bLoop=*/false);
+		}
+		return;
+	}
+
+	// Seed LastSeenChatMessageCount to whatever history already exists
+	// (e.g. the "X has joined the game!" system message) so only
+	// messages added AFTER this binding trigger an ack - not a backlog
+	// from before the mod finished initializing.
+	TArray<FChatMessageStruct> ExistingMessages;
+	ChatManager->GetReceivedChatMessages(ExistingMessages);
+	LastSeenChatMessageCount = ExistingMessages.Num();
+
+	ChatManager->OnChatMessageAdded.AddDynamic(this, &UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded);
+
+	UE_LOG(LogDocModAI, Display, TEXT("DocMod HTTP server: bound to AFGChatManager::OnChatMessageAdded for instant chat acknowledgment"));
+}
+
+void UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded()
+{
+	AFGChatManager* ChatManager = AFGChatManager::Get(GetGameInstance());
+	if (!ChatManager)
+	{
+		return;
+	}
+
+	TArray<FChatMessageStruct> Messages;
+	ChatManager->GetReceivedChatMessages(Messages);
+
+	// Re-entrancy note: SendChatMessage below calls AddChatMessageToReceived,
+	// which fires THIS SAME delegate again, synchronously, before this call
+	// returns. Advancing LastSeenChatMessageCount BEFORE reacting (not
+	// after the whole batch) means the re-entrant call's own fresh read of
+	// LastSeenChatMessageCount already excludes the message this call is
+	// currently handling - it only ever sees the newly-added ack (a
+	// CustomMessage, filtered out below regardless) as "new", so it can't
+	// double-ack the same player message or roll the watermark backward.
+	while (LastSeenChatMessageCount < Messages.Num())
+	{
+		const FChatMessageStruct Message = Messages[LastSeenChatMessageCount];
+		++LastSeenChatMessageCount;
+
+		// Only a genuine player-typed message ("/"-prefixed text never
+		// reaches this array at all - diverted to chat command dispatch -
+		// so no separate check is needed for that). Explicitly excludes
+		// System/Ada/Custom messages, which includes DocMod's own acks -
+		// without this a real ack would count as "new" too.
+		if (Message.MessageType == EFGChatMessageType::CMT_PlayerMessage && Message.bIsLocalPlayerMessage)
+		{
+			const bool bAutoAck = UDocModFunctionLibrary::GetDocModConfigBool(GetGameInstance(), TEXT("AutoAcknowledgeChatMessages"), true);
+			if (bAutoAck)
+			{
+				UDocModFunctionLibrary::SendChatMessage(GetGameInstance(), TEXT("received, thinking..."), TEXT("DocMod"));
+			}
+		}
+	}
 }
 
 bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)

@@ -145,6 +145,15 @@ struct FHttpServerRequest;
  * ({"portableMinerId"}, SYNCHRONOUS) empties one into the player's own
  * inventory - all three added 2026-08-27 per explicit user request.
  *
+ * Instant chat acknowledgment (2026-08-28, per explicit user request):
+ * independent of "world.chatHistory"/"world.sendChatMessage" below, this
+ * class also binds directly to AFGChatManager::OnChatMessageAdded
+ * (TryBindChatManagerDelegate/HandlePlayerChatMessageAdded) so a real
+ * player-typed chat message gets an immediate "seen" reply - event-driven,
+ * not subject to an external polling loop's latency floor. Gated by the
+ * "Auto-Acknowledge Chat Messages" mod setting (default ON, unlike the
+ * four safety/capability toggles above).
+ *
  * "world.chatHistory" (read-only, no params) reports
  * {"messages":[{"sender","text","type","timestamp","isLocalPlayerMessage"},...]}
  * via AFGChatManager::GetReceivedChatMessages() - genuinely two-way
@@ -233,6 +242,42 @@ public:
 
 private:
 	bool HandleRpcRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
+
+	/**
+	 * Instant chat acknowledgment (2026-08-28, per explicit user request):
+	 * binds to AFGChatManager::OnChatMessageAdded so a real player-typed
+	 * chat message gets an immediate "seen" reply, independent of - and
+	 * much faster than - any external polling loop (an external agent
+	 * watching via world.chatHistory has an inherent latency floor of at
+	 * least tens of seconds per poll; this is event-driven, fires the
+	 * same tick the message is added). Deliberately does NOT attempt to
+	 * answer the request itself - DocMod has no embedded LLM/decision
+	 * logic (see CLAUDE.md's "Keep the Unreal Mod Small" - this stays
+	 * exactly the same class of thing as everything else in this file,
+	 * a narrow, explicit reaction, not a planner). AFGChatManager is a
+	 * world/actor-based subsystem (unlike UConfigManager, a
+	 * GameInstanceSubsystem) and may not exist yet when this
+	 * GameInstanceSubsystem's own Initialize() runs, since GameInstance
+	 * subsystems can initialize before any level/world subsystems spawn -
+	 * TryBindChatManagerDelegate retries on a short repeating timer until
+	 * it succeeds, then stops.
+	 */
+	void TryBindChatManagerDelegate();
+
+	UFUNCTION()
+	void HandlePlayerChatMessageAdded();
+
+	FTimerHandle ChatManagerBindRetryTimer;
+
+	/**
+	 * Index into AFGChatManager::GetReceivedChatMessages() of the last
+	 * message this subsystem has already reacted to (acked or not) -
+	 * prevents re-acking the same message if OnChatMessageAdded fires
+	 * more than once for it, and is what keeps the ack's own message
+	 * (a CustomMessage, not a PlayerMessage) from being mistaken for a
+	 * new player message on the delegate's own re-fire.
+	 */
+	int32 LastSeenChatMessageCount = 0;
 
 	TSharedPtr<IHttpRouter> Router;
 	FHttpRouteHandle RpcRouteHandle;

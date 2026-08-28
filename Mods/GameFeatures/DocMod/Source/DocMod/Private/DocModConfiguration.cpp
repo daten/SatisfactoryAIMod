@@ -56,4 +56,19 @@ UDocModConfiguration::UDocModConfiguration()
 	MaxBuildDistance->DefaultValue = 8000.0f;
 	MaxBuildDistance->Value = 8000.0f;
 	Section->SectionProperties.Add(TEXT("MaxBuildDistance"), MaxBuildDistance);
+
+	// Default ON (unlike the four safety/capability toggles above, which
+	// default off to preserve prior behavior) - this is a pure UX
+	// nicety, not a security or gameplay-balance trade-off, and is the
+	// literal feature being requested when this was added. See
+	// UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded.
+	UConfigPropertyBool* AutoAcknowledgeChatMessages = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("AutoAcknowledgeChatMessages"));
+	AutoAcknowledgeChatMessages->DisplayName = FText::FromString(TEXT("Auto-Acknowledge Chat Messages"));
+	AutoAcknowledgeChatMessages->Tooltip = FText::FromString(TEXT(
+		"When you type a message in chat, DocMod immediately posts a brief \"seen\" reply - independent of "
+		"whether an external AI controller is actually watching yet, so you know your message registered. "
+		"On by default; turn off if you find it noisy."));
+	AutoAcknowledgeChatMessages->DefaultValue = true;
+	AutoAcknowledgeChatMessages->Value = true;
+	Section->SectionProperties.Add(TEXT("AutoAcknowledgeChatMessages"), AutoAcknowledgeChatMessages);
 }

@@ -300,6 +300,17 @@ Messages the player types starting with `/` never appear here — those are
 diverted to chat-command dispatch. No "since last call" filtering — track
 your own high-water mark between polls.
 
+**A real player-typed message gets an instant "received, thinking..." reply
+from the mod itself**, independent of any external polling — the mod binds
+directly to the game's own chat-added event, so this fires the same tick
+the message is sent, not after your next poll interval. This is a fixed,
+canned acknowledgment only (no reasoning happens in the mod) — you still
+need to poll `world.chatHistory` yourself to actually see and respond to
+what was said. Controlled by the player's "Auto-Acknowledge Chat Messages"
+mod setting (default on) — if you're relying on it, don't assume it's
+there; check for the ack, but don't treat its absence as a sign nothing was
+received.
+
 ### `world.portableMiners` — no params
 ```json
 {
