@@ -2540,6 +2540,28 @@ FDocModOperationResult UDocModFunctionLibrary::SpawnCreatureNearPlayer(UObject* 
 	return FDocModOperationResult::SuccessWithBuildableId(NewCreature->GetPathName());
 }
 
+FDocModOperationResult UDocModFunctionLibrary::DespawnCreature(UObject* WorldContextObject, const FString& CreatureId)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	for (TActorIterator<AFGCreature> It(World); It; ++It)
+	{
+		if (IsValid(*It) && It->GetPathName() == CreatureId)
+		{
+			UE_LOG(LogDocModAI, Display, TEXT("DespawnCreature: destroying %s"), *CreatureId);
+			It->Destroy();
+			return FDocModOperationResult::Success();
+		}
+	}
+
+	return FDocModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+		FString::Printf(TEXT("No live AFGCreature found with id '%s'"), *CreatureId));
+}
+
 void UDocModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -3716,6 +3738,44 @@ namespace
 	}
 }
 
+namespace
+{
+	// Server_SpawnPortableMiner is a protected UFUNCTION(Server, Reliable).
+	// Two prior fixes (2026-08-27, 2026-08-28) called it via
+	// FindFunction+ProcessEvent reflection - confirmed live both times
+	// that the call executes with no error and correct parameters, but no
+	// real AFGPortableMiner ever appears. Root cause (2026-08-28,
+	// confirmed via FactoryGame.log showing "resolved spawn function
+	// 'Server_SpawnPortableMiner'" - the _Implementation UFUNCTION
+	// doesn't exist, since _Implementation methods for Server RPCs are
+	// NOT separately reflected): AActor::ProcessEvent's own net-function
+	// interception for FUNC_Net-flagged UFunctions is a DIFFERENT code
+	// path than the UHT-generated call-site thunk a normal
+	// `Dispenser->Server_SpawnPortableMiner(...)` call would use - the
+	// thunk's "if I have authority, call _Implementation directly, else
+	// send over the wire" routing isn't necessarily reproduced by
+	// ProcessEvent for every call context, and our HTTP-subsystem-
+	// triggered call isn't the actor's owning client, so it's plausible
+	// the "send over the wire" branch fires and is silently dropped
+	// (no owning NetConnection to actually deliver it to).
+	//
+	// Fix: call the REAL UHT-generated thunk directly as a normal C++
+	// member function instead of through reflection, so its own
+	// authority-check-then-execute logic runs exactly as it would from
+	// any real in-class caller. Server_SpawnPortableMiner is protected,
+	// so this accessor re-exposes it as public via a `using` declaration
+	// - safe because C++ access specifiers are compile-time only, add no
+	// data members, and don't change object layout, so a static_cast
+	// from AFGPortableMinerDispenser* is valid. AFGPortableMinerDispenser
+	// is FACTORYGAME_API, so its member function symbols (including
+	// protected ones) are exported for external linkage.
+	class FPortableMinerDispenserAccessor : public AFGPortableMinerDispenser
+	{
+	public:
+		using AFGPortableMinerDispenser::Server_SpawnPortableMiner;
+	};
+}
+
 void UDocModFunctionLibrary::ConstructPortableMinerOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& ItemClassPath, TFunction<void(const FDocModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -3897,91 +3957,18 @@ void UDocModFunctionLibrary::ConstructPortableMinerOnNode(UObject* WorldContextO
 		// Bypasses TraceForPortableMinerPlacementLocation's camera-dependent
 		// aim entirely - real node location, not a trace, matching this
 		// project's player-independence pattern for every other
-		// Construct* function. Server_SpawnPortableMiner is protected -
-		// invoked via reflection since UFUNCTION dispatch isn't gated by
-		// C++ access specifiers (no public/reflectable wrapper exists).
-		//
-		// Live-confirmed 2026-08-28: calling "Server_SpawnPortableMiner"
-		// (the declared RPC name) via ProcessEvent executes cleanly - the
-		// params resolve correctly (confirmed via this function's own log
-		// line below actually printing with the right location/node) and
-		// no error is raised - but no real AFGPortableMiner ever appears.
-		// Best remaining hypothesis: UFUNCTION(Server, Reliable)'s real
-		// authority-check-then-call-the-real-body routing is baked into
-		// UHT-GENERATED C++ at the normal call site
-		// (Dispenser->Server_SpawnPortableMiner(...)), not necessarily
-		// reproduced by ProcessEvent's generic reflection dispatch for
-		// every engine/RPC configuration - untestable further from
-		// headers alone (the real .cpp body is compiled into the game
-		// binary). Try "..._Implementation" first (the actual logic,
-		// bypassing RPC dispatch/authority-check entirely) since it's a
-		// well-known pattern for exactly this class of problem; fall back
-		// to the plain RPC name if UHT didn't reflect an Implementation
-		// UFUNCTION separately (not guaranteed - depends on how this
-		// specific RPC was declared).
-		UFunction* SpawnFunction = Dispenser->FindFunction(TEXT("Server_SpawnPortableMiner_Implementation"));
-		if (!SpawnFunction)
-		{
-			SpawnFunction = Dispenser->FindFunction(TEXT("Server_SpawnPortableMiner"));
-		}
-		if (!SpawnFunction)
-		{
-			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Server_SpawnPortableMiner UFUNCTION not found via reflection")));
-			return;
-		}
-
-		UE_LOG(LogDocModAI, Display, TEXT("ConstructPortableMinerOnNode: resolved spawn function '%s', Dispenser HasAuthority=%s LocalRole=%d, Character HasAuthority=%s"),
-			*SpawnFunction->GetName(),
+		// Construct* function. See FPortableMinerDispenserAccessor's doc
+		// comment above for why this calls the real UHT-generated thunk
+		// directly (via a protected-access-bypass accessor) instead of
+		// through FindFunction+ProcessEvent reflection, which twice
+		// executed with no error but never produced a real actor.
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructPortableMinerOnNode: Dispenser HasAuthority=%s LocalRole=%d, Character HasAuthority=%s"),
 			Dispenser->HasAuthority() ? TEXT("true") : TEXT("false"), static_cast<int32>(Dispenser->GetLocalRole()),
 			PollCharacter->HasAuthority() ? TEXT("true") : TEXT("false"));
-		// Build the params buffer using the UFunction's OWN reflection
-		// data (property offsets/size) instead of a hand-rolled struct -
-		// live-confirmed 2026-08-27 this matters: a plain
-		// {FVector; AFGResourceNode*} struct compiled clean and ran with
-		// no error, but silently produced no real actor (no alignment/
-		// packing guarantee that a hand-rolled struct matches the
-		// UFunction's real generated parameter layout). Setting named
-		// properties (by the exact param names from the declaration -
-		// "location", "resourceNode") via FProperty is the robust way to
-		// call an arbitrary UFunction reflectively.
-		TArray<uint8> ParamsBuffer;
-		ParamsBuffer.SetNumZeroed(SpawnFunction->ParmsSize);
-		uint8* ParamsPtr = ParamsBuffer.GetData();
 
-		bool bSetLocation = false;
-		bool bSetResourceNode = false;
-		for (TFieldIterator<FProperty> PropIt(SpawnFunction); PropIt; ++PropIt)
-		{
-			FProperty* Prop = *PropIt;
-			if (Prop->GetName() == TEXT("location"))
-			{
-				if (FStructProperty* StructProp = CastField<FStructProperty>(Prop))
-				{
-					*StructProp->ContainerPtrToValuePtr<FVector>(ParamsPtr) = PollTargetNode->GetActorLocation();
-					bSetLocation = true;
-				}
-			}
-			else if (Prop->GetName() == TEXT("resourceNode"))
-			{
-				if (FObjectProperty* ObjectProp = CastField<FObjectProperty>(Prop))
-				{
-					ObjectProp->SetObjectPropertyValue_InContainer(ParamsPtr, PollTargetNode);
-					bSetResourceNode = true;
-				}
-			}
-		}
+		static_cast<FPortableMinerDispenserAccessor*>(Dispenser)->Server_SpawnPortableMiner(PollTargetNode->GetActorLocation(), PollTargetNode);
 
-		if (!bSetLocation || !bSetResourceNode)
-		{
-			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
-				FString::Printf(TEXT("Server_SpawnPortableMiner's real parameters didn't match expectations (location found=%s, resourceNode found=%s) - reflection call aborted"),
-					bSetLocation ? TEXT("true") : TEXT("false"), bSetResourceNode ? TEXT("true") : TEXT("false"))));
-			return;
-		}
-
-		Dispenser->ProcessEvent(SpawnFunction, ParamsPtr);
-
-		UE_LOG(LogDocModAI, Display, TEXT("ConstructPortableMinerOnNode: invoked Server_SpawnPortableMiner at %s for node %s"),
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructPortableMinerOnNode: invoked Server_SpawnPortableMiner (direct C++ call) at %s for node %s"),
 			*PollTargetNode->GetActorLocation().ToString(), *PollTargetNode->GetPathName());
 
 		// Poll again for the real actor to appear before reporting success -

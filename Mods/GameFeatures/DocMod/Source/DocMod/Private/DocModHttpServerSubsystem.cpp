@@ -191,6 +191,18 @@ void UDocModHttpServerSubsystem::TryBindChatManagerDelegate()
 	ChatManager->GetReceivedChatMessages(ExistingMessages);
 	LastSeenChatMessageCount = ExistingMessages.Num();
 
+	// RemoveDynamic before AddDynamic makes this idempotent - confirmed
+	// live (2026-08-28) that without this, TryBindChatManagerDelegate
+	// ending up bound more than once (exact cause unconfirmed - possibly
+	// this being called again in some world-reload scenario without an
+	// intervening Deinitialize) turned a single real chat message into
+	// dozens of duplicate "received, thinking..." acks: a multicast
+	// delegate bound N times fires the handler N times per broadcast, and
+	// since SendChatMessage's AddChatMessageToReceived re-triggers this
+	// same delegate synchronously, N bindings compound multiplicatively
+	// rather than just linearly. RemoveDynamic is a safe no-op if not
+	// currently bound.
+	ChatManager->OnChatMessageAdded.RemoveDynamic(this, &UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded);
 	ChatManager->OnChatMessageAdded.AddDynamic(this, &UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded);
 
 	UE_LOG(LogDocModAI, Display, TEXT("DocMod HTTP server: bound to AFGChatManager::OnChatMessageAdded for instant chat acknowledgment"));
@@ -685,6 +697,28 @@ bool UDocModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Requ
 		ParamsObject->TryGetNumberField(TEXT("distanceFromPlayer"), DistanceFromPlayer);
 
 		const FDocModOperationResult Result = UDocModFunctionLibrary::SpawnCreatureNearPlayer(GetGameInstance(), CreatureClassPath, static_cast<float>(DistanceFromPlayer));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.despawnCreature"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString CreatureId;
+		if (!ParamsObject->TryGetStringField(TEXT("creatureId"), CreatureId) || CreatureId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.creatureId must be a non-empty string")));
+			return true;
+		}
+
+		const FDocModOperationResult Result = UDocModFunctionLibrary::DespawnCreature(GetGameInstance(), CreatureId);
 		OnComplete(MakeOperationResponse(Result, RequestId));
 		return true;
 	}

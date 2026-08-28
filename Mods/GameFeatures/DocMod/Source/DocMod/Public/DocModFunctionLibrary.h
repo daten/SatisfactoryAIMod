@@ -577,6 +577,17 @@ public:
 	static FDocModOperationResult SpawnCreatureNearPlayer(UObject* WorldContextObject, const FString& CreatureClassPath, float DistanceFromPlayer);
 
 	/**
+	 * Despawns a creature previously spawned via SpawnCreatureNearPlayer
+	 * (or any real AFGCreature), by its GetPathName() id. Added
+	 * 2026-08-28 for cleanup before a save - narrowly scoped to
+	 * AFGCreature (TActorIterator<AFGCreature> lookup), not a generic
+	 * "destroy any actor" capability - see CLAUDE.md's Safety and
+	 * Stability Boundary.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "DocMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FDocModOperationResult DespawnCreature(UObject* WorldContextObject, const FString& CreatureId);
+
+	/**
 	 * PLAN.md Phase 13/14: RPC-drivable building placement at an
 	 * explicit position, for scenarios (like placing several buildings
 	 * a controlled distance apart for a production chain) where "near
