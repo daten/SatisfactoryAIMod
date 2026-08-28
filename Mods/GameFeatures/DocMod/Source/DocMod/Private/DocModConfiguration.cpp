@@ -3,6 +3,7 @@
 #include "DocModConfiguration.h"
 #include "Configuration/Properties/ConfigPropertyBool.h"
 #include "Configuration/Properties/ConfigPropertyFloat.h"
+#include "UObject/ConstructorHelpers.h"
 
 UDocModConfiguration::UDocModConfiguration()
 {
@@ -12,10 +13,48 @@ UDocModConfiguration::UDocModConfiguration()
 	DisplayName = FText::FromString(TEXT("DocMod AI Interface"));
 	Description = FText::FromString(TEXT("Safety/capability trade-offs for the DocMod RPC interface. All default off - the RPC behaves exactly as before unless you opt in here."));
 
-	UConfigPropertySection* Section = CreateDefaultSubobject<UConfigPropertySection>(TEXT("RootSection"));
+	// SML's C++ config property classes (UConfigPropertySection,
+	// UConfigPropertyBool, UConfigPropertyFloat) all inherit
+	// CreateEditorWidget_Implementation's unconditional `return NULL`
+	// (SML's ConfigProperty.cpp) - real widget creation only exists on
+	// their Blueprint subclasses under
+	// Mods/SML/Content/Interface/UI/Menu/Mods/ConfigProperties/
+	// (BP_ConfigPropertySection, BP_ConfigPropertyBool,
+	// BP_ConfigPropertyFloat). Constructing the raw C++ classes (as this
+	// file originally did) produces properties that are structurally
+	// correct - HasResettableChildProperty() still works, RPC reads via
+	// GetDocModConfigBool still work - but render as a completely blank
+	// page in the Mods settings UI: no checkboxes, no descriptions, since
+	// CreateEditorWidget always returns NULL. Confirmed live (2026-08-28):
+	// the DocMod config page showed a "Reset to Default" button (pure
+	// C++ data logic, unrelated to widget creation) but zero visible
+	// property rows. Fix: resolve the real Blueprint classes here via
+	// ConstructorHelpers::FClassFinder and construct instances of THOSE
+	// instead, via the raw (non-template) UObject::CreateDefaultSubobject
+	// overload that accepts an explicit runtime UClass (Object.h) - falls
+	// back to the C++ base class if the Blueprint asset can't be found,
+	// so a missing/renamed asset degrades to the old (data-only) behavior
+	// instead of failing to construct at all.
+	UClass* SectionClass = UConfigPropertySection::StaticClass();
+	if (ConstructorHelpers::FClassFinder<UConfigPropertySection> SectionFinder(TEXT("/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertySection")); SectionFinder.Succeeded())
+	{
+		SectionClass = SectionFinder.Class;
+	}
+	UClass* BoolClass = UConfigPropertyBool::StaticClass();
+	if (ConstructorHelpers::FClassFinder<UConfigPropertyBool> BoolFinder(TEXT("/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertyBool")); BoolFinder.Succeeded())
+	{
+		BoolClass = BoolFinder.Class;
+	}
+	UClass* FloatClass = UConfigPropertyFloat::StaticClass();
+	if (ConstructorHelpers::FClassFinder<UConfigPropertyFloat> FloatFinder(TEXT("/SML/Interface/UI/Menu/Mods/ConfigProperties/BP_ConfigPropertyFloat")); FloatFinder.Succeeded())
+	{
+		FloatClass = FloatFinder.Class;
+	}
+
+	UConfigPropertySection* Section = CastChecked<UConfigPropertySection>(CreateDefaultSubobject(TEXT("RootSection"), UConfigPropertySection::StaticClass(), SectionClass, true, false));
 	RootSection = Section;
 
-	UConfigPropertyBool* AllowRemoteConnections = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("AllowRemoteConnections"));
+	UConfigPropertyBool* AllowRemoteConnections = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("AllowRemoteConnections"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	AllowRemoteConnections->DisplayName = FText::FromString(TEXT("Allow Remote Connections"));
 	AllowRemoteConnections->Tooltip = FText::FromString(TEXT(
 		"SECURITY RISK. By default the DocMod RPC server only accepts connections from this machine (loopback). "
@@ -25,7 +64,7 @@ UDocModConfiguration::UDocModConfiguration()
 	AllowRemoteConnections->Value = false;
 	Section->SectionProperties.Add(TEXT("AllowRemoteConnections"), AllowRemoteConnections);
 
-	UConfigPropertyBool* UnlimitedResources = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("UnlimitedResources"));
+	UConfigPropertyBool* UnlimitedResources = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("UnlimitedResources"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	UnlimitedResources->DisplayName = FText::FromString(TEXT("Unlimited Resources for RPC Builds"));
 	UnlimitedResources->Tooltip = FText::FromString(TEXT(
 		"By default, RPC-driven construction requires real materials in your inventory, exactly like placing it "
@@ -35,7 +74,7 @@ UDocModConfiguration::UDocModConfiguration()
 	UnlimitedResources->Value = false;
 	Section->SectionProperties.Add(TEXT("UnlimitedResources"), UnlimitedResources);
 
-	UConfigPropertyBool* LimitBuildDistance = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("LimitBuildDistance"));
+	UConfigPropertyBool* LimitBuildDistance = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("LimitBuildDistance"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	LimitBuildDistance->DisplayName = FText::FromString(TEXT("Limit RPC Build Distance From Player"));
 	LimitBuildDistance->Tooltip = FText::FromString(TEXT(
 		"By default, RPC-driven construction has no distance limit at all - it can build anywhere on the map, "
@@ -48,7 +87,7 @@ UDocModConfiguration::UDocModConfiguration()
 	// Default 8000 units ~= 10 standard 8m foundation tiles (800 units
 	// each), per the user's own "10 foundations away" framing when this
 	// setting was requested.
-	UConfigPropertyFloat* MaxBuildDistance = CreateDefaultSubobject<UConfigPropertyFloat>(TEXT("MaxBuildDistance"));
+	UConfigPropertyFloat* MaxBuildDistance = CastChecked<UConfigPropertyFloat>(CreateDefaultSubobject(TEXT("MaxBuildDistance"), UConfigPropertyFloat::StaticClass(), FloatClass, true, false));
 	MaxBuildDistance->DisplayName = FText::FromString(TEXT("Max Build Distance (cm)"));
 	MaxBuildDistance->Tooltip = FText::FromString(TEXT(
 		"Only used when Limit RPC Build Distance From Player is on. Maximum distance, in centimeters, RPC-driven "
@@ -62,7 +101,7 @@ UDocModConfiguration::UDocModConfiguration()
 	// nicety, not a security or gameplay-balance trade-off, and is the
 	// literal feature being requested when this was added. See
 	// UDocModHttpServerSubsystem::HandlePlayerChatMessageAdded.
-	UConfigPropertyBool* AutoAcknowledgeChatMessages = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("AutoAcknowledgeChatMessages"));
+	UConfigPropertyBool* AutoAcknowledgeChatMessages = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("AutoAcknowledgeChatMessages"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	AutoAcknowledgeChatMessages->DisplayName = FText::FromString(TEXT("Auto-Acknowledge Chat Messages"));
 	AutoAcknowledgeChatMessages->Tooltip = FText::FromString(TEXT(
 		"When you type a message in chat, DocMod immediately posts a brief \"seen\" reply - independent of "
@@ -78,7 +117,7 @@ UDocModConfiguration::UDocModConfiguration()
 	// this is treated the same as bUnlimitedResources: a capability an
 	// external AI controller can never enable itself, only the player
 	// from this settings menu. See UDocModFunctionLibrary::SpawnCreatureNearPlayer.
-	UConfigPropertyBool* AllowCreatureSpawning = CreateDefaultSubobject<UConfigPropertyBool>(TEXT("AllowCreatureSpawning"));
+	UConfigPropertyBool* AllowCreatureSpawning = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("AllowCreatureSpawning"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	AllowCreatureSpawning->DisplayName = FText::FromString(TEXT("Allow Creature Spawning"));
 	AllowCreatureSpawning->Tooltip = FText::FromString(TEXT(
 		"Off by default. When enabled, an external AI controller can spawn real creatures near you on request "
