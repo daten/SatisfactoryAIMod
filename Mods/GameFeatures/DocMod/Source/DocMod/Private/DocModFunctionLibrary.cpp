@@ -1484,7 +1484,16 @@ FDocModOperationResult UDocModFunctionLibrary::SendChatMessage(UObject* WorldCon
 	ChatMessage.MessageSender = FText::FromString(Sender.IsEmpty() ? TEXT("DocMod AI") : Sender);
 	ChatMessage.MessageSenderColor = FLinearColor(0.2f, 0.8f, 1.0f);
 
-	ChatManager->AddChatMessageToReceived(ChatMessage);
+	// AddChatMessageToReceived's own doc comment: "Helper function to add
+	// a chat message to the LOCAL received messages" - silent bookkeeping
+	// only, queryable via GetReceivedChatMessages/world.chatHistory but
+	// confirmed live (2026-08-28) NOT visible in the actual in-game chat
+	// UI. BroadcastChatMessage ("Broadcasts a chat message to all
+	// connected players") is the real public entry point - it calls the
+	// NetMulticast Multicast_BroadcastChatMessage internally, which is
+	// almost certainly what actually drives the on-screen chat widget
+	// for a normal player-typed message too.
+	ChatManager->BroadcastChatMessage(ChatMessage, nullptr);
 
 	UE_LOG(LogDocModAI, Display, TEXT("SendChatMessage: [%s] %s"), *ChatMessage.MessageSender.ToString(), *Message);
 
