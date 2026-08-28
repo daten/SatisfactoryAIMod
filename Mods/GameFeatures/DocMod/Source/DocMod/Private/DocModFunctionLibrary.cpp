@@ -3824,12 +3824,40 @@ void UDocModFunctionLibrary::ConstructPortableMinerOnNode(UObject* WorldContextO
 		// Construct* function. Server_SpawnPortableMiner is protected -
 		// invoked via reflection since UFUNCTION dispatch isn't gated by
 		// C++ access specifiers (no public/reflectable wrapper exists).
-		UFunction* SpawnFunction = Dispenser->FindFunction(TEXT("Server_SpawnPortableMiner"));
+		//
+		// Live-confirmed 2026-08-28: calling "Server_SpawnPortableMiner"
+		// (the declared RPC name) via ProcessEvent executes cleanly - the
+		// params resolve correctly (confirmed via this function's own log
+		// line below actually printing with the right location/node) and
+		// no error is raised - but no real AFGPortableMiner ever appears.
+		// Best remaining hypothesis: UFUNCTION(Server, Reliable)'s real
+		// authority-check-then-call-the-real-body routing is baked into
+		// UHT-GENERATED C++ at the normal call site
+		// (Dispenser->Server_SpawnPortableMiner(...)), not necessarily
+		// reproduced by ProcessEvent's generic reflection dispatch for
+		// every engine/RPC configuration - untestable further from
+		// headers alone (the real .cpp body is compiled into the game
+		// binary). Try "..._Implementation" first (the actual logic,
+		// bypassing RPC dispatch/authority-check entirely) since it's a
+		// well-known pattern for exactly this class of problem; fall back
+		// to the plain RPC name if UHT didn't reflect an Implementation
+		// UFUNCTION separately (not guaranteed - depends on how this
+		// specific RPC was declared).
+		UFunction* SpawnFunction = Dispenser->FindFunction(TEXT("Server_SpawnPortableMiner_Implementation"));
+		if (!SpawnFunction)
+		{
+			SpawnFunction = Dispenser->FindFunction(TEXT("Server_SpawnPortableMiner"));
+		}
 		if (!SpawnFunction)
 		{
 			PollState->OnComplete(FDocModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Server_SpawnPortableMiner UFUNCTION not found via reflection")));
 			return;
 		}
+
+		UE_LOG(LogDocModAI, Display, TEXT("ConstructPortableMinerOnNode: resolved spawn function '%s', Dispenser HasAuthority=%s LocalRole=%d, Character HasAuthority=%s"),
+			*SpawnFunction->GetName(),
+			Dispenser->HasAuthority() ? TEXT("true") : TEXT("false"), static_cast<int32>(Dispenser->GetLocalRole()),
+			PollCharacter->HasAuthority() ? TEXT("true") : TEXT("false"));
 		// Build the params buffer using the UFunction's OWN reflection
 		// data (property offsets/size) instead of a hand-rolled struct -
 		// live-confirmed 2026-08-27 this matters: a plain
