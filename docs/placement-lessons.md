@@ -61,6 +61,50 @@ code/message - the connection simply died mid-call) is not real findings,
 just cascade noise from the dead connection, and needs retesting once the
 game is back up.
 
+## CRITICAL: `world.placeBuilding`'s default `gridSnapSize` (100) silently breaks precision geometry - set it to 0 (live-verified 2026-08-30)
+
+First live use of `compute_outer_touching_ring()` (the circular-foundation
+toolkit function) produced a visibly rough, gap-riddled circle instead of
+the exact touching-corner ring the geometry predicts. Root cause: every
+`world.placeBuilding` call defaults `gridSnapSize` to 100 (1m grid snap,
+documented in `RPC_REFERENCE.md`) - the tool's exact, deliberately
+off-grid coordinates were silently rounded to the nearest meter before
+placement, breaking the touching-corner property (position deviations up
+to ~130cm observed, scattered around the whole ring, not just one seam).
+
+**Fix**: pass `gridSnapSize: 0` explicitly for any placement whose exact
+coordinates matter (anything computed by a geometry tool rather than
+eyeballed to a round number) - re-running the same ring with `gridSnapSize:
+0` landed every one of 66 tiles within 0.02cm of the planned position,
+and every adjacent pair's spacing matched the ideal touching-corner
+chord to within 0.03cm. **Lesson for any future toolkit-driven
+placement**: default grid snapping is fine for ordinary building, but
+must be turned off for anything where the Python geometry layer computed
+a specific non-round coordinate on purpose.
+
+Also hit, and worth remembering: `ignoreAimLocation: true` is required
+for placements far from/unrelated to the player's literal look direction
+(a floating ring built around the player still needs it - the
+deterministic-look fix aims at the TARGET position, but "Invalid aim
+location!" can still hard-fail depending on the geometry) - this is a
+named, documented bypass (`RPC_REFERENCE.md`), not a new finding, but
+easy to forget to pass for a non-interactive layout like this one.
+
+## LESSON: "N foundations wide" is ambiguous - diameter-in-tiles vs ring tile-count (2026-08-30)
+
+User asked for a circular platform "21 foundations wide" - first attempt
+misread this as `tile_count=21` (21 foundations AROUND the ring), which
+produced a small ring (<7 foundations across) instead of the intended
+~21-foundation-diameter (168m) circle. Corrected by treating "N
+foundations wide" as a target DIAMETER (`N * foundation_size`), then
+using `solve_outer_touching_ring_tile_count()` to find the tile count
+that actually produces that diameter (168m → 66 tiles, landing at
+168.13m - see the geometry note in
+`controller/satisfactory_ai/layout.py` for why this small rounding gap
+is unavoidable and harmless). **When a user specifies a circle's size in
+"foundations," ask/confirm or default to diameter, not ring tile-count -
+they're very different scales for the same phrase.**
+
 ## NEW CAPABILITY: train timetables + drone station pairing - `world.trains`/`world.trainStations`/`world.setTrainTimetable`/`world.setTrainSelfDriving`, `world.droneStations`/`world.pairDroneStations` (added 2026-08-29, not yet live-tested)
 
 User asked whether AIMod could configure the timetable for a set of

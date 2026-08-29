@@ -1006,6 +1006,14 @@ reference, not position guessing, so it's safe to run any time.
   unchanged, has resolved it repeatedly across this mod's development. If
   it fails a second time in a row, treat it as real and investigate rather
   than retrying further.
+- **Set `gridSnapSize: 0` for any placement whose exact coordinates
+  matter** (anything computed by a geometry tool rather than eyeballed to
+  a round number) — the default of `100` silently rounds to the nearest
+  meter, which is invisible for ordinary grid-aligned building but
+  destroys precision layouts (confirmed live: a circular foundation
+  ring's exact touching-corner geometry was visibly broken by the
+  default snap, and came out exact to a fraction of a millimeter once
+  `gridSnapSize: 0` was set).
 - **IDs go stale on save/reload** — re-fetch before reusing one from an
   earlier session or after the player saves/reloads.
 - **Player-facing safety settings can silently change behavior**: if a

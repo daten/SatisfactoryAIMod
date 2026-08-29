@@ -307,6 +307,16 @@ def compute_outer_touching_ring(
     unlikely to land on an exact whole-tile_count solution.
 
     Raises ValueError if tile_count < 3 or foundation_size <= 0.
+
+    IMPORTANT when feeding these placements to world.placeBuilding:
+    pass gridSnapSize=0. The RPC's default (100, a 1m grid snap) silently
+    rounds these deliberately off-grid coordinates and destroys the
+    touching-corner property - confirmed live (2026-08-30): the same
+    ring came out visibly rough/gapped with the default snap, then exact
+    to a fraction of a millimeter with gridSnapSize=0. Also pass
+    ignoreAimLocation=true - a ring built away from the player's literal
+    look direction can hit "Invalid aim location!" otherwise. See
+    docs/placement-lessons.md's "gridSnapSize" section.
     """
     if tile_count < 3:
         raise ValueError("tile_count must be at least 3")
