@@ -1572,4 +1572,116 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult RerollMamHardDrive(UObject* WorldContextObject, const FString& AnyCurrentRewardSchematicClassPath);
+
+	/**
+	 * world.trainStations (2026-08-29) - lists every AFGTrainStationIdentifier
+	 * via AFGRailroadSubsystem::GetAllTrainStations, each with its real
+	 * station name and the underlying AFGBuildableRailroadStation's id (the
+	 * same id world.buildables already uses for it). Needed because
+	 * world.buildables alone doesn't expose the station's display name,
+	 * and a timetable stop is identified by buildable id, not name - this
+	 * is how a caller finds the right id to build a world.setTrainTimetable
+	 * request without guessing from world.buildables' bare class/position
+	 * data.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTrainStationsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.trains (2026-08-29) - lists every AFGTrain via
+	 * AFGRailroadSubsystem::GetAllTrains: name, status (Parked/
+	 * ManualDriving/SelfDriving/Derailed), self-driving enabled + its real
+	 * ESelfDrivingLocomotiveError (NoPower/NoTimeTable/InvalidNextStop/
+	 * NoPath/StationUnreachable/etc - the actual reason a train isn't
+	 * moving, not just a boolean), docking state, and its FULL timetable
+	 * (every AFGRailroadTimeTable stop's station id/name + real
+	 * FTrainDockingRuleSet - DockingDefinition/DockForDuration/
+	 * IsDurationAndRule/load+unload item filters).
+	 *
+	 * Trains are AActors, not AFGBuildable (same category as AFGVehicle) -
+	 * `id` is GetPathName(), usable with world.setTrainTimetable/
+	 * world.setTrainSelfDriving, NOT with world.buildables/
+	 * world.deleteBuilding.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTrainsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setTrainTimetable (2026-08-29) - configures a train's full
+	 * timetable in one call: AFGRailroadTimeTable::SetStops(), a real,
+	 * public, BlueprintCallable "replace everything" setter (not an
+	 * incremental add/remove) - so this always REPLACES the whole stop
+	 * list, matching that real semantics rather than layering a partial-
+	 * update abstraction over it. Creates a new time table via
+	 * AFGTrain::NewTimeTable() first if the train doesn't have one yet
+	 * (AFGTrain::HasTimeTable() is false).
+	 *
+	 * Each stop resolves a station by buildable id (from world.buildables
+	 * or world.trainStations) to its real AFGTrainStationIdentifier via
+	 * AFGBuildableRailroadStation::GetStationIdentifier() - fails with
+	 * TARGET_NOT_FOUND per-stop if the id isn't a real, currently-existing
+	 * railroad station (checked BEFORE calling SetStops, so a bad stop id
+	 * never partially commits a timetable).
+	 *
+	 * Verifies afterward that GetNumStops() matches the requested stop
+	 * count - never trusts SetStops's own bool return blindly (same
+	 * "verify after every write" discipline as everything else in this
+	 * file).
+	 *
+	 * NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetTrainTimetable(UObject* WorldContextObject, const FString& TrainId, const FString& StopsJson);
+
+	/**
+	 * world.setTrainSelfDriving (2026-08-29) - enables/disables a train's
+	 * autopilot (AFGTrain::SetSelfDrivingEnabled). Does NOT fail if the
+	 * train reports a self-driving error afterward (e.g. no time table, no
+	 * path, station unreachable) - that's real, informative train
+	 * configuration state for the caller to see via
+	 * result.detail.selfDrivingError, not a failure of this RPC call
+	 * itself (the engine's own SetSelfDrivingEnabled has no failure return
+	 * to check against). Only fails if IsSelfDrivingEnabled() doesn't match
+	 * the requested value at all afterward.
+	 *
+	 * NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetTrainSelfDriving(UObject* WorldContextObject, const FString& TrainId, bool bEnabled);
+
+	/**
+	 * world.droneStations (2026-08-29) - lists every drone station via
+	 * AFGDroneSubsystem::GetAllStations(): id (the underlying
+	 * AFGBuildableDroneStation's buildable id), pairedStationId (its
+	 * single paired partner, if any - drone pairing is a mutual 1:1 link,
+	 * not a directional source/destination pair, confirmed from source:
+	 * AFGDroneStationInfo::mPairedStation is a single pointer, not a list;
+	 * cargo flows both directions between paired stations), real drone
+	 * status (NoDrone/Docked/Loading/Takeoff/EnRoute/Docking/Unloading/
+	 * NotEnoughFuel/CannotUnload), active/allowed fuel types, latest+
+	 * average round-trip/item-rate statistics, and the station's real
+	 * input/output/fuel inventories.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogDroneStationsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.pairDroneStations (2026-08-29) - pairs (or unpairs) two drone
+	 * stations, i.e. sets which station a drone route connects - this is
+	 * the RPC that answers "configure source and destination for a drone."
+	 * Real mechanism confirmed from source:
+	 * AFGDroneStationInfo::PairStation(otherStation) - a single mutual
+	 * link per station (not a directional route list), matching
+	 * world.droneStations' pairedStationId shape above.
+	 *
+	 * TargetStationBuildableId empty/omitted unpairs StationBuildableId
+	 * instead (PairStation(nullptr) - OnPairedStationUpdate's own doc
+	 * comment confirms "newStation can be nullptr"). Verifies afterward
+	 * that GetPairedStation() matches the requested target (or is null,
+	 * for an unpair) - never trusts the call blindly.
+	 *
+	 * NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult PairDroneStations(UObject* WorldContextObject, const FString& StationBuildableId, const FString& TargetStationBuildableId);
 };

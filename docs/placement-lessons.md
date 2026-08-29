@@ -61,6 +61,73 @@ code/message - the connection simply died mid-call) is not real findings,
 just cascade noise from the dead connection, and needs retesting once the
 game is back up.
 
+## NEW CAPABILITY: train timetables + drone station pairing - `world.trains`/`world.trainStations`/`world.setTrainTimetable`/`world.setTrainSelfDriving`, `world.droneStations`/`world.pairDroneStations` (added 2026-08-29, not yet live-tested)
+
+User asked whether AIMod could configure the timetable for a set of
+train stations, or the source/destination for a drone. Both turned out to
+have real, clean, well-documented public APIs - researched
+(`FGTrain.h`, `FGRailroadTimeTable.h`, `FGTrainStationIdentifier.h`,
+`FGTrainDockingRules.h`, `Buildables/FGBuildableRailroadStation.h`,
+`FGRailroadSubsystem.h`, `FGDroneStationInfo.h`,
+`Buildables/FGBuildableDroneStation.h`, `FGDroneSubsystem.h`) before
+implementing, same discipline as every other addition this session.
+
+**Trains**: `AFGRailroadTimeTable::AddStop`/`RemoveStop`/`GetStops`/
+`SetStops`/`GetStop` are real, public, `BlueprintCallable` - a genuine
+"replace the whole timetable" setter, not incremental. Each stop
+(`FTimeTableStop`) is a station reference (`AFGTrainStationIdentifier*`,
+obtained from `AFGBuildableRailroadStation::GetStationIdentifier()`) plus
+a real `FTrainDockingRuleSet` (load-once vs fully-load-unload, dock
+duration, AND-vs-OR combination of the two, and optional per-stop item
+load/unload filters). `AFGTrain::GetTimeTable()`/`NewTimeTable()`/
+`HasTimeTable()`/`SetSelfDrivingEnabled()`/`GetSelfDrivingError()` round
+out the picture - `ESelfDrivingLocomotiveError` is a real, specific enum
+(`NoPower`/`NoTimeTable`/`InvalidNextStop`/`NoPath`/`StationUnreachable`/
+`StationUnreachableWithSignals`/`LongWaitAtSignal`), not just a boolean,
+so `world.setTrainSelfDriving` surfaces it as informational detail rather
+than treating a post-enable error as this RPC's own failure.
+
+`AFGRailroadSubsystem::GetAllTrains`/`GetAllTrainStations` gave clean
+enumeration for free - no `TActorIterator` scan needed for either (unlike
+`AFGVehicle`, which has no subsystem-level "get all" and genuinely needed
+one earlier this session).
+
+**A stop's docking rule set doesn't fit cleanly as flat UFUNCTION
+params** (a variable-length list of structs, each with two optional item-
+class array filters) - `world.setTrainTimetable` takes the stops as a raw
+JSON array string instead, parsed inside `SetTrainTimetable` itself via
+the engine's own `FJsonSerializer`. The RPC dispatch layer
+(`AIModHttpServerSubsystem.cpp`) just re-serializes the `params.stops`
+array field straight back to a compact string before handing it off - a
+new, pragmatic pattern for this file (every other write RPC so far has
+used flat scalar params), worth remembering as the template for any
+future RPC needing a variable-length nested-struct input.
+
+**Drones**: `AFGDroneStationInfo::PairStation(otherStation)` is a real,
+public, single-call pairing function - simpler than going through
+`AFGDroneSubsystem::Server_PairStations` directly. Confirmed from source
+that pairing is a single MUTUAL link (`mPairedStation` is one pointer per
+station, not a list) - so "source and destination for a drone" is really
+"which ONE station this one is paired with," cargo flows both directions
+automatically, not a directional route to configure separately.
+`PairStation(nullptr)` unpairs (confirmed via `OnPairedStationUpdate`'s
+own doc comment: "newStation can be nullptr"). `AFGDroneSubsystem::
+GetAllStations()` gave free enumeration, same as the railroad subsystem
+above - genuinely well-designed subsystems across the board for this
+feature, unlike much of this project's other research targets.
+
+**Both new IDs are consistent with this project's established
+conventions**: train ids are `AFGTrain::GetPathName()` (an `AActor`, same
+non-`AFGBuildable` category as `AFGVehicle` from earlier this session -
+NOT usable with `world.buildables`/`world.deleteBuilding`); station ids
+(both rail and drone) are the underlying buildable's normal id, already
+usable with `world.buildables` since both `AFGBuildableRailroadStation`
+and `AFGBuildableDroneStation` are ordinary `AFGBuildable`s.
+
+**Not yet live-tested at all** - implemented from source research only,
+same posture as this session's other same-session additions. Full RPC
+docs in `RPC_REFERENCE.md`.
+
 ## NEW CAPABILITY: full M.A.M. (research) status + automation - `world.mamStatus`, `world.startMamResearch`, `world.claimMamResearch`, `world.claimMamHardDriveReward`, `world.rerollMamHardDrive` (added 2026-08-29, not yet live-tested)
 
 User asked to query which M.A.M. items are unlocked and the current

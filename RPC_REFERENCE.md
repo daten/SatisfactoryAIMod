@@ -885,6 +885,100 @@ runtime behavior (e.g. what `InitiateResearch` does if called twice, or
 whether claiming a hard drive reward can ever legitimately fail) hasn't
 been observed live.
 
+### `world.trainStations` — synchronous, no params
+```json
+{ "protocolVersion": 1, "stations": [
+  { "id": "...", "name": "Iron Ore Pickup", "trackGraphId": 0, "buildableClass": "..." }
+] }
+```
+Every real railroad station, with its display name and the SAME buildable
+id `world.buildables` already uses for it. Needed because a timetable
+stop is identified by buildable id, and `world.buildables` alone doesn't
+expose the human station name — this is how you find the right id to
+build a `world.setTrainTimetable` request.
+
+### `world.trains` — synchronous, no params
+```json
+{ "protocolVersion": 1, "trains": [
+  { "id": "...", "name": "Train 1", "status": "SelfDriving",
+    "selfDrivingEnabled": true, "selfDrivingError": "NoError",
+    "dockingState": "Docked", "hasTimeTable": true,
+    "timetable": [
+      { "stationId": "...", "stationName": "Iron Ore Pickup",
+        "dockingDefinition": "FullyLoadUnload", "dockForDuration": 15,
+        "isDurationAndRule": false,
+        "ignoreFullLoadUnloadIfTransferBlockedByFilters": false,
+        "loadFilter": [], "unloadFilter": [] }
+    ]
+  }
+] }
+```
+Every train (`AFGTrain`, an `AActor` — `id` is a `GetPathName()`, usable
+with `world.setTrainTimetable`/`world.setTrainSelfDriving`, **not** with
+`world.buildables`/`world.deleteBuilding`) with its full status and
+timetable. `selfDrivingError` is the real reason a self-driving train
+isn't moving (`NoPower`/`NoTimeTable`/`InvalidNextStop`/`NoPath`/
+`StationUnreachable`/`StationUnreachableWithSignals`/`LongWaitAtSignal`),
+not just a boolean.
+
+### `world.setTrainTimetable` — synchronous
+`params: {"trainId" (required), "stops" (required, non-empty array)}`.
+Each stop: `{"stationBuildableId" (required — from world.buildables or
+world.trainStations), "dockingDefinition" (optional, "LoadUnloadOnce" |
+"FullyLoadUnload", default "LoadUnloadOnce"), "dockForDuration" (optional
+seconds, default 15), "isDurationAndRule" (optional bool, default false —
+when true, BOTH the duration AND the load/unload condition must be met
+before departing, not either/or), "ignoreFullLoadUnloadIfTransferBlockedByFilters"
+(optional bool), "loadFilter"/"unloadFilter" (optional arrays of item
+class paths — restrict what this stop loads/unloads; empty means no
+restriction)}. **Always replaces the entire timetable** — this mirrors
+the real `AFGRailroadTimeTable::SetStops`'s own "replace everything"
+semantics, not an incremental add. Creates a new time table
+automatically if the train doesn't have one yet. Fails per-stop with
+`TARGET_NOT_FOUND` if a `stationBuildableId` isn't a real, currently-
+existing railroad station — checked for every stop before any change is
+made, so a bad id never leaves a half-applied timetable.
+
+### `world.setTrainSelfDriving` — synchronous
+`params: {"trainId" (required), "enabled" (required bool)}`. Turns
+autopilot on/off for a train. Does **not** fail just because the train
+reports a self-driving error afterward (no time table, no path, etc.) —
+that's real, useful state surfaced via `result.detail.selfDrivingError`,
+not a failure of this call. Re-query `world.trains` (or read
+`result.detail`) to see why a train isn't moving once self-driving is on.
+
+### `world.droneStations` — synchronous, no params
+```json
+{ "protocolVersion": 1, "droneStations": [
+  { "id": "...", "pairedStationId": "...", "droneStatus": "EnRoute",
+    "activeFuelType": "...", "allowedFuelTypes": ["..."],
+    "latestRoundTripTimeSeconds": 42.1, "averageIncomingItemRate": 12.0,
+    "averageOutgoingItemRate": 8.0,
+    "inputInventory": [...], "outputInventory": [...], "fuelInventory": [...] }
+] }
+```
+Every drone station's real pairing, drone status
+(`NoDrone`/`Docked`/`Loading`/`Takeoff`/`EnRoute`/`Docking`/`Unloading`/
+`NotEnoughFuel`/`CannotUnload`), fuel state, trip statistics, and cargo/
+fuel inventories. **Drone pairing is a single mutual link, not a
+directional source/destination pair** — `pairedStationId` is the one
+partner this station's cargo flows to and from (confirmed from source:
+`AFGDroneStationInfo::mPairedStation` is one pointer, not a route list).
+
+### `world.pairDroneStations` — synchronous
+`params: {"stationBuildableId" (required), "targetStationBuildableId"
+(optional — empty/omitted unpairs instead)}`. This is the RPC that
+configures where a drone route goes — pairs two drone stations so cargo
+flows between them both ways, or clears an existing pairing. Fails with
+`TARGET_NOT_FOUND` if either id isn't a real, currently-existing drone
+station. Verifies the pairing actually took via `GetPairedStation()`
+afterward.
+
+**None of the six train/drone methods above are live-tested yet** —
+implemented from source research only (`AFGTrain`/`AFGRailroadTimeTable`/
+`AFGTrainStationIdentifier`/`AFGDroneStationInfo` all have real,
+well-documented public APIs).
+
 ### `world.cleanupOrphanedFlowIndicators` — synchronous, no params
 ```json
 { "protocolVersion": 1, "totalIndicators": 20, "attachedCount": 15, "orphanCount": 5, "deletedIds": ["...", "..."] }

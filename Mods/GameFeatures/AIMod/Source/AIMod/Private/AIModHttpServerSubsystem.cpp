@@ -985,6 +985,95 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	if (Method == TEXT("world.setTrainTimetable"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString TrainId;
+		if (!ParamsObject->TryGetStringField(TEXT("trainId"), TrainId) || TrainId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.trainId must be a non-empty string")));
+			return true;
+		}
+		const TArray<TSharedPtr<FJsonValue>>* StopsArrayPtr = nullptr;
+		if (!ParamsObject->TryGetArrayField(TEXT("stops"), StopsArrayPtr) || !StopsArrayPtr)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.stops must be a JSON array")));
+			return true;
+		}
+
+		// Re-serialize just the stops array to a compact string - the
+		// simplest way to hand a variable-length, nested-struct list
+		// across the UFUNCTION boundary without a custom USTRUCT per stop.
+		FString StopsJson;
+		const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> StopsWriter =
+			TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&StopsJson);
+		FJsonSerializer::Serialize(*StopsArrayPtr, StopsWriter);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetTrainTimetable(GetGameInstance(), TrainId, StopsJson);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.setTrainSelfDriving"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString TrainId;
+		if (!ParamsObject->TryGetStringField(TEXT("trainId"), TrainId) || TrainId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.trainId must be a non-empty string")));
+			return true;
+		}
+		bool bEnabled = false;
+		if (!ParamsObject->TryGetBoolField(TEXT("enabled"), bEnabled))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.enabled must be a boolean")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetTrainSelfDriving(GetGameInstance(), TrainId, bEnabled);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.pairDroneStations"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString StationBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("stationBuildableId"), StationBuildableId) || StationBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.stationBuildableId must be a non-empty string")));
+			return true;
+		}
+		// Optional - empty/omitted means unpair, see PairDroneStations' doc comment.
+		FString TargetStationBuildableId;
+		ParamsObject->TryGetStringField(TEXT("targetStationBuildableId"), TargetStationBuildableId);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::PairDroneStations(GetGameInstance(), StationBuildableId, TargetStationBuildableId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	if (Method == TEXT("world.withdrawFromCentralStorage"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -1395,6 +1484,18 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.mamStatus"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogMamStatusAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.trainStations"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogTrainStationsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.trains"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogTrainsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.droneStations"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogDroneStationsAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.manufacturers"))
 	{

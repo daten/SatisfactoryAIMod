@@ -88,6 +88,14 @@
 #include "FGResearchTreeNode.h"
 #include "FGHardDrive.h"
 #include "FGPlayerController.h"
+#include "FGRailroadSubsystem.h"
+#include "FGTrain.h"
+#include "FGRailroadTimeTable.h"
+#include "FGTrainStationIdentifier.h"
+#include "FGTrainDockingRules.h"
+#include "Buildables/FGBuildableRailroadStation.h"
+#include "FGDroneSubsystem.h"
+#include "FGDroneStationInfo.h"
 
 namespace
 {
@@ -8890,6 +8898,472 @@ FAIModOperationResult UAIModFunctionLibrary::RerollMamHardDrive(UObject* WorldCo
 
 	UE_LOG(LogAIModAI, Display, TEXT("RerollMamHardDrive: rerolled a hard drive that was offering %s - re-query world.mamStatus for new choices"),
 		*RewardSchematic->GetName());
+
+	return FAIModOperationResult::Success();
+}
+
+namespace
+{
+	FString TrainStatusToString(ETrainStatus Status)
+	{
+		switch (Status)
+		{
+		case ETrainStatus::TS_Parked: return TEXT("Parked");
+		case ETrainStatus::TS_ManualDriving: return TEXT("ManualDriving");
+		case ETrainStatus::TS_SelfDriving: return TEXT("SelfDriving");
+		case ETrainStatus::TS_Derailed: return TEXT("Derailed");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	FString SelfDrivingErrorToString(ESelfDrivingLocomotiveError Error)
+	{
+		switch (Error)
+		{
+		case ESelfDrivingLocomotiveError::SDLE_NoError: return TEXT("NoError");
+		case ESelfDrivingLocomotiveError::SDLE_NoPower: return TEXT("NoPower");
+		case ESelfDrivingLocomotiveError::SDLE_NoTimeTable: return TEXT("NoTimeTable");
+		case ESelfDrivingLocomotiveError::SDLE_InvalidNextStop: return TEXT("InvalidNextStop");
+		case ESelfDrivingLocomotiveError::SDLE_InvalidLocomotivePlacement: return TEXT("InvalidLocomotivePlacement");
+		case ESelfDrivingLocomotiveError::SDLE_NoPath: return TEXT("NoPath");
+		case ESelfDrivingLocomotiveError::SDLE_StationUnreachable: return TEXT("StationUnreachable");
+		case ESelfDrivingLocomotiveError::SDLE_StationUnreachableWithSignals: return TEXT("StationUnreachableWithSignals");
+		case ESelfDrivingLocomotiveError::SDLE_LongWaitAtSignal: return TEXT("LongWaitAtSignal");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	FString TrainDockingStateToString(ETrainDockingState State)
+	{
+		switch (State)
+		{
+		case ETrainDockingState::TDS_None: return TEXT("None");
+		case ETrainDockingState::TDS_ReadyToDock: return TEXT("ReadyToDock");
+		case ETrainDockingState::TDS_Docked: return TEXT("Docked");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	FString DroneStatusToString(EDroneStatus Status)
+	{
+		switch (Status)
+		{
+		case EDroneStatus::EDS_NO_DRONE: return TEXT("NoDrone");
+		case EDroneStatus::EDS_DOCKED: return TEXT("Docked");
+		case EDroneStatus::EDS_LOADING: return TEXT("Loading");
+		case EDroneStatus::EDS_TAKEOFF: return TEXT("Takeoff");
+		case EDroneStatus::EDS_EN_ROUTE: return TEXT("EnRoute");
+		case EDroneStatus::EDS_DOCKING: return TEXT("Docking");
+		case EDroneStatus::EDS_UNLOADING: return TEXT("Unloading");
+		case EDroneStatus::EDS_NOT_ENOUGH_FUEL: return TEXT("NotEnoughFuel");
+		case EDroneStatus::EDS_CANNOT_UNLOAD: return TEXT("CannotUnload");
+		default: return TEXT("Unknown");
+		}
+	}
+}
+
+FString UAIModFunctionLibrary::LogTrainStationsAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGRailroadSubsystem* RailroadSubsystem = World ? AFGRailroadSubsystem::Get(World) : nullptr;
+	if (!RailroadSubsystem)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogTrainStationsAsJson: no valid world context or AFGRailroadSubsystem::Get returned null"));
+		return TEXT("{\"protocolVersion\":1,\"stations\":[]}");
+	}
+
+	TArray<AFGTrainStationIdentifier*> Identifiers;
+	RailroadSubsystem->GetAllTrainStations(Identifiers);
+
+	TArray<TSharedPtr<FJsonValue>> StationsJsonArray;
+	for (AFGTrainStationIdentifier* Identifier : Identifiers)
+	{
+		if (!IsValid(Identifier)) { continue; }
+		AFGBuildableRailroadStation* Station = Identifier->GetStation();
+		if (!IsValid(Station)) { continue; }
+
+		const TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("id"), Station->GetPathName());
+		Entry->SetStringField(TEXT("name"), Identifier->GetStationName().ToString());
+		Entry->SetNumberField(TEXT("trackGraphId"), Identifier->GetTrackGraphID());
+		Entry->SetStringField(TEXT("buildableClass"), Station->GetClass()->GetPathName());
+		StationsJsonArray.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("stations"), StationsJsonArray);
+
+	const FString JsonString = SerializeJsonObject(RootObject);
+	UE_LOG(LogAIModAI, Display, TEXT("LogTrainStationsAsJson: stations=%d"), StationsJsonArray.Num());
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::LogTrainsAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGRailroadSubsystem* RailroadSubsystem = World ? AFGRailroadSubsystem::Get(World) : nullptr;
+	if (!RailroadSubsystem)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogTrainsAsJson: no valid world context or AFGRailroadSubsystem::Get returned null"));
+		return TEXT("{\"protocolVersion\":1,\"trains\":[]}");
+	}
+
+	TArray<AFGTrain*> Trains;
+	RailroadSubsystem->GetAllTrains(Trains);
+
+	TArray<TSharedPtr<FJsonValue>> TrainsJsonArray;
+	for (AFGTrain* Train : Trains)
+	{
+		if (!IsValid(Train)) { continue; }
+
+		TArray<TSharedPtr<FJsonValue>> StopsJsonArray;
+		if (Train->HasTimeTable())
+		{
+			AFGRailroadTimeTable* TimeTable = Train->GetTimeTable();
+			TArray<FTimeTableStop> Stops;
+			if (TimeTable) { TimeTable->GetStops(Stops); }
+
+			for (const FTimeTableStop& Stop : Stops)
+			{
+				const TSharedRef<FJsonObject> StopObject = MakeShared<FJsonObject>();
+				const bool bHasStation = IsValid(Stop.Station);
+				AFGBuildableRailroadStation* StopStation = bHasStation ? Stop.Station->GetStation() : nullptr;
+				StopObject->SetStringField(TEXT("stationId"), IsValid(StopStation) ? StopStation->GetPathName() : FString());
+				StopObject->SetStringField(TEXT("stationName"), bHasStation ? Stop.Station->GetStationName().ToString() : FString());
+				StopObject->SetStringField(TEXT("dockingDefinition"),
+					Stop.DockingRuleSet.DockingDefinition == ETrainDockingDefinition::TDD_FullyLoadUnload ? TEXT("FullyLoadUnload") : TEXT("LoadUnloadOnce"));
+				StopObject->SetNumberField(TEXT("dockForDuration"), Stop.DockingRuleSet.DockForDuration);
+				StopObject->SetBoolField(TEXT("isDurationAndRule"), Stop.DockingRuleSet.IsDurationAndRule);
+				StopObject->SetBoolField(TEXT("ignoreFullLoadUnloadIfTransferBlockedByFilters"), Stop.DockingRuleSet.IgnoreFullLoadUnloadIfTransferBlockedByFilters);
+
+				TArray<TSharedPtr<FJsonValue>> LoadFilterJsonArray;
+				for (const TSubclassOf<UFGItemDescriptor>& ItemClass : Stop.DockingRuleSet.LoadFilterDescriptors)
+				{
+					if (ItemClass) { LoadFilterJsonArray.Add(MakeShared<FJsonValueString>(ItemClass->GetPathName())); }
+				}
+				StopObject->SetArrayField(TEXT("loadFilter"), LoadFilterJsonArray);
+
+				TArray<TSharedPtr<FJsonValue>> UnloadFilterJsonArray;
+				for (const TSubclassOf<UFGItemDescriptor>& ItemClass : Stop.DockingRuleSet.UnloadFilterDescriptors)
+				{
+					if (ItemClass) { UnloadFilterJsonArray.Add(MakeShared<FJsonValueString>(ItemClass->GetPathName())); }
+				}
+				StopObject->SetArrayField(TEXT("unloadFilter"), UnloadFilterJsonArray);
+
+				StopsJsonArray.Add(MakeShared<FJsonValueObject>(StopObject));
+			}
+		}
+
+		const TSharedRef<FJsonObject> TrainObject = MakeShared<FJsonObject>();
+		TrainObject->SetStringField(TEXT("id"), Train->GetPathName());
+		TrainObject->SetStringField(TEXT("name"), Train->GetTrainName().ToString());
+		TrainObject->SetStringField(TEXT("status"), TrainStatusToString(Train->GetTrainStatus()));
+		TrainObject->SetBoolField(TEXT("selfDrivingEnabled"), Train->IsSelfDrivingEnabled());
+		TrainObject->SetStringField(TEXT("selfDrivingError"), SelfDrivingErrorToString(Train->GetSelfDrivingError()));
+		TrainObject->SetStringField(TEXT("dockingState"), TrainDockingStateToString(Train->GetDockingState()));
+		TrainObject->SetBoolField(TEXT("hasTimeTable"), Train->HasTimeTable());
+		TrainObject->SetArrayField(TEXT("timetable"), StopsJsonArray);
+		TrainsJsonArray.Add(MakeShared<FJsonValueObject>(TrainObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("trains"), TrainsJsonArray);
+
+	const FString JsonString = SerializeJsonObject(RootObject);
+	UE_LOG(LogAIModAI, Display, TEXT("LogTrainsAsJson: trains=%d"), TrainsJsonArray.Num());
+	return JsonString;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetTrainTimetable(UObject* WorldContextObject, const FString& TrainId, const FString& StopsJson)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	if (TrainId.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("trainId must be a non-empty string"));
+	}
+
+	AFGTrain* TargetTrain = nullptr;
+	for (TActorIterator<AFGTrain> It(World); It; ++It)
+	{
+		if (IsValid(*It) && It->GetPathName() == TrainId)
+		{
+			TargetTrain = *It;
+			break;
+		}
+	}
+	if (!TargetTrain)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No train found with id '%s'"), *TrainId));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> StopsArray;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(StopsJson);
+	if (!FJsonSerializer::Deserialize(Reader, StopsArray) || StopsArray.Num() == 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("stops must be a non-empty JSON array"));
+	}
+
+	TArray<FTimeTableStop> NewStops;
+	for (const TSharedPtr<FJsonValue>& StopValue : StopsArray)
+	{
+		const TSharedPtr<FJsonObject> StopObject = StopValue.IsValid() ? StopValue->AsObject() : nullptr;
+		if (!StopObject.IsValid())
+		{
+			return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Each stop must be a JSON object"));
+		}
+
+		FString StationBuildableId;
+		if (!StopObject->TryGetStringField(TEXT("stationBuildableId"), StationBuildableId) || StationBuildableId.IsEmpty())
+		{
+			return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Each stop requires a non-empty stationBuildableId"));
+		}
+
+		AFGBuildableRailroadStation* Station = Cast<AFGBuildableRailroadStation>(FindBuildableById(World, StationBuildableId));
+		if (!Station)
+		{
+			return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+				FString::Printf(TEXT("'%s' is not a real, currently-existing AFGBuildableRailroadStation"), *StationBuildableId));
+		}
+		AFGTrainStationIdentifier* Identifier = Station->GetStationIdentifier();
+		if (!Identifier)
+		{
+			return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+				FString::Printf(TEXT("'%s' has no AFGTrainStationIdentifier yet"), *StationBuildableId));
+		}
+
+		FTimeTableStop Stop;
+		Stop.Station = Identifier;
+
+		FString DockingDefinitionString;
+		StopObject->TryGetStringField(TEXT("dockingDefinition"), DockingDefinitionString);
+		Stop.DockingRuleSet.DockingDefinition = (DockingDefinitionString == TEXT("FullyLoadUnload"))
+			? ETrainDockingDefinition::TDD_FullyLoadUnload
+			: ETrainDockingDefinition::TDD_LoadUnloadOnce;
+
+		double DockForDuration = 15.0;
+		StopObject->TryGetNumberField(TEXT("dockForDuration"), DockForDuration);
+		Stop.DockingRuleSet.DockForDuration = static_cast<float>(DockForDuration);
+
+		bool bIsDurationAndRule = false;
+		StopObject->TryGetBoolField(TEXT("isDurationAndRule"), bIsDurationAndRule);
+		Stop.DockingRuleSet.IsDurationAndRule = bIsDurationAndRule;
+
+		bool bIgnoreFilters = false;
+		StopObject->TryGetBoolField(TEXT("ignoreFullLoadUnloadIfTransferBlockedByFilters"), bIgnoreFilters);
+		Stop.DockingRuleSet.IgnoreFullLoadUnloadIfTransferBlockedByFilters = bIgnoreFilters;
+
+		const TArray<TSharedPtr<FJsonValue>>* LoadFilterArray = nullptr;
+		if (StopObject->TryGetArrayField(TEXT("loadFilter"), LoadFilterArray) && LoadFilterArray)
+		{
+			for (const TSharedPtr<FJsonValue>& ItemValue : *LoadFilterArray)
+			{
+				FString ItemClassPath;
+				if (ItemValue.IsValid() && ItemValue->TryGetString(ItemClassPath) && !ItemClassPath.IsEmpty())
+				{
+					UClass* ResolvedItemClass = LoadObject<UClass>(nullptr, *ItemClassPath);
+					if (ResolvedItemClass && ResolvedItemClass->IsChildOf(UFGItemDescriptor::StaticClass()))
+					{
+						Stop.DockingRuleSet.LoadFilterDescriptors.Add(ResolvedItemClass);
+					}
+				}
+			}
+		}
+
+		const TArray<TSharedPtr<FJsonValue>>* UnloadFilterArray = nullptr;
+		if (StopObject->TryGetArrayField(TEXT("unloadFilter"), UnloadFilterArray) && UnloadFilterArray)
+		{
+			for (const TSharedPtr<FJsonValue>& ItemValue : *UnloadFilterArray)
+			{
+				FString ItemClassPath;
+				if (ItemValue.IsValid() && ItemValue->TryGetString(ItemClassPath) && !ItemClassPath.IsEmpty())
+				{
+					UClass* ResolvedItemClass = LoadObject<UClass>(nullptr, *ItemClassPath);
+					if (ResolvedItemClass && ResolvedItemClass->IsChildOf(UFGItemDescriptor::StaticClass()))
+					{
+						Stop.DockingRuleSet.UnloadFilterDescriptors.Add(ResolvedItemClass);
+					}
+				}
+			}
+		}
+
+		NewStops.Add(Stop);
+	}
+
+	AFGRailroadTimeTable* TimeTable = TargetTrain->HasTimeTable() ? TargetTrain->GetTimeTable() : TargetTrain->NewTimeTable();
+	if (!TimeTable)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Failed to get or create a time table for this train"));
+	}
+
+	TimeTable->SetStops(NewStops);
+
+	if (TimeTable->GetNumStops() != NewStops.Num())
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+			FString::Printf(TEXT("SetStops was called with %d stops but GetNumStops() now reports %d"), NewStops.Num(), TimeTable->GetNumStops()));
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetTrainTimetable: train=%s stops=%d"), *TargetTrain->GetTrainName().ToString(), NewStops.Num());
+
+	return FAIModOperationResult::Success();
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetTrainSelfDriving(UObject* WorldContextObject, const FString& TrainId, bool bEnabled)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	if (TrainId.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("trainId must be a non-empty string"));
+	}
+
+	AFGTrain* TargetTrain = nullptr;
+	for (TActorIterator<AFGTrain> It(World); It; ++It)
+	{
+		if (IsValid(*It) && It->GetPathName() == TrainId)
+		{
+			TargetTrain = *It;
+			break;
+		}
+	}
+	if (!TargetTrain)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No train found with id '%s'"), *TrainId));
+	}
+
+	TargetTrain->SetSelfDrivingEnabled(bEnabled);
+
+	if (TargetTrain->IsSelfDrivingEnabled() != bEnabled)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+			FString::Printf(TEXT("SetSelfDrivingEnabled(%s) was called but IsSelfDrivingEnabled() still reports %s"),
+				bEnabled ? TEXT("true") : TEXT("false"), TargetTrain->IsSelfDrivingEnabled() ? TEXT("true") : TEXT("false")));
+	}
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetBoolField(TEXT("selfDrivingEnabled"), TargetTrain->IsSelfDrivingEnabled());
+	DetailObject->SetStringField(TEXT("selfDrivingError"), SelfDrivingErrorToString(TargetTrain->GetSelfDrivingError()));
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetTrainSelfDriving: train=%s enabled=%s error=%s"),
+		*TargetTrain->GetTrainName().ToString(), bEnabled ? TEXT("true") : TEXT("false"), *SelfDrivingErrorToString(TargetTrain->GetSelfDrivingError()));
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
+FString UAIModFunctionLibrary::LogDroneStationsAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGDroneSubsystem* DroneSubsystem = World ? AFGDroneSubsystem::Get(World) : nullptr;
+	if (!DroneSubsystem)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogDroneStationsAsJson: no valid world context or AFGDroneSubsystem::Get returned null"));
+		return TEXT("{\"protocolVersion\":1,\"droneStations\":[]}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> StationsJsonArray;
+	for (AFGDroneStationInfo* Info : DroneSubsystem->GetAllStations())
+	{
+		if (!IsValid(Info)) { continue; }
+		AFGBuildableDroneStation* Station = Info->GetStation();
+		if (!IsValid(Station)) { continue; }
+
+		AFGDroneStationInfo* PairedInfo = Info->GetPairedStation();
+		AFGBuildableDroneStation* PairedStation = (PairedInfo && IsValid(PairedInfo)) ? PairedInfo->GetStation() : nullptr;
+
+		TArray<TSharedPtr<FJsonValue>> AllowedFuelJsonArray;
+		for (const FFGDroneFuelType& FuelType : Info->GetDroneFuelTypes())
+		{
+			if (FuelType.Item) { AllowedFuelJsonArray.Add(MakeShared<FJsonValueString>(FuelType.Item->GetPathName())); }
+		}
+
+		const TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("id"), Station->GetPathName());
+		Entry->SetStringField(TEXT("pairedStationId"), (PairedStation && IsValid(PairedStation)) ? PairedStation->GetPathName() : FString());
+		Entry->SetStringField(TEXT("droneStatus"), DroneStatusToString(Info->GetDroneStatus()));
+		Entry->SetStringField(TEXT("activeFuelType"), Info->GetDroneActiveFuelType() ? Info->GetDroneActiveFuelType()->GetPathName() : FString());
+		Entry->SetArrayField(TEXT("allowedFuelTypes"), AllowedFuelJsonArray);
+		Entry->SetNumberField(TEXT("latestRoundTripTimeSeconds"), Info->GetLatestRoundTripTime());
+		Entry->SetNumberField(TEXT("averageIncomingItemRate"), Info->GetAverageIncomingItemRate());
+		Entry->SetNumberField(TEXT("averageOutgoingItemRate"), Info->GetAverageOutgoingItemRate());
+		Entry->SetArrayField(TEXT("inputInventory"), InventoryToJsonArray(CollectInventoryTelemetry(Station->GetInputInventory())));
+		Entry->SetArrayField(TEXT("outputInventory"), InventoryToJsonArray(CollectInventoryTelemetry(Station->GetOutputInventory())));
+		Entry->SetArrayField(TEXT("fuelInventory"), InventoryToJsonArray(CollectInventoryTelemetry(Station->GetFuelInventory())));
+		StationsJsonArray.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("droneStations"), StationsJsonArray);
+
+	const FString JsonString = SerializeJsonObject(RootObject);
+	UE_LOG(LogAIModAI, Display, TEXT("LogDroneStationsAsJson: droneStations=%d"), StationsJsonArray.Num());
+	return JsonString;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::PairDroneStations(UObject* WorldContextObject, const FString& StationBuildableId, const FString& TargetStationBuildableId)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	if (StationBuildableId.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("stationBuildableId must be a non-empty string"));
+	}
+
+	AFGBuildableDroneStation* Station = Cast<AFGBuildableDroneStation>(FindBuildableById(World, StationBuildableId));
+	if (!Station)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+			FString::Printf(TEXT("'%s' is not a real, currently-existing AFGBuildableDroneStation"), *StationBuildableId));
+	}
+	AFGDroneStationInfo* Info = Station->GetInfo();
+	if (!Info)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), FString::Printf(TEXT("'%s' has no AFGDroneStationInfo yet"), *StationBuildableId));
+	}
+
+	AFGDroneStationInfo* TargetInfo = nullptr;
+	if (!TargetStationBuildableId.IsEmpty())
+	{
+		AFGBuildableDroneStation* TargetStation = Cast<AFGBuildableDroneStation>(FindBuildableById(World, TargetStationBuildableId));
+		if (!TargetStation)
+		{
+			return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+				FString::Printf(TEXT("'%s' is not a real, currently-existing AFGBuildableDroneStation"), *TargetStationBuildableId));
+		}
+		TargetInfo = TargetStation->GetInfo();
+		if (!TargetInfo)
+		{
+			return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), FString::Printf(TEXT("'%s' has no AFGDroneStationInfo yet"), *TargetStationBuildableId));
+		}
+	}
+
+	Info->PairStation(TargetInfo);
+
+	if (Info->GetPairedStation() != TargetInfo)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+			TEXT("PairStation was called but GetPairedStation() does not reflect the requested pairing afterward"));
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("PairDroneStations: %s -> %s"),
+		*StationBuildableId, TargetStationBuildableId.IsEmpty() ? TEXT("<unpaired>") : *TargetStationBuildableId);
 
 	return FAIModOperationResult::Success();
 }
