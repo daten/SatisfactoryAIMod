@@ -75,6 +75,56 @@ public:
 	static FString LogGroundHeightAsJson(UObject* WorldContextObject, float X, float Y, float ReferenceZ);
 
 	/**
+	 * world.terrainHeightGrid (2026-08-30) - batched version of
+	 * world.groundHeight: the SAME real trace (FindGroundAtXY, shared
+	 * helper - can't drift out of sync with either single-point queries
+	 * or real construction placement), run for an entire rectangular
+	 * grid of X/Y points in ONE call instead of one HTTP round-trip per
+	 * point. Added per explicit user request after a live circular-
+	 * platform build needed hundreds of individual world.groundHeight
+	 * calls from Python to scan for a terrain intrusion - each call
+	 * paying full HTTP+JSON overhead for a trace that itself takes a
+	 * small fraction of that time. Batching moves the loop server-side,
+	 * where only the real trace cost remains per point.
+	 *
+	 * Grid: MinX/MinY to MaxX/MaxY inclusive, spaced StepSize apart in
+	 * both axes (CountX = floor((MaxX-MinX)/StepSize)+1, same for Y).
+	 * ReferenceZ is the same +/-1000-unit search-center anchor as
+	 * world.groundHeight (defaults to the player's current Z if <=
+	 * -1000000) - used for EVERY point in the grid, so choose an anchor
+	 * that plausibly covers the whole area's real height range, or issue
+	 * multiple calls with different anchors for areas spanning a wide Z
+	 * range (e.g. a cliff).
+	 *
+	 * Result is two parallel flat arrays (row-major, length
+	 * CountX*CountY: index = row*CountX + col, x = MinX + col*StepSize,
+	 * y = MinY + row*StepSize) rather than an array of per-point
+	 * objects - deliberately compact, since a useful survey area can
+	 * easily mean thousands of points and per-point JSON object overhead
+	 * would dominate the payload. No normal is returned (unlike
+	 * world.groundHeight) - query that single point directly if the
+	 * surface normal at a specific spot is needed; the batched form is
+	 * for height/gap survey, not full surface characterization.
+	 *
+	 * Capped at MaxTerrainHeightGridPoints (10000, ~a 100x100 grid) to
+	 * bound the single-call cost - this runs entirely on the game
+	 * thread like every other trace in this file, so an unbounded grid
+	 * would risk a real frame hitch. Returns "tooManyPoints":true with
+	 * the real requested/max counts (no heights/found data) if exceeded
+	 * - tile a larger area into multiple calls, or use a coarser
+	 * stepSize, rather than raising the cap.
+	 *
+	 * Real terrain doesn't change between sessions on the same map/game
+	 * version (per project discussion, Satisfactory's map is hand-
+	 * crafted and static) - callers are expected to CACHE a survey's
+	 * result to a local file for reuse rather than re-querying the same
+	 * area repeatedly; this function itself has no caching of its own,
+	 * it's a faster primitive for the caller's own cache-building pass.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTerrainHeightGridAsJson(UObject* WorldContextObject, float MinX, float MinY, float MaxX, float MaxY, float StepSize, float ReferenceZ);
+
+	/**
 	 * Enumerates all AFGResourceNode actors in the world via TActorIterator
 	 * (see docs/resource-node-research.md for why - no working manager API
 	 * was found) and returns them as normalized, protocol-facing telemetry

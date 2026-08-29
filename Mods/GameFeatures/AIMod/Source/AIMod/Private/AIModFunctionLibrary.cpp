@@ -128,6 +128,13 @@ namespace
 		FHitResult Hit;
 	};
 
+	// Bounds a single world.terrainHeightGrid call's cost - every point
+	// runs a real synchronous line trace on the game thread (same as
+	// FindGroundAtXY below), so an unbounded grid risks a real frame
+	// hitch. 10000 = a 100x100 grid, comfortably enough for "survey an
+	// immediate build area" without needing this raised.
+	constexpr int64 MaxTerrainHeightGridPoints = 10000;
+
 	FGroundTraceResult FindGroundAtXY(UWorld* World, float X, float Y, float ZSearchCenter, AActor* IgnoreActor)
 	{
 		FGroundTraceResult Result;
@@ -967,6 +974,83 @@ FString UAIModFunctionLibrary::LogGroundHeightAsJson(UObject* WorldContextObject
 	const FString JsonString = WriteCondensedJson(RootObject);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogGroundHeightAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::LogTerrainHeightGridAsJson(UObject* WorldContextObject, float MinX, float MinY, float MaxX, float MaxY, float StepSize, float ReferenceZ)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogTerrainHeightGridAsJson: no valid world context"));
+		return TEXT("{\"protocolVersion\":1,\"countX\":0,\"countY\":0,\"heights\":[],\"found\":[]}");
+	}
+
+	if (StepSize <= 0.0f || MaxX <= MinX || MaxY <= MinY)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogTerrainHeightGridAsJson: invalid bounds/step (minX=%.1f maxX=%.1f minY=%.1f maxY=%.1f step=%.1f)"),
+			MinX, MaxX, MinY, MaxY, StepSize);
+		return TEXT("{\"protocolVersion\":1,\"countX\":0,\"countY\":0,\"heights\":[],\"found\":[]}");
+	}
+
+	const int32 CountX = FMath::FloorToInt((MaxX - MinX) / StepSize) + 1;
+	const int32 CountY = FMath::FloorToInt((MaxY - MinY) / StepSize) + 1;
+	const int64 TotalPoints = static_cast<int64>(CountX) * static_cast<int64>(CountY);
+
+	if (TotalPoints > MaxTerrainHeightGridPoints)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogTerrainHeightGridAsJson: requested grid has %lld points, exceeds the %lld limit - use a larger stepSize or smaller area"),
+			TotalPoints, MaxTerrainHeightGridPoints);
+
+		const TSharedRef<FJsonObject> ErrorRoot = MakeShared<FJsonObject>();
+		ErrorRoot->SetNumberField(TEXT("protocolVersion"), 1);
+		ErrorRoot->SetBoolField(TEXT("tooManyPoints"), true);
+		ErrorRoot->SetNumberField(TEXT("requestedPoints"), static_cast<double>(TotalPoints));
+		ErrorRoot->SetNumberField(TEXT("maxPoints"), static_cast<double>(MaxTerrainHeightGridPoints));
+		ErrorRoot->SetNumberField(TEXT("countX"), 0);
+		ErrorRoot->SetNumberField(TEXT("countY"), 0);
+		ErrorRoot->SetArrayField(TEXT("heights"), TArray<TSharedPtr<FJsonValue>>());
+		ErrorRoot->SetArrayField(TEXT("found"), TArray<TSharedPtr<FJsonValue>>());
+		return WriteCondensedJson(ErrorRoot);
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	const float ZSearchCenter = (ReferenceZ > -1000000.0f) ? ReferenceZ : (Character ? Character->GetActorLocation().Z : 0.0f);
+
+	TArray<TSharedPtr<FJsonValue>> HeightsJsonArray;
+	TArray<TSharedPtr<FJsonValue>> FoundJsonArray;
+	HeightsJsonArray.Reserve(TotalPoints);
+	FoundJsonArray.Reserve(TotalPoints);
+
+	int32 FoundCount = 0;
+	for (int32 RowIndex = 0; RowIndex < CountY; ++RowIndex)
+	{
+		const float Y = MinY + RowIndex * StepSize;
+		for (int32 ColIndex = 0; ColIndex < CountX; ++ColIndex)
+		{
+			const float X = MinX + ColIndex * StepSize;
+			const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+			HeightsJsonArray.Add(MakeShared<FJsonValueNumber>(GroundTrace.Hit.Location.Z));
+			FoundJsonArray.Add(MakeShared<FJsonValueBoolean>(GroundTrace.bFound));
+			FoundCount += GroundTrace.bFound ? 1 : 0;
+		}
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetNumberField(TEXT("minX"), MinX);
+	RootObject->SetNumberField(TEXT("minY"), MinY);
+	RootObject->SetNumberField(TEXT("stepSize"), StepSize);
+	RootObject->SetNumberField(TEXT("countX"), CountX);
+	RootObject->SetNumberField(TEXT("countY"), CountY);
+	RootObject->SetArrayField(TEXT("heights"), HeightsJsonArray);
+	RootObject->SetArrayField(TEXT("found"), FoundJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogTerrainHeightGridAsJson: %dx%d grid (%lld points, %d found), bounds=(%.1f,%.1f)-(%.1f,%.1f) step=%.1f"),
+		CountX, CountY, TotalPoints, FoundCount, MinX, MinY, MaxX, MaxY, StepSize);
 
 	return JsonString;
 }

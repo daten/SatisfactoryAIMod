@@ -1630,6 +1630,34 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 
 		MethodResultJson = UAIModFunctionLibrary::LogGroundHeightAsJson(GetGameInstance(), static_cast<float>(X), static_cast<float>(Y), static_cast<float>(ReferenceZ));
 	}
+	else if (Method == TEXT("world.terrainHeightGrid"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double MinX = 0.0, MinY = 0.0, MaxX = 0.0, MaxY = 0.0, StepSize = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("minX"), MinX) || !ParamsObject->TryGetNumberField(TEXT("minY"), MinY)
+			|| !ParamsObject->TryGetNumberField(TEXT("maxX"), MaxX) || !ParamsObject->TryGetNumberField(TEXT("maxY"), MaxY)
+			|| !ParamsObject->TryGetNumberField(TEXT("stepSize"), StepSize))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"),
+				TEXT("params.minX, minY, maxX, maxY, and stepSize must all be numbers")));
+			return true;
+		}
+
+		// Optional - same ReferenceZ semantics as world.groundHeight's "z".
+		double ReferenceZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), ReferenceZ);
+
+		MethodResultJson = UAIModFunctionLibrary::LogTerrainHeightGridAsJson(GetGameInstance(),
+			static_cast<float>(MinX), static_cast<float>(MinY), static_cast<float>(MaxX), static_cast<float>(MaxY),
+			static_cast<float>(StepSize), static_cast<float>(ReferenceZ));
+	}
 	else
 	{
 		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::NotFound, RequestId, TEXT("UNKNOWN_METHOD"), FString::Printf(TEXT("Unknown method '%s'"), *Method)));

@@ -7,6 +7,33 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## NEW CAPABILITY: `world.terrainHeightGrid` - batched terrain survey, one call instead of hundreds (added 2026-08-30)
+
+Direct follow-up to the terrain-scan lesson below: manually looping
+`world.groundHeight` from Python (hundreds of calls during the circular-
+platform terrain investigation) is dominated by per-call HTTP/JSON
+overhead, not the trace itself. Added `world.terrainHeightGrid` - same
+real `FindGroundAtXY` trace, run for a whole rectangular grid server-side
+in one call. Response is two parallel flat arrays (`heights`/`found`,
+row-major) rather than per-point objects, deliberately compact for a
+bulk survey. Capped at 10000 points (~100x100 grid) since it's a
+synchronous game-thread loop like every other trace in this file - an
+unbounded grid risks a real frame hitch; over-cap requests get
+`tooManyPoints:true` instead of quietly truncating.
+
+Motivated by, and directly addresses, the broader "can we bake in
+terrain knowledge in advance" question raised this session: since
+Satisfactory's map is static within a game version, a caller can now
+survey an area of interest in one fast call and cache the result to a
+local file for reuse - this function itself does no caching, it's just
+the fast primitive underneath a caller's own cache-building pass. Same
+2.5D "highest point per XY column" limitation as `world.groundHeight`
+itself applies (can't represent overhangs/cave ceilings) - not a new
+constraint, just inherited from the same underlying trace.
+
+**Not yet live-tested** - implemented and compiled same session as the
+circular-platform work, game wasn't in a state to test immediately.
+
 ## CRITICAL: `world.deleteBuilding` NEVER refunded construction cost - a real bug, cost the user thousands of real items (fixed 2026-08-30)
 
 `DismantleBuildable`'s C++ only ever called `Execute_Dismantle()` on the

@@ -403,6 +403,49 @@ the player's current Z. `found: false` means nothing was hit in that range
 — `z` in the response is then just the literal search center, matching what
 a real placement there would fall back to.
 
+### `world.terrainHeightGrid` — params: `{"minX", "minY", "maxX", "maxY", "stepSize"}`, optional `"z"`
+```json
+{
+  "protocolVersion": 1, "minX": 0.0, "minY": 0.0, "stepSize": 100.0,
+  "countX": 5, "countY": 5,
+  "heights": [123.4, 125.0, ...],
+  "found": [true, true, ...]
+}
+```
+Batched `world.groundHeight`: the exact same real trace, run for an
+entire rectangular grid in **one call** instead of one HTTP round-trip
+per point. Use this instead of looping `world.groundHeight` from your own
+code — surveying hundreds of points individually is dominated by
+per-call HTTP/JSON overhead, not the trace itself; batching moves the
+loop server-side where only the trace cost remains.
+
+Grid runs `minX..maxX` and `minY..maxY` inclusive, spaced `stepSize`
+apart (`countX = floor((maxX-minX)/stepSize)+1`, same for Y). `z` is the
+same ±1000-unit search-center anchor as `world.groundHeight`, applied to
+**every** point — pick an anchor that plausibly covers the whole area's
+real height range (issue separate calls with different anchors for an
+area spanning a wide Z range, e.g. a cliff).
+
+**Response is two parallel flat arrays, not per-point objects** —
+deliberately compact for a bulk survey. Row-major: `index = row*countX +
+col`, `x = minX + col*stepSize`, `y = minY + row*stepSize`. No surface
+normal is included (unlike `world.groundHeight`) — query a specific point
+directly if you need its normal; this is for height/gap survey, not full
+characterization.
+
+**Capped at 10000 points** (~a 100×100 grid) — this runs synchronously on
+the game thread like every trace in this mod, so an unbounded grid risks
+a real frame hitch. A request over the cap returns
+`{"tooManyPoints":true,"requestedPoints":N,"maxPoints":10000,...}` with
+empty arrays — tile a larger area into multiple calls, or use a coarser
+`stepSize`, rather than expecting the cap to be raised.
+
+**Cache the result yourself** — this function has no caching of its own,
+it's a fast primitive. Satisfactory's map is static within a given game
+version, so a survey of an area you care about (a build site, a platform
+footprint) is valid to save to a local file and reuse across sessions
+rather than re-querying every time.
+
 ---
 
 ## Write methods
