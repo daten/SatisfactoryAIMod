@@ -104,6 +104,15 @@ namespace
 		{
 			ResultObject->SetStringField(TEXT("buildableId"), OperationResult.ResultBuildableId);
 		}
+		if (!OperationResult.ResultDetailJson.IsEmpty())
+		{
+			TSharedPtr<FJsonObject> DetailObject;
+			const TSharedRef<TJsonReader<>> DetailReader = TJsonReaderFactory<>::Create(OperationResult.ResultDetailJson);
+			if (FJsonSerializer::Deserialize(DetailReader, DetailObject) && DetailObject.IsValid())
+			{
+				ResultObject->SetObjectField(TEXT("detail"), DetailObject);
+			}
+		}
 		Root->SetObjectField(TEXT("result"), ResultObject);
 		return MakeJsonResponse(EHttpServerResponseCodes::Ok, Root);
 	}
@@ -857,6 +866,29 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	if (Method == TEXT("world.payMilestone"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		// Optional - empty means "target GetActiveSchematic()", see
+		// PayOffMilestone's doc comment.
+		FString SchematicClassPath;
+		ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath);
+
+		bool bDryRun = false;
+		ParamsObject->TryGetBoolField(TEXT("dryRun"), bDryRun);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::PayOffMilestone(GetGameInstance(), SchematicClassPath, bDryRun);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	if (Method == TEXT("world.withdrawFromCentralStorage"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -1259,6 +1291,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.vehicles"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogVehiclesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.milestoneProgress"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMilestoneProgressAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.manufacturers"))
 	{

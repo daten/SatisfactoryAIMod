@@ -80,6 +80,9 @@
 #include "FGCreatureSubsystem.h"
 #include "FGCentralStorageSubsystem.h"
 #include "Creature/FGCreature.h"
+#include "FGSchematicManager.h"
+#include "FGSchematic.h"
+#include "Buildables/FGBuildableSpaceElevator.h"
 
 namespace
 {
@@ -8145,4 +8148,273 @@ void UAIModFunctionLibrary::ConstructVehiclePathSegment(UObject* WorldContextObj
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+namespace
+{
+	FString SchematicTypeToString(ESchematicType Type)
+	{
+		switch (Type)
+		{
+		case ESchematicType::EST_Custom: return TEXT("Custom");
+		case ESchematicType::EST_Cheat: return TEXT("Cheat");
+		case ESchematicType::EST_Tutorial: return TEXT("Tutorial");
+		case ESchematicType::EST_Milestone: return TEXT("Milestone");
+		case ESchematicType::EST_Alternate: return TEXT("Alternate");
+		case ESchematicType::EST_Story: return TEXT("Story");
+		case ESchematicType::EST_MAM: return TEXT("MAM");
+		case ESchematicType::EST_ResourceSink: return TEXT("ResourceSink");
+		case ESchematicType::EST_HardDrive: return TEXT("HardDrive");
+		case ESchematicType::EST_Prototype: return TEXT("Prototype");
+		case ESchematicType::EST_Customization: return TEXT("Customization");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	FString TechTierStateToString(ETechTierState State)
+	{
+		switch (State)
+		{
+		case ETechTierState::ETTS_Locked: return TEXT("Locked");
+		case ETechTierState::ETTS_Available: return TEXT("Available");
+		case ETechTierState::ETTS_FullyPurchased: return TEXT("FullyPurchased");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	FString SerializeJsonObject(const TSharedRef<FJsonObject>& Object)
+	{
+		FString OutString;
+		const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+			TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&OutString);
+		FJsonSerializer::Serialize(Object, Writer);
+		return OutString;
+	}
+}
+
+FString UAIModFunctionLibrary::LogMilestoneProgressAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGSchematicManager* SchematicManager = World ? AFGSchematicManager::Get(World) : nullptr;
+	if (!SchematicManager)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogMilestoneProgressAsJson: no valid world context or AFGSchematicManager::Get returned null"));
+		return TEXT("{\"protocolVersion\":1,\"highestAvailableTechTier\":0,\"maxAllowedTechTier\":0,\"activeSchematic\":\"\",\"tiers\":[],\"spaceElevators\":[]}");
+	}
+
+	const TSubclassOf<UFGSchematic> ActiveSchematic = SchematicManager->GetActiveSchematic();
+
+	// Tiers 0-14 comfortably covers every real game tier - see this
+	// function's header doc comment. A tier is only included if it has
+	// any real HUB milestone/tutorial schematics.
+	TArray<TSharedPtr<FJsonValue>> TiersJsonArray;
+	for (int32 Tier = 0; Tier <= 14; ++Tier)
+	{
+		TArray<TSubclassOf<UFGSchematic>> TierSchematics;
+		SchematicManager->GetHubSchematicsForTier(Tier, TierSchematics);
+		if (TierSchematics.Num() == 0)
+		{
+			continue;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> SchematicsJsonArray;
+		for (const TSubclassOf<UFGSchematic>& SchematicClass : TierSchematics)
+		{
+			if (!SchematicClass) { continue; }
+
+			const TSharedRef<FJsonObject> SchematicObject = MakeShared<FJsonObject>();
+			SchematicObject->SetStringField(TEXT("schematicClass"), SchematicClass->GetPathName());
+			SchematicObject->SetStringField(TEXT("displayName"), UFGSchematic::GetSchematicDisplayName(SchematicClass).ToString());
+			SchematicObject->SetStringField(TEXT("type"), SchematicTypeToString(UFGSchematic::GetType(SchematicClass)));
+			SchematicObject->SetBoolField(TEXT("purchased"), SchematicManager->IsSchematicPurchased(SchematicClass));
+			SchematicObject->SetBoolField(TEXT("isActive"), SchematicClass == ActiveSchematic);
+			SchematicObject->SetArrayField(TEXT("cost"), ItemAmountsToJsonArray(UFGSchematic::GetCost(SchematicClass)));
+			SchematicObject->SetArrayField(TEXT("remainingCost"), ItemAmountsToJsonArray(SchematicManager->GetRemainingCostFor(SchematicClass)));
+			SchematicObject->SetArrayField(TEXT("paidOffCost"), ItemAmountsToJsonArray(SchematicManager->GetPaidOffCostFor(SchematicClass)));
+			SchematicsJsonArray.Add(MakeShared<FJsonValueObject>(SchematicObject));
+		}
+
+		const TSharedRef<FJsonObject> TierObject = MakeShared<FJsonObject>();
+		TierObject->SetNumberField(TEXT("tier"), Tier);
+		TierObject->SetStringField(TEXT("techTierState"), TechTierStateToString(SchematicManager->GetTechTierState(Tier)));
+		TierObject->SetArrayField(TEXT("schematics"), SchematicsJsonArray);
+		TiersJsonArray.Add(MakeShared<FJsonValueObject>(TierObject));
+	}
+
+	// AFGBuildableSpaceElevator is a normal AFGBuildableFactory - already
+	// visible to world.buildables and already belt-connectable via the
+	// existing generic world.connectConveyor path (FindFreeFactoryConnection
+	// scans any AFGBuildable's UFGFactoryConnectionComponents, no special
+	// case needed). Reported here too since its phase-upgrade progress is
+	// the direct Space-Elevator analogue of HUB milestone progress above.
+	TArray<TSharedPtr<FJsonValue>> SpaceElevatorsJsonArray;
+	for (TActorIterator<AFGBuildableSpaceElevator> It(World); It; ++It)
+	{
+		AFGBuildableSpaceElevator* Elevator = *It;
+		if (!IsValid(Elevator)) { continue; }
+
+		TArray<FItemAmount> NextPhaseCost;
+		Elevator->GetNextPhaseCost(NextPhaseCost);
+
+		const TSharedRef<FJsonObject> ElevatorObject = MakeShared<FJsonObject>();
+		ElevatorObject->SetStringField(TEXT("id"), Elevator->GetPathName());
+		ElevatorObject->SetStringField(TEXT("buildableClass"), Elevator->GetClass()->GetPathName());
+		ElevatorObject->SetBoolField(TEXT("isFullyUpgraded"), Elevator->IsFullyUpgraded());
+		ElevatorObject->SetBoolField(TEXT("isReadyToUpgrade"), Elevator->IsReadyToUpgrade());
+		ElevatorObject->SetArrayField(TEXT("nextPhaseCost"), ItemAmountsToJsonArray(NextPhaseCost));
+		ElevatorObject->SetArrayField(TEXT("inputInventory"), InventoryToJsonArray(CollectInventoryTelemetry(Elevator->GetInputInventory())));
+		SpaceElevatorsJsonArray.Add(MakeShared<FJsonValueObject>(ElevatorObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetNumberField(TEXT("highestAvailableTechTier"), SchematicManager->GetHighestAvailableTechTier());
+	RootObject->SetNumberField(TEXT("maxAllowedTechTier"), SchematicManager->GetMaxAllowedTechTier());
+	RootObject->SetStringField(TEXT("activeSchematic"), ActiveSchematic ? ActiveSchematic->GetPathName() : FString());
+	RootObject->SetArrayField(TEXT("tiers"), TiersJsonArray);
+	RootObject->SetArrayField(TEXT("spaceElevators"), SpaceElevatorsJsonArray);
+
+	const FString JsonString = SerializeJsonObject(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogMilestoneProgressAsJson: tiers=%d spaceElevators=%d activeSchematic=%s"),
+		TiersJsonArray.Num(), SpaceElevatorsJsonArray.Num(), ActiveSchematic ? *ActiveSchematic->GetName() : TEXT("<none>"));
+
+	return JsonString;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGSchematicManager* SchematicManager = AFGSchematicManager::Get(World);
+	if (!SchematicManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGSchematicManager::Get returned null"));
+	}
+
+	TSubclassOf<UFGSchematic> SchematicClass;
+	if (!SchematicClassPath.IsEmpty())
+	{
+		UClass* ResolvedClass = LoadObject<UClass>(nullptr, *SchematicClassPath);
+		if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGSchematic::StaticClass()))
+		{
+			return FAIModOperationResult::Failure(TEXT("INVALID_SCHEMATIC"),
+				FString::Printf(TEXT("'%s' did not resolve to a UFGSchematic subclass"), *SchematicClassPath));
+		}
+		SchematicClass = ResolvedClass;
+	}
+	else
+	{
+		SchematicClass = SchematicManager->GetActiveSchematic();
+		if (!SchematicClass)
+		{
+			return FAIModOperationResult::Failure(TEXT("NO_ACTIVE_SCHEMATIC"),
+				TEXT("params.schematicClass was empty and AFGSchematicManager::GetActiveSchematic() is null - set an active schematic in the real HUB widget first, or pass schematicClass explicitly"));
+		}
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	if (!PlayerInventory)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No player inventory found"));
+	}
+
+	// Deliberately CARRIED inventory only, same scope as SimulatedCraft -
+	// NOT the Dimensional Depot (see LogCentralStorageAsJson's doc
+	// comment for that established, separate gap). Use
+	// WithdrawFromCentralStorage first if the needed items are in the Depot.
+	const TArray<FItemAmount> RemainingCost = SchematicManager->GetRemainingCostFor(SchematicClass);
+
+	TArray<FItemAmount> Submission;
+	TArray<FItemAmount> Shortfall;
+	for (const FItemAmount& Owed : RemainingCost)
+	{
+		if (!Owed.ItemClass || Owed.Amount <= 0) { continue; }
+		const int32 Have = PlayerInventory->GetNumItems(Owed.ItemClass);
+		const int32 ToSubmit = FMath::Min(Owed.Amount, Have);
+		if (ToSubmit > 0)
+		{
+			Submission.Add(FItemAmount(Owed.ItemClass, ToSubmit));
+		}
+		if (ToSubmit < Owed.Amount)
+		{
+			Shortfall.Add(FItemAmount(Owed.ItemClass, Owed.Amount - ToSubmit));
+		}
+	}
+
+	auto BuildDetailObject = [&]() -> TSharedRef<FJsonObject>
+	{
+		const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+		DetailObject->SetStringField(TEXT("schematicClass"), SchematicClass->GetPathName());
+		DetailObject->SetBoolField(TEXT("dryRun"), bDryRun);
+		DetailObject->SetArrayField(bDryRun ? TEXT("wouldSubmit") : TEXT("submitted"), ItemAmountsToJsonArray(Submission));
+		DetailObject->SetArrayField(TEXT("shortfall"), ItemAmountsToJsonArray(Shortfall));
+		return DetailObject;
+	};
+
+	if (bDryRun)
+	{
+		UE_LOG(LogAIModAI, Display, TEXT("PayOffMilestone (dry run): schematic=%s wouldSubmit=%d item type(s), shortfall=%d item type(s)"),
+			*SchematicClass->GetName(), Submission.Num(), Shortfall.Num());
+		FAIModOperationResult Result = FAIModOperationResult::Success();
+		Result.ResultDetailJson = SerializeJsonObject(BuildDetailObject());
+		return Result;
+	}
+
+	if (Submission.Num() == 0)
+	{
+		FAIModOperationResult Result = FAIModOperationResult::Failure(TEXT("NOTHING_TO_SUBMIT"),
+			FString::Printf(TEXT("Player inventory has none of what schematic '%s' still needs (%d item type(s) owed) - never a silent no-op success"),
+				*SchematicClass->GetName(), RemainingCost.Num()));
+		Result.ResultDetailJson = SerializeJsonObject(BuildDetailObject());
+		return Result;
+	}
+
+	// Real mutation from here. Verify-then-remove already happened above
+	// (Submission only ever contains min(owed, carried) per item) - restore
+	// on any rejection below, same discipline as
+	// MovePortableMinerToInventory's ARMS-slot restore-on-failure.
+	for (const FItemAmount& Item : Submission)
+	{
+		PlayerInventory->Remove(Item.ItemClass, Item.Amount);
+	}
+
+	TArray<FItemAmount> AmountToPay = Submission;
+	const bool bPaid = SchematicManager->PayOffOnSchematic(SchematicClass, AmountToPay);
+
+	if (!bPaid)
+	{
+		for (const FItemAmount& Item : Submission)
+		{
+			PlayerInventory->AddStack(FInventoryStack(Item.Amount, Item.ItemClass), /*allowPartialAdd=*/true);
+		}
+		UE_LOG(LogAIModAI, Warning, TEXT("PayOffMilestone: PayOffOnSchematic('%s') returned false - restored %d submitted item type(s) to player inventory"),
+			*SchematicClass->GetName(), Submission.Num());
+		FAIModOperationResult Result = FAIModOperationResult::Failure(TEXT("PAYOFF_REJECTED"),
+			TEXT("AFGSchematicManager::PayOffOnSchematic returned false - items restored to inventory. Real behavior unconfirmed live (first attempt at this RPC); this may mean the schematic isn't accepting payment right now, is already fully paid, or was never eligible."));
+		Result.ResultDetailJson = SerializeJsonObject(BuildDetailObject());
+		return Result;
+	}
+
+	// PayOffOnSchematic takes 'amount' by reference (UPARAM(ref)) - unknown
+	// from source whether it mutates it (e.g. to report leftover/excess).
+	// Logged for the first live test to actually observe this, not guessed.
+	UE_LOG(LogAIModAI, Display, TEXT("PayOffMilestone: schematic=%s submitted=%d item type(s), shortfall=%d item type(s), amountArray after call has %d entries"),
+		*SchematicClass->GetName(), Submission.Num(), Shortfall.Num(), AmountToPay.Num());
+
+	const TSharedRef<FJsonObject> DetailObject = BuildDetailObject();
+	DetailObject->SetArrayField(TEXT("amountArrayAfterCall"), ItemAmountsToJsonArray(AmountToPay));
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
 }

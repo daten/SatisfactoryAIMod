@@ -42,6 +42,17 @@ struct FAIModOperationResult
 	UPROPERTY(BlueprintReadOnly, Category = "AIMod|Operation")
 	FString ResultBuildableId;
 
+	/**
+	 * Optional extra structured detail a specific operation wants to report
+	 * beyond bSuccess/ErrorCode/ErrorMessage/ResultBuildableId (e.g.
+	 * PayOffMilestone's submitted/shortfall item lists) - a raw JSON object
+	 * string, parsed and embedded as result.detail by MakeOperationResponse
+	 * in AIModHttpServerSubsystem.cpp. Empty for every operation that
+	 * doesn't set it, same opt-in convention as ResultBuildableId.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "AIMod|Operation")
+	FString ResultDetailJson;
+
 	static FAIModOperationResult Success()
 	{
 		FAIModOperationResult Result;

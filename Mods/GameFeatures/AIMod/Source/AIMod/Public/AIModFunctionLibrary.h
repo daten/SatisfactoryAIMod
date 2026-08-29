@@ -1361,4 +1361,86 @@ public:
 	 * behavior unconfirmed).
 	 */
 	static void ConstructVehiclePathSegment(UObject* WorldContextObject, const FString& RecipeClassPath, float StartX, float StartY, float StartZ, float EndX, float EndY, float EndZ, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.milestoneProgress (2026-08-29) - reports HUB milestone/tutorial
+	 * schematic progress by tier (AFGSchematicManager::GetHubSchematicsForTier/
+	 * GetTechTierState/GetRemainingCostFor/GetPaidOffCostFor/IsSchematicPurchased/
+	 * GetActiveSchematic - all real, public, non-stub-bodied getters, unlike
+	 * most of this project's other FactoryGame research targets) plus every
+	 * AFGBuildableSpaceElevator's phase-upgrade state (GetNextPhaseCost/
+	 * IsReadyToUpgrade/IsFullyUpgraded/GetInputInventory - the Elevator is a
+	 * normal AFGBuildableFactory, already visible to world.buildables and
+	 * already belt-connectable via the existing generic world.connectConveyor
+	 * path with zero new code, per the user's own framing that the Elevator
+	 * "can be fed with conveyor belts" unlike the HUB).
+	 *
+	 * "The HUB" in player terms is AFGBuildableTradingPost's mHubTerminal
+	 * sub-building - confirmed from source it holds no inventory of its own;
+	 * milestone payment is tracked purely as FItemAmount bookkeeping on
+	 * AFGSchematicManager (mPaidOffSchematic), not any physical buildable
+	 * inventory - see PayOffMilestone below for the actual submission path.
+	 *
+	 * Tiers 0-14 are scanned (comfortably covers every real game tier);
+	 * a tier is only included if GetHubSchematicsForTier returns anything
+	 * for it, so unused/future tiers don't clutter the output.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMilestoneProgressAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.payMilestone (2026-08-29) - moves items from the player's
+	 * CARRIED inventory (AFGCharacterPlayer::GetInventory(), same scope
+	 * SimulatedCraft/Construct* functions already use - NOT the Dimensional
+	 * Depot, see LogCentralStorageAsJson's doc comment for that same
+	 * established gap; use WithdrawFromCentralStorage first if the needed
+	 * items are in the Depot) toward a HUB milestone/tutorial schematic's
+	 * remaining cost, then calls the real
+	 * AFGSchematicManager::PayOffOnSchematic to register the payment -
+	 * answering the user's "can you assist moving necessary items from
+	 * player inventory to the hub" question with a real, careful write path.
+	 *
+	 * If SchematicClassPath is empty, targets the manager's current
+	 * GetActiveSchematic() (whatever the player has focused in the real
+	 * in-game HUB widget) - does NOT call SetActiveSchematic itself, so it
+	 * never silently redirects what the player is working toward.
+	 *
+	 * Per item in GetRemainingCostFor(schematic): submits
+	 * min(remainingAmount, player's carried amount) - never more than what's
+	 * owed, never more than what's actually carried, so this can only ever
+	 * submit real, affordable amounts, same "verify affordability first"
+	 * discipline as SimulatedCraft. If bDryRun, inventory and the schematic
+	 * manager are never touched - only the would-be submission/shortfall is
+	 * computed and reported, so this can be checked safely before the first
+	 * live attempt.
+	 *
+	 * If NOT a dry run and nothing is submittable (player carries none of
+	 * what's still owed), fails with NOTHING_TO_SUBMIT rather than
+	 * claiming a silent no-op success. Otherwise removes each submitted
+	 * item from carried inventory, calls PayOffOnSchematic, and - critically
+	 * - if that call returns false, RESTORES every removed item back to the
+	 * player's inventory (AddStack, allowPartialAdd=true) before failing
+	 * with PAYOFF_REJECTED, the same restore-on-failure discipline already
+	 * established for the Portable Miner ARMS-slot move
+	 * (MovePortableMinerToInventory) - never destroys real items on a
+	 * rejected payment.
+	 *
+	 * Result detail (submitted/shortfall item lists, dryRun flag) is
+	 * reported via FAIModOperationResult::ResultDetailJson, a JSON object
+	 * embedded under result.detail by the RPC layer - see
+	 * AIModOperationTypes.h.
+	 *
+	 * PayOffOnSchematic's real contract is UNCONFIRMED from source
+	 * (FGSchematicManager.cpp is a stub like nearly everything else in this
+	 * codebase) - specifically whether it requires the target to already be
+	 * the ACTIVE schematic, and whether it mutates the amount array it's
+	 * passed (ProcessEvent-by-reference pattern seen elsewhere in this
+	 * file). Deliberately NOT gated on "must be active" here - the real
+	 * engine call is trusted to enforce or not enforce that itself
+	 * (PAYOFF_REJECTED surfaces a false return either way) rather than this
+	 * function guessing at a restriction the source doesn't actually state.
+	 * NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun);
 };

@@ -61,6 +61,84 @@ code/message - the connection simply died mid-call) is not real findings,
 just cascade noise from the dead connection, and needs retesting once the
 game is back up.
 
+## NEW CAPABILITY: `world.milestoneProgress` + `world.payMilestone` - the HUB has no inventory, payment is pure bookkeeping (added 2026-08-29, not yet live-tested)
+
+User asked to query HUB/Space Elevator milestone progress and whether
+AIMod could move items from the player's carried inventory to the HUB,
+since (per the user, confirmed from source) the HUB can only be fed by
+the player directly - unlike the Space Elevator, which accepts belts.
+
+**Researched from source first** (`FGSchematicManager.h`, `FGSchematic.h`,
+`FGBuildableHubTerminal.h`, `FGBuildableTradingPost.h`,
+`FGBuildableSpaceElevator.h`) - real finding: "the HUB" in player terms is
+`AFGBuildableTradingPost::mHubTerminal` (`AFGBuildableHubTerminal`), which
+holds **no inventory of its own at all** - confirmed by reading its full
+header, a thin `AFGBuildable` with just a `mTradingPost` back-reference.
+Milestone payment is tracked purely as `FItemAmount` bookkeeping on
+`AFGSchematicManager::mPaidOffSchematic`, via the real, public,
+`BlueprintCallable` `PayOffOnSchematic(schematic, TArray<FItemAmount>&
+amount)`. The Space Elevator, by contrast, is a genuinely different,
+normal `AFGBuildableFactory` with a real `mInputInventory` and real
+`UFGFactoryConnectionComponent`s (`GetInputInventory()`,
+`GetNextPhaseCost()`, `IsReadyToUpgrade()`) - already visible to
+`world.buildables` and already belt-connectable via the existing generic
+`world.connectConveyor` path (`FindFreeFactoryConnection` scans any
+`AFGBuildable`, not a specific class) with **zero new code needed** -
+directly matching the user's own framing that it "can be fed with
+conveyor belts" unlike the HUB.
+
+**`world.milestoneProgress`** (read) reports both: every HUB
+milestone/tutorial schematic by tier (`GetHubSchematicsForTier`/
+`GetTechTierState`/`GetRemainingCostFor`/`GetPaidOffCostFor`/
+`IsSchematicPurchased`/`GetActiveSchematic`) plus every Space Elevator's
+phase-upgrade state.
+
+**`world.payMilestone`** (write) moves items from **carried** inventory
+only (`AFGCharacterPlayer::GetInventory()`, same scope as the existing
+`SimulatedCraft` - explicitly NOT the Dimensional Depot, same established
+gap as construction; use `world.withdrawFromCentralStorage` first if
+needed items are there). Per item still owed, submits
+`min(remainingAmount, carriedAmount)` - can only ever move real,
+affordable amounts, never fabricates or over-submits. Supports
+`dryRun:true` (computes the plan, touches nothing) - always test this way
+first, especially since a real redeploy wasn't available this session to
+verify live.
+
+**Real safety discipline applied, matching this project's established
+restore-on-failure pattern** (`MovePortableMinerToInventory`'s ARMS-slot
+move): removes items from the player's inventory FIRST, then calls
+`PayOffOnSchematic` - if that returns `false`, every removed item is
+immediately restored via `AddStack(allowPartialAdd=true)` before failing
+with `PAYOFF_REJECTED`. Never destroys real items on a rejected payment,
+even though the real rejection conditions are unconfirmed.
+
+**Genuinely unconfirmed from source** (like nearly every other
+FactoryGame class this project has researched, `FGSchematicManager.cpp`
+is a fully auto-generated stub with every method body empty):
+`PayOffOnSchematic`'s real contract - specifically whether it requires the
+target schematic to already be the manager's *active* one
+(`SetActiveSchematic`/`GetActiveSchematic` exist as a seemingly separate
+concept, but `mPaidOffSchematic` is plural/tracks-multiple, suggesting
+payoff may not actually require the active-schematic match), and whether
+it mutates the `amount` array it's passed by reference (a
+`UPARAM(ref)` - possibly to report leftover/excess, the same
+ProcessEvent-by-reference uncertainty already documented for the Portable
+Miner's reflective RPC call, though this one is a normal public
+BlueprintCallable function, not reflection). Deliberately NOT gated on
+"must be active" here - trusting the real engine call to enforce or not
+enforce that itself rather than guessing at a restriction the source
+doesn't actually state. `PayOffMilestone` logs the post-call `amount`
+array's contents and echoes it in `result.detail.amountArrayAfterCall` on
+a successful call specifically so the first live test can observe the
+real contract instead of guessing further.
+
+**Not yet live-tested at all** - the user was away from the game when
+this was implemented ("not available to redeploy at this time"),
+implemented and compiled from source research only, same posture as this
+project's other same-session, not-yet-tested additions. First live test
+should use `dryRun:true`, then a cheap/abundant milestone item, before
+trusting this for anything valuable.
+
 ## Rail/vehicle path layout tips from the user (2026-08-29, not yet acted on)
 
 Standing design guidance for the first real attempt at using

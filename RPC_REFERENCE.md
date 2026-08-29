@@ -712,6 +712,80 @@ not-yet-exposed capability (real source API exists:
 `AFGWheeledVehicleIdentifier::SetVehicleRoute`/`AddWaypoint`/
 `SetAutopilotEnabled`). **Not yet live-tested.**
 
+### `world.milestoneProgress` — synchronous, no params
+```json
+{
+  "protocolVersion": 1,
+  "highestAvailableTechTier": 3,
+  "maxAllowedTechTier": 6,
+  "activeSchematic": "/Game/.../Schematic_2-3.Schematic_2-3_C",
+  "tiers": [
+    {
+      "tier": 2,
+      "techTierState": "Available",
+      "schematics": [
+        {
+          "schematicClass": "...", "displayName": "Obstacle Traversal", "type": "Milestone",
+          "purchased": false, "isActive": true,
+          "cost": [{"itemClass":"...","itemName":"Iron Plate","amount":50}],
+          "remainingCost": [{"itemClass":"...","itemName":"Iron Plate","amount":30}],
+          "paidOffCost": [{"itemClass":"...","itemName":"Iron Plate","amount":20}]
+        }
+      ]
+    }
+  ],
+  "spaceElevators": [
+    { "id": "...", "buildableClass": "...", "isFullyUpgraded": false, "isReadyToUpgrade": false,
+      "nextPhaseCost": [...], "inputInventory": [...] }
+  ]
+}
+```
+Real HUB milestone/tutorial progress by tier
+(`AFGSchematicManager::GetHubSchematicsForTier`/`GetTechTierState`/
+`GetRemainingCostFor`/`GetPaidOffCostFor`/`IsSchematicPurchased`/
+`GetActiveSchematic` — all real, non-stub getters), plus every
+`AFGBuildableSpaceElevator`'s phase-upgrade state. Tiers 0–14 are scanned;
+a tier only appears if it has real schematics. **"The HUB" holds no
+inventory of its own** — milestone payment is pure item-amount bookkeeping
+on the schematic manager, not a physical buildable inventory; see
+`world.payMilestone` for the write side. The Space Elevator, by contrast,
+is a normal `AFGBuildableFactory` — already visible in `world.buildables`
+and already belt-connectable via `world.connectConveyor` with zero new
+code, matching that it "can be fed with conveyor belts" unlike the HUB.
+
+### `world.payMilestone` — synchronous
+`params: {"schematicClass" (optional — defaults to the manager's current
+active schematic), "dryRun" (optional bool, default false)}`. Moves items
+from the player's **carried** inventory (not the Dimensional Depot — see
+`world.withdrawFromCentralStorage` above if the needed items are there
+instead) toward a HUB milestone's remaining cost, then calls the real
+`AFGSchematicManager::PayOffOnSchematic` to register the payment. Per item
+still owed, submits `min(remainingAmount, carriedAmount)` — never more
+than owed, never more than carried, so it can only ever move real,
+affordable amounts. Always run `dryRun: true` first — it computes the same
+plan without touching inventory or the schematic manager, returned as
+`result.detail.wouldSubmit`/`result.detail.shortfall`.
+
+On a real (non-dry-run) call: fails with `NOTHING_TO_SUBMIT` if the player
+carries none of what's owed (never a silent no-op success). Otherwise
+removes the submitted items, calls `PayOffOnSchematic`, and — if that
+returns `false` — **restores every removed item back to the player's
+inventory** before failing with `PAYOFF_REJECTED`, the same
+restore-on-failure discipline as the Portable Miner ARMS-slot move. Detail
+is reported under `result.detail` (`schematicClass`, `submitted`,
+`shortfall`, and on a real successful call, `amountArrayAfterCall` — a
+diagnostic dump of whatever `PayOffOnSchematic` left in its by-reference
+`amount` parameter, since its real contract there is unconfirmed from
+source).
+
+**Not yet live-tested** — `PayOffOnSchematic`'s real behavior (whether it
+requires the target to already be the *active* schematic, whether it
+mutates the amount it's given) is unconfirmed; this function deliberately
+does not guess at a "must be active" restriction that the source doesn't
+actually state, trusting the real engine call to enforce or not enforce it
+itself. Test with `dryRun: true` first, then a cheap/abundant item, before
+relying on this for anything valuable.
+
 ### `world.cleanupOrphanedFlowIndicators` — synchronous, no params
 ```json
 { "protocolVersion": 1, "totalIndicators": 20, "attachedCount": 15, "orphanCount": 5, "deletedIds": ["...", "..."] }
