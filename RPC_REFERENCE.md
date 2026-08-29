@@ -250,14 +250,22 @@ sort rules on one.
 **Every recipe in the game, including ones not yet unlocked in the current
 save** — check the player's actual unlocks separately before assuming a
 recipe/alternate is usable. Building recipes are included too
-(`isBuildingRecipe: true`); their `ingredients` is the building's real
-construction cost. `amount` for liquid/gas ingredients is in thousandths of
-a cubic meter — check the item's `form` via `world.itemCatalog` first.
-`Recipe_*` paths under `/Recipes/Converter/` are the Resource Converter
-building's raw-resource-conversion recipes (e.g. Iron Ore from Limestone) —
-exclude these when computing a normal extraction-based chain unless the
-request specifically asked for converters. `Alternate` in the path marks an
-alternate recipe.
+(`isBuildingRecipe: true`); their `ingredients` is the building's OWN base
+construction cost — **not necessarily the real total**. `amount` for
+liquid/gas ingredients is in thousandths of a cubic meter — check the
+item's `form` via `world.itemCatalog` first. `Recipe_*` paths under
+`/Recipes/Converter/` are the Resource Converter building's raw-resource-
+conversion recipes (e.g. Iron Ore from Limestone) — exclude these when
+computing a normal extraction-based chain unless the request specifically
+asked for converters. `Alternate` in the path marks an alternate recipe.
+
+**For any `isBuildingRecipe: true` entry, `ingredients` is only part of the
+real cost** — a building's currently-active customization (swatch/pattern/
+material, e.g. a "Concrete" or "FICSIT" wall pattern) charges its own
+separate ingredients on top, confirmed live (a wall's base recipe costs 2
+Concrete; the same wall, built normally, also needed 2 Iron Plate for
+whatever pattern was active). Use `world.constructionCost` (below) for the
+real total before relying on this field for an affordability check.
 
 ### `world.itemCatalog` — no params
 ```json
@@ -289,6 +297,43 @@ Power/potential fields are present only for Manufacturer/Extractor/
 Generator; `powerProductionCapacity`/`defaultPowerProductionCapacity` only
 for Generator. `maxPotential` is the un-overclocked baseline (does not
 account for installed Power Shards). `clearance` is present on every entry.
+Like `world.recipeCatalog`'s `ingredients`, `constructionCost` is the base
+recipe only — see `world.constructionCost` below for the real total
+including any active customization cost.
+
+### `world.constructionCost` — params: `{"recipeClass"}`
+```json
+{
+  "protocolVersion": 1,
+  "recipeClass": "...",
+  "baseIngredients": [ {"itemClass":"...","itemName":"Concrete","amount":2} ],
+  "appliedCustomizationRecipes": ["...Recipe_Material_Wall_Concrete_C"],
+  "totalIngredients": [ {"itemClass":"...","itemName":"Concrete","amount":4} ]
+}
+```
+The real total construction cost for a recipe RIGHT NOW, including whatever
+customization (swatch/pattern/material) is currently active for that
+building's category — confirmed this is a real, separate cost layered on
+top of the base recipe, not a `world.recipeCatalog` reporting bug: a wall's
+base recipe lists 2 Concrete only, but a real build (via hotbar or the
+build menu) also charged Iron Plate or extra Concrete depending on which
+pattern was active. `baseIngredients` matches `world.recipeCatalog`'s
+`ingredients` for this recipe; `totalIngredients` is `baseIngredients` plus
+every ingredient from every currently-applied customization recipe
+(`appliedCustomizationRecipes`, empty if none), merged by item class.
+Applies generically to any building category with a customization system —
+walls, foundations, roofs, pipes, etc. — since it works by spawning a real
+hologram for the recipe (the same way construction does) and reading
+whatever customization the game itself automatically applies, rather than
+a hardcoded per-category rule. Never places anything or touches inventory.
+Errors: `INVALID_RECIPE` (`recipeClass` did not resolve to a real
+`UFGRecipe`). For an extractor recipe, `appliedCustomizationRecipes` is
+always empty and `totalIngredients` equals `baseIngredients` — extractor
+holograms are never spawned here, since a real, confirmed engine crash
+lives inside their construction path (see `world.placeBuilding`'s
+extractor-recipe refusal above) and it isn't worth the risk for a read-only
+query on a category that realistically has no meaningful swatch cost
+anyway.
 
 ### `world.chatHistory` — no params
 ```json

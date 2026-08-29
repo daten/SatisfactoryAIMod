@@ -20,6 +20,7 @@
 #include "FGChatManager.h"
 #include "Engine/World.h"
 #include "HAL/PlatformTime.h"
+#include "FGRecipe.h"
 
 namespace
 {
@@ -1164,6 +1165,38 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.buildableCatalog"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogBuildableCatalogAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.constructionCost"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		// Validated here, not inside LogConstructionCostAsJson - see
+		// LogGroundHeightAsJson's dispatch entry for why: every Log*AsJson
+		// function's result is unconditionally wrapped success:true, so a
+		// real INVALID_RECIPE error can only be surfaced by checking before
+		// calling it, same as world.groundHeight's params.
+		UClass* ResolvedRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+		if (!ResolvedRecipeClass || !ResolvedRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_RECIPE"),
+				FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+			return true;
+		}
+
+		MethodResultJson = UAIModFunctionLibrary::LogConstructionCostAsJson(GetGameInstance(), RecipeClassPath);
 	}
 	else if (Method == TEXT("world.targetedManufacturer"))
 	{

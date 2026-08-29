@@ -53,6 +53,8 @@
 #include "Buildables/FGBuildableResourceExtractorBase.h"
 #include "FGClearanceInterface.h"
 #include "FGClearanceData.h"
+#include "Hologram/FGBuildableHologram.h"
+#include "FGFactoryColoringTypes.h"
 #include "FGTimeSubsystem.h"
 #include "FGChatManager.h"
 #include "Configuration/ConfigManager.h"
@@ -5603,6 +5605,118 @@ FString UAIModFunctionLibrary::LogBuildableCatalogAsJson(UObject* WorldContextOb
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogBuildableCatalogAsJson: %d buildable(s)"), BuildableJsonArray.Num());
+
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::LogConstructionCostAsJson(UObject* WorldContextObject, const FString& RecipeClassPath)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	UClass* ResolvedClass = World ? LoadObject<UClass>(nullptr, *RecipeClassPath) : nullptr;
+	const TSubclassOf<UFGRecipe> RecipeClass = (ResolvedClass && ResolvedClass->IsChildOf(UFGRecipe::StaticClass())) ? ResolvedClass : nullptr;
+	if (!RecipeClass)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogConstructionCostAsJson: '%s' did not resolve to a UFGRecipe subclass, or no valid world context"), *RecipeClassPath);
+		return TEXT("{\"protocolVersion\":1,\"recipeClass\":\"\",\"baseIngredients\":[],\"appliedCustomizationRecipes\":[],\"totalIngredients\":[]}");
+	}
+
+	const TArray<FItemAmount> BaseIngredients = UFGRecipe::GetIngredients(World, RecipeClass);
+	TArray<TSubclassOf<UFGRecipe>> AppliedCustomizationRecipes;
+
+	// Extractor recipes are refused here the same way ConstructBuildingAtPosition
+	// refuses to CONSTRUCT them through the generic path - a confirmed hard
+	// engine crash (AFGResourceExtractorHologram::ConfigureActor's
+	// mSnappedExtractableResource assertion) lives inside Construct(), which
+	// this function never calls, but the hologram this function DOES spawn
+	// (to read its auto-applied customization state) is the same class, and
+	// there is no evidence UpdateHologramPlacement() alone is safe for it
+	// without a real snapped node. Not worth the risk for a read-only query -
+	// extractors realistically do not carry meaningful swatch costs anyway,
+	// so this just reports the base recipe cost for them.
+	const TSubclassOf<AFGBuildable> ResolvedBuildableClass = ResolveBuildableClassForRecipe(RecipeClassPath);
+	const bool bIsExtractorRecipe = ResolvedBuildableClass && ResolvedBuildableClass->IsChildOf(AFGBuildableResourceExtractorBase::StaticClass());
+
+	if (!bIsExtractorRecipe)
+	{
+		if (AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0)))
+		{
+			Character->HotKeyRecipe(RecipeClass);
+			AFGBuildGun* BuildGun = Character->GetBuildGun();
+			UFGBuildGunStateBuild* BuildState = BuildGun ? Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+			AFGHologram* Hologram = BuildState ? BuildState->GetHologram() : nullptr;
+			if (Hologram)
+			{
+				// Settle the hologram once, synchronously - the same
+				// UpdateHologramPlacement() call every Construct* function's
+				// poll loop uses, just once here since this only needs
+				// customization state to have applied, not a real placement.
+				FHitResult SyntheticHit;
+				SyntheticHit.Location = Character->GetActorLocation();
+				SyntheticHit.ImpactPoint = SyntheticHit.Location;
+				SyntheticHit.Normal = FVector::UpVector;
+				SyntheticHit.ImpactNormal = FVector::UpVector;
+				SyntheticHit.bBlockingHit = true;
+				Hologram->UpdateHologramPlacement(SyntheticHit);
+
+				// mCustomizationData is protected, no public getter - same
+				// FStructProperty reflection pattern already used elsewhere
+				// in this file for other protected UPROPERTYs.
+				if (AFGBuildableHologram* BuildableHologram = Cast<AFGBuildableHologram>(Hologram))
+				{
+					if (const FStructProperty* CustomizationProperty = FindFProperty<FStructProperty>(BuildableHologram->GetClass(), TEXT("mCustomizationData")))
+					{
+						if (const FFactoryCustomizationData* CustomizationData = CustomizationProperty->ContainerPtrToValuePtr<FFactoryCustomizationData>(BuildableHologram))
+						{
+							CustomizationData->GetAppliedRecipes(World, AppliedCustomizationRecipes);
+						}
+					}
+				}
+			}
+			Character->UnequipBuildGun();
+		}
+	}
+
+	// Merge base + every applied customization recipe's own ingredients,
+	// summing amounts for the same item class - the real total a player
+	// pays, per this function's header doc comment.
+	TArray<FItemAmount> TotalIngredients = BaseIngredients;
+	for (const TSubclassOf<UFGRecipe>& CustomizationRecipeClass : AppliedCustomizationRecipes)
+	{
+		if (!CustomizationRecipeClass) { continue; }
+		for (const FItemAmount& Extra : UFGRecipe::GetIngredients(World, CustomizationRecipeClass))
+		{
+			FItemAmount* Existing = TotalIngredients.FindByPredicate([&Extra](const FItemAmount& Candidate) { return Candidate.ItemClass == Extra.ItemClass; });
+			if (Existing)
+			{
+				Existing->Amount += Extra.Amount;
+			}
+			else
+			{
+				TotalIngredients.Add(Extra);
+			}
+		}
+	}
+
+	TArray<TSharedPtr<FJsonValue>> AppliedRecipesJsonArray;
+	for (const TSubclassOf<UFGRecipe>& CustomizationRecipeClass : AppliedCustomizationRecipes)
+	{
+		if (CustomizationRecipeClass) { AppliedRecipesJsonArray.Add(MakeShared<FJsonValueString>(CustomizationRecipeClass->GetPathName())); }
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetStringField(TEXT("recipeClass"), RecipeClass->GetPathName());
+	RootObject->SetArrayField(TEXT("baseIngredients"), ItemAmountsToJsonArray(BaseIngredients));
+	RootObject->SetArrayField(TEXT("appliedCustomizationRecipes"), AppliedRecipesJsonArray);
+	RootObject->SetArrayField(TEXT("totalIngredients"), ItemAmountsToJsonArray(TotalIngredients));
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogConstructionCostAsJson: recipe=%s isExtractor=%s baseIngredients=%d appliedCustomizationRecipes=%d totalIngredients=%d"),
+		*RecipeClassPath, bIsExtractorRecipe ? TEXT("true") : TEXT("false"), BaseIngredients.Num(), AppliedCustomizationRecipes.Num(), TotalIngredients.Num());
 
 	return JsonString;
 }

@@ -7,6 +7,57 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## CRITICAL: building recipe `ingredients` is only the BASE cost - customization (swatch/pattern/material) charges extra, use `world.constructionCost` for the real total (fixed 2026-08-28)
+
+Discovered live: an RPC wall placement failed `"Missing materials!"` even
+though the player had 2,600+ Concrete on hand and `Recipe_Wall_8x4_01`'s
+own `ingredients` (via `world.recipeCatalog`) list only 2 Concrete. Root
+cause, confirmed by the player's own manual build attempts: Satisfactory's
+building customization system (swatch/pattern/material, set via the
+Customizer or picked up from whatever was last "sampled") charges its OWN
+separate ingredient cost on top of the base recipe, every time a NEW
+instance of that category is built - not a `world.recipeCatalog` reporting
+bug, a real second cost component the catalog was never designed to
+reflect (it enumerates static per-recipe class data; the active
+customization is dynamic, per-player, per-category state).
+
+**This affects any buildable category with a customization system** - the
+user's own report: a wall via the build menu cost 2 Concrete + 2 Iron
+Plate; the same wall via hotbar with the "Concrete" pattern selected cost
+4 Concrete (2 base + 2 from `Recipe_Material_Wall_Concrete`, confirmed in
+the catalog). Not unique to walls - foundations, roofs, pipes, and likely
+every other customizable building category work the same way
+(`UFGCustomizationRecipe` is itself a `UFGRecipe` subclass with its own
+`mIngredients`, and `FFactoryCustomizationData::GetAppliedRecipes()` is
+generic across all of them).
+
+**Fix**: `ConstructBuildingAtPosition`'s OWN construction-cost enforcement
+(via the real `GetConstructDisqualifiers()`/`UFGCDUnaffordable` check) was
+ALREADY correctly combining base + active customization cost the whole
+time, matching a real interactive build exactly - confirmed by the fact
+that the RPC wall placement genuinely needed the extra Iron Plate to
+succeed. The gap was purely in TELEMETRY: nothing exposed what that real
+total would be before attempting to build. New **`world.constructionCost`**
+(params: `{"recipeClass"}`) spawns a real hologram for the recipe (same
+`HotKeyRecipe` path construction uses, so it inherits whatever
+customization the engine itself would apply), reads its `mCustomizationData`
+(protected, read via `FStructProperty` reflection - no public getter),
+sums `GetIngredients()` across the base recipe and every recipe returned
+by `GetAppliedRecipes()`, and reports `baseIngredients` (matches
+`world.recipeCatalog`) alongside the real `totalIngredients`. Never calls
+`CanConstruct`/`Construct` - nothing is placed. Extractor recipes are
+deliberately excluded (skip the hologram spawn, report base cost only) -
+see the crash precedent below; not worth the risk for a category that
+realistically has no meaningful swatch cost anyway.
+
+**Always check `world.constructionCost`'s `totalIngredients` before a
+placement, not `world.recipeCatalog`'s `ingredients` alone** - especially
+before a multi-piece autonomous build (a house, a factory wall run) where
+a mid-build "Missing materials!" wastes real player-visible feedback and
+partial-build cleanup. Not yet live-verified against the packaged game
+(implemented and compiled clean the same session it was found; pending
+redeploy).
+
 ## CRITICAL: `world.placeExtractor` for solid ore Miners (Mk1/2/3) requires a real Portable Miner ITEM in inventory (discovered 2026-08-28)
 
 Verified directly from `world.recipeCatalog`, not guessed: `Recipe_MinerMk1`,

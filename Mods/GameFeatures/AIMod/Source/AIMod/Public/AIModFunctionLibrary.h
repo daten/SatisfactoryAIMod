@@ -1067,6 +1067,43 @@ public:
 	static FString LogBuildableCatalogAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.constructionCost (2026-08-28) - the recipe catalog's own
+	 * "ingredients" field is the BASE recipe cost only. Real construction
+	 * (both interactive and via world.placeBuilding) also charges for
+	 * whatever building customization (swatch/pattern/material) is
+	 * currently active for that buildable category - confirmed live: an
+	 * RPC wall placement failed "Missing materials!" needing Iron Plate
+	 * even though Recipe_Wall_8x4_01's own ingredients list only Concrete,
+	 * matching the player's own build menu showing the same combined
+	 * cost. FFactoryCustomizationData::GetAppliedRecipes() is the real
+	 * mechanism - each applied customization (a UFGCustomizationRecipe,
+	 * itself a UFGRecipe subclass) has its own ingredients, added on top
+	 * of the base recipe's.
+	 *
+	 * Spawns a real hologram for RecipeClassPath via the same HotKeyRecipe
+	 * path construction uses (so it inherits whatever default swatch the
+	 * engine itself would apply to a real new placement), reads its
+	 * mCustomizationData (protected, no public getter - read via
+	 * FStructProperty reflection, the established pattern for protected
+	 * UPROPERTYs in this file), sums GetIngredients() across the base
+	 * recipe and every applied customization recipe (merging amounts for
+	 * the same item class), then unequips - never calls CanConstruct or
+	 * Construct, nothing is placed. Generic across every buildable
+	 * category (walls, foundations, pipes, roofs, etc.) since it is
+	 * driven by the same real per-hologram customization state the game
+	 * itself maintains, not a hardcoded per-category rule.
+	 *
+	 * Returns "baseIngredients" (matches world.recipeCatalog for this
+	 * recipe), "appliedCustomizationRecipes" (class paths, empty if no
+	 * swatch/pattern/material is currently active for this category), and
+	 * "totalIngredients" (the real combined cost) - use the last one for
+	 * an accurate affordability check before building, not
+	 * world.recipeCatalog's "ingredients" alone.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogConstructionCostAsJson(UObject* WorldContextObject, const FString& RecipeClassPath);
+
+	/**
 	 * Telemetry (JSON string, not FAIModOperationResult). Returns
 	 * AFGBuildableConveyorBase::GetSpeed() for each Recipe_ConveyorBeltMk1..
 	 * Mk6 buildable class, read live off each CDO. GetSpeed()'s unit is
