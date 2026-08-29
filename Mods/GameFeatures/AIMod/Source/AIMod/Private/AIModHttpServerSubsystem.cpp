@@ -889,6 +889,102 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	if (Method == TEXT("world.startMamResearch"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SchematicClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath) || SchematicClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.schematicClass must be a non-empty string")));
+			return true;
+		}
+		FString ResearchTreeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("researchTreeClass"), ResearchTreeClassPath) || ResearchTreeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.researchTreeClass must be a non-empty string")));
+			return true;
+		}
+		bool bDryRun = false;
+		ParamsObject->TryGetBoolField(TEXT("dryRun"), bDryRun);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::StartMamResearch(GetGameInstance(), SchematicClassPath, ResearchTreeClassPath, bDryRun);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.claimMamResearch"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SchematicClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath) || SchematicClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.schematicClass must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::ClaimMamResearch(GetGameInstance(), SchematicClassPath);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.claimMamHardDriveReward"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SchematicClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath) || SchematicClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.schematicClass must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::ClaimMamHardDriveReward(GetGameInstance(), SchematicClassPath);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.rerollMamHardDrive"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SchematicClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath) || SchematicClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.schematicClass must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::RerollMamHardDrive(GetGameInstance(), SchematicClassPath);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	if (Method == TEXT("world.withdrawFromCentralStorage"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -1295,6 +1391,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.milestoneProgress"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogMilestoneProgressAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.mamStatus"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMamStatusAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.manufacturers"))
 	{

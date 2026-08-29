@@ -83,6 +83,11 @@
 #include "FGSchematicManager.h"
 #include "FGSchematic.h"
 #include "Buildables/FGBuildableSpaceElevator.h"
+#include "FGResearchManager.h"
+#include "FGResearchTree.h"
+#include "FGResearchTreeNode.h"
+#include "FGHardDrive.h"
+#include "FGPlayerController.h"
 
 namespace
 {
@@ -8417,4 +8422,474 @@ FAIModOperationResult UAIModFunctionLibrary::PayOffMilestone(UObject* WorldConte
 	FAIModOperationResult Result = FAIModOperationResult::Success();
 	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
 	return Result;
+}
+
+namespace
+{
+	FString SchematicStateToString(ESchematicState State)
+	{
+		switch (State)
+		{
+		case ESchematicState::ESS_Locked: return TEXT("Locked");
+		case ESchematicState::ESS_Purchased: return TEXT("Purchased");
+		case ESchematicState::ESS_Available: return TEXT("Available");
+		case ESchematicState::ESS_Hidden: return TEXT("Hidden");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	FString ResearchTreeStatusToString(EResearchTreeStatus Status)
+	{
+		switch (Status)
+		{
+		case ERTS_Locked: return TEXT("Locked");
+		case ERTS_Unlocked: return TEXT("Unlocked");
+		case ERTS_StartedResearch: return TEXT("StartedResearch");
+		case ERTS_FinishedAllResearch: return TEXT("FinishedAllResearch");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	// AFGResearchManager::mOngoingResearch is a protected (but reflected -
+	// real UPROPERTY) TArray<FResearchTime>, with no public getter that
+	// returns the full list (GetResearchBeingConducted() only returns a
+	// single schematic, insufficient when mCanConductMultipleResearch is
+	// true). FResearchTime/FResearchData are fully public struct
+	// definitions (FGResearchManager.h) - only the CONTAINER field access is
+	// blocked by C++ access rules, not the struct layout itself - so a raw
+	// FScriptArrayHelper walk + reinterpret_cast to the known, real struct
+	// type is safe here, same category of technique as this file's other
+	// FindFProperty-based reads of protected/private UPROPERTYs.
+	TArray<FResearchTime> CollectOngoingResearch(AFGResearchManager* Manager)
+	{
+		TArray<FResearchTime> Result;
+		if (!Manager) { return Result; }
+
+		const FArrayProperty* ArrayProp = FindFProperty<FArrayProperty>(Manager->GetClass(), TEXT("mOngoingResearch"));
+		if (!ArrayProp) { return Result; }
+
+		const void* ArrayAddr = ArrayProp->ContainerPtrToValuePtr<void>(Manager);
+		FScriptArrayHelper ArrayHelper(ArrayProp, ArrayAddr);
+		for (int32 Index = 0; Index < ArrayHelper.Num(); ++Index)
+		{
+			if (const FResearchTime* Entry = reinterpret_cast<const FResearchTime*>(ArrayHelper.GetRawPtr(Index)))
+			{
+				Result.Add(*Entry);
+			}
+		}
+		return Result;
+	}
+
+	// Shared by ClaimMamHardDriveReward/RerollMamHardDrive - both identify
+	// their target hard drive by one of its CURRENT reward schematics
+	// rather than a numeric id, see ClaimMamHardDriveReward's header doc
+	// comment for why a real stable id isn't accessible here.
+	UFGHardDrive* FindUnclaimedHardDriveOfferingSchematic(AFGResearchManager* Manager, const TSubclassOf<UFGSchematic>& RewardSchematic)
+	{
+		if (!Manager || !RewardSchematic) { return nullptr; }
+
+		TArray<UFGHardDrive*> HardDrives;
+		Manager->GetUnclaimedHardDrives(HardDrives);
+		for (UFGHardDrive* HardDrive : HardDrives)
+		{
+			if (!IsValid(HardDrive)) { continue; }
+			TArray<TSubclassOf<UFGSchematic>> RewardSchematics;
+			HardDrive->GetSchematics(RewardSchematics);
+			if (RewardSchematics.Contains(RewardSchematic))
+			{
+				return HardDrive;
+			}
+		}
+		return nullptr;
+	}
+}
+
+FString UAIModFunctionLibrary::LogMamStatusAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGResearchManager* ResearchManager = World ? AFGResearchManager::Get(World) : nullptr;
+	if (!ResearchManager)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogMamStatusAsJson: no valid world context or AFGResearchManager::Get returned null"));
+		return TEXT("{\"protocolVersion\":1,\"researchState\":\"NotResearching\",\"canConductMultipleResearch\":false,\"ongoingResearch\":[],\"completedResearch\":[],\"unclaimedHardDrives\":[],\"researchTrees\":[]}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> OngoingJsonArray;
+	for (const FResearchTime& Entry : CollectOngoingResearch(ResearchManager))
+	{
+		const TSubclassOf<UFGSchematic> Schematic = Entry.ResearchData.Schematic;
+		if (!Schematic) { continue; }
+
+		const TSharedRef<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+		EntryObject->SetStringField(TEXT("schematicClass"), Schematic->GetPathName());
+		EntryObject->SetStringField(TEXT("displayName"), UFGSchematic::GetSchematicDisplayName(Schematic).ToString());
+		EntryObject->SetStringField(TEXT("type"), SchematicTypeToString(UFGSchematic::GetType(Schematic)));
+		EntryObject->SetStringField(TEXT("initiatingResearchTree"), Entry.ResearchData.InitiatingResearchTree ? Entry.ResearchData.InitiatingResearchTree->GetPathName() : FString());
+		EntryObject->SetNumberField(TEXT("timeLeftSeconds"), ResearchManager->GetOngoingResearchTimeLeft(Schematic));
+		OngoingJsonArray.Add(MakeShared<FJsonValueObject>(EntryObject));
+	}
+
+	TArray<TSubclassOf<UFGSchematic>> CompletedSchematics;
+	ResearchManager->GetAllCompletedResearch(CompletedSchematics);
+	TArray<TSharedPtr<FJsonValue>> CompletedJsonArray;
+	for (const TSubclassOf<UFGSchematic>& Schematic : CompletedSchematics)
+	{
+		if (!Schematic) { continue; }
+		const TSubclassOf<UFGResearchTree> InitiatingTree = ResearchManager->GetInitiatingResearchTree(Schematic);
+
+		const TSharedRef<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+		EntryObject->SetStringField(TEXT("schematicClass"), Schematic->GetPathName());
+		EntryObject->SetStringField(TEXT("displayName"), UFGSchematic::GetSchematicDisplayName(Schematic).ToString());
+		EntryObject->SetStringField(TEXT("type"), SchematicTypeToString(UFGSchematic::GetType(Schematic)));
+		EntryObject->SetStringField(TEXT("initiatingResearchTree"), InitiatingTree ? InitiatingTree->GetPathName() : FString());
+		CompletedJsonArray.Add(MakeShared<FJsonValueObject>(EntryObject));
+	}
+
+	TArray<UFGHardDrive*> HardDrives;
+	ResearchManager->GetUnclaimedHardDrives(HardDrives);
+	TArray<TSharedPtr<FJsonValue>> HardDrivesJsonArray;
+	for (UFGHardDrive* HardDrive : HardDrives)
+	{
+		if (!IsValid(HardDrive)) { continue; }
+
+		TArray<TSubclassOf<UFGSchematic>> RewardSchematics;
+		HardDrive->GetSchematics(RewardSchematics);
+
+		TArray<TSharedPtr<FJsonValue>> RewardsJsonArray;
+		for (const TSubclassOf<UFGSchematic>& Reward : RewardSchematics)
+		{
+			if (!Reward) { continue; }
+			const TSharedRef<FJsonObject> RewardObject = MakeShared<FJsonObject>();
+			RewardObject->SetStringField(TEXT("schematicClass"), Reward->GetPathName());
+			RewardObject->SetStringField(TEXT("displayName"), UFGSchematic::GetSchematicDisplayName(Reward).ToString());
+			RewardsJsonArray.Add(MakeShared<FJsonValueObject>(RewardObject));
+		}
+
+		const TSharedRef<FJsonObject> HardDriveObject = MakeShared<FJsonObject>();
+		HardDriveObject->SetArrayField(TEXT("pendingRewards"), RewardsJsonArray);
+		HardDriveObject->SetBoolField(TEXT("canReroll"), HardDrive->CanReroll());
+		HardDriveObject->SetBoolField(TEXT("hasReroll"), HardDrive->HasReroll());
+		HardDrivesJsonArray.Add(MakeShared<FJsonValueObject>(HardDriveObject));
+	}
+
+	TArray<TSubclassOf<UFGResearchTree>> AllTrees;
+	ResearchManager->GetAllResearchTrees(AllTrees);
+	TArray<TSharedPtr<FJsonValue>> TreesJsonArray;
+	for (const TSubclassOf<UFGResearchTree>& TreeClass : AllTrees)
+	{
+		if (!TreeClass) { continue; }
+		const EResearchTreeStatus TreeStatus = UFGResearchTree::GetResearchTreeStatus(TreeClass, WorldContextObject);
+
+		const TSharedRef<FJsonObject> TreeObject = MakeShared<FJsonObject>();
+		TreeObject->SetStringField(TEXT("researchTreeClass"), TreeClass->GetPathName());
+		TreeObject->SetStringField(TEXT("displayName"), UFGResearchTree::GetDisplayName(TreeClass).ToString());
+		TreeObject->SetStringField(TEXT("status"), ResearchTreeStatusToString(TreeStatus));
+
+		// A fully locked tree isn't visible to the real player either - its
+		// nodes would just be noise (and every node's schematic state would
+		// misleadingly read "Locked" for a reason unrelated to the node
+		// itself).
+		TArray<TSharedPtr<FJsonValue>> NodesJsonArray;
+		if (TreeStatus != ERTS_Locked)
+		{
+			for (UFGResearchTreeNode* Node : UFGResearchTree::GetNodes(TreeClass))
+			{
+				if (!IsValid(Node)) { continue; }
+				const TSubclassOf<UFGSchematic> NodeSchematic = Node->GetNodeSchematic();
+				if (!NodeSchematic) { continue; }
+
+				const TSharedRef<FJsonObject> NodeObject = MakeShared<FJsonObject>();
+				NodeObject->SetStringField(TEXT("schematicClass"), NodeSchematic->GetPathName());
+				NodeObject->SetStringField(TEXT("displayName"), UFGSchematic::GetSchematicDisplayName(NodeSchematic).ToString());
+				NodeObject->SetStringField(TEXT("type"), SchematicTypeToString(UFGSchematic::GetType(NodeSchematic)));
+				NodeObject->SetStringField(TEXT("schematicState"), SchematicStateToString(UFGSchematic::GetSchematicState(NodeSchematic, WorldContextObject)));
+				NodeObject->SetArrayField(TEXT("cost"), ItemAmountsToJsonArray(UFGSchematic::GetCost(NodeSchematic)));
+				NodesJsonArray.Add(MakeShared<FJsonValueObject>(NodeObject));
+			}
+		}
+		TreeObject->SetArrayField(TEXT("nodes"), NodesJsonArray);
+		TreesJsonArray.Add(MakeShared<FJsonValueObject>(TreeObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetStringField(TEXT("researchState"), ResearchManager->GetCurrentResearchState() == EResearchState::ERS_Researching ? TEXT("Researching") : TEXT("NotResearching"));
+	RootObject->SetBoolField(TEXT("canConductMultipleResearch"), ResearchManager->CanConductMultipleResearch());
+	RootObject->SetArrayField(TEXT("ongoingResearch"), OngoingJsonArray);
+	RootObject->SetArrayField(TEXT("completedResearch"), CompletedJsonArray);
+	RootObject->SetArrayField(TEXT("unclaimedHardDrives"), HardDrivesJsonArray);
+	RootObject->SetArrayField(TEXT("researchTrees"), TreesJsonArray);
+
+	const FString JsonString = SerializeJsonObject(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogMamStatusAsJson: ongoing=%d completed=%d unclaimedHardDrives=%d trees=%d"),
+		OngoingJsonArray.Num(), CompletedJsonArray.Num(), HardDrivesJsonArray.Num(), TreesJsonArray.Num());
+
+	return JsonString;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::StartMamResearch(UObject* WorldContextObject, const FString& SchematicClassPath, const FString& ResearchTreeClassPath, bool bDryRun)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGResearchManager* ResearchManager = AFGResearchManager::Get(World);
+	if (!ResearchManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGResearchManager::Get returned null"));
+	}
+
+	if (SchematicClassPath.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("schematicClass must be a non-empty string"));
+	}
+	UClass* ResolvedSchematicClass = LoadObject<UClass>(nullptr, *SchematicClassPath);
+	if (!ResolvedSchematicClass || !ResolvedSchematicClass->IsChildOf(UFGSchematic::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_SCHEMATIC"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGSchematic subclass"), *SchematicClassPath));
+	}
+	const TSubclassOf<UFGSchematic> SchematicClass = ResolvedSchematicClass;
+
+	if (ResearchTreeClassPath.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"),
+			TEXT("researchTreeClass must be a non-empty string - InitiateResearch requires the initiating tree"));
+	}
+	UClass* ResolvedTreeClass = LoadObject<UClass>(nullptr, *ResearchTreeClassPath);
+	if (!ResolvedTreeClass || !ResolvedTreeClass->IsChildOf(UFGResearchTree::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_RESEARCH_TREE"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGResearchTree subclass"), *ResearchTreeClassPath));
+	}
+	const TSubclassOf<UFGResearchTree> ResearchTreeClass = ResolvedTreeClass;
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	if (!PlayerInventory)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No player inventory found"));
+	}
+
+	AFGPlayerController* Controller = Cast<AFGPlayerController>(UGameplayStatics::GetPlayerController(World, 0));
+	if (!Controller)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGPlayerController (player index 0)"));
+	}
+
+	const bool bCanInitiate = ResearchManager->CanResearchBeInitiated(SchematicClass);
+	const bool bCanAfford = ResearchManager->CanAffordResearch(PlayerInventory, SchematicClass);
+	const TArray<FItemAmount> Cost = UFGSchematic::GetCost(SchematicClass);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("schematicClass"), SchematicClass->GetPathName());
+	DetailObject->SetStringField(TEXT("researchTreeClass"), ResearchTreeClass->GetPathName());
+	DetailObject->SetBoolField(TEXT("dryRun"), bDryRun);
+	DetailObject->SetBoolField(TEXT("canResearchBeInitiated"), bCanInitiate);
+	DetailObject->SetBoolField(TEXT("canAfford"), bCanAfford);
+	DetailObject->SetArrayField(TEXT("cost"), ItemAmountsToJsonArray(Cost));
+
+	if (!bCanInitiate)
+	{
+		FAIModOperationResult Result = FAIModOperationResult::Failure(TEXT("CANNOT_RESEARCH"),
+			TEXT("AFGResearchManager::CanResearchBeInitiated returned false - already researching/researched, tree not unlocked, or dependencies not met"));
+		Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+		return Result;
+	}
+	if (!bCanAfford)
+	{
+		FAIModOperationResult Result = FAIModOperationResult::Failure(TEXT("INSUFFICIENT_INGREDIENTS"),
+			TEXT("AFGResearchManager::CanAffordResearch returned false - carried inventory does not cover the full cost, see result.detail.cost"));
+		Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+		return Result;
+	}
+
+	if (bDryRun)
+	{
+		FAIModOperationResult Result = FAIModOperationResult::Success();
+		Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+		return Result;
+	}
+
+	// Atomic pay-and-start, per this function's header doc comment - no
+	// partial-submission step exists to expose separately.
+	ResearchManager->InitiateResearch(Controller, SchematicClass, ResearchTreeClass);
+
+	if (!ResearchManager->IsResearchBeingConducted(SchematicClass))
+	{
+		FAIModOperationResult Result = FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+			TEXT("InitiateResearch was called but IsResearchBeingConducted still returns false afterward"));
+		Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+		return Result;
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("StartMamResearch: schematic=%s tree=%s - research started"),
+		*SchematicClass->GetName(), *ResearchTreeClass->GetName());
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::ClaimMamResearch(UObject* WorldContextObject, const FString& SchematicClassPath)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGResearchManager* ResearchManager = AFGResearchManager::Get(World);
+	if (!ResearchManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGResearchManager::Get returned null"));
+	}
+
+	if (SchematicClassPath.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("schematicClass must be a non-empty string"));
+	}
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *SchematicClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGSchematic::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_SCHEMATIC"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGSchematic subclass"), *SchematicClassPath));
+	}
+	const TSubclassOf<UFGSchematic> SchematicClass = ResolvedClass;
+
+	if (!ResearchManager->IsResearchComplete(SchematicClass))
+	{
+		return FAIModOperationResult::Failure(TEXT("NOT_COMPLETE"),
+			FString::Printf(TEXT("'%s' is not a completed, unclaimed research (still ongoing, not yet started, or already claimed)"), *SchematicClassPath));
+	}
+
+	AFGPlayerController* Controller = Cast<AFGPlayerController>(UGameplayStatics::GetPlayerController(World, 0));
+	if (!Controller)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGPlayerController (player index 0)"));
+	}
+
+	ResearchManager->ClaimResearchResults(Controller, SchematicClass);
+
+	if (ResearchManager->IsResearchComplete(SchematicClass))
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+			TEXT("ClaimResearchResults was called but IsResearchComplete still returns true afterward"));
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("ClaimMamResearch: schematic=%s claimed"), *SchematicClass->GetName());
+
+	return FAIModOperationResult::Success();
+}
+
+FAIModOperationResult UAIModFunctionLibrary::ClaimMamHardDriveReward(UObject* WorldContextObject, const FString& RewardSchematicClassPath)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGResearchManager* ResearchManager = AFGResearchManager::Get(World);
+	if (!ResearchManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGResearchManager::Get returned null"));
+	}
+
+	if (RewardSchematicClassPath.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("schematicClass must be a non-empty string"));
+	}
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RewardSchematicClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGSchematic::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_SCHEMATIC"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGSchematic subclass"), *RewardSchematicClassPath));
+	}
+	const TSubclassOf<UFGSchematic> RewardSchematic = ResolvedClass;
+
+	UFGHardDrive* TargetHardDrive = FindUnclaimedHardDriveOfferingSchematic(ResearchManager, RewardSchematic);
+	if (!TargetHardDrive)
+	{
+		return FAIModOperationResult::Failure(TEXT("REWARD_NOT_FOUND"),
+			FString::Printf(TEXT("No unclaimed hard drive currently offers '%s' as a reward choice - re-query world.mamStatus"), *RewardSchematicClassPath));
+	}
+
+	AFGPlayerController* Controller = Cast<AFGPlayerController>(UGameplayStatics::GetPlayerController(World, 0));
+	if (!Controller)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGPlayerController (player index 0)"));
+	}
+
+	TargetHardDrive->ClaimSchematic(Controller, RewardSchematic);
+
+	UE_LOG(LogAIModAI, Display, TEXT("ClaimMamHardDriveReward: claimed %s"), *RewardSchematic->GetName());
+
+	// TargetHardDrive's own wrapper object may now be stale/claimed - don't
+	// probe it further, re-query world.mamStatus for authoritative post-
+	// claim state (same "don't trust a mutated-away handle" posture as the
+	// rest of this project's write operations).
+	return FAIModOperationResult::Success();
+}
+
+FAIModOperationResult UAIModFunctionLibrary::RerollMamHardDrive(UObject* WorldContextObject, const FString& AnyCurrentRewardSchematicClassPath)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGResearchManager* ResearchManager = AFGResearchManager::Get(World);
+	if (!ResearchManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGResearchManager::Get returned null"));
+	}
+
+	if (AnyCurrentRewardSchematicClassPath.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("schematicClass must be a non-empty string"));
+	}
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *AnyCurrentRewardSchematicClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGSchematic::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_SCHEMATIC"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGSchematic subclass"), *AnyCurrentRewardSchematicClassPath));
+	}
+	const TSubclassOf<UFGSchematic> RewardSchematic = ResolvedClass;
+
+	UFGHardDrive* TargetHardDrive = FindUnclaimedHardDriveOfferingSchematic(ResearchManager, RewardSchematic);
+	if (!TargetHardDrive)
+	{
+		return FAIModOperationResult::Failure(TEXT("REWARD_NOT_FOUND"),
+			FString::Printf(TEXT("No unclaimed hard drive currently offers '%s' - re-query world.mamStatus"), *AnyCurrentRewardSchematicClassPath));
+	}
+
+	if (!TargetHardDrive->CanReroll())
+	{
+		return FAIModOperationResult::Failure(TEXT("CANNOT_REROLL"),
+			TargetHardDrive->HasReroll()
+				? TEXT("UFGHardDrive::CanReroll() is false: no alternate recipes are currently available to reroll into")
+				: TEXT("UFGHardDrive::CanReroll() is false: no rerolls left for this hard drive"));
+	}
+
+	AFGPlayerController* Controller = Cast<AFGPlayerController>(UGameplayStatics::GetPlayerController(World, 0));
+	if (!Controller)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGPlayerController (player index 0)"));
+	}
+
+	TargetHardDrive->Reroll(Controller);
+
+	UE_LOG(LogAIModAI, Display, TEXT("RerollMamHardDrive: rerolled a hard drive that was offering %s - re-query world.mamStatus for new choices"),
+		*RewardSchematic->GetName());
+
+	return FAIModOperationResult::Success();
 }

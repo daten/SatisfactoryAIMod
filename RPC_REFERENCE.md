@@ -786,6 +786,105 @@ actually state, trusting the real engine call to enforce or not enforce it
 itself. Test with `dryRun: true` first, then a cheap/abundant item, before
 relying on this for anything valuable.
 
+### `world.mamStatus` — synchronous, no params
+```json
+{
+  "protocolVersion": 1,
+  "researchState": "Researching",
+  "canConductMultipleResearch": false,
+  "ongoingResearch": [
+    { "schematicClass": "...", "displayName": "...", "type": "MAM",
+      "initiatingResearchTree": "...", "timeLeftSeconds": 42.1 }
+  ],
+  "completedResearch": [
+    { "schematicClass": "...", "displayName": "...", "type": "HardDrive", "initiatingResearchTree": "..." }
+  ],
+  "unclaimedHardDrives": [
+    { "pendingRewards": [{"schematicClass":"...","displayName":"Alternate: Turbo Rifle Ammo"}],
+      "canReroll": true, "hasReroll": true }
+  ],
+  "researchTrees": [
+    { "researchTreeClass": "...", "displayName": "Alien Organisms", "status": "Unlocked",
+      "nodes": [
+        { "schematicClass": "...", "displayName": "...", "type": "MAM",
+          "schematicState": "Available", "cost": [{"itemClass":"...","itemName":"Alien DNA Capsule","amount":1}] }
+      ]
+    }
+  ]
+}
+```
+Full M.A.M. status in one call. `schematicState` on each node is the same
+`Locked`/`Available`/`Purchased`/`Hidden` enum `world.milestoneProgress`
+uses for HUB schematics — `Available` is "locked but selectable right
+now" (dependencies met, not yet purchased); `Purchased` is "already
+unlocked." Only research trees that aren't fully `Locked` get their nodes
+expanded (a locked tree isn't visible to the real player either).
+`unclaimedHardDrives` are hard-drive analyses that finished and are
+waiting for you to pick one of the randomly-rolled alternate-recipe
+rewards — this is how to tell a player "hard drive research is complete,
+go review your new alternate recipes."
+
+**No stable hard-drive id is exposed** (the real engine field exists but
+isn't reflectable — see `world.claimMamHardDriveReward` below) — identify
+a specific hard drive by any one of its current `pendingRewards` schematic
+classes instead.
+
+### `world.startMamResearch` — synchronous
+`params: {"schematicClass" (required), "researchTreeClass" (required),
+"dryRun" (optional bool, default false)}`. Unlike `world.payMilestone`,
+M.A.M. research cost is paid **atomically** — one call both submits the
+full ingredient cost from carried inventory and starts the research timer
+(there's no real "submit some ingredients now, more later" mechanic to
+expose here). `dryRun: true` runs only the validation
+(`CanResearchBeInitiated`/`CanAffordResearch`) and reports the schematic's
+real cost via `result.detail.cost` without touching anything — always
+check this first. Fails with `CANNOT_RESEARCH` (already researching/
+researched, tree not unlocked, or dependencies unmet) or
+`INSUFFICIENT_INGREDIENTS` (carried inventory short — same carried-only
+scope as `world.payMilestone`/`SimulatedCraft`, not the Dimensional
+Depot) before ever touching inventory.
+
+### `world.claimMamResearch` — synchronous
+`params: {"schematicClass" (required)}`. Claims a finished research's
+results. For a normal M.A.M. schematic this grants the real unlock
+immediately. For a hard-drive-analysis schematic, this is the step that
+turns the finished analysis into a new entry in `world.mamStatus`'s
+`unclaimedHardDrives` — claiming the research itself does **not** give you
+a recipe yet, you still need `world.claimMamHardDriveReward` after this.
+Fails with `NOT_COMPLETE` if the schematic isn't a completed, unclaimed
+research.
+
+### `world.claimMamHardDriveReward` — synchronous
+`params: {"schematicClass" (required) — one of the schematics currently
+listed in some hard drive's `pendingRewards`}`. Picks that alternate
+recipe as the hard drive's permanent reward. The target hard drive is
+found by which one currently offers the given schematic, not by a numeric
+id (Coffee Stain's real hard-drive-id field exists internally but isn't
+reflectable — plain unrelected private field, unlike everything else this
+mod reads via reflection). Safe in practice: the game excludes a schematic
+already offered by one unclaimed hard drive from being rolled onto
+another at the same time. Fails with `REWARD_NOT_FOUND` if no unclaimed
+hard drive currently offers it (stale id, already claimed, or never
+existed — re-query `world.mamStatus`).
+
+### `world.rerollMamHardDrive` — synchronous
+`params: {"schematicClass" (required) — any ONE of the target hard
+drive's current `pendingRewards`}`. Rerolls that hard drive's reward
+choices to a new random set. Same identify-by-current-reward lookup as
+`world.claimMamHardDriveReward`. Fails with `CANNOT_REROLL` if no rerolls
+are left for that drive, or no alternate recipes currently exist to reroll
+into (message distinguishes the two). Since the reward set changes,
+**re-query `world.mamStatus` afterward** — the new choices aren't echoed
+back in this response.
+
+**None of the five methods above are live-tested yet** — implemented from
+source research only. `AFGResearchManager`/`UFGResearchTree`/
+`UFGResearchTreeNode`/`UFGHardDrive` all have real, well-documented public
+APIs (unlike much of this codebase), but the actual construct-path-style
+runtime behavior (e.g. what `InitiateResearch` does if called twice, or
+whether claiming a hard drive reward can ever legitimately fail) hasn't
+been observed live.
+
 ### `world.cleanupOrphanedFlowIndicators` — synchronous, no params
 ```json
 { "protocolVersion": 1, "totalIndicators": 20, "attachedCount": 15, "orphanCount": 5, "deletedIds": ["...", "..."] }

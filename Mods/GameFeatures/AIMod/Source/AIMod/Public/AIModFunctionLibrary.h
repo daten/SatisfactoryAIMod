@@ -1443,4 +1443,133 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun);
+
+	/**
+	 * world.mamStatus (2026-08-29) - full M.A.M. (research) status:
+	 * AFGResearchManager's current/ongoing research (with time left - a
+	 * reflective read of the protected mOngoingResearch array, no public
+	 * full-list getter exists; GetResearchBeingConducted() only returns a
+	 * single schematic even though mCanConductMultipleResearch is real),
+	 * completed-but-unclaimed research, unclaimed hard drives and their
+	 * pending alternate-recipe reward choices, and every visible research
+	 * tree's nodes with each node's real ESchematicState (Locked/Available/
+	 * Purchased/Hidden - the same enum world.milestoneProgress uses for HUB
+	 * schematics) so a caller can tell "unlocked" apart from "locked but
+	 * available" apart from genuinely locked, per the user's exact ask.
+	 *
+	 * Only research trees whose UFGResearchTree::GetResearchTreeStatus is
+	 * NOT Locked are expanded with node detail - a fully locked tree isn't
+	 * visible to the real player either, so its nodes would be noise.
+	 *
+	 * Note: AFGBuildableMAM itself gates nothing - InitiateResearch/
+	 * ClaimResearchResults take no building reference at all, confirmed
+	 * from source (same player-independence property as every other write
+	 * function in this file already relies on).
+	 *
+	 * Separately, UFGResearchMachine/UFGResearchRecipe (FGResearchMachine.h/
+	 * FGResearchRecipe.h) appear to be a distinct visual-feedback layer
+	 * (mesh-scaling animation during analysis) that reacts to
+	 * AFGResearchManager's real delegates - not itself a second research
+	 * mechanism to drive. Not used here; flagged in case this assumption
+	 * turns out wrong under live testing.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMamStatusAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.startMamResearch (2026-08-29) - the real
+	 * AFGResearchManager::InitiateResearch call is atomic (pays the FULL
+	 * schematic cost from carried inventory and starts the research timer
+	 * in one step) - unlike world.payMilestone's incremental partial-
+	 * payment model, there is no real "submit some ingredients now, more
+	 * later" mechanic for M.A.M. research to expose, confirmed from source
+	 * (CanAffordResearch checks the whole cost at once; no analog to
+	 * AFGSchematicManager's per-item FSchematicCost paid-off tracking
+	 * exists on AFGResearchManager). This function reflects that reality:
+	 * one call both "submits ingredients" and "activates research".
+	 *
+	 * InitiateResearch itself returns void (its own doc comment claims a
+	 * bool return that the real signature doesn't have - stale text, not
+	 * trusted) - so this function pre-validates with the real
+	 * CanResearchBeInitiated/CanAffordResearch gates BEFORE calling it
+	 * (surfacing CANNOT_RESEARCH/INSUFFICIENT_INGREDIENTS as clear
+	 * failures with the real cost attached via ResultDetailJson), then
+	 * verifies IsResearchBeingConducted(schematic) actually flipped true
+	 * afterward - never trusts a void call blindly, same "verify after
+	 * every write" discipline as everything else in this file.
+	 *
+	 * bDryRun runs only the pre-validation, touching nothing - same
+	 * convention as world.payMilestone. SchematicClassPath and
+	 * ResearchTreeClassPath are both required - InitiateResearch itself
+	 * needs the initiating tree, there is no "current active tree" concept
+	 * to default to the way world.payMilestone can default to
+	 * GetActiveSchematic().
+	 *
+	 * NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult StartMamResearch(UObject* WorldContextObject, const FString& SchematicClassPath, const FString& ResearchTreeClassPath, bool bDryRun);
+
+	/**
+	 * world.claimMamResearch (2026-08-29) - claims a completed research's
+	 * results (AFGResearchManager::ClaimResearchResults). For a normal
+	 * M.A.M. schematic this grants the real unlock immediately. For a hard
+	 * drive analysis schematic (ESchematicType::EST_HardDrive), the real
+	 * engine internally generates a new unclaimed hard drive with random
+	 * alternate-recipe reward choices instead (ProcessCompletedHardDriveResearch)
+	 * - see world.claimMamHardDriveReward for the follow-up step that
+	 * actually picks one. Fails with NOT_COMPLETE if
+	 * IsResearchComplete(schematic) is false rather than calling a void
+	 * function that would silently no-op. Verifies afterward that
+	 * IsResearchComplete(schematic) actually flipped false.
+	 *
+	 * NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult ClaimMamResearch(UObject* WorldContextObject, const FString& SchematicClassPath);
+
+	/**
+	 * world.claimMamHardDriveReward (2026-08-29) - picks one alternate
+	 * recipe from an unclaimed hard drive's randomly-rolled reward choices
+	 * (UFGHardDrive::ClaimSchematic). Deliberately identified by
+	 * RewardSchematicClassPath - one of the schematics currently offered
+	 * by SOME unclaimed hard drive, found via
+	 * AFGResearchManager::GetUnclaimedHardDrives + each UFGHardDrive's own
+	 * public GetSchematics() - rather than by a numeric hard drive id.
+	 *
+	 * This is a deliberate design choice, not an oversight:
+	 * AFGResearchManager::mUnclaimedHardDriveData's real HardDriveID field
+	 * exists but has no public accessor, and UFGHardDrive::mHardDriveID is
+	 * a plain private int with no UPROPERTY at all - genuinely
+	 * unreflectable, unlike every other "read a protected/private field
+	 * via FindFProperty" case elsewhere in this file. Since
+	 * GetAvailableAlternateSchematics already excludes schematics already
+	 * offered by another unclaimed hard drive from future rolls (confirmed
+	 * from source), a given reward schematic class should only ever be
+	 * offered by one unclaimed hard drive at a time - safe to use as the
+	 * lookup key. Fails with REWARD_NOT_FOUND if no unclaimed hard drive
+	 * currently offers it.
+	 *
+	 * NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult ClaimMamHardDriveReward(UObject* WorldContextObject, const FString& RewardSchematicClassPath);
+
+	/**
+	 * world.rerollMamHardDrive (2026-08-29) - rerolls an unclaimed hard
+	 * drive's reward choices (UFGHardDrive::Reroll). Same
+	 * identify-by-current-reward-content lookup as
+	 * ClaimMamHardDriveReward, for the same reason - pass any ONE of the
+	 * schematics currently offered by the target hard drive. Fails with
+	 * CANNOT_REROLL if UFGHardDrive::CanReroll() is false - the detail
+	 * distinguishes "no rerolls left for this drive"
+	 * (!HasReroll()) from "no alternate recipes currently available to
+	 * reroll into" via ResultDetailJson. Since a reroll changes the reward
+	 * schematic set, re-query world.mamStatus afterward to see the new
+	 * choices rather than expecting them echoed back here.
+	 *
+	 * NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult RerollMamHardDrive(UObject* WorldContextObject, const FString& AnyCurrentRewardSchematicClassPath);
 };

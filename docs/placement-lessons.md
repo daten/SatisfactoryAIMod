@@ -61,6 +61,106 @@ code/message - the connection simply died mid-call) is not real findings,
 just cascade noise from the dead connection, and needs retesting once the
 game is back up.
 
+## NEW CAPABILITY: full M.A.M. (research) status + automation - `world.mamStatus`, `world.startMamResearch`, `world.claimMamResearch`, `world.claimMamHardDriveReward`, `world.rerollMamHardDrive` (added 2026-08-29, not yet live-tested)
+
+User asked to query which M.A.M. items are unlocked and the current
+research/hard-drive-analysis status, plus automate M.A.M. functions to
+the extent possible: selecting a locked-but-available item, submitting
+ingredients, activating research, and telling the player when hard drive
+analysis completes so they can review new alternate recipes.
+
+**Researched from source first** (`FGResearchManager.h`, `FGResearchTree.h`,
+`FGResearchTreeNode.h`, `FGHardDrive.h`) - unlike much of this project's
+other FactoryGame research targets, `AFGResearchManager` has real,
+well-documented public getters/setters (not just empty stub `.cpp`
+bodies with no doc comments) - this system was straightforward to build
+against with high confidence.
+
+**Key finding: M.A.M. research is atomic, unlike HUB milestone
+payment.** `AFGResearchManager::InitiateResearch(controller, schematic,
+tree)` pays the FULL cost from carried inventory and starts the research
+timer in one call - there's no analog to `AFGSchematicManager`'s
+per-item `FSchematicCost` partial-payment tracking. So `world.startMamResearch`
+is one call that does what the user asked for as two things ("submitting
+ingredients" + "activating research") - the real engine doesn't separate
+them. `InitiateResearch` itself returns `void` despite its own doc
+comment claiming a bool return (stale/wrong doc text, not trusted) - this
+function pre-validates with the real `CanResearchBeInitiated`/
+`CanAffordResearch` gates before calling it, and verifies
+`IsResearchBeingConducted` actually flipped true afterward, rather than
+trusting a void call blindly.
+
+**"Locked but available" is a real, exposed engine concept**: `world.mamStatus`
+reports each research-tree node's `UFGSchematic::GetSchematicState()` -
+the exact same `Locked`/`Available`/`Purchased`/`Hidden` enum already used
+for `world.milestoneProgress`'s HUB schematics. `Available` = dependencies
+met, not yet purchased = exactly "locked but available" in the user's own
+words.
+
+**Enumerating ALL ongoing research needed a reflective read**:
+`AFGResearchManager::GetResearchBeingConducted()` returns only a SINGLE
+schematic, but `mCanConductMultipleResearch` is a real flag - trusting the
+singular getter would silently drop entries when multi-research is
+active, the same class of mistake this project has hit before (vehicle
+telemetry, ongoing-list gaps). Fixed by reading the protected-but-real-
+`UPROPERTY` `mOngoingResearch` array via `FindFProperty<FArrayProperty>` +
+`FScriptArrayHelper`, then `reinterpret_cast`-ing each raw element to the
+real, fully-public `FResearchTime` struct type (the struct LAYOUT is
+public even though the CONTAINER FIELD access is blocked by C++ access
+specifiers - reflection bypasses the field access, not the type
+definition) - a new variant of this project's established "read a
+protected/private UPROPERTY via FindFProperty" pattern, one level deeper
+(an array of structs, not a single struct field).
+
+**Hard drives have no usable stable id, by design decision not
+oversight**: `AFGResearchManager::mUnclaimedHardDriveData`'s real
+`FHardDriveData::HardDriveID` field exists but has no public accessor;
+`UFGHardDrive::mHardDriveID` is a genuinely PLAIN C++ int with no
+`UPROPERTY` at all - unlike every other "reflect around a missing public
+getter" case in this file, this one is truly unreflectable (never
+registered with Unreal's reflection system in the first place). Solved by
+identifying a target hard drive by CONTENT instead of id - any one of its
+current `pendingRewards` schematic classes, via `UFGHardDrive::GetSchematics()`
+(a real public method, no reflection needed at all for this part).
+Confirmed safe from source:
+`AFGResearchManager::GetAvailableAlternateSchematics` explicitly excludes
+schematics already offered by an unclaimed hard drive from future rolls,
+so a given reward schematic should only ever be offered by one unclaimed
+hard drive at a time.
+
+**`world.claimMamResearch` on a hard-drive-analysis schematic does NOT
+itself grant a recipe** - confirmed from source
+(`ProcessCompletedHardDriveResearch`'s own doc comment: "Creates a new
+hard drive data struct with the completed research and then removes it").
+Claiming the research just turns it into an entry in
+`world.mamStatus`'s `unclaimedHardDrives` - `world.claimMamHardDriveReward`
+is the separate follow-up step that actually picks one of the randomly-
+rolled alternate recipes. Two real, distinct write operations for what
+might look like one action in the in-game UI.
+
+**Genuinely unclear, flagged rather than guessed at**: `UFGResearchMachine`
+(a `USceneComponent` on the MAM building, `FGResearchMachine.h`) and
+`UFGResearchRecipe` (a `UFGRecipe` subclass with its own
+`GetResearchTriggerItems`/ingredient system, `FGResearchRecipe.h`) look
+like a SEPARATE system from everything above - `UFGResearchMachine::
+OnResearchStarted`/`OnResearchConcluded` match `AFGResearchManager`'s
+real delegate signatures exactly, suggesting it's a reactive visual-
+feedback layer (the "item mesh shrinks over time" animation during
+analysis) rather than a second way to drive research. Not used by any of
+the new RPCs - if live testing shows this assumption is wrong (e.g. some
+research genuinely requires going through `UFGResearchMachine::SetResearchRecipe`
+instead of `AFGResearchManager::InitiateResearch`), revisit this section.
+
+**Confirmed from source, matches this project's established
+player-independence pattern**: `AFGBuildableMAM` itself gates nothing -
+`InitiateResearch`/`ClaimResearchResults` take no building reference at
+all, so none of these RPCs require the player to be near a physical M.A.M.
+building, same as every other write function in this file.
+
+**Not yet live-tested at all** - implemented from source research only,
+same posture as this session's other same-session additions built while
+the game wasn't running. Full RPC docs in `RPC_REFERENCE.md`.
+
 ## NEW CAPABILITY: `world.milestoneProgress` + `world.payMilestone` - the HUB has no inventory, payment is pure bookkeeping (added 2026-08-29, not yet live-tested)
 
 User asked to query HUB/Space Elevator milestone progress and whether
