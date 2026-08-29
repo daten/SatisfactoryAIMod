@@ -226,6 +226,115 @@ def compute_aligned_placement_position(
     return _sub(target_point, rotated_local_offset)
 
 
+@dataclass(frozen=True)
+class RadialFoundationPlacement:
+    """One foundation's placement in a rotated ring - x/y/z + yaw_degrees
+    are a direct candidate for world.placeBuilding's position/yaw params
+    (pair with ignoreGroundTrace=true and this position's z as the
+    literal z, same determinism-first pattern as every other placement
+    in this project)."""
+
+    position: Position
+    yaw_degrees: float
+
+
+def solve_outer_touching_ring_tile_count(foundation_size: float, target_outer_radius: float) -> int:
+    """Nearest whole tile_count for compute_outer_touching_ring() such
+    that its returned outer_radius (where consecutive tiles' outer
+    corners touch - see that function's docstring) lands as close as
+    possible to target_outer_radius. tile_count must be a whole number,
+    so call compute_outer_touching_ring() with the returned value and
+    read its actual outer_radius back rather than assuming it exactly
+    equals target_outer_radius.
+
+    Clamped to a minimum of 3 (the ring's own minimum, see
+    compute_outer_touching_ring) - a target_outer_radius smaller than
+    what 3 tiles can produce (foundation_size / sqrt(3)) just returns 3,
+    the smallest possible ring, rather than raising.
+
+    Raises ValueError if foundation_size <= 0 or target_outer_radius <= 0.
+    """
+    if foundation_size <= 0:
+        raise ValueError("foundation_size must be positive")
+    if target_outer_radius <= 0:
+        raise ValueError("target_outer_radius must be positive")
+
+    ratio = (foundation_size / 2.0) / target_outer_radius
+    if ratio >= 1.0:
+        return 3
+    return max(3, round(math.pi / math.asin(ratio)))
+
+
+def compute_outer_touching_ring(
+    center: Position,
+    foundation_size: float,
+    tile_count: int,
+) -> Tuple[List[RadialFoundationPlacement], float]:
+    """Positions/yaws for tile_count square foundations of
+    foundation_size arranged so each tile's OUTER edge exactly spans the
+    chord between two vertices of a regular tile_count-gon of
+    circumradius outer_radius - i.e. consecutive tiles' outer corners
+    coincide exactly, the classic "corner-touching circular foundation"
+    technique. This is the community pattern the user is asking about:
+    interactive players approximate it by hand (small rotations near the
+    center, extra rings snapped on further out to refine the angle)
+    specifically because the in-game build gun only rotates in coarse
+    scroll increments. That workaround is unnecessary here:
+    world.placeBuilding's "yaw" param sets absolute rotation directly
+    (SetActorRotation, confirmed since the "Rotation" fix in
+    docs/placement-lessons.md - NOT the player's incremental Scroll()),
+    so every tile's exact center position and yaw can be solved in one
+    closed-form pass instead of approximated by hand.
+
+    Derivation: tile_count points evenly spaced around center at radius
+    outer_radius form a regular polygon; the chord between consecutive
+    points is set equal to foundation_size (a full edge-length), which
+    IS each tile's outer edge. Each tile then extends INWARD from its
+    outer chord by foundation_size, so for a small tile_count the tiles
+    necessarily overlap near the center (harmless - this is exactly what
+    the manual "small angles near the center" technique also produces,
+    just computed exactly here instead of eyeballed; only the OUTER
+    boundary needs to read as a clean circle). Filling the rest of the
+    platform's interior is ordinary square-foundation gridding - no new
+    geometry needed for that part.
+
+    Returns (placements, outer_radius) - outer_radius is the real
+    circumradius actually produced by this exact tile_count
+    (foundation_size / (2 * sin(pi / tile_count))), report it back to
+    the user as "here's the actual radius this tile_count produces"
+    since target_outer_radius (if you used
+    solve_outer_touching_ring_tile_count() to get tile_count) is
+    unlikely to land on an exact whole-tile_count solution.
+
+    Raises ValueError if tile_count < 3 or foundation_size <= 0.
+    """
+    if tile_count < 3:
+        raise ValueError("tile_count must be at least 3")
+    if foundation_size <= 0:
+        raise ValueError("foundation_size must be positive")
+
+    half_delta = math.pi / tile_count
+    outer_radius = (foundation_size / 2.0) / math.sin(half_delta)
+    apothem = outer_radius * math.cos(half_delta)
+    center_radius = apothem - foundation_size / 2.0
+
+    delta_theta = 2.0 * half_delta
+    placements = []
+    for i in range(tile_count):
+        theta = (i + 0.5) * delta_theta
+        placements.append(
+            RadialFoundationPlacement(
+                position=Position(
+                    x=center.x + center_radius * math.cos(theta),
+                    y=center.y + center_radius * math.sin(theta),
+                    z=center.z,
+                ),
+                yaw_degrees=math.degrees(theta) % 360.0,
+            )
+        )
+    return placements, outer_radius
+
+
 def compute_waypoint_positions(start: Position, end: Position, max_segment_length: float) -> List[Position]:
     """Evenly-spaced waypoint positions from start to end (inclusive of
     both endpoints) such that no consecutive pair is farther apart than
