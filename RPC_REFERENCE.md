@@ -433,13 +433,23 @@ inventories must be empty first — a real game constraint, not this mod's
 own caution).
 
 ### `world.deleteBuilding`
-`params: {"buildableId"}`. Real dismantle (refunds construction cost,
-proper connection/save cleanup) — not a cheat despawn. Works on both normal
-and lightweight (foundation-style) ids. Deleting a pipe also cleans up its
-flow-fill indicator widget; deleting a Pipeline Junction does **not**
-delete pipes still attached to it (they're left dangling, and the
-extractor/machine at their other end stays "occupied" until you delete
-those too).
+`params: {"buildableId"}`. Real dismantle (proper connection/save
+cleanup) — not a cheat despawn. Works on both normal and lightweight
+(foundation-style) ids. Deleting a pipe also cleans up its flow-fill
+indicator widget; deleting a Pipeline Junction does **not** delete pipes
+still attached to it (they're left dangling, and the extractor/machine
+at their other end stays "occupied" until you delete those too).
+
+**Refunds construction cost to the player's carried inventory** (fixed
+2026-08-30 — a real bug before this: the previous implementation only
+called the game's `Dismantle()`, which does **not** itself refund
+anything; a separate `GetDismantleRefund()` call is required and this
+mod never made it, silently destroying every dismantled buildable's full
+construction cost with no refund at all. Confirmed live to have cost the
+user several thousand real Iron Plates across repeated test rebuilds
+before being caught — see `docs/placement-lessons.md`). If no local
+player/inventory can be found the refund is logged as lost rather than
+silently dropped; dismantling itself still succeeds either way.
 
 Also works on vehicle ids returned by `world.constructVehicle`/
 `world.vehicles`. `AFGVehicle` is not an `AFGBuildable`, so this falls back

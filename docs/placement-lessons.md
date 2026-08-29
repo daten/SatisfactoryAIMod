@@ -7,6 +7,98 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## CRITICAL: `world.deleteBuilding` NEVER refunded construction cost - a real bug, cost the user thousands of real items (fixed 2026-08-30)
+
+`DismantleBuildable`'s C++ only ever called `Execute_Dismantle()` on the
+target. That function does **not** refund anything by itself -
+`GetDismantleRefund()` is a completely separate `IFGDismantleInterface`
+function the real player-driven dismantle path
+(`UFGBuildGunStateDismantle`) calls independently to compute what to give
+back, confirmed from `FGDismantleInterface.h`'s own doc comments. This
+mod never called it. Every `world.deleteBuilding` call, since this
+project began, silently destroyed the FULL construction cost of whatever
+it deleted, with no refund at all - and `RPC_REFERENCE.md` had claimed
+"refunds construction cost" the entire time, an assumption that was
+never actually verified live.
+
+**Real, quantified cost**: the same session's circular-platform rebuilds
+(three full 379-tile cycles, each requiring delete-then-rebuild for a
+height correction) destroyed several thousand real Iron Plates with
+nothing returned - directly caught by the user noticing dismantled
+foundations weren't giving Iron Plate back. The user's own mitigation:
+restoring a slightly older save snapshot on their next relaunch to
+recover some of the lost materials.
+
+**Fix**: `GetDismantleRefund(out_refund, noBuildCostEnabled=false)` is
+now called BEFORE dismantling (the target must still be valid), and its
+stacks are added directly to the player's carried inventory via
+`AddStack(allowPartialAdd=true)` afterward - same direct-inventory-
+manipulation pattern already proven reliable elsewhere in this codebase
+(`SimulatedCraft`, `MovePortableMinerToInventory`), deliberately not
+relying on the uncertain, stub-bodied `FDismantleHelpers::DropRefundOnGround`
+ground-spawn path. If no local player/inventory exists, the loss is
+logged rather than silently dropped.
+
+**Lesson for this whole project, not just this bug**: a doc comment or
+`RPC_REFERENCE.md` claim about what an engine call "does" is not evidence
+it was ever actually verified live - this claim survived unchallenged for
+the entire project until a live user directly noticed missing items. Any
+existing "this refunds/returns/restores X" claim elsewhere in this
+codebase that hasn't been explicitly live-verified should be treated with
+the same suspicion until checked.
+
+## CRITICAL: `world.groundHeight` can hit the mod's OWN already-placed buildables, not just terrain (found live 2026-08-30)
+
+Checking terrain clearance directly under an already-built platform gave
+a suspicious result: identical `-201cm` "intrusion" readings at TWO
+completely different platform heights (6500 and 10500) - the exact same
+offset at two unrelated Z values is not a plausible terrain coincidence.
+Root cause: `world.groundHeight` runs a real physics ground trace, which
+hits ANY solid collision geometry in range - including the mod's own
+just-placed foundation tiles, not only real terrain. A foundation's
+placement Z is not its top surface (`Build_Foundation_8x4_01` is 4m
+*thick*), so its own collision geometry can register as "ground" a
+couple meters above where it was placed.
+
+**Practical rule**: only trust `world.groundHeight` readings taken
+BEFORE anything is built at that location - a clearance check run against
+an already-occupied footprint is contaminated by self-collision and
+cannot be used to validate that same build. If you need to re-verify
+clearance after building, sample well outside the built footprint, not
+underneath it.
+
+## CRITICAL: floating platforms need a real, generous terrain scan BEFORE picking a height - and rebuilding at the wrong height is expensive (found live 2026-08-30)
+
+Built a floating circular platform (see the ring/fill sections below)
+at a height chosen from the player's current position + a fixed offset,
+without first checking what terrain existed under the chosen footprint.
+User caught a real rock formation (desert biome) poking through the
+platform - `world.groundHeight` sampling (with the correct z-anchor
+usage - the search only covers +-1000 around the given anchor, easy to
+miss taller terrain if the anchor doesn't reach it) found real terrain
+up to ~7992cm locally, one search band higher than what a naive
+±1000-around-original-height check would have found. A full rebuild at
+a corrected height was needed - twice, since the SECOND height chosen
+(informed by an incomplete search) still wasn't quite high enough either
+attempt, until a systematic progressively-higher scan confirmed nothing
+was found at all in a comfortably-high band.
+
+**Practical rule**: before floating a platform, scan a real GRID of
+`world.groundHeight` points across the full intended footprint (not just
+a few random samples - narrow rock spires are easy to miss), using a
+z-anchor high enough to search the full plausible height range, and keep
+raising the anchor until a search band comes back with ZERO hits before
+trusting that height as clear. Random sampling can miss a narrow spire
+entirely, understating the real peak.
+
+**Real, expensive cost of getting this wrong**: each height correction
+meant deleting and rebuilding the entire platform (up to 379 tiles) from
+scratch, and repeated build+delete+refund cycles for the same materials
+drained the player's carried Concrete/Iron Plate stock enough to run out
+partway through a later rebuild (see the "material exhaustion" note in
+the fill section below) - a real, live-experienced cost of not getting
+the height right the first time, not just wasted RPC calls.
+
 ## CRITICAL: `world.placeBuilding` on a spline-snapped buildable (Conveyor Monitor) CRASHED THE GAME (fixed 2026-08-29)
 
 **This was a real, confirmed live crash during an unattended testing
@@ -104,6 +196,55 @@ that actually produces that diameter (168m → 66 tiles, landing at
 is unavoidable and harmless). **When a user specifies a circle's size in
 "foundations," ask/confirm or default to diameter, not ring tile-count -
 they're very different scales for the same phrase.**
+
+## NEW CAPABILITY: interior fill for circular platforms - `compute_disk_fill_grid()`, with a real overhang trade-off found live (2026-08-30)
+
+Follow-on to the circular ring: fill the interior with an ordinary
+axis-aligned square grid, keeping only cells whose footprint intersects
+the ring's inner disk (`ring_inner_edge_radius()`) - the minimum set that
+guarantees no gaps. Verified numerically before touching the game (30000
+random samples inside the disk, 0 uncovered) and live (313/313 tiles,
+positions exact to 0.02cm, coverage re-verified against real
+`world.buildables` data).
+
+**Real trade-off found from user feedback, not caught by the numeric
+check**: some boundary cells' FARTHEST corner (not their nearest point,
+which is what the inclusion test checks) can stick out past the ring's
+true outer edge - up to ~3.2m in the worst case, where the disk boundary
+grazes a cell CORNER rather than a face. Added an optional
+`max_reach_radius` param to `compute_disk_fill_grid()` to cap this by
+additionally excluding any cell whose farthest corner would exceed it -
+confirmed this eliminates the overhang, but tested numerically that it
+also creates real gaps (~0.6% of the disk area, ~20 cells' worth,
+concentrated right at the boundary) that would need smaller pieces (see
+below) to close without reintroducing either the gap or the overhang.
+**Not yet deployed live** - shipped the uncapped (guaranteed-no-gap,
+minor-overhang) version for the actual rebuild since a real terrain
+clearance issue (below) took priority; the capped+patched version is a
+real, scoped follow-up, not abandoned.
+
+**Half-foundations exist and are the right tool for that follow-up**:
+`Recipe_QuarterPipeMiddle_Ficsit_4x1`/`_4x2`/`_4x4` ("Half Foundation (1/2/4m)")
+- found in `world.recipeCatalog`, real half-footprint pieces (user's own
+suggestion) that could patch the ~20 boundary slivers precisely instead
+of a full 800cm tile overhanging past the ring. Real footprint/clearance
+dimensions not yet confirmed via `world.buildableCatalog` - needed before
+computing exact patch placements.
+
+**Material cost of experimentation is real, not free**: building the
+ring+fill (379 tiles) three times over (two height corrections, see the
+terrain-scan lesson above) drained the player's carried Concrete/Iron
+Plate enough that the third rebuild's fill ran out partway through (24/313
+placed, `Missing materials!`) - each `Recipe_Foundation_8x4_01` costs 5
+Concrete + 2 Iron Plate (`world.constructionCost`), so 289 remaining
+tiles needed 1445 Concrete + 578 Iron Plate the player didn't have on
+hand. `world.deleteBuilding` does refund cost, but repeated build/delete
+cycles are not free in practice (inventory cap losses, or simply not
+having enough stock cycling through several rebuilds) - **budget for
+this when a live experiment might need several corrective rebuilds**,
+and prefer getting height/geometry right via `world.groundHeight`
+scanning BEFORE building over relying on being able to just delete and
+retry cheaply.
 
 ## NEW CAPABILITY: train timetables + drone station pairing - `world.trains`/`world.trainStations`/`world.setTrainTimetable`/`world.setTrainSelfDriving`, `world.droneStations`/`world.pairDroneStations` (added 2026-08-29, not yet live-tested)
 

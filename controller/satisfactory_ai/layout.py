@@ -345,6 +345,107 @@ def compute_outer_touching_ring(
     return placements, outer_radius
 
 
+def ring_inner_edge_radius(foundation_size: float, tile_count: int) -> float:
+    """The distance from center to compute_outer_touching_ring()'s
+    tiles' INNER (center-facing) edge - i.e. the boundary of the "hole"
+    that still needs filling once the ring itself is built. Same
+    validity/derivation as compute_outer_touching_ring (this is just its
+    apothem minus one more foundation_size) - kept as a separate small
+    function rather than a third return value so existing callers of
+    compute_outer_touching_ring aren't affected by adding it.
+
+    Raises ValueError if tile_count < 3 or foundation_size <= 0.
+    """
+    if tile_count < 3:
+        raise ValueError("tile_count must be at least 3")
+    if foundation_size <= 0:
+        raise ValueError("foundation_size must be positive")
+
+    half_delta = math.pi / tile_count
+    outer_radius = (foundation_size / 2.0) / math.sin(half_delta)
+    apothem = outer_radius * math.cos(half_delta)
+    return apothem - foundation_size
+
+
+def compute_disk_fill_grid(
+    center: Position,
+    tile_size: float,
+    disk_radius: float,
+    max_reach_radius: float = None,
+) -> List[Position]:
+    """Center positions for an axis-aligned square grid of tile_size
+    that fully covers a disk of disk_radius around center, using the
+    MINIMUM set of grid cells that guarantees no gaps: a cell is
+    included if its square footprint intersects the disk at all (the
+    closest point on the cell to center is within disk_radius), excluded
+    otherwise. This is the standard "fill the interior with an ordinary
+    grid, letting it overlap the boundary where needed" half of the
+    classic circular-platform technique - pair with
+    compute_outer_touching_ring() (the boundary ring) and
+    ring_inner_edge_radius() (to get disk_radius so the grid meets the
+    ring with no gap and minimal overlap).
+
+    max_reach_radius (optional): additionally excludes any included cell
+    whose FARTHEST corner from center would exceed this radius - use the
+    ring's real outer_radius here to cap how far grid tiles poke past
+    the ring's own visible boundary. Confirmed live (2026-08-30, user
+    feedback): without this, a cell near the boundary can be included
+    because its NEAREST corner is within disk_radius while its farthest
+    corner sticks out past the ring's outer edge (a square touching a
+    circle at a corner, not a face, is the worst case - its opposite
+    corner can overshoot by up to 2*tile_size*sqrt(2)/2 beyond
+    disk_radius). Applying this filter can, in principle, drop a cell
+    that was the only thing covering some sliver of the disk - always
+    re-verify full coverage (ring union fill) after using it, same as
+    every other geometry primitive in this module; if a real gap
+    appears, that specific sliver needs a smaller/different piece (e.g.
+    a half-foundation) rather than a full tile_size cell, which is
+    outside this function's scope.
+
+    The grid is aligned so ONE CELL IS CENTERED AT `center`, not a grid
+    vertex - an arbitrary but reasonable choice; a circle has no natural
+    alignment with a square grid at any offset, so this isn't "more
+    correct" than a vertex-centered grid, just a fixed, predictable
+    convention.
+
+    Returns cell CENTER positions only, z taken from center.z - no yaw
+    is returned because an axis-aligned fill needs none (unlike the
+    ring, whose tiles are individually rotated to point radially); place
+    every returned position with yaw=0 (or any multiple of 90, they're
+    equivalent for a square).
+
+    Raises ValueError if tile_size <= 0, disk_radius <= 0, or
+    max_reach_radius is given and <= disk_radius (it must be at least as
+    large as disk_radius or every boundary cell would be excluded).
+    """
+    if tile_size <= 0:
+        raise ValueError("tile_size must be positive")
+    if disk_radius <= 0:
+        raise ValueError("disk_radius must be positive")
+    if max_reach_radius is not None and max_reach_radius <= disk_radius:
+        raise ValueError("max_reach_radius must be greater than disk_radius")
+
+    half = tile_size / 2.0
+    max_index = math.ceil(disk_radius / tile_size) + 1
+
+    positions = []
+    for i in range(-max_index, max_index + 1):
+        for j in range(-max_index, max_index + 1):
+            local_x = i * tile_size
+            local_y = j * tile_size
+            closest_x = min(max(0.0, local_x - half), local_x + half)
+            closest_y = min(max(0.0, local_y - half), local_y + half)
+            if math.hypot(closest_x, closest_y) > disk_radius:
+                continue
+            if max_reach_radius is not None:
+                farthest_x = max(abs(local_x - half), abs(local_x + half))
+                farthest_y = max(abs(local_y - half), abs(local_y + half))
+                if math.hypot(farthest_x, farthest_y) > max_reach_radius:
+                    continue
+            positions.append(Position(x=center.x + local_x, y=center.y + local_y, z=center.z))
+    return positions
+
+
 def compute_waypoint_positions(start: Position, end: Position, max_segment_length: float) -> List[Position]:
     """Evenly-spaced waypoint positions from start to end (inclusive of
     both endpoints) such that no consecutive pair is farther apart than

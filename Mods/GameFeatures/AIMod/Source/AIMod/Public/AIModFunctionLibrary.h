@@ -380,6 +380,20 @@ public:
 	 * (UFGBuildGunStateDismantle) consults this; Execute_Dismantle alone
 	 * does not - without it, a dismantled pipe left its fluid indicator
 	 * floating in place, confirmed live.
+	 *
+	 * REAL CONSTRUCTION-COST REFUND (fixed 2026-08-30, was a real bug
+	 * before this) - GetDismantleRefund() is computed BEFORE dismantling
+	 * and its stacks are added directly to the local player's carried
+	 * inventory via AddStack(allowPartialAdd=true) after. Confirmed live
+	 * that Execute_Dismantle() alone does NOT refund anything - that's a
+	 * separate interface function the real player dismantle path calls
+	 * independently; this function previously never called it at all,
+	 * silently destroying every dismantled buildable's construction cost
+	 * with no refund (confirmed live to have cost the user several
+	 * thousand real Iron Plates before being caught - see
+	 * docs/placement-lessons.md). If no local player/inventory can be
+	 * found, the refund is logged as lost rather than silently dropped
+	 * without a trace - dismantling itself still succeeds either way.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId);

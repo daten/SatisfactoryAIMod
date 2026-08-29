@@ -3465,6 +3465,33 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 		}
 	}
 
+	// Real construction-cost refund - added 2026-08-30 after live user
+	// confirmation this was NEVER happening (a real, costly bug: this
+	// function only ever called Execute_Dismantle(), which does not
+	// refund anything itself - GetDismantleRefund() is a SEPARATE
+	// interface function the real player-driven dismantle path
+	// (UFGBuildGunStateDismantle) calls independently, confirmed from
+	// FGDismantleInterface.h's own doc comments. RPC_REFERENCE.md's
+	// long-standing "refunds construction cost" claim for
+	// world.deleteBuilding was therefore never actually true - a
+	// documentation error that cost the user several thousand real Iron
+	// Plates across this session's repeated platform rebuilds before
+	// being caught.
+	//
+	// Computed BEFORE dismantling (the target must still be valid), then
+	// applied directly to the player's carried inventory via AddStack -
+	// same direct-inventory-manipulation pattern already proven reliable
+	// elsewhere in this file (SimulatedCraft, MovePortableMinerToInventory),
+	// deliberately NOT relying on FDismantleHelpers::DropRefundOnGround
+	// (an uncertain, stub-bodied ground-spawn path - direct inventory
+	// credit is simpler and more predictable for an autonomous caller
+	// with no camera/aim location to drop a crate near anyway).
+	TArray<FInventoryStack> RefundStacks;
+	if (DismantleTarget->Implements<UFGDismantleInterface>())
+	{
+		IFGDismantleInterface::Execute_GetDismantleRefund(DismantleTarget, RefundStacks, /*noBuildCostEnabled=*/false);
+	}
+
 	// Real, safe dismantle - see this function's header doc comment.
 	// AFGBuildable::Dismantle_Implementation()/AFGVehicle's own
 	// implementation handle connection cleanup, inventory locking/
@@ -3472,7 +3499,34 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	// destruction; this is not AActor::Destroy().
 	IFGDismantleInterface::Execute_Dismantle(DismantleTarget);
 
-	UE_LOG(LogAIModAI, Display, TEXT("DismantleBuildable: %s (%d child actor(s) dismantled)"), *BuildableId, ChildDismantleActors.Num());
+	int32 RefundedStackCount = 0;
+	if (RefundStacks.Num() > 0)
+	{
+		if (AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0)))
+		{
+			if (UFGInventoryComponent* PlayerInventory = Character->GetInventory())
+			{
+				for (const FInventoryStack& Stack : RefundStacks)
+				{
+					if (Stack.HasItems())
+					{
+						PlayerInventory->AddStack(Stack, /*allowPartialAdd=*/true);
+						++RefundedStackCount;
+					}
+				}
+			}
+			else
+			{
+				UE_LOG(LogAIModAI, Warning, TEXT("DismantleBuildable: %s had a real refund (%d stack(s)) but no player inventory was found to credit it to - refund lost"), *BuildableId, RefundStacks.Num());
+			}
+		}
+		else
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("DismantleBuildable: %s had a real refund (%d stack(s)) but no local player was found to credit it to - refund lost"), *BuildableId, RefundStacks.Num());
+		}
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("DismantleBuildable: %s (%d child actor(s) dismantled, %d refund stack(s) credited)"), *BuildableId, ChildDismantleActors.Num(), RefundedStackCount);
 
 	return FAIModOperationResult::Success();
 }
