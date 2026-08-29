@@ -389,6 +389,64 @@ public:
 	static FAIModOperationResult SetManufacturerClockSpeed(UObject* WorldContextObject, const FString& BuildableId, float ClockSpeedPercent);
 
 	/**
+	 * world.installPowerShard (2026-08-30) - a real, previously-missing
+	 * capability: there was no way to actually insert a Power Shard
+	 * before this, only to set a clock speed within whatever max
+	 * potential already existed. Found live source support for it while
+	 * planning a multi-tier overclocked production line test:
+	 * AFGBuildableFactory::GetPotentialInventory() is real, public, and a
+	 * plain UFGInventoryComponent* - the same direct AddStack pattern
+	 * already used elsewhere in this file (SimulatedCraft,
+	 * MovePortableMinerToInventory, the dismantle refund fix), not the
+	 * more complex TryFillPotentialInventory (a "fill to X value"
+	 * player-UI-shaped API with EPowerShardType bucketing this function
+	 * deliberately does not use).
+	 *
+	 * Works uniformly on ANY AFGBuildableFactory - both manufacturers
+	 * AND extractors (a Miner) - confirmed from source both derive from
+	 * the same base class exposing GetPotentialInventory()/
+	 * mCanChangePotential identically (AFGBuildableResourceExtractorBase
+	 * : AFGBuildableFactory), so this one function covers overclocking a
+	 * Mk3 Miner the same way it covers a Smelter or Constructor.
+	 *
+	 * Real, verified item class: the "Power Shard" item is
+	 * /Game/FactoryGame/Resource/Environment/Crystal/Desc_CrystalShard.Desc_CrystalShard_C
+	 * (confirmed via world.recipeCatalog, not guessed) - hardcoded here
+	 * the same way DebugCheckPowerConnection hardcodes Recipe_PowerLine,
+	 * since there is exactly one real overclock shard item in the game.
+	 *
+	 * Removes Count shards from the player's carried inventory only
+	 * after verifying it holds that many (INSUFFICIENT_INGREDIENTS
+	 * otherwise), adds them to the target's potential inventory via
+	 * AddStack(allowPartialAdd=true), then - if fewer were actually
+	 * added than requested (the potential inventory ran out of real
+	 * slots) - returns the unplaced excess back to the player rather
+	 * than losing it, same restore-on-partial-failure discipline as the
+	 * dismantle refund fix. Fails with OPERATION_NOT_PERMITTED if the
+	 * target has no potential inventory at all (mCanChangePotential is
+	 * false) or if zero shards could be added (no free slots).
+	 *
+	 * Result detail (result.detail): shardsAdded (the real count that
+	 * fit), newMaxPotentialPercent (GetCurrentMaxPotential()*100 after
+	 * insertion - re-query this or world.setClockSpeed's own error
+	 * message to get the real new overclock ceiling, do not assume +50%
+	 * per shard without confirming live - the exact per-shard boost is a
+	 * real UFGPowerShardDescriptor::GetBoostValue() value this function
+	 * does not currently look up separately).
+	 *
+	 * NOT YET LIVE-TESTED - the real per-building default shard slot
+	 * count (when overridesShardSlotCount is false, which is the case
+	 * for all three buildings this was designed for: Miner Mk3, Smelter
+	 * Mk1, Constructor Mk1) is a real value this project's own
+	 * world.buildableCatalog cannot currently see (see
+	 * LogBuildableCatalogAsJson's doc comment) - confirm the real slot
+	 * count and per-shard boost live before assuming a specific number
+	 * of shards will fit or how much overclock headroom they grant.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult InstallPowerShard(UObject* WorldContextObject, const FString& BuildableId, int32 Count);
+
+	/**
 	 * PLAN.md Phase 12: sets the recipe on an existing manufacturing
 	 * building. Validates, in order: buildable exists and is a
 	 * manufacturer (TARGET_NOT_FOUND), recipeClassPath resolves to an

@@ -1761,22 +1761,31 @@ FAIModOperationResult UAIModFunctionLibrary::SetManufacturerClockSpeed(UObject* 
 		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
 	}
 
-	AFGBuildableManufacturer* Manufacturer = FindManufacturerById(World, BuildableId);
-	if (!Manufacturer)
+	// Widened 2026-08-30 (was AFGBuildableManufacturer-only, via
+	// FindManufacturerById) - GetCanChangePotential/GetCurrentMinPotential/
+	// GetCurrentMaxPotential/SetPendingPotential are all declared on the
+	// shared AFGBuildableFactory base, confirmed from source
+	// (AFGBuildableResourceExtractorBase, a Miner's real base class, IS an
+	// AFGBuildableFactory) - found live while planning an overclocked
+	// Miner test that needed this to work on a Miner, not just
+	// Smelters/Constructors. FindBuildableById + Cast, not
+	// FindManufacturerById, so this now covers both.
+	AFGBuildableFactory* Factory = Cast<AFGBuildableFactory>(FindBuildableById(World, BuildableId));
+	if (!Factory)
 	{
 		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
-			FString::Printf(TEXT("No manufacturer found with id '%s'"), *BuildableId));
+			FString::Printf(TEXT("No manufacturer or extractor found with id '%s'"), *BuildableId));
 	}
 
-	if (!Manufacturer->GetCanChangePotential())
+	if (!Factory->GetCanChangePotential())
 	{
 		return FAIModOperationResult::Failure(TEXT("OPERATION_NOT_PERMITTED"),
 			TEXT("This building does not allow changing clock speed"));
 	}
 
 	const float RequestedPotential = ClockSpeedPercent / 100.0f;
-	const float MinPotential = Manufacturer->GetCurrentMinPotential();
-	const float MaxPotential = Manufacturer->GetCurrentMaxPotential();
+	const float MinPotential = Factory->GetCurrentMinPotential();
+	const float MaxPotential = Factory->GetCurrentMaxPotential();
 	if (RequestedPotential < MinPotential || RequestedPotential > MaxPotential)
 	{
 		return FAIModOperationResult::Failure(TEXT("INVALID_CLOCK_SPEED"),
@@ -1786,11 +1795,99 @@ FAIModOperationResult UAIModFunctionLibrary::SetManufacturerClockSpeed(UObject* 
 
 	// Takes effect at the next production cycle, not instantly - see
 	// AFGBuildableFactory::SetPendingPotential's doc comment.
-	Manufacturer->SetPendingPotential(RequestedPotential);
+	Factory->SetPendingPotential(RequestedPotential);
 
 	UE_LOG(LogAIModAI, Display, TEXT("SetManufacturerClockSpeed: %s -> %.1f%% (pending)"), *BuildableId, ClockSpeedPercent);
 
 	return FAIModOperationResult::Success();
+}
+
+FAIModOperationResult UAIModFunctionLibrary::InstallPowerShard(UObject* WorldContextObject, const FString& BuildableId, int32 Count)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	if (Count <= 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("count must be a positive integer"));
+	}
+
+	AFGBuildableFactory* Factory = Cast<AFGBuildableFactory>(FindBuildableById(World, BuildableId));
+	if (!Factory)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+			FString::Printf(TEXT("No manufacturer or extractor found with id '%s'"), *BuildableId));
+	}
+
+	if (!Factory->GetCanChangePotential())
+	{
+		return FAIModOperationResult::Failure(TEXT("OPERATION_NOT_PERMITTED"),
+			TEXT("This building does not allow changing clock speed, so it has no potential/shard inventory"));
+	}
+
+	UFGInventoryComponent* PotentialInventory = Factory->GetPotentialInventory();
+	if (!PotentialInventory)
+	{
+		return FAIModOperationResult::Failure(TEXT("OPERATION_NOT_PERMITTED"),
+			FString::Printf(TEXT("'%s' has no potential/overclock shard inventory"), *BuildableId));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	if (!PlayerInventory)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No player inventory found"));
+	}
+
+	// Real, verified item class (world.recipeCatalog) - there is exactly
+	// one real overclock shard item in the game, hardcoded the same way
+	// DebugCheckPowerConnection hardcodes Recipe_PowerLine.
+	UClass* ShardClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Resource/Environment/Crystal/Desc_CrystalShard.Desc_CrystalShard_C"));
+	if (!ShardClass || !ShardClass->IsChildOf(UFGItemDescriptor::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Failed to load the real Power Shard item class"));
+	}
+
+	if (!PlayerInventory->HasItems(ShardClass, Count))
+	{
+		const int32 Have = PlayerInventory->GetNumItems(ShardClass);
+		return FAIModOperationResult::Failure(TEXT("INSUFFICIENT_INGREDIENTS"),
+			FString::Printf(TEXT("Need %d Power Shard(s), player carries %d"), Count, Have));
+	}
+
+	// Verify-then-remove-then-add, restoring any excess that didn't fit -
+	// same discipline as the dismantle refund fix, never destroys real
+	// items on a partial add.
+	PlayerInventory->Remove(ShardClass, Count);
+	const int32 ActuallyAdded = PotentialInventory->AddStack(FInventoryStack(Count, ShardClass), /*allowPartialAdd=*/true);
+	if (ActuallyAdded < Count)
+	{
+		PlayerInventory->AddStack(FInventoryStack(Count - ActuallyAdded, ShardClass), /*allowPartialAdd=*/true);
+	}
+
+	if (ActuallyAdded == 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("OPERATION_NOT_PERMITTED"),
+			FString::Printf(TEXT("'%s' has no free slots in its potential inventory - 0 of %d Power Shard(s) could be added, all restored to player"), *BuildableId, Count));
+	}
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("shardsAdded"), ActuallyAdded);
+	DetailObject->SetNumberField(TEXT("newMaxPotentialPercent"), Factory->GetCurrentMaxPotential() * 100.0);
+
+	UE_LOG(LogAIModAI, Display, TEXT("InstallPowerShard: %s +%d shard(s) (requested %d) -> newMaxPotential=%.1f%%"),
+		*BuildableId, ActuallyAdded, Count, Factory->GetCurrentMaxPotential() * 100.0f);
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = WriteCondensedJson(DetailObject);
+	return Result;
 }
 
 FAIModOperationResult UAIModFunctionLibrary::SetManufacturerRecipe(UObject* WorldContextObject, const FString& BuildableId, const FString& RecipeClassPath)

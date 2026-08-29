@@ -468,6 +468,33 @@ valid range, which accounts for installed Power Shards). Takes effect at
 the *next* production cycle, not instantly — re-check `world.manufacturers`
 after the machine's current cycle finishes, not immediately.
 
+**Works on extractors too, not just manufacturers** (fixed 2026-08-30 —
+previously silently `TARGET_NOT_FOUND` on a Miner even though a Miner
+supports clock speed identically; both derive from the same
+`AFGBuildableFactory` base). Overclocking a Miner uses this same method.
+
+### `world.installPowerShard`
+`params: {"buildableId", "count"}`. Inserts real Power Shard items from
+the player's carried inventory into a building's overclock slot
+inventory — the write half of the overclocking picture `world.setClockSpeed`
+only reads the ceiling of. Works on any manufacturer *or* extractor (a
+Miner included). Removes `count` shards from the player only after
+verifying they're carried (`INSUFFICIENT_INGREDIENTS` otherwise); if
+fewer than `count` actually fit (no free slots left), the unplaced
+excess is returned to the player rather than lost. `OPERATION_NOT_PERMITTED`
+if the target doesn't support clock changes at all, or if zero shards
+could fit. `result.detail` reports `shardsAdded` (the real count that
+fit) and `newMaxPotentialPercent` (the new overclock ceiling after
+insertion — re-check this, or `world.setClockSpeed`'s own valid-range
+error text, rather than assuming a fixed percent per shard).
+
+**Not yet live-tested.** The real default shard-slot count per building
+(when `world.buildableCatalog`'s `overridesShardSlotCount` is `false`,
+which is the normal case) and the exact overclock percent granted per
+shard are both real values this project hasn't confirmed live yet —
+confirm both before relying on a specific shard count/clock ceiling for
+a real build.
+
 ### `world.setRecipe`
 `params: {"buildableId", "recipeClass"}`. Errors: `TARGET_NOT_FOUND`,
 `INVALID_RECIPE` (not a real `UFGRecipe`), `RECIPE_NOT_COMPATIBLE` (not

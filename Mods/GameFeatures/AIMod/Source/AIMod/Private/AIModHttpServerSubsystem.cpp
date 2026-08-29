@@ -470,6 +470,34 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		}
 	}
 
+	if (Method == TEXT("world.installPowerShard"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		double Count = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("count"), Count) || Count < 1.0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.count must be a positive integer")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::InstallPowerShard(GetGameInstance(), BuildableId, static_cast<int32>(Count));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous - no build gun/hologram involved, unlike construction.
 	// Added 2026-08-25 so live testing (e.g. rotation calibration) can
 	// clean up stray test buildables instead of accumulating them - see
