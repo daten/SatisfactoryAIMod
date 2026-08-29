@@ -7,6 +7,66 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## Drones and wheeled vehicles: hologram-driven like buildings, NOT the Portable Miner's equipment mechanism (added 2026-08-29)
+
+Researched from source (headers only - stub `.cpp` bodies tell nothing
+about real behavior) before implementing, per the user's explicit "if you
+find enough info, proceed" request, drones prioritized. Key finding:
+`AFGDroneVehicle`/wheeled vehicles are built via `AFGVehicleHologram :
+AFGHologram` - the exact same hologram root every other `Construct*`
+function in this file already drives (`GetConstructDisqualifiers()`,
+`CanConstruct()`, `Construct()` are all non-virtual/virtual members
+inherited from `AFGHologram` itself, not something `AFGBuildableHologram`
+adds). This is architecturally the SAME pattern as normal buildings, not
+the Portable Miner's `AFGEquipment`+reflection mechanism - confirmed via
+`AFGVehicle::mHologramClass` and `UFGVehicleDescriptor : UFGBuildDescriptor`
+mirroring `AFGBuildable::mHologramClass`/`UFGBuildingDescriptor` exactly.
+
+**Drones have one real structural difference**: `AFGBuildableDroneHologram`
+carries a mandatory `mSnappedStation` reference, and three dedicated
+disqualifiers exist specifically to block construction without one
+(`UFGCDMustSnapStation`/`UFGCDOccupiedStation`/`UFGCDDroneStationHasDrone`
+in `FGConstructDisqualifier.h`) - the same *shape* of precondition
+(`UFGCDNeedsResourceNode` exists) that turned out not to protect against
+the real resource-extractor crash (`ConfigureActor()` dereferences the
+snapped reference unconditionally, the disqualifier is a soft safety net
+the real construct path does not itself re-check). Whether
+`AFGBuildableDroneHologram::ConstructVehicle()` has the same unguarded
+dereference is **unconfirmed from source** (stub `.cpp`) - treated as a
+real risk by analogy, not a confirmed fact. `world.constructVehicle`
+requires a real `droneStationId` and always snaps to it
+(`Hologram->TrySnapToActor(Hit)`, same call `world.placeExtractor` uses
+for nodes) rather than gambling on an unsnapped attempt being safe.
+
+**Wheeled vehicles have no equivalent mandatory-reference disqualifier**
+found in source - `AFGWheeledVehicleHologram`'s `mSnappedPathSegment`/
+`mSnappedPathNode` look optional (path-system snapping, not a hard
+precondition), so `world.constructVehicle` treats them as free-placement,
+same `x`/`y`/`z`/`ignoreGroundTrace` shape as `world.placeBuilding`.
+
+**Confirming construction succeeded needed a different approach than every
+other `Construct*` function**: `AFGVehicle` is not an `AFGBuildable` (it's
+`AFGDriveablePawn`, a completely separate hierarchy), so
+`AFGBuildableSubsystem::GetAllBuildablesRef()` - the proximity-match
+confirmation every other function here uses - cannot find a newly-built
+vehicle. `ConstructVehicle` instead does a real `TActorIterator<AFGVehicle>`
+proximity scan after `InternalConstructHologram()`, same "never just trust
+success" posture, different actor registry.
+
+**Deliberately not built yet, both real and separate from construction
+itself**: a freshly-built vehicle needs fuel (`GetFuelInventory()`) before
+it can move under its own power, and a freshly-built Drone additionally
+needs its station paired to a destination
+(`AFGDroneSubsystem::Server_PairStations`, confirmed public/BlueprintCallable
+in source, straightforward to add later) before it will fly a route.
+Neither blocks construction - just means a built Drone sits docked, idle,
+until both are set up.
+
+**Not yet live-tested** - compiled clean from source research the same
+session; the Drone-unsnapped-crash-risk hypothesis, the wheeled-vehicle
+no-mandatory-snap assumption, and the whole flow generally all need a
+real build to confirm.
+
 ## CRITICAL: building recipe `ingredients` is only the BASE cost - customization (swatch/pattern/material) charges extra, use `world.constructionCost` for the real total (fixed 2026-08-28)
 
 Discovered live: an RPC wall placement failed `"Missing materials!"` even

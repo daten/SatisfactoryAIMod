@@ -689,6 +689,49 @@ public:
 	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
+	 * world.constructVehicle (2026-08-29) - Drones and wheeled vehicles
+	 * (Tractor/Truck/Explorer/Cyber Wagon/Golf Cart) are hologram-driven
+	 * (AFGVehicleHologram : AFGHologram), the SAME class hierarchy every
+	 * other Construct* function here already drives - confirmed from
+	 * source, NOT the Portable Miner's equipment-dispenser/reflection
+	 * pattern. ConstructBuildingAtPosition refuses vehicle recipes
+	 * outright (WRONG_METHOD_FOR_VEHICLE) so this is the only path.
+	 *
+	 * DroneStationId (optional): if provided, snaps to that
+	 * AFGBuildableDroneStation the same way ConstructExtractorOnNode
+	 * snaps to a resource node - required for drone recipes, since
+	 * AFGBuildableDroneHologram has a mandatory mSnappedStation
+	 * reference (UFGCDMustSnapStation/UFGCDOccupiedStation/
+	 * UFGCDDroneStationHasDrone in FGConstructDisqualifier.h) this
+	 * function never bypasses, by the same conservative logic
+	 * ConstructBuildingAtPosition refuses extractors outright - a real,
+	 * confirmed crash already exists for an analogous unset-mandatory-
+	 * reference case (AFGResourceExtractorHologram::ConfigureActor), and
+	 * whether AFGBuildableDroneHologram's own ConstructVehicle() is
+	 * equally unsafe when unsnapped is unconfirmed from source (stub
+	 * .cpp), not worth gambling on.
+	 *
+	 * Left empty: free placement at literal X/Y, same
+	 * bIgnoreGroundTrace/ground-trace choice as
+	 * ConstructBuildingAtPosition - for wheeled vehicles, which have no
+	 * mandatory-reference disqualifier found in source.
+	 *
+	 * AFGVehicle is not an AFGBuildable (a separate AFGDriveablePawn
+	 * hierarchy) - construction confirmation uses a real AFGVehicle
+	 * actor-iterator proximity scan instead of AFGBuildableSubsystem's
+	 * registry, everything else here mirrors ConstructExtractorOnNode's
+	 * proven poll/disqualifier/construct shape.
+	 *
+	 * A freshly-built vehicle still needs fuel (GetFuelInventory()) to
+	 * actually move, and a drone still needs its station paired to a
+	 * destination (AFGDroneSubsystem::Server_PairStations, a public
+	 * BlueprintCallable function, not yet exposed here) before it will
+	 * fly a route - neither is handled by this function, which only
+	 * covers construction itself. NOT YET LIVE-TESTED.
+	 */
+	static void ConstructVehicle(UObject* WorldContextObject, const FString& RecipeClassPath, const FString& DroneStationId, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
 	 * Places a Portable Miner (AFGPortableMiner) on a resource node.
 	 * Architecturally unlike every other Construct* function here: a
 	 * Portable Miner is not an AFGBuildable, never driven by a hologram.

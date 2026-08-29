@@ -717,6 +717,56 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Drones/wheeled vehicles - see ConstructVehicle's doc comment.
+	// Hologram-driven like every other Construct* method above, NOT the
+	// Portable Miner's equipment-dispenser mechanism below.
+	if (Method == TEXT("world.constructVehicle"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		// Required for a drone recipe (snaps to this Drone Station),
+		// ignored for a wheeled vehicle recipe (free placement via x/y/z
+		// below instead) - see ConstructVehicle's doc comment.
+		FString DroneStationId;
+		ParamsObject->TryGetStringField(TEXT("droneStationId"), DroneStationId);
+
+		double X = 0.0;
+		double Y = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("x"), X);
+		ParamsObject->TryGetNumberField(TEXT("y"), Y);
+
+		double Z = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), Z);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		double TargetYawDegrees = 0.0;
+		const bool bHasTargetYaw = ParamsObject->TryGetNumberField(TEXT("yaw"), TargetYawDegrees);
+
+		UAIModFunctionLibrary::ConstructVehicle(GetGameInstance(), RecipeClassPath, DroneStationId,
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z), bIgnoreGroundTrace,
+			bHasTargetYaw, static_cast<float>(TargetYawDegrees),
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// Genuinely asynchronous, unrelated mechanism to every other
 	// construction method above - the Portable Miner is equipment, not a
 	// buildable/hologram. See ConstructPortableMinerOnNode's doc comment

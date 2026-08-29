@@ -55,6 +55,10 @@
 #include "FGClearanceData.h"
 #include "Hologram/FGBuildableHologram.h"
 #include "FGFactoryColoringTypes.h"
+#include "Buildables/FGBuildableDroneStation.h"
+#include "FGVehicle.h"
+#include "Resources/FGVehicleDescriptor.h"
+#include "Hologram/FGVehicleHologram.h"
 #include "FGTimeSubsystem.h"
 #include "FGChatManager.h"
 #include "Configuration/ConfigManager.h"
@@ -357,6 +361,27 @@ namespace
 			return nullptr;
 		}
 		return UFGBuildingDescriptor::GetBuildableClass(BuildingDescriptorClass);
+	}
+
+	// Vehicles (2026-08-29) - UFGVehicleDescriptor is a SIBLING of
+	// UFGBuildingDescriptor (both derive from UFGBuildDescriptor
+	// separately, confirmed from source), so a vehicle recipe's product
+	// is never a UFGBuildingDescriptor and ResolveBuildableClassForRecipe
+	// above naturally returns nullptr for one - this is the parallel
+	// resolver for the vehicle case, same shape.
+	TSubclassOf<AFGVehicle> ResolveVehicleClassForRecipe(const FString& RecipeClassPath)
+	{
+		UClass* RecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+		if (!RecipeClass || !RecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+		{
+			return nullptr;
+		}
+		const TArray<FItemAmount> Products = UFGRecipe::GetProducts(RecipeClass);
+		if (Products.Num() == 0 || !Products[0].ItemClass || !Products[0].ItemClass->IsChildOf(UFGVehicleDescriptor::StaticClass()))
+		{
+			return nullptr;
+		}
+		return UFGVehicleDescriptor::GetVehicleClass(TSubclassOf<UFGVehicleDescriptor>(Products[0].ItemClass.Get()));
 	}
 
 	// UFGBuildDescriptor::GetHologramClass (UFGBuildingDescriptor's base
@@ -2663,6 +2688,23 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		return;
 	}
 
+	// Vehicles (2026-08-29) - same conservative posture as the extractor
+	// refusal above, by structural analogy rather than a confirmed crash:
+	// a Drone hologram has a mandatory mSnappedStation reference (see
+	// UFGCDMustSnapStation in FGConstructDisqualifier.h) this generic
+	// path never populates, exactly the shape of precondition the
+	// extractor crash came from (a disqualifier existing specifically to
+	// block construction without a reference the real Construct() path
+	// may not itself defensively re-check). Route through
+	// world.constructVehicle (ConstructVehicle) instead, which resolves
+	// and snaps to a real Drone Station for drone recipes.
+	if (const TSubclassOf<AFGVehicle> ResolvedVehicleClass = ResolveVehicleClassForRecipe(RecipeClassPath))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("WRONG_METHOD_FOR_VEHICLE"),
+			FString::Printf(TEXT("'%s' is a vehicle recipe - use world.constructVehicle (ConstructVehicle) instead. Drone recipes specifically require snapping to a real Drone Station reference this generic path never provides."), *RecipeClassPath)));
+		return;
+	}
+
 	// Caller-chosen general-purpose grid snap - see this function's
 	// header doc comment. Applied before ground-tracing so the trace
 	// itself (and everything downstream) sees the snapped coordinate.
@@ -3765,6 +3807,315 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 		PollState->OnComplete(ConstructedBuildableId.IsEmpty()
 			? FAIModOperationResult::Success()
 			: FAIModOperationResult::SuccessWithBuildableId(ConstructedBuildableId));
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const FString& RecipeClassPath, const FString& DroneStationId, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
+
+	// AFGBuildableDroneStation is a real AFGBuildable (AFGBuildableFactory),
+	// so the existing generic id resolver already works here - resolved
+	// BEFORE spawning any hologram so a bad id fails cheaply.
+	AFGBuildableDroneStation* TargetStation = nullptr;
+	if (!DroneStationId.IsEmpty())
+	{
+		AFGBuildable* StationBuildable = FindBuildableById(World, DroneStationId);
+		TargetStation = Cast<AFGBuildableDroneStation>(StationBuildable);
+		if (!TargetStation)
+		{
+			OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("'%s' did not resolve to an AFGBuildableDroneStation"), *DroneStationId)));
+			return;
+		}
+	}
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	// Confirms RecipeClassPath genuinely produced a vehicle hologram - a
+	// mismatched recipe (e.g. a normal building) naturally fails here
+	// instead of being driven through vehicle-specific snap/construct
+	// logic it was never designed for.
+	AFGVehicleHologram* Hologram = Cast<AFGVehicleHologram>(BuildState->GetHologram());
+	if (!Hologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGVehicleHologram - is this actually a vehicle recipe?"), *RecipeClassPath)));
+		return;
+	}
+
+	FHitResult SyntheticHit;
+	if (TargetStation)
+	{
+		// Drone: snap to the station, same synthetic-hit-at-target-actor
+		// shape ConstructExtractorOnNode uses for resource nodes -
+		// Distance/Component/HitObjectHandle all populated for the same
+		// reason documented there (a zero-distance synthetic hit was
+		// confirmed live to fail a real placement-validation sanity
+		// check).
+		const FVector StationLocation = TargetStation->GetActorLocation();
+		SyntheticHit.Location = StationLocation;
+		SyntheticHit.ImpactPoint = StationLocation;
+		SyntheticHit.Normal = FVector::UpVector;
+		SyntheticHit.ImpactNormal = FVector::UpVector;
+		SyntheticHit.HitObjectHandle = FActorInstanceHandle(TargetStation);
+		SyntheticHit.bBlockingHit = true;
+		if (UPrimitiveComponent* StationPrimitive = Cast<UPrimitiveComponent>(TargetStation->GetRootComponent()))
+		{
+			SyntheticHit.Component = StationPrimitive;
+		}
+		SyntheticHit.Distance = FVector::Dist(Character->GetActorLocation(), StationLocation);
+	}
+	else
+	{
+		// Wheeled vehicle (or any non-drone vehicle recipe): free
+		// placement at literal X/Y, same ground-trace-or-literal-Z choice
+		// as ConstructBuildingAtPosition's bIgnoreGroundTrace.
+		if (bIgnoreGroundTrace && Z <= -1000000.0f)
+		{
+			Character->UnequipBuildGun();
+			OnComplete(FAIModOperationResult::Failure(TEXT("MISSING_REFERENCE_Z"),
+				TEXT("bIgnoreGroundTrace requires an explicit z - there is no ground trace to fall back to")));
+			return;
+		}
+		if (bIgnoreGroundTrace)
+		{
+			SyntheticHit.Location = FVector(X, Y, Z);
+			SyntheticHit.ImpactPoint = SyntheticHit.Location;
+			SyntheticHit.Normal = FVector::UpVector;
+			SyntheticHit.ImpactNormal = FVector::UpVector;
+			SyntheticHit.bBlockingHit = true;
+		}
+		else
+		{
+			const float ZSearchCenter = (Z > -1000000.0f) ? Z : Character->GetActorLocation().Z;
+			const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+			SyntheticHit = GroundTrace.Hit;
+		}
+	}
+
+	// Player-independence - same deterministic-look-at-target fix already
+	// proven for every other click/snap-driven Construct* function in
+	// this file.
+	const FRotator DeterministicLook = (SyntheticHit.Location - Character->GetActorLocation()).Rotation();
+	if (AController* Controller = Character->GetController())
+	{
+		Controller->SetControlRotation(DeterministicLook);
+	}
+
+	Hologram->UpdateHologramPlacement(SyntheticHit);
+	if (TargetStation)
+	{
+		Hologram->TrySnapToActor(SyntheticHit);
+	}
+	if (bHasTargetYaw)
+	{
+		Hologram->SetActorRotation(FRotator(0.0f, TargetYawDegrees, 0.0f));
+	}
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGVehicleHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FHitResult SyntheticHit;
+		FRotator DeterministicLook;
+		bool bHasTargetYaw = false;
+		float TargetYawDegrees = 0.0f;
+		bool bSnappedToStation = false;
+		TFunction<void(const FAIModOperationResult&)> OnComplete;
+		int32 AttemptsRemaining = 120;
+		int32 AttemptsTaken = 0;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = Hologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->SyntheticHit = SyntheticHit;
+	PollState->DeterministicLook = DeterministicLook;
+	PollState->bHasTargetYaw = bHasTargetYaw;
+	PollState->TargetYawDegrees = TargetYawDegrees;
+	PollState->bSnappedToStation = (TargetStation != nullptr);
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGVehicleHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructVehicle (deferred): hologram or world became invalid while polling (after %d tick(s)) - nothing built"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
+		}
+
+		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
+		if (PollState->bSnappedToStation)
+		{
+			PollHologram->TrySnapToActor(PollState->SyntheticHit);
+		}
+		if (PollState->bHasTargetYaw)
+		{
+			PollHologram->SetActorRotation(FRotator(0.0f, PollState->TargetYawDegrees, 0.0f));
+		}
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		// No bIgnore* bypass flags here, deliberately - the drone-specific
+		// disqualifiers (UFGCDMustSnapStation/UFGCDOccupiedStation/
+		// UFGCDDroneStationHasDrone) must always block construction, same
+		// posture as UFGCDWireTooLong elsewhere in this file. Only
+		// UnlimitedResources (a player-controlled mod setting, not a
+		// per-call flag) and the always-ignored aim-location disqualifier
+		// get any leniency, matching every other Construct* function.
+		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
+		bool bCanConstruct = true;
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		if (!bCanConstruct)
+		{
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructVehicle (deferred, resolved after %d real tick(s)): CanConstruct()=false, NOT constructing - disqualifiers=[%s]"),
+				PollState->AttemptsTaken, *DisqualifierSummary);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogAIModAI, Error, TEXT("ConstructVehicle (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		const FVector ConstructLocation = PollHologram->GetActorLocation();
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		// AFGVehicle is not an AFGBuildable (confirmed from source -
+		// AFGVehicle : AFGDriveablePawn, a completely separate hierarchy),
+		// so AFGBuildableSubsystem's registry (used for this same
+		// confirmation step in every other Construct* function) cannot
+		// find it - a real actor-iterator proximity scan over AFGVehicle
+		// is the only way to confirm construction genuinely happened,
+		// same "never just trust success" posture as everywhere else in
+		// this file.
+		FString ConstructedVehicleId;
+		if (PollWorld)
+		{
+			float BestDistSq = TNumericLimits<float>::Max();
+			AFGVehicle* BestMatch = nullptr;
+			for (TActorIterator<AFGVehicle> It(PollWorld); It; ++It)
+			{
+				if (!IsValid(*It)) { continue; }
+				const float DistSq = FVector::DistSquared(It->GetActorLocation(), ConstructLocation);
+				if (DistSq < BestDistSq)
+				{
+					BestDistSq = DistSq;
+					BestMatch = *It;
+				}
+			}
+			if (BestMatch && BestDistSq < FMath::Square(500.0f))
+			{
+				ConstructedVehicleId = BestMatch->GetPathName();
+			}
+		}
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructVehicle (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - id=%s"),
+			PollState->AttemptsTaken, *ConstructedVehicleId);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		if (ConstructedVehicleId.IsEmpty())
+		{
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CONSTRUCTION_UNCONFIRMED"), TEXT("InternalConstructHologram was called but no real AFGVehicle was found near the construct location afterward")));
+			return;
+		}
+
+		PollState->OnComplete(FAIModOperationResult::SuccessWithBuildableId(ConstructedVehicleId));
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));

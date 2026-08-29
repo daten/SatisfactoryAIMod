@@ -469,10 +469,13 @@ Posts into the player's in-game chat as a `"CustomMessage"`.
 
 **Never use this for an extractor recipe** (Miner/Water Pump/Fracking
 building) — it will refuse with `WRONG_METHOD_FOR_EXTRACTOR`; use
-`world.placeExtractor` instead. Errors: `INVALID_RECIPE`,
-`WRONG_METHOD_FOR_EXTRACTOR`, `CANNOT_CONSTRUCT` (a real disqualifier
-blocked it — message names which one), `BUILD_DISTANCE_EXCEEDED` (only if
-the player has enabled the "Limit RPC Build Distance" mod setting).
+`world.placeExtractor` instead. **Never use this for a vehicle recipe**
+(Drone/Tractor/Truck/Explorer/Cyber Wagon/Golf Cart) either — it refuses
+with `WRONG_METHOD_FOR_VEHICLE`; use `world.constructVehicle`. Errors:
+`INVALID_RECIPE`, `WRONG_METHOD_FOR_EXTRACTOR`, `WRONG_METHOD_FOR_VEHICLE`,
+`CANNOT_CONSTRUCT` (a real disqualifier blocked it — message names which
+one), `BUILD_DISTANCE_EXCEEDED` (only if the player has enabled the "Limit
+RPC Build Distance" mod setting).
 
 ### `world.placeExtractor` — asynchronous, `result.buildableId` on success
 `params: {"nodeId" (required), "recipeClass" (optional, default
@@ -483,6 +486,43 @@ Fracking Extractor (needs an *activated* `FrackingSatellite` — poll
 core). Errors: `NODE_NOT_FOUND`, `NODE_OCCUPIED`, `INVALID_RECIPE`,
 `CANNOT_CONSTRUCT`, `BUILD_DISTANCE_EXCEEDED` (same mod-setting gate as
 above).
+
+### `world.constructVehicle` — asynchronous, `result.buildableId` on success
+`params: {"recipeClass" (required), "droneStationId" (optional),
+"x"/"y"/"z" (optional, numbers), "ignoreGroundTrace" (optional bool),
+"yaw" (optional)}`. Drones and wheeled vehicles (Tractor/Truck/Explorer/
+Cyber Wagon/Golf Cart) are hologram-driven, the same mechanism every other
+`Construct*` method uses — confirmed from source, **not** the Portable
+Miner's equipment-dispenser mechanism. `world.placeBuilding` refuses
+vehicle recipes outright (`WRONG_METHOD_FOR_VEHICLE`); this is the only
+path.
+
+**Drones require `droneStationId`** — a real, placed, unoccupied
+`AFGBuildableDroneStation`'s id (from `world.buildables`). The hologram
+snaps to it the same way `world.placeExtractor` snaps to a resource node.
+This is enforced because a Drone hologram has a mandatory station
+reference (`UFGCDMustSnapStation`/`UFGCDOccupiedStation`/
+`UFGCDDroneStationHasDrone` disqualifiers) that this call never bypasses —
+by analogy with the confirmed extractor crash (a hard engine assertion on
+an equally "mandatory but unset" reference), whether building a Drone
+hologram unsnapped is actually safe is unconfirmed and not worth testing.
+
+**Wheeled vehicles**: omit `droneStationId`, use `x`/`y`/`z` /
+`ignoreGroundTrace` exactly like `world.placeBuilding` — no known mandatory
+snap target for these.
+
+A freshly-built vehicle needs fuel before it can move (no RPC for this
+yet), and a freshly-built Drone additionally needs its station paired to a
+destination (`AFGDroneSubsystem::Server_PairStations` exists in source as
+a public function but is not yet exposed here) before it will fly a route
+— this call only covers construction. Errors: `INVALID_RECIPE`,
+`WRONG_METHOD_FOR_VEHICLE` (a normal building recipe was passed to this
+instead of `world.placeBuilding`), `TARGET_NOT_FOUND` (bad
+`droneStationId`), `HOLOGRAM_SPAWN_FAILED` (recipe did not actually
+resolve to a vehicle), `CANNOT_CONSTRUCT`, `CONSTRUCTION_UNCONFIRMED`,
+`MISSING_REFERENCE_Z`. **Not yet live-tested** — implemented from source
+research (hologram class hierarchy, disqualifier classes), not confirmed
+against a real build.
 
 ### `world.placePortableMiner` — asynchronous, `result.buildableId` on success
 `params: {"nodeId" (required, must be a real solid ore node, not a
