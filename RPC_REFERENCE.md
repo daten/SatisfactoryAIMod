@@ -471,11 +471,19 @@ Posts into the player's in-game chat as a `"CustomMessage"`.
 building) — it will refuse with `WRONG_METHOD_FOR_EXTRACTOR`; use
 `world.placeExtractor` instead. **Never use this for a vehicle recipe**
 (Drone/Tractor/Truck/Explorer/Cyber Wagon/Golf Cart) either — it refuses
-with `WRONG_METHOD_FOR_VEHICLE`; use `world.constructVehicle`. Errors:
+with `WRONG_METHOD_FOR_VEHICLE`; use `world.constructVehicle`. **Never use
+this for a spline-snapped buildable** (Conveyor Monitor is the one known
+example) — it refuses with `WRONG_METHOD_FOR_SPLINE_SNAPPED`; **this one
+is a confirmed live crash, not a hypothetical** — placing
+`Recipe_ConveyorMonitor` through this path crashed the entire game
+process (`EXCEPTION_ACCESS_VIOLATION` in
+`AFGBuildableSplineSnappedBase::SetSnappedSplineBuildable()`, a real null
+dereference on the never-supplied snap target). No dedicated RPC exists
+yet for this category — do not attempt to bypass the refusal. Errors:
 `INVALID_RECIPE`, `WRONG_METHOD_FOR_EXTRACTOR`, `WRONG_METHOD_FOR_VEHICLE`,
-`CANNOT_CONSTRUCT` (a real disqualifier blocked it — message names which
-one), `BUILD_DISTANCE_EXCEEDED` (only if the player has enabled the "Limit
-RPC Build Distance" mod setting).
+`WRONG_METHOD_FOR_SPLINE_SNAPPED`, `CANNOT_CONSTRUCT` (a real disqualifier
+blocked it — message names which one), `BUILD_DISTANCE_EXCEEDED` (only if
+the player has enabled the "Limit RPC Build Distance" mod setting).
 
 ### `world.placeExtractor` — asynchronous, `result.buildableId` on success
 `params: {"nodeId" (required), "recipeClass" (optional, default

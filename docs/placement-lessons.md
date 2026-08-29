@@ -7,6 +7,60 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## CRITICAL: `world.placeBuilding` on a spline-snapped buildable (Conveyor Monitor) CRASHED THE GAME (fixed 2026-08-29)
+
+**This was a real, confirmed live crash during an unattended testing
+session**, not a hypothetical - `world.placeBuilding` with
+`Recipe_ConveyorMonitor` took down the entire `FactoryGameSteam` process.
+User-supplied crash report:
+
+```
+Unhandled Exception: EXCEPTION_ACCESS_VIOLATION reading address 0x0000000000000010
+AFGBuildableConveyorMonitor::SetSnappedSplineBuildable()
+AFGBuildableHologram::ConstructInstance()
+AFGBuildableHologram::Construct()
+UFGBuildGunStateBuild::InternalConstructHologram()
+UAIModFunctionLibrary::ConstructBuildingAtPosition's deferred poll lambda
+```
+
+**Root-caused from source, not guessed**: `AFGBuildableConveyorMonitor :
+AFGBuildableSplineSnappedBase`. The base class's own real (non-stub, right
+in the header) implementation:
+```cpp
+virtual void SetSnappedSplineBuildable( AFGBuildable* buildable )
+{
+    fgcheck( buildable->Implements< UFGSplineBuildableInterface>() )
+    mSnappedSplineBuildable = buildable;
+}
+```
+calls `buildable->Implements<...>()` with **no null check**.
+`AFGBuildableHologram::ConstructInstance()` calls this during `Construct()`
+with whatever got snapped during placement - `world.placeBuilding`'s
+generic path never attempts a real spline (belt/pipe) snap at all, so
+`buildable` is `nullptr` and the dereference crashes. Exactly the same
+*class* of bug as the resource-extractor crash (a "must be snapped to X"
+disqualifier exists specifically to prevent this, but the real construct
+path doesn't itself defensively re-check before dereferencing) - except
+this time it was actually triggered live, not just structurally analogous.
+
+**Fixed**: `ConstructBuildingAtPosition` now refuses any recipe whose
+buildable class derives from `AFGBuildableSplineSnappedBase` outright
+(`WRONG_METHOD_FOR_SPLINE_SNAPPED`), same unconditional-refusal posture as
+the extractor/vehicle refusals - keyed on the base class so it also covers
+any other spline-snapped buildable this project hasn't encountered yet,
+not just Conveyor Monitor. **No dedicated construction path exists for
+this category yet** - would need the same "resolve a real target, snap to
+it" treatment `ConstructExtractorOnNode`/`world.constructVehicle` already
+got, applied to a real belt/pipe target instead of a node/station. Real
+future work, not attempted here.
+
+**Practical impact on the in-progress building-type sweep this crash
+interrupted**: everything tested *before* Conveyor Monitor in that run is
+valid data; everything logged immediately after it (blank error
+code/message - the connection simply died mid-call) is not real findings,
+just cascade noise from the dead connection, and needs retesting once the
+game is back up.
+
 ## Rail/vehicle path layout tips from the user (2026-08-29, not yet acted on)
 
 Standing design guidance for the first real attempt at using

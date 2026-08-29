@@ -65,6 +65,7 @@
 #include "Hologram/FGVehiclePathSegmentHologram.h"
 #include "WheeledVehicles/FGVehiclePathSegment.h"
 #include "WheeledVehicles/FGVehiclePathNode.h"
+#include "Buildables/FGBuildableSplineSnappedBase.h"
 #include "FGTimeSubsystem.h"
 #include "FGChatManager.h"
 #include "Configuration/ConfigManager.h"
@@ -2734,6 +2735,33 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 	{
 		OnComplete(FAIModOperationResult::Failure(TEXT("WRONG_METHOD_FOR_VEHICLE"),
 			FString::Printf(TEXT("'%s' is a vehicle recipe - use world.constructVehicle (ConstructVehicle) instead. Drone recipes specifically require snapping to a real Drone Station reference this generic path never provides."), *RecipeClassPath)));
+		return;
+	}
+
+	// Spline-snapped buildables (2026-08-29) - CONFIRMED LIVE CRASH, not
+	// just a structural analogy this time: a real unattended test run
+	// placed Build_ConveyorMonitor through this exact generic path and
+	// crashed the whole game process (EXCEPTION_ACCESS_VIOLATION reading
+	// address 0x10). Root-caused from source, not guessed:
+	// AFGBuildableSplineSnappedBase::SetSnappedSplineBuildable() (the
+	// base class's own real, non-stub inline implementation, confirmed
+	// in FGBuildableSplineSnappedBase.h) unconditionally calls
+	// buildable->Implements<UFGSplineBuildableInterface>() on its
+	// parameter with no null check - AFGBuildableHologram::ConstructInstance()
+	// calls this during Construct() with whatever got snapped during
+	// placement, which is nullptr when there was never a real belt/pipe
+	// to snap to (this generic path never attempts that snap at all).
+	// Refuse unconditionally, same posture as the extractor refusal
+	// above - there is currently no dedicated ConstructSplineSnapped*
+	// entry point that does the real snap (only Build_ConveyorMonitor is
+	// known to derive from this base in the installed headers, but the
+	// refusal is keyed on the base class, not the one known subclass, so
+	// it also covers any other spline-snapped buildable this project
+	// hasn't encountered yet).
+	if (ResolvedBuildableClass && ResolvedBuildableClass->IsChildOf(AFGBuildableSplineSnappedBase::StaticClass()))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("WRONG_METHOD_FOR_SPLINE_SNAPPED"),
+			FString::Printf(TEXT("'%s' derives from AFGBuildableSplineSnappedBase (e.g. Conveyor Monitor) - it must be snapped to a real belt/pipe buildable to construct safely. world.placeBuilding without one is a CONFIRMED CRASH (AFGBuildableSplineSnappedBase::SetSnappedSplineBuildable() dereferences a null snap target), not just a bad placement. No dedicated RPC for this exists yet - do not attempt to bypass this refusal."), *RecipeClassPath)));
 		return;
 	}
 
