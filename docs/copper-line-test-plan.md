@@ -12,11 +12,12 @@ checklist to run at execution time, not precomputed coordinates (see
 A row of 5 Smelters (Copper Ore → Copper Ingot) on a platform, fed by an
 input manifold (splitters) from a Mk3 Miner on a real copper node, output
 manifold (mergers) combining their ingots, sent up a vertical lift to a
-row of 5 Constructors (Copper Ingot → Copper Wire) one level up, same
-manifold pattern, whose combined wire output goes up a second vertical
-lift to a Dimensional Depot uploader on a third level. Miner and/or any
-machine row may be overclocked with Power Shards to use the miner's real
-output rate as fully as the fixed 5+5 machine counts allow.
+row of **10** Constructors (Copper Ingot → Copper Wire, count adjusted
+from the original 1:1 ask - see "Optimized machine ratio" below) one
+level up, same manifold pattern, whose combined wire output goes up a
+second vertical lift to a Dimensional Depot uploader on a third level.
+Miner and both machine rows may be overclocked with Power Shards to use
+the miner's real output rate as fully as the machine counts allow.
 
 ## Rate math (real, computed - `controller/satisfactory_ai/production.py`)
 
@@ -26,10 +27,10 @@ Real recipe data (`world.recipeCatalog`, cached this session):
 
 **Key finding, not obvious from the recipes looking "1:1"**: a Smelter
 produces ingots twice as fast as a single Constructor consumes them (30
-vs 15/min at equal clock). With an EQUAL machine count on both rows (5
-and 5), the constructors must run at roughly **double** the smelters'
-clock percent to keep up - `plan_two_stage_line()` solves this exactly,
-not by assumption.
+vs 15/min at equal clock). With an EQUAL machine count on both rows (the
+original 5:5 ask), the constructors are forced to 250% (maxed) while the
+smelters sit at only 125% (half their own headroom unused) just to keep
+up - `plan_two_stage_line()` found this exactly, not by assumption.
 
 **Assumed, not yet confirmed live** (flagged in `production.py` itself,
 and in `world.installPowerShard`'s doc comment): 3 Power Shard slots per
@@ -39,35 +40,56 @@ live and read `world.setClockSpeed`'s valid-range error text, or the new
 `result.detail.newMaxPotentialPercent` `world.installPowerShard` itself
 reports.
 
-With that assumption, **the 5-Constructor row is always the binding
-constraint**, not the miner or the smelters - the line can never
-usefully process more than **187.5 Copper Ore/min**, regardless of node
-purity, because 5 Constructors at their 250% ceiling can only consume
-187.5 ingots/min. Real computed results per purity (standard Satisfactory
-Mk3 Miner base rates - 120/240/480 per min at Impure/Normal/Pure - also
-not yet confirmed against this project's own telemetry):
+### Optimized machine ratio (per explicit user request)
 
-| Node purity | Miner clock % | Smelters (×5) clock % | Constructors (×5) clock % | Final wire output |
-|---|---|---|---|---|
-| Impure | 156.25% | 125% | 250% | 375/min |
-| Normal | 78.12% | 125% | 250% | 375/min |
-| Pure | 39.06% | 125% | 250% | 375/min |
+The real fix for the 125%/250% imbalance isn't a clock trick, it's the
+machine count ratio: since one Smelter's max output (30/min) feeds
+exactly two Constructors' max input (15/min each), **Constructors should
+outnumber Smelters 2:1** for both rows to hit their OWN clock ceiling at
+the same time - no machine sitting on idle capacity relative to its
+neighbor. Recommended: **5 Smelters : 10 Constructors** (keeps the
+originally-specified Smelter row, right-sizes Constructors to match).
+Real computed results per purity (standard Satisfactory Mk3 Miner base
+rates - 120/240/480 per min at Impure/Normal/Pure - also not yet
+confirmed against this project's own telemetry):
+
+| Node purity | Miner clock % | Smelters (×5) clock % | Constructors (×10) clock % | Final wire output | Limited by |
+|---|---|---|---|---|---|
+| Impure | 250% | 200% | 200% | 600/min | the miner itself |
+| Normal | 156.25% | 250% | 250% | 750/min | the smelters |
+| Pure | 78.12% | 250% | 250% | 750/min | the smelters |
+
+Roughly double the original 5:5 plan's throughput (375→750/min wire) on
+Normal/Pure nodes, since neither row now caps out before the other.
+
+**Nuance on Impure nodes specifically**: even 5:10 has slack there - the
+miner's own 250%-clocked ceiling (300 ore/min) is reached before either
+machine row would be maxed, so a leaner **4 Smelters : 8 Constructors**
+(same 2:1 ratio, smaller footprint) hits that exact ceiling with zero
+wasted machine capacity anywhere. Use 5:10 for headroom (useful if a
+richer node turns out to be more convenient); use 4:8 if the target node
+is confirmed Impure and a smaller build is preferred. Recompute either
+with `plan_two_stage_line(stage_a_machine_count=..., stage_b_machine_count=...)`
+once the real node is picked - this is a count CHOICE, not something the
+toolkit should silently pick for you.
 
 **Implication for node choice**: only an **Impure** node lets the miner
-run AT OR ABOVE its own 100% baseline while still keeping the line fully
-fed - on Normal or Pure nodes, the miner must be deliberately
-*underclocked* below 100% (not overclocked at all) to avoid producing
-ore faster than 5 Constructors could ever consume. If "take full
-advantage of the miner's output rate" is meant literally (maximize the
-miner itself), prefer an Impure node. If it means "the line consumes
-100% of whatever the miner makes" (no waste), any purity works and this
-table already gives the exact clock speeds - the miner is just tuned
-down on richer nodes rather than sped up. **Ask/decide before executing**
-if this distinction matters to the test's goal - the code doesn't choose
-this, per the project's toolkit-not-solver discipline.
+run AT its own 250%-shard ceiling while still keeping the line fully fed
+(the miner itself is the binding constraint there). On Normal or Pure
+nodes, the miner must be deliberately *underclocked* well below 100% -
+at 5:10, the 5-Smelter row becomes the binding constraint on those
+richer nodes (375 ore/min max at 250%), so the miner is throttled to
+match the smelters, not the other way around. If "take full advantage of
+the miner's output rate" is meant literally (maximize the miner itself),
+prefer an Impure node. If it means "the line consumes 100% of whatever
+the miner makes" (no waste), any purity works and the table above already
+gives the exact clock speeds. **Ask/decide before executing** if this
+distinction matters to the test's goal - the code doesn't choose this,
+per the project's toolkit-not-solver discipline.
 
-To recompute for a different real node purity or a confirmed real
-shard-boost value once shards are live-tested:
+To recompute for a different real node purity, a different machine-count
+ratio, or a confirmed real shard-boost value once shards are
+live-tested:
 
 ```python
 from satisfactory_ai.production import plan_two_stage_line, max_clock_percent_for_shards, RecipeRate
@@ -80,7 +102,7 @@ plan = plan_two_stage_line(
     extractor_base_rate_per_min_at_100=240.0,  # real node's base rate at the purity you find
     extractor_max_clock_percent=max_clock,
     stage_a_machine_count=5, stage_a_base_output_per_min_at_100=smelter.product_per_min_at_100, stage_a_max_clock_percent=max_clock,
-    stage_b_machine_count=5, stage_b_base_input_per_min_at_100=constructor.ingredient_per_min_at_100, stage_b_max_clock_percent=max_clock,
+    stage_b_machine_count=10, stage_b_base_input_per_min_at_100=constructor.ingredient_per_min_at_100, stage_b_max_clock_percent=max_clock,
 )
 ```
 
@@ -104,12 +126,15 @@ only known live:
 
 ## Genuinely new territory for this project - budget extra iteration for these
 
-- **A 5-wide manifold has never been built by this mod** - only single
+- **A wide manifold has never been built by this mod** - only single
   splitter/merger connections are proven (see `docs/placement-lessons.md`'s
-  "manifold" pattern note, PLANNED but not yet executed before now).
-  Build ONE splitter→machine tap first, confirm it connects, before
-  chaining all 5 - the established "smallest useful change, verify,
-  then scale" discipline.
+  "manifold" pattern note, PLANNED but not yet executed before now). The
+  Constructor row (10-wide, after the ratio optimization below) is a
+  bigger version of this same unproven pattern than the 5-wide Smelter
+  row. Build ONE splitter→machine tap first, confirm it connects, before
+  chaining the rest - the established "smallest useful change, verify,
+  then scale" discipline, and worth doing the scale-up in stages (e.g.
+  5, then 10) for the Constructor row specifically.
 - **Two vertical lifts in series across 3 stacked levels** is also new -
   prior lift work was single-level, single-lift.
 - **Feeding a Dimensional Depot uploader from a live belt** has not been
@@ -136,7 +161,9 @@ only known live:
    merger manifold - verify via `world.pipeConnections`/`world.connections`-
    equivalent (`world.connections`) after each stage, not just success:true.
 4. Level 2 foundations directly above, vertical lift Level 1 → Level 2,
-   then repeat the single-then-scale-to-5 Constructor manifold pattern.
+   then repeat the single-then-scale-up Constructor manifold pattern
+   (10-wide, per the ratio optimization above - stage the scale-up, e.g.
+   verify at 5 before going to 10).
 5. Level 3 foundations, second vertical lift Level 2 → Level 3, Depot
    uploader, connect the Constructor output manifold to it.
 6. Power the whole line (a single Power Line run from an existing grid
