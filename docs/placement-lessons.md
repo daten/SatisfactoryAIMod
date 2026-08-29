@@ -7,6 +7,31 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## Rail/vehicle path layout tips from the user (2026-08-29, not yet acted on)
+
+Standing design guidance for the first real attempt at using
+`world.constructRailroadTrack`/`world.constructVehiclePathSegment`:
+
+- **Pairs, not single lines**: one lane/track each direction, like a
+  divided highway or double-track railway.
+- **Raised platforms, not raw terrain**: this is *why* both RPCs support
+  `ignoreGroundTrace`/literal-Z - build a flat foundation bed first, lay
+  paths/track on top.
+- **Intersections as roundabouts**, not direct crossings.
+- **A circular track loop with ingress/egress on all 4 sides** (N/S/E/W)
+  gets real junction behavior - a train entering from any side can path
+  onward in any direction - without needing the switch/signal system
+  this project's first-pass track implementation deliberately skips.
+- **Decorative pillars under long raised platforms** at regular
+  intervals - purely visual, the game's physics don't require support,
+  just simulates an elevated viaduct look.
+
+Compute the roundabout/circle geometry with a real Python toolkit helper
+when this is attempted (radius + track-piece length + tile count ->
+placement points), not hand-computed inline - same
+toolkit-not-solver principle already established for radial foundation
+platforms elsewhere in this project.
+
 ## Railroad tracks and vehicle paths: same spline/two-click pattern as belts/pipes, both need a real build to confirm (added 2026-08-29)
 
 Researched and implemented in the same session as vehicle/drone
