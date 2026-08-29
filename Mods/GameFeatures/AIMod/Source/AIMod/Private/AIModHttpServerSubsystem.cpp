@@ -1161,6 +1161,90 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// "world.testRailroadTrack" (dry run) and "world.constructRailroadTrack"
+	// (real) share UAIModFunctionLibrary::ConstructRailroadTrack, same
+	// shape as world.testPipe/world.connectPipe above. See
+	// ConstructRailroadTrack's doc comment - NOT YET LIVE-TESTED.
+	if (Method == TEXT("world.testRailroadTrack") || Method == TEXT("world.constructRailroadTrack"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			return true;
+		}
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string - no confirmed default track recipe path, query world.recipeCatalog first")));
+			return true;
+		}
+
+		const bool bDryRunTrack = Method == TEXT("world.testRailroadTrack");
+		UAIModFunctionLibrary::ConstructRailroadTrack(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRunTrack,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.constructVehiclePathSegment - see ConstructVehiclePathSegment's
+	// doc comment. NOT YET LIVE-TESTED.
+	if (Method == TEXT("world.constructVehiclePathSegment"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		double StartX = 0.0, StartY = 0.0, EndX = 0.0, EndY = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("startX"), StartX) || !ParamsObject->TryGetNumberField(TEXT("startY"), StartY)
+			|| !ParamsObject->TryGetNumberField(TEXT("endX"), EndX) || !ParamsObject->TryGetNumberField(TEXT("endY"), EndY))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.startX/startY/endX/endY must all be numbers")));
+			return true;
+		}
+
+		double StartZ = -1000000.0;
+		double EndZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("startZ"), StartZ);
+		ParamsObject->TryGetNumberField(TEXT("endZ"), EndZ);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		UAIModFunctionLibrary::ConstructVehiclePathSegment(GetGameInstance(), RecipeClassPath,
+			static_cast<float>(StartX), static_cast<float>(StartY), static_cast<float>(StartZ),
+			static_cast<float>(EndX), static_cast<float>(EndY), static_cast<float>(EndZ), bIgnoreGroundTrace,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
 	// not implement GetWorld(); UGameInstance does.
 	FString MethodResultJson;

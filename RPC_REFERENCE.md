@@ -648,6 +648,38 @@ under that limit.
 one tube type exists. Real max segment length is ~10000 units (longer than
 fluid pipes).
 
+### `world.testRailroadTrack` / `world.constructRailroadTrack` — asynchronous
+`params: {"sourceBuildableId", "destBuildableId", "recipeClass"
+(required — no confirmed default, query `world.recipeCatalog` for the real
+track recipe path first)}`. Same shape as `world.testPipe`/
+`world.connectPipe` — both ends must be existing buildables with a free
+railroad track connection component (a Train Station platform, or an
+existing track segment's open end). Real numeric limits from source
+(unconfirmed live): max segment length ~100 m, min curve radius ~30 m, max
+grade 25°. Deliberately point-to-point only — switches (3+ track pieces
+meeting at one point) and signals are out of scope; the disqualifiers for
+too-long/too-short/too-steep/too-sharp-a-turn are never bypassed by this
+call. **Not yet live-tested.**
+
+### `world.constructVehiclePathSegment` — asynchronous, `result.buildableId` on success
+`params: {"recipeClass" (required), "startX"/"startY" (required numbers),
+"endX"/"endY" (required numbers), "startZ"/"endZ" (optional),
+"ignoreGroundTrace" (optional bool)}`. Unlike every other segment-based
+method above, the endpoints are **literal coordinates, not existing
+buildable ids** — a real path node is automatically created at each end if
+nothing existing is nearby (confirmed from source). Same
+`ignoreGroundTrace`/literal-Z convention as `world.placeBuilding` — the
+way to lay a path on a flat foundation platform instead of raw terrain.
+Passing a point within ~8 m of an existing path node/segment lets it snap
+into that network instead of creating a new one. Recipe paths live under
+`Content/FactoryGame/Buildable/Vehicle/{Explorer,Golfcart,Tractor,Truck}/`
+per vehicle type, plus a universal variant — query `world.recipeCatalog`
+for the exact path. Does **not** cover assigning a built vehicle to
+auto-drive a route over the segments you build — that's a separate,
+not-yet-exposed capability (real source API exists:
+`AFGWheeledVehicleIdentifier::SetVehicleRoute`/`AddWaypoint`/
+`SetAutopilotEnabled`). **Not yet live-tested.**
+
 ### `world.cleanupOrphanedFlowIndicators` — synchronous, no params
 ```json
 { "protocolVersion": 1, "totalIndicators": 20, "attachedCount": 15, "orphanCount": 5, "deletedIds": ["...", "..."] }

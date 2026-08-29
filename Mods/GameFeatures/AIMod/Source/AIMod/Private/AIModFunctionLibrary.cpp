@@ -59,6 +59,12 @@
 #include "FGVehicle.h"
 #include "Resources/FGVehicleDescriptor.h"
 #include "Hologram/FGVehicleHologram.h"
+#include "FGRailroadTrackConnectionComponent.h"
+#include "Hologram/FGRailroadTrackHologram.h"
+#include "Buildables/FGBuildableRailroadTrack.h"
+#include "Hologram/FGVehiclePathSegmentHologram.h"
+#include "WheeledVehicles/FGVehiclePathSegment.h"
+#include "WheeledVehicles/FGVehiclePathNode.h"
 #include "FGTimeSubsystem.h"
 #include "FGChatManager.h"
 #include "Configuration/ConfigManager.h"
@@ -499,6 +505,32 @@ namespace
 			if (IsValid(Connection) && Cast<UFGPipeConnectionComponentHyper>(Connection)
 				&& Connection->GetPipeConnectionType() != EPipeConnectionType::PCT_SNAP_ONLY
 				&& !Connection->IsConnected())
+			{
+				return Connection;
+			}
+		}
+		return nullptr;
+	}
+
+	// Railroad tracks (2026-08-29) - UFGRailroadTrackConnectionComponent
+	// is a real UFGConnectionComponent subclass with the same
+	// GetConnectorLocation/GetConnectorNormal/IsConnected shape belt/pipe
+	// connectors already use (confirmed from source), so this mirrors
+	// FindFreeFactoryConnection/FindFreePipeConnection exactly. No
+	// producer/consumer distinction - track connectors are bidirectional.
+	// IsConnected() is `mConnectedComponents.Num() > 0` - true for a
+	// switch (3+ pieces meeting at one point) even with further switch
+	// positions open, so this only finds genuinely unconnected simple
+	// connectors, matching this project's deliberate first-pass scope of
+	// point-to-point track only (see docs/placement-lessons.md - switches
+	// and signals are a real, separate future capability).
+	UFGRailroadTrackConnectionComponent* FindFreeRailroadConnection(AFGBuildable* Buildable)
+	{
+		TArray<UFGRailroadTrackConnectionComponent*> Connections;
+		Buildable->GetComponents<UFGRailroadTrackConnectionComponent>(Connections);
+		for (UFGRailroadTrackConnectionComponent* Connection : Connections)
+		{
+			if (IsValid(Connection) && !Connection->IsConnected())
 			{
 				return Connection;
 			}
@@ -7444,6 +7476,552 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 
 		UE_LOG(LogAIModAI, Display, TEXT("ConstructHypertube (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
 			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		PollState->OnComplete(FAIModOperationResult::Success());
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// Railroad tracks (2026-08-29) - researched from source before
+// implementing: AFGRailroadTrackHologram : AFGSplineHologram, the exact
+// same base ConstructPipe/ConstructConveyorBelt already drive
+// (GetConstructDisqualifiers/CanConstruct/TrySnapToActor/
+// DoMultiStepPlacement/GetCurrentBuildStep are all AFGSplineHologram
+// members) - this is a near-mirror of ConstructPipe, same two-click
+// snap-to-connector-component flow, differing only in the connector type
+// (UFGRailroadTrackConnectionComponent via FindFreeRailroadConnection,
+// bidirectional - no producer/consumer split). Switches and signals are
+// deliberately out of scope (see FindFreeRailroadConnection's comment) -
+// this only builds a single point-to-point segment between two existing
+// connector-bearing buildables (e.g. two Train Station platforms, or an
+// existing track's open end).
+void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	AFGBuildable* SourceBuildable = FindBuildableById(World, SourceBuildableId);
+	if (!SourceBuildable)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *SourceBuildableId)));
+		return;
+	}
+	AFGBuildable* DestBuildable = FindBuildableById(World, DestBuildableId);
+	if (!DestBuildable)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *DestBuildableId)));
+		return;
+	}
+
+	UFGRailroadTrackConnectionComponent* SourceConnection = FindFreeRailroadConnection(SourceBuildable);
+	if (!SourceConnection)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_RAILROAD_CONNECTION"), FString::Printf(TEXT("'%s' has no free railroad track connection component"), *SourceBuildableId)));
+		return;
+	}
+	UFGRailroadTrackConnectionComponent* DestConnection = FindFreeRailroadConnection(DestBuildable);
+	if (!DestConnection)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_RAILROAD_CONNECTION"), FString::Printf(TEXT("'%s' has no free railroad track connection component"), *DestBuildableId)));
+		return;
+	}
+
+	UClass* TrackRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!TrackRecipeClass || !TrackRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = TrackRecipeClass;
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	AFGRailroadTrackHologram* TrackHologram = Cast<AFGRailroadTrackHologram>(Hologram);
+	if (!TrackHologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGRailroadTrackHologram (got %s)"),
+				*RecipeClassPath, Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
+		return;
+	}
+
+	auto MakeHitAt = [](AFGBuildable* Buildable, UFGRailroadTrackConnectionComponent* Connection) -> FHitResult
+	{
+		FHitResult Hit;
+		Hit.Location = Connection->GetConnectorLocation();
+		Hit.ImpactPoint = Hit.Location;
+		Hit.Normal = Connection->GetConnectorNormal();
+		Hit.ImpactNormal = Hit.Normal;
+		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
+		Hit.bBlockingHit = true;
+		return Hit;
+	};
+
+	auto SummarizeDisqualifiers = [](AFGRailroadTrackHologram* H) -> FString
+	{
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		H->GetConstructDisqualifiers(Disqualifiers);
+		TArray<FString> Texts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+		{
+			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
+		}
+		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
+	};
+
+	// Player-independence from day one - see ConstructPipe's comment for
+	// the full incident this pattern fixes.
+	const FRotator TrackDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
+	if (AController* TrackController = Character->GetController())
+	{
+		TrackController->SetControlRotation(TrackDeterministicLook);
+	}
+
+	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	TrackHologram->UpdateHologramPlacement(StartHit);
+	TrackHologram->TrySnapToActor(StartHit);
+	const bool bStartStepComplete = TrackHologram->DoMultiStepPlacement(true);
+	const ESplineHologramBuildStep StepAfterStart = TrackHologram->GetCurrentBuildStep();
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: source=%s dest=%s after start click: stepComplete=%s step=%d disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bStartStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterStart), *SummarizeDisqualifiers(TrackHologram));
+
+	if (bStartStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
+		return;
+	}
+
+	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
+	TrackHologram->UpdateHologramPlacement(EndHit);
+	TrackHologram->TrySnapToActor(EndHit);
+	const bool bEndStepComplete = TrackHologram->DoMultiStepPlacement(true);
+	const ESplineHologramBuildStep StepAfterEnd = TrackHologram->GetCurrentBuildStep();
+	const bool bEndConnectionSnapped = TrackHologram->IsConnectionSnapped(false);
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: source=%s dest=%s after end click: stepComplete=%s step=%d connectionSnapped=%s disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bEndStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterEnd), bEndConnectionSnapped ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(TrackHologram));
+
+	if (!bEndStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"),
+			FString::Printf(TEXT("DoMultiStepPlacement() did not report complete after the end click - step=%d connectionSnapped=%s, may need a third step"), static_cast<int32>(StepAfterEnd), bEndConnectionSnapped ? TEXT("true") : TEXT("false"))));
+		return;
+	}
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGRailroadTrackHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		bool bDryRun = true;
+		FRotator DeterministicLook;
+		int32 AttemptsRemaining = 120;
+		int32 AttemptsTaken = 0;
+		TFunction<void(const FAIModOperationResult&)> OnComplete;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = TrackHologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->SourceBuildableId = SourceBuildableId;
+	PollState->DestBuildableId = DestBuildableId;
+	PollState->bDryRun = bDryRun;
+	PollState->DeterministicLook = TrackDeterministicLook;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGRailroadTrackHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructRailroadTrack (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
+		}
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		// No bIgnore* bypass flags here, deliberately - UFGCDTrackTooLong/
+		// TooShort/TooSteep/TrunToSharp (sic - real name typo in source)
+		// must always block construction, matching UFGCDWireTooLong
+		// elsewhere in this file. Only UnlimitedResources (a player-
+		// controlled mod setting) and the always-ignored aim-location
+		// disqualifier get any leniency.
+		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
+		bool bCanConstruct = true;
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack (deferred, resolved after %d real tick(s)): source=%s dest=%s dryRun=%s canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId, PollState->bDryRun ? TEXT("true") : TEXT("false"),
+			bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		if (!bCanConstruct)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		if (PollState->bDryRun)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Success());
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogAIModAI, Error, TEXT("ConstructRailroadTrack (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		PollState->OnComplete(FAIModOperationResult::Success());
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// Vehicle path segments (2026-08-29) - researched from source before
+// implementing: AFGVehiclePathSegmentHologram : AFGBuildableHologram
+// directly (NOT AFGSplineHologram, unlike belts/pipes/tracks), but
+// implements the identical TrySnapToActor+DoMultiStepPlacement two-click
+// contract on its own terms (EVehiclePathBuildStep{StartPoint,EndPoint}).
+// Unlike every other spline-ish Construct* function here, source/dest are
+// NOT existing buildables with connectors - path nodes are free and
+// auto-created by segment placement (confirmed from source:
+// AFGVehiclePathSegment::SetNodeConnections's own doc comment, "Null
+// connections will be automatically initialized to fresh nodes"), so this
+// takes literal X/Y/Z for both ends instead, same ignoreGroundTrace/
+// literal-Z convention as ConstructVehicle's free-placement branch -
+// directly serves the "lay it on a flat platform, not raw terrain"
+// approach. Passing a point near an existing AFGVehiclePathNode/
+// AFGVehiclePathSegment (within mSegmentEndPointSnapDistance, 800cm per
+// source) lets the hologram's own TrySnapToActor connect to it instead of
+// creating a new node - not specially handled here, same "let the real
+// engine trace decide" posture as ConstructExtractorOnNode.
+void UAIModFunctionLibrary::ConstructVehiclePathSegment(UObject* WorldContextObject, const FString& RecipeClassPath, float StartX, float StartY, float StartZ, float EndX, float EndY, float EndZ, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
+
+	if (bIgnoreGroundTrace && (StartZ <= -1000000.0f || EndZ <= -1000000.0f))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("MISSING_REFERENCE_Z"),
+			TEXT("bIgnoreGroundTrace requires explicit startZ and endZ - there is no ground trace to fall back to")));
+		return;
+	}
+
+	auto MakeHit = [World, Character, bIgnoreGroundTrace](float X, float Y, float Z) -> FHitResult
+	{
+		FHitResult Hit;
+		if (bIgnoreGroundTrace)
+		{
+			Hit.Location = FVector(X, Y, Z);
+			Hit.ImpactPoint = Hit.Location;
+			Hit.Normal = FVector::UpVector;
+			Hit.ImpactNormal = FVector::UpVector;
+			Hit.bBlockingHit = true;
+		}
+		else
+		{
+			const float ZSearchCenter = (Z > -1000000.0f) ? Z : Character->GetActorLocation().Z;
+			const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+			Hit = GroundTrace.Hit;
+		}
+		return Hit;
+	};
+
+	const FHitResult StartHitPreview = MakeHit(StartX, StartY, StartZ);
+	const FHitResult EndHitPreview = MakeHit(EndX, EndY, EndZ);
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGVehiclePathSegmentHologram* PathHologram = Cast<AFGVehiclePathSegmentHologram>(BuildState->GetHologram());
+	if (!PathHologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGVehiclePathSegmentHologram (got %s)"),
+				*RecipeClassPath, BuildState->GetHologram() ? *BuildState->GetHologram()->GetClass()->GetName() : TEXT("null"))));
+		return;
+	}
+
+	auto SummarizeDisqualifiers = [](AFGVehiclePathSegmentHologram* H) -> FString
+	{
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		H->GetConstructDisqualifiers(Disqualifiers);
+		TArray<FString> Texts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+		{
+			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
+		}
+		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
+	};
+
+	const FRotator PathDeterministicLook = (EndHitPreview.Location - StartHitPreview.Location).Rotation();
+	if (AController* PathController = Character->GetController())
+	{
+		PathController->SetControlRotation(PathDeterministicLook);
+	}
+
+	PathHologram->UpdateHologramPlacement(StartHitPreview);
+	PathHologram->TrySnapToActor(StartHitPreview);
+	const bool bStartStepComplete = PathHologram->DoMultiStepPlacement(true);
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructVehiclePathSegment: start=(%.0f,%.0f,%.0f) end=(%.0f,%.0f,%.0f) after start click: stepComplete=%s disqualifiers=[%s]"),
+		StartX, StartY, StartZ, EndX, EndY, EndZ, bStartStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(PathHologram));
+
+	if (bStartStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
+		return;
+	}
+
+	PathHologram->UpdateHologramPlacement(EndHitPreview);
+	PathHologram->TrySnapToActor(EndHitPreview);
+	const bool bEndStepComplete = PathHologram->DoMultiStepPlacement(true);
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructVehiclePathSegment: start=(%.0f,%.0f,%.0f) end=(%.0f,%.0f,%.0f) after end click: stepComplete=%s disqualifiers=[%s]"),
+		StartX, StartY, StartZ, EndX, EndY, EndZ, bEndStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(PathHologram));
+
+	if (!bEndStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"), TEXT("DoMultiStepPlacement() did not report complete after the end click")));
+		return;
+	}
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGVehiclePathSegmentHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FRotator DeterministicLook;
+		int32 AttemptsRemaining = 120;
+		int32 AttemptsTaken = 0;
+		TFunction<void(const FAIModOperationResult&)> OnComplete;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = PathHologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->DeterministicLook = PathDeterministicLook;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGVehiclePathSegmentHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructVehiclePathSegment (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
+		}
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
+		bool bCanConstruct = true;
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructVehiclePathSegment (deferred, resolved after %d real tick(s)): canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		if (!bCanConstruct)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogAIModAI, Error, TEXT("ConstructVehiclePathSegment (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructVehiclePathSegment (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram"),
+			PollState->AttemptsTaken);
 
 		if (IsValid(PollCharacter))
 		{

@@ -7,6 +7,64 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## Railroad tracks and vehicle paths: same spline/two-click pattern as belts/pipes, both need a real build to confirm (added 2026-08-29)
+
+Researched and implemented in the same session as vehicle/drone
+construction, per the user's explicit "autonomously... if you find enough
+information, proceed" direction, tracks prioritized. Both systems turned
+out to be direct extensions of patterns already proven in this file, not
+new mechanisms:
+
+**Railroad tracks** (`world.constructRailroadTrack`): `AFGRailroadTrackHologram
+: AFGSplineHologram` - the exact same spline base `ConstructPipe`/
+`ConstructConveyorBelt` already drive. `ConstructRailroadTrack` is a
+near-verbatim mirror of `ConstructPipe`'s two-click
+`TrySnapToActor`+`DoMultiStepPlacement` flow, connecting two existing
+buildables' `UFGRailroadTrackConnectionComponent`s (mirrors
+`FindFreeFactoryConnection`/`FindFreePipeConnection` exactly - same
+`IsConnected()` shape). Real numeric limits found in source (max length
+~100m, min curve radius ~30m, max grade 25°) - trusted as plausible CDO-
+dump values, not confirmed against a live build. Switches/signals
+deliberately out of scope for a first pass - a plain track connector
+reports "connected" once ANY piece is attached (`GetNumSwitchPositions()`
+would distinguish a switch's open positions, but this project's first
+pass doesn't need to).
+
+**Vehicle paths** (`world.constructVehiclePathSegment`): genuinely
+different shape from every other segment-based function in this file -
+`AFGVehiclePathSegmentHologram : AFGBuildableHologram` directly (not
+`AFGSplineHologram`), and critically, path nodes are FREE and
+auto-created by segment placement (confirmed via
+`AFGVehiclePathSegment::SetNodeConnections`'s own doc comment) - so
+there's no "existing buildable with a connector" bootstrapping
+requirement the way belts/pipes/tracks have. This function takes literal
+X/Y/Z for both ends instead of buildable ids, same
+`ignoreGroundTrace`/literal-Z convention as `world.placeBuilding` -
+directly serves the "lay it on a flat platform" goal, since the hologram
+itself does real floor-tracing/projection onto terrain
+(`mPathFloorTraceElevation`, confirmed real header default, not a CDO
+dump) that a flat foundation bed sidesteps the same way it already helps
+every other placement in this project.
+
+**Deliberately not built**: assigning a constructed vehicle to
+auto-drive a route over these path segments. A real, public,
+`BlueprintCallable` API exists for this
+(`AFGWheeledVehicleIdentifier::SetVehicleRoute`/`AddWaypoint`/
+`SetAutopilotEnabled`, resolved via `AFGVehicleSubsystem`'s path-node GUID
+lookups) - structurally the same shape as `AFGDroneSubsystem::
+Server_PairStations` for drones - but needs its own telemetry layer
+(path node GUIDs aren't exposed anywhere yet) that wasn't built this
+pass. Same "real, separate follow-up, not a blocker" posture as drone
+station-pairing.
+
+**Both systems' actual construct-path behavior is unconfirmed from
+source** - `FGRailroadTrackHologram.cpp` and `FGVehiclePathSegmentHologram.cpp`
+are both fully auto-generated stubs (empty/trivial bodies), same
+situation this whole project has hit repeatedly. Compiled clean; **not
+yet live-tested** - budget for the first real attempt at each needing a
+few iterations, consistent with every other new construction category
+added to this project so far.
+
 ## Drones and wheeled vehicles: hologram-driven like buildings, NOT the Portable Miner's equipment mechanism (added 2026-08-29)
 
 Researched from source (headers only - stub `.cpp` bodies tell nothing

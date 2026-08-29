@@ -1286,4 +1286,68 @@ public:
 	 * other async entry points.
 	 */
 	static void ConstructHypertube(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructRailroadTrack (2026-08-29) - researched from source
+	 * before implementing: AFGRailroadTrackHologram : AFGSplineHologram,
+	 * the SAME base ConstructPipe/ConstructConveyorBelt already drive
+	 * (GetConstructDisqualifiers/TrySnapToActor/DoMultiStepPlacement/
+	 * GetCurrentBuildStep are all AFGSplineHologram members) - a near-
+	 * mirror of ConstructPipe, same two-click snap-to-connector-component
+	 * flow, differing only in the connector type
+	 * (UFGRailroadTrackConnectionComponent, bidirectional - no producer/
+	 * consumer split).
+	 *
+	 * SourceBuildableId/DestBuildableId must each have a free
+	 * UFGRailroadTrackConnectionComponent (e.g. a Train Station platform,
+	 * or an existing track's open end) - deliberately mirrors belts/
+	 * pipes' existing-buildable-to-existing-buildable model rather than
+	 * solving free-floating track placement in this pass. Switches and
+	 * signals are out of scope - this only builds a single point-to-point
+	 * segment; UFGCDTrackTooLong/TooShort/TooSteep/TrunToSharp (sic, real
+	 * name typo in FGConstructDisqualifier.h) are never bypassed.
+	 *
+	 * NOT YET LIVE-TESTED - implemented from header research only
+	 * (FGRailroadTrackHologram.cpp is a stub, real construct-path
+	 * behavior unconfirmed).
+	 */
+	static void ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructVehiclePathSegment (2026-08-29) - researched from
+	 * source before implementing: AFGVehiclePathSegmentHologram :
+	 * AFGBuildableHologram (not AFGSplineHologram, unlike tracks/belts/
+	 * pipes), but implements the same TrySnapToActor+DoMultiStepPlacement
+	 * two-click contract on its own terms.
+	 *
+	 * Unlike every other spline-ish Construct* function here,
+	 * StartX/Y/Z and EndX/Y/Z are LITERAL coordinates, not existing
+	 * buildable ids - path nodes are free and auto-created by segment
+	 * placement (confirmed from source:
+	 * AFGVehiclePathSegment::SetNodeConnections's own doc comment, "Null
+	 * connections will be automatically initialized to fresh nodes").
+	 * Same ignoreGroundTrace/literal-Z convention as
+	 * ConstructVehicle/ConstructBuildingAtPosition - the direct way to
+	 * lay a path on a flat foundation platform rather than raw terrain.
+	 * A point near an existing AFGVehiclePathNode/AFGVehiclePathSegment
+	 * (within ~800cm) lets the hologram's own TrySnapToActor connect to
+	 * it instead of creating a new node - not specially handled here,
+	 * same "let the real engine trace decide" posture as
+	 * ConstructExtractorOnNode.
+	 *
+	 * Deliberately NOT covered: assigning a built vehicle to auto-drive
+	 * a route over these segments. Real, public, BlueprintCallable API
+	 * exists for this in source
+	 * (AFGWheeledVehicleIdentifier::SetVehicleRoute/AddWaypoint/
+	 * SetAutopilotEnabled, resolved via AFGVehicleSubsystem's path-node
+	 * GUID lookups) but needs its own telemetry/RPC layer (path node
+	 * GUIDs aren't exposed anywhere yet) - a real, separate follow-up,
+	 * same posture as drone station-pairing being deferred alongside
+	 * ConstructVehicle.
+	 *
+	 * NOT YET LIVE-TESTED - implemented from header research only
+	 * (FGVehiclePathSegmentHologram.cpp is a stub, real construct-path
+	 * behavior unconfirmed).
+	 */
+	static void ConstructVehiclePathSegment(UObject* WorldContextObject, const FString& RecipeClassPath, float StartX, float StartY, float StartZ, float EndX, float EndY, float EndZ, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete);
 };
