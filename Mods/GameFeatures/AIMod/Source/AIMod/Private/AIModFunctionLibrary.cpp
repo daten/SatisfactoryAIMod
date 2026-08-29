@@ -1098,6 +1098,66 @@ FString UAIModFunctionLibrary::LogBuildablesAsJson(UObject* WorldContextObject)
 	return JsonString;
 }
 
+// world.vehicles (2026-08-29) - discovered live during unattended vehicle
+// testing: AFGVehicle is not an AFGBuildable (AFGDriveablePawn, a separate
+// hierarchy), so a constructed vehicle is completely invisible to
+// world.buildables - there was no way at all to read back a vehicle
+// world.constructVehicle just built. Minimal id/class/position/rotation,
+// same shape as world.buildables, via a real TActorIterator<AFGVehicle>
+// scan (the same pattern ConstructVehicle's own construction-confirmation
+// step already uses). Richer per-vehicle state (fuel, cargo, docking
+// status - real getters found in source research:
+// AFGDroneVehicle::GetDockingState/GetHomeStation,
+// AFGWheeledVehicle::GetFuelInventory) is real future work, not
+// included here - this is deliberately just enough to find an id to pass
+// to world.deleteBuilding (now vehicle-aware too, see DismantleBuildable).
+FString UAIModFunctionLibrary::LogVehiclesAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+
+	TArray<TSharedPtr<FJsonValue>> VehicleJsonArray;
+	if (World)
+	{
+		for (TActorIterator<AFGVehicle> It(World); It; ++It)
+		{
+			if (!IsValid(*It)) { continue; }
+
+			const TSharedRef<FJsonObject> VehicleObject = MakeShared<FJsonObject>();
+			VehicleObject->SetStringField(TEXT("id"), It->GetPathName());
+			VehicleObject->SetStringField(TEXT("buildableClass"), It->GetClass()->GetPathName());
+
+			const FVector Location = It->GetActorLocation();
+			const TSharedRef<FJsonObject> PositionObject = MakeShared<FJsonObject>();
+			PositionObject->SetNumberField(TEXT("x"), Location.X);
+			PositionObject->SetNumberField(TEXT("y"), Location.Y);
+			PositionObject->SetNumberField(TEXT("z"), Location.Z);
+			VehicleObject->SetObjectField(TEXT("position"), PositionObject);
+
+			const FRotator Rotation = It->GetActorRotation();
+			const TSharedRef<FJsonObject> RotationObject = MakeShared<FJsonObject>();
+			RotationObject->SetNumberField(TEXT("pitch"), Rotation.Pitch);
+			RotationObject->SetNumberField(TEXT("yaw"), Rotation.Yaw);
+			RotationObject->SetNumberField(TEXT("roll"), Rotation.Roll);
+			VehicleObject->SetObjectField(TEXT("rotation"), RotationObject);
+
+			VehicleJsonArray.Add(MakeShared<FJsonValueObject>(VehicleObject));
+		}
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("vehicles"), VehicleJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogVehiclesAsJson: %d vehicle(s)"), VehicleJsonArray.Num());
+
+	return JsonString;
+}
+
 TArray<FAIModManufacturerTelemetry> UAIModFunctionLibrary::GetManufacturerTelemetry(UObject* WorldContextObject)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -3328,13 +3388,37 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 		Buildable = FindBuildableById(World, BuildableId);
 	}
 
-	if (!Buildable)
+	// Vehicles (2026-08-29, discovered live during unattended vehicle
+	// testing): world.constructVehicle produces a real AFGVehicle, but
+	// AFGVehicle is not an AFGBuildable (confirmed from source -
+	// AFGDriveablePawn, a separate hierarchy - same reason
+	// world.buildables can't see it either), so FindBuildableById above
+	// always misses it, leaving no RPC way to remove a constructed
+	// vehicle at all. AFGVehicle DOES implement IFGDismantleInterface
+	// (same interface AFGBuildable does), so the exact same
+	// Execute_CanDismantle/Execute_GetChildDismantleActors/Execute_Dismantle
+	// calls below work unchanged once a target actor is found - this
+	// only needed a second id-resolution path, not new dismantle logic.
+	AActor* DismantleTarget = Buildable;
+	if (!DismantleTarget)
 	{
-		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
-			FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+		for (TActorIterator<AFGVehicle> It(World); It; ++It)
+		{
+			if (IsValid(*It) && It->GetPathName() == BuildableId)
+			{
+				DismantleTarget = *It;
+				break;
+			}
+		}
 	}
 
-	if (!IFGDismantleInterface::Execute_CanDismantle(Buildable))
+	if (!DismantleTarget)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+			FString::Printf(TEXT("No buildable or vehicle found with id '%s'"), *BuildableId));
+	}
+
+	if (!IFGDismantleInterface::Execute_CanDismantle(DismantleTarget))
 	{
 		return FAIModOperationResult::Failure(TEXT("CANNOT_DISMANTLE"),
 			FString::Printf(TEXT("'%s' cannot currently be dismantled (already dismantled, or has an un-dismantled parent)"), *BuildableId));
@@ -3355,7 +3439,7 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	// buildable is still valid, dismantle each child first, then the
 	// buildable itself.
 	TArray<AActor*> ChildDismantleActors;
-	IFGDismantleInterface::Execute_GetChildDismantleActors(Buildable, ChildDismantleActors);
+	IFGDismantleInterface::Execute_GetChildDismantleActors(DismantleTarget, ChildDismantleActors);
 	for (AActor* ChildActor : ChildDismantleActors)
 	{
 		if (IsValid(ChildActor) && ChildActor->Implements<UFGDismantleInterface>()
@@ -3366,10 +3450,11 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	}
 
 	// Real, safe dismantle - see this function's header doc comment.
-	// AFGBuildable::Dismantle_Implementation() handles connection
-	// cleanup, inventory locking/emptying, subsystem deregistration, and
-	// network-replicated actor destruction; this is not AActor::Destroy().
-	IFGDismantleInterface::Execute_Dismantle(Buildable);
+	// AFGBuildable::Dismantle_Implementation()/AFGVehicle's own
+	// implementation handle connection cleanup, inventory locking/
+	// emptying, subsystem deregistration, and network-replicated actor
+	// destruction; this is not AActor::Destroy().
+	IFGDismantleInterface::Execute_Dismantle(DismantleTarget);
 
 	UE_LOG(LogAIModAI, Display, TEXT("DismantleBuildable: %s (%d child actor(s) dismantled)"), *BuildableId, ChildDismantleActors.Num());
 

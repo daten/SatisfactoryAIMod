@@ -118,6 +118,17 @@ public:
 	static FString LogBuildablesAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.vehicles (2026-08-29) - AFGVehicle is not an AFGBuildable, so
+	 * world.buildables cannot see anything world.constructVehicle builds.
+	 * Minimal id/class/position/rotation via a real TActorIterator<AFGVehicle>
+	 * scan, same shape as world.buildables. Enough to find an id for
+	 * world.deleteBuilding (now vehicle-aware too). Richer per-vehicle
+	 * state (fuel, cargo, drone docking status) is future work.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogVehiclesAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Enumerates all AFGBuildableManufacturer actors and reads their
 	 * current recipe, clock speed, production status/progress/
 	 * productivity, and input/output inventory contents (PLAN.md

@@ -1256,6 +1256,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogBuildablesAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.vehicles"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogVehiclesAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.manufacturers"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogManufacturersAsJson(GetGameInstance());

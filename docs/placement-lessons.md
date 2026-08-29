@@ -139,10 +139,30 @@ station-pairing.
 **Both systems' actual construct-path behavior is unconfirmed from
 source** - `FGRailroadTrackHologram.cpp` and `FGVehiclePathSegmentHologram.cpp`
 are both fully auto-generated stubs (empty/trivial bodies), same
-situation this whole project has hit repeatedly. Compiled clean; **not
-yet live-tested** - budget for the first real attempt at each needing a
-few iterations, consistent with every other new construction category
-added to this project so far.
+situation this whole project has hit repeatedly. Compiled clean.
+
+**Railroad track live-tested 2026-08-29, open issue found**: placed two
+Buffer Stops (`Recipe_RailroadEndStop`) ~2000 units apart on the test
+platform, both succeeded and were later cleanly deleted via
+`world.deleteBuilding` (confirming real `AFGBuildable`-derived rail pieces
+have no telemetry/dismantle gap, unlike vehicles). `world.testRailroadTrack`
+between them (dry run) returned a safe, non-crashing failure:
+`PLACEMENT_INCOMPLETE`, "step=0 connectionSnapped=false" - the two-click
+`TrySnapToActor` snap never actually attaches to either End Stop's
+`UFGRailroadTrackConnectionComponent`, unlike the equivalent pipe/belt
+flow this was mirrored from. Not yet root-caused - candidates: End Stops'
+connector may not be found by the same `FindFreeRailroadConnection` search
+radius/logic used for factory/pipe connections, or `TrySnapToActor`'s
+snap-candidate detection may need a track-specific hint the pipe/belt path
+doesn't. A `world.railroadConnections` telemetry RPC (mirroring
+`world.pipeConnections`) would help debug this by exposing the connector's
+actual position/normal/connected-state directly, instead of inferring from
+opaque disqualifier strings. **Open item, real RPC gap, not yet fixed.**
+
+Vehicle paths (`world.constructVehiclePathSegment`) have not been
+live-tested at all yet - budget for the first real attempt needing a few
+iterations, consistent with every other new construction category added
+to this project so far.
 
 ## Drones and wheeled vehicles: hologram-driven like buildings, NOT the Portable Miner's equipment mechanism (added 2026-08-29)
 
@@ -199,10 +219,25 @@ in source, straightforward to add later) before it will fly a route.
 Neither blocks construction - just means a built Drone sits docked, idle,
 until both are set up.
 
-**Not yet live-tested** - compiled clean from source research the same
-session; the Drone-unsnapped-crash-risk hypothesis, the wheeled-vehicle
-no-mandatory-snap assumption, and the whole flow generally all need a
-real build to confirm.
+**Live-tested 2026-08-29**: `world.constructVehicle` confirmed working
+against the real game for Cyber Wagon (free-placement, no station snap
+needed - consistent with the wheeled-vehicle no-mandatory-snap hypothesis
+above). Construction itself succeeded cleanly.
+
+**Two real gaps found live, both now fixed**: the built vehicle was
+invisible to `world.buildables` and `world.deleteBuilding` returned
+`TARGET_NOT_FOUND` for it - exactly the `AFGVehicle`-is-not-`AFGBuildable`
+consequence predicted above, but it hadn't been extended to the *read* and
+*delete* paths, only to construction-confirmation. Fixed with:
+- `world.vehicles` (new RPC) - `TActorIterator<AFGVehicle>` telemetry,
+  same id/buildableClass/position/rotation shape as `world.buildables`.
+- `DismantleBuildable` (used by `world.deleteBuilding`) - falls back to a
+  `TActorIterator<AFGVehicle>` path-name match when `FindBuildableById`
+  misses, before giving up with `TARGET_NOT_FOUND`.
+
+Drone station-snap, drone-unsnapped-crash-risk, and fuel/pairing remain
+unconfirmed/unbuilt - only Cyber Wagon (a free-placement wheeled vehicle)
+has been live-tested so far.
 
 ## CRITICAL: building recipe `ingredients` is only the BASE cost - customization (swatch/pattern/material) charges extra, use `world.constructionCost` for the real total (fixed 2026-08-28)
 

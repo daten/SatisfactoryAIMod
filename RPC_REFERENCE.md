@@ -142,6 +142,25 @@ Some ids (foundations and other mass-placed pieces) look like
 `"lightweight:<ClassPath>|<Index>"` instead of a path — treat as opaque
 either way, both work with `world.deleteBuilding`.
 
+**Does not include vehicles** — `AFGVehicle` (drones, tractors, trucks,
+explorers, trains, etc.) is not an `AFGBuildable`. Use `world.vehicles`
+for those.
+
+### `world.vehicles` — no params
+```json
+{
+  "protocolVersion": 1,
+  "vehicles": [
+    { "id": "...", "buildableClass": "...", "position": {"x":0,"y":0,"z":0}, "rotation": {"pitch":0,"yaw":0,"roll":0} }
+  ]
+}
+```
+Same shape as `world.buildables` but iterates `AFGVehicle` actors instead
+(drones, wheeled vehicles, trains). `id` is a stable path name usable with
+`world.deleteBuilding`. Added alongside the `world.constructVehicle`
+dismantle fix — before this, vehicles built via `world.constructVehicle`
+were invisible to telemetry and undeletable.
+
 ### `world.manufacturers` — no params
 ```json
 {
@@ -421,6 +440,11 @@ flow-fill indicator widget; deleting a Pipeline Junction does **not**
 delete pipes still attached to it (they're left dangling, and the
 extractor/machine at their other end stays "occupied" until you delete
 those too).
+
+Also works on vehicle ids returned by `world.constructVehicle`/
+`world.vehicles`. `AFGVehicle` is not an `AFGBuildable`, so this falls back
+to a `TActorIterator<AFGVehicle>` path-name match when the normal
+`FindBuildableById` lookup misses.
 
 ### `world.setTimeOfDay`
 `params: {"hour" (0-23, required), "minute" (0-59, optional, default 0)}`.
