@@ -9,6 +9,25 @@
 #include "AIModFunctionLibrary.generated.h"
 
 /**
+ * Binds AFGAdminInterface::SaveGame's dynamic delegate (a UFUNCTION-bound
+ * delegate, not a plain TFunction like this mod's other async operations
+ * use) to forward the result into UAIModFunctionLibrary::SaveGame's
+ * TFunction callback (2026-08-30). One short-lived instance per save
+ * request - AddToRoot() on creation keeps it alive across the async save,
+ * RemoveFromRoot() in the handler releases it once the delegate fires.
+ */
+UCLASS()
+class UAIModSaveGameCallbackProxy : public UObject
+{
+	GENERATED_BODY()
+public:
+	TFunction<void(const FAIModOperationResult&)> OnComplete;
+
+	UFUNCTION()
+	void HandleSaveComplete(bool bSuccess, const FText& ErrorMessage);
+};
+
+/**
  * AIMod AI interface Blueprint entry points. PLAN.md Phase 3-12: a
  * version smoke test, read-only world telemetry (resource nodes,
  * buildables, manufacturers, factory connections) with JSON
@@ -1026,6 +1045,30 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogPlayerInventoryAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Triggers a real, local game save via the same path the pause menu's
+	 * "Save" button uses (AFGPlayerControllerBase::GetAdminInterface() ->
+	 * AFGAdminInterface::SaveGame(true, ...)), added 2026-08-30 per
+	 * explicit user request - repeated rebuild/redeploy/restart cycles
+	 * during live testing had no way to checkpoint progress beforehand
+	 * short of the user manually pausing and saving.
+	 *
+	 * SaveName, if empty, falls back to the current session's name
+	 * (AFGGameState::GetSessionName()) so this overwrites the active save
+	 * slot, matching a normal in-game quicksave rather than creating a new
+	 * save file. Fails with NO_SESSION_NAME if that's also empty (no
+	 * active session to save).
+	 *
+	 * Always saves locally (the `locally` bool AFGAdminInterface::SaveGame
+	 * takes) - this project's primary target is a single-player/local
+	 * session per CLAUDE.md; a remote/host save isn't exposed here.
+	 *
+	 * Genuinely asynchronous - SaveGame's own delegate is a Save
+	 * confirmation from the engine, not just "request sent" - so OnComplete
+	 * only fires once the save has actually finished (or failed).
+	 */
+	static void SaveGame(UObject* WorldContextObject, const FString& SaveName, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
 	 * Withdraws items from the Dimensional Depot into the player's

@@ -1359,83 +1359,94 @@ your calls is the only lever.
   source and let a follow-up belt handle any remaining offset instead of
   asking one lift call to do both.
 
-**Re-confirmed 2026-08-30, NOT a regression** - a copper-line build hit
-what looked at first like a 100%-reproducible construction bug (lift
-`Output` connector never connects to any destination, height stuck at a
-low default regardless of target) and got a real diagnostic investment
-(logged `TrySnapToActor()`'s return value, `AFGConveyorLiftHologram::GetHeight()`,
-tried an upward-normal hit, tried calling `UpdateHologramPlacement()` in
-a loop) before checking `git log` and finding this exact section already
-documented the same symptom from 2026-08-27 as *expected* behavior, not
-a bug. **Lesson reinforced**: check this doc (and `git log -- <file>`
-for the function in question) before spending a multi-rebuild diagnostic
-cycle on a symptom that might already be known - this is the same
-"check existing docs before re-deriving" mistake already made once this
-project (see `docs/buildgun-driven-placement-research.md`'s hologram-
-placement-drift checklist) and made again here for a different function.
+**History of this investigation (kept for context - the two sections
+below supersede the intermediate conclusions)**: a copper-line build
+originally hit what looked like a 100%-reproducible construction bug
+(lift `Output` never connects, height stuck at a low default), got
+misdiagnosed as "NOT a regression, already documented" via `git log`
+(2026-08-30), then that "documented" conclusion was ITSELF disputed and
+disproven by the user with a real, hand-built counter-example (a
+conveyor wall → lift → conveyor wall structure the user built manually,
+achieving a 1200-unit rise in one piece - flatly contradicting the
+"fixed ~400cm" claim that had just been written down as fact). The two
+findings below are what actually held up under that live counter-example.
+**Lesson reinforced twice over in one investigation**: checking `git
+log`/existing docs before diagnosing is good practice, but a documented
+conclusion is only as good as the testing that produced it - a
+plausible-sounding "confirmed non-bug" can still be wrong, and a live
+counter-example from the user is stronger evidence than a prior
+session's own diagnostic logging.
 
-**New precision refinement found while re-confirming**: the lift's real
-landing X/Y is locked to the SOURCE's real OUTPUT CONNECTOR position
-(which is itself offset from the source building's center by whatever
-that connector's facing direction implies - e.g. an EAST-facing output
-sits at `center.x + <connector offset>`), not the source building's
-center. The bridging belt's destination connector has the SAME kind of
-offset from ITS OWN building's center. Placing the destination building
-at the same X/Y as the source building's *center* (rather than
-computing where its own input connector will actually land, offset-
-compensated to match the lift's real exit X/Y) leaves a genuine
-horizontal gap (several hundred units, not the "tens to ~100" seen in
-the original 2026-08-27 case) that a simple belt call can't bridge
-("too long"/clearance-overlap). **Correct approach**: after placing the
-source and reading its real output connector position via
-`world.connections` (never assume from the building's placement X/Y/
-yaw), compute the destination building's placement position so that
-ITS real input connector - accounting for its own yaw's connector
-offset - lands at that same X/Y, then place it there before attempting
-the lift call. Iterating (place, read real connector position, re-place
-if still off) is a reasonable fallback if the exact per-connector offset
-isn't already known for the buildable class in question.
+**Finding #1, fixed and live-verified 2026-08-30**: conveyor walls
+(`Build_Wall_Conveyor_8x4_*`) ARE real, valid connection targets for
+lifts and belts - the user's counter-example proved it, and
+`world.connections` confirms each wall exposes one real
+`UFGFactoryConnectionComponent` with `GetDirection() == FCD_SNAP_ONLY`
+("special case for conveyor poles" per the engine header). The actual
+bug: this mod's `FindFreeFactoryConnection`/`FindFreeFactoryConnectionNear`
+required an exact Input/Output direction match, so a wall's SnapOnly-only
+connector was never found at all - any `connectConveyorLift`/
+`connectConveyor` call targeting a wall failed immediately with
+`NO_FACTORY_CONNECTION`, before ever reaching hologram placement. Fixed
+by falling back to a free SnapOnly connector when no exact-direction
+match exists. Also worth knowing: `IsConnected()` on a SnapOnly connector
+is *documented* (engine header) to always read `false` regardless of
+real attachment state - don't use `world.connections`' `connected` field
+to judge whether a wall/pole slot is free.
 
-**The real mechanism, finally nailed down 2026-08-30**: a single
-`ConstructConveyorLift` call always produces a **fixed ~400cm rise**
-(Mk1, confirmed identically across every test regardless of the
-destination's requested height or how precisely it was aligned) - it is
-NOT a variable-height "reach this arbitrary target" call the way
-`ConstructConveyorBelt` is. The "~1600 units in one shot" claim from
-2026-08-27 was almost certainly 4 stacked segments (400×4=1600), not one
-big jump - re-derived and confirmed live 2026-08-30 by explicitly
-chaining two lift segments: lift1's real `Output` (landed at a real,
-specific Z) connected cleanly to lift2's `Input` when lift2's
-destination was placed directly above that landed point, and lift2 then
-rose its own further fixed ~400. **The reliable, predictable pattern for
-any miner→raised-platform interface**: chain
-`ConstructConveyorLift` calls, each one targeting a destination placed
-directly above (same real X/Y) the PREVIOUS segment's real, already-
-built `Output` position (read via `world.connections` after each
-segment - never assume/precompute, the exact landed Z can vary slightly
-tick to tick) - not a single call requesting the full height. Stack
-enough segments to reach/exceed the target platform height, then bridge
-any final small residual with an ordinary `ConstructConveyorBelt` call
-(per the connector-offset-compensation approach above).
+**Finding #2, genuinely open, deliberately not being pursued further
+(user decision 2026-08-30)**: even with Finding #1 fixed, a single
+`ConstructConveyorLift` RPC call still only produces the hologram's
+~400-unit default rise, regardless of the real destination's distance -
+confirmed even feeding the exact correct target position 40 times in a
+row with no change in height. A real player CAN build an arbitrary
+height in one piece (the user's reference structure proves it - 1200
+units, no chaining) by however far their camera happens to be aimed when
+they click; scroll wheel is used only to rotate the destination end's
+Input/Output orientation, not height. That live, camera-driven height
+mechanism lives inside `AFGConveyorLiftHologram`'s actual implementation,
+which is compiled into the shipping binary and not available to read in
+this SDK (only stub `.cpp` bodies ship) - so this can't be fixed the way
+the belt hologram-placement-drift bug was (there, the fix was
+`UpdateHologramPlacement()` reasserting a value the engine's own tick
+was overwriting; here, feeding the exact right value repeatedly still
+doesn't move the needle, meaning the height computation doesn't come from
+this mod's synthetic hit at all). **Chaining lift segments each rising
+their own ~400 units still works as a fallback** (each segment's real
+`Output`, read via `world.connections`, becomes the next segment's
+destination) but is no longer the recommended default - instead, **design
+platform/miner-interface heights as multiples of the ~400-unit default**
+so a single lift call reaches the target with no bridging or chaining
+needed at all. If a platform's height can't land on that offset, the
+residual gap needs a belt with enough horizontal run to incline to it
+(see belts' real max-incline limit, `world.conveyorBeltTiers`) rather
+than a steep short bridge.
 
-**Open issue found 2026-08-30, not yet solved**: bridging FROM a lift's
-own real `Output` connector using a normal `world.connectConveyor` call
-(lift as the belt's SOURCE, not another lift) reproduced the one-sided
-"dangling belt" pattern 3/3 times in a row - the destination's input
-connects fine every time, but the lift's own output never shows
-`connected` afterward, even after the established cleanup-and-retry
-routine. Lift→lift chaining (the pattern above) works perfectly; it's
-specifically lift→ordinary-belt that's suspect so far. This echoes an
-earlier finding the same day where a Miner (an extractor, also a
-"special" buildable class) as a belt SOURCE showed the same one-sided
-dangling symptom - worth checking whether
-`ConstructConveyorBelt_RealCharacterStrategy` has a similar gap for
-non-machine source buildable classes as `ConstructConveyorLift` did
+**Existing-connection direction inheritance (2026-08-30, user-reported,
+not yet independently verified in this codebase)**: if either end of a
+new lift/belt lands on a connector that already has something attached,
+the new piece's Input/Output orientation follows whatever's already
+there rather than the requested direction. If both ends already have
+conflicting orientations, the connection will likely fail outright.
+Worth checking `world.connections` on both intended endpoints first if
+either might not be genuinely empty.
+
+**Open issue, not yet solved**: bridging FROM a lift's own real `Output`
+connector using a normal `world.connectConveyor` call (lift as the
+belt's SOURCE, not another lift) reproduced the one-sided "dangling
+belt" pattern 3/3 times in a row - the destination's input connects fine
+every time, but the lift's own output never shows `connected`
+afterward, even after the established cleanup-and-retry routine.
+Lift→lift chaining works perfectly; it's specifically lift→ordinary-belt
+that's suspect so far. This echoes an earlier finding the same day where
+a Miner (an extractor, also a "special" buildable class) as a belt
+SOURCE showed the same one-sided dangling symptom - worth checking
+whether `ConstructConveyorBelt_RealCharacterStrategy` has a similar gap
+for non-machine source buildable classes as `ConstructConveyorLift` did
 before its `EndHit` reassertion fix. Untried alternative: since a
-platform build needs the lift chain to feed a genuine machine/splitter
-anyway, try making the LAST lift segment's destination the platform
-splitter directly (skip the separate bridging-belt step) now that the
-connector-offset math is understood, rather than lift→belt→splitter.
+platform build needs the lift to feed a genuine machine/splitter anyway,
+try making the lift's destination the platform splitter directly (skip
+the separate bridging-belt step) rather than lift→belt→splitter.
 
 ## Orientation: plan it, don't let it fall out of the connect calls
 

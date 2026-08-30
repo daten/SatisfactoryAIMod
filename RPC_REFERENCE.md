@@ -731,6 +731,25 @@ with empty `items` if no local `AFGCharacterPlayer` exists, rather than
 an error. Sum this with `world.centralStorage`'s `items` for a
 "combined" total of a given item across both pools.
 
+### `world.saveGame` — genuinely asynchronous
+`params` (optional): `{"saveName"}` (optional string). Triggers a real,
+local game save via the same path the pause menu's "Save" button uses
+(`AFGPlayerControllerBase::GetAdminInterface()` ->
+`AFGAdminInterface::SaveGame(true, ...)`) — added 2026-08-30 per explicit
+user request, so a checkpoint can be taken before a risky live experiment
+(e.g. deleting a buildable to retest a fix) without relying on the user to
+pause and save manually first. `saveName` defaults to the current
+session's name (`AFGGameState::GetSessionName()`) when omitted/empty, so a
+bare `{"method":"world.saveGame"}` overwrites the active save slot like a
+normal quicksave rather than creating a new save file. Always saves
+locally — no remote/host save is exposed. `OnComplete` only fires once the
+engine's own save confirmation delegate fires, not merely once the
+request is sent. Errors: `NO_PLAYER` (no local
+`AFGPlayerControllerBase`), `NO_ADMIN_INTERFACE` (should never happen in
+practice), `NO_SESSION_NAME` (saveName omitted and no active session to
+fall back to), `SAVE_FAILED` (the engine's own save delegate reported
+failure — message is whatever `FText` it supplied).
+
 ### `world.withdrawFromCentralStorage` — synchronous
 `params: {"itemClass","amount"}`. Moves items from the Dimensional Depot
 into the player's carried inventory, making them usable for subsequent
@@ -829,24 +848,64 @@ remains the only strategy that reliably finishes a real belt.
 Same params shape as belts, `recipeClass` default Recipe_ConveyorLiftMk1
 (any Mk1-6). No `routeMode`.
 
-**Does not connect to an arbitrary distant `destBuildableId` in one call
-— this is a real physical constraint of lifts, not a bug** (see
-`docs/placement-lessons.md`'s "Vertical conveyor lifts" section, live-
-confirmed twice, 2026-08-27 and 2026-08-30). A lift travels straight
-up/down only: its X/Y is locked to the SOURCE's real output-connector
-position (not the source buildable's placement X/Y), and it rises to
-its own natural default height regardless of the destination's real
-distance — `destBuildableId` mainly determines direction/orientation,
-not an exact endpoint. **Always follow with a `world.connectConveyor`
-call** from the newly-built lift's own `Output` connector (read its
-real position via `world.connections` — the lift itself is a normal
-buildable at this point) to the actual destination, to bridge whatever
-gap remains. Placing the destination at the source building's *center*
-X/Y (rather than computing where its own input connector will land,
-offset-compensated for its yaw) typically leaves too large a gap for
-the bridging belt — read the lift's real `Output` position first and
-place/verify the destination's real input connector against that,
-not against building-placement coordinates.
+**Wall/pole connectors — fixed and live-verified 2026-08-30.** Conveyor
+walls (`Build_Wall_Conveyor_8x4_*`) are real, valid connection targets
+for both lifts and belts, exactly as the user described ("I use
+conveyor walls routinely to run belts and lifts without machines"). Each
+exposes one `UFGFactoryConnectionComponent` with
+`GetDirection() == FCD_SNAP_ONLY` ("special case for conveyor poles" per
+the engine header) — `IsConnected()` on a SnapOnly connector is
+*documented* to always read `false` regardless of real attachment state,
+so don't use `world.connections`' `connected` field to judge whether a
+wall/pole slot is free. `FindFreeFactoryConnection`/
+`FindFreeFactoryConnectionNear` used to require an exact `Input`/`Output`
+direction match, so a wall's SnapOnly-only connector was never found at
+all (`NO_FACTORY_CONNECTION`, reproduced live before the fix). Both now
+fall back to a free `SnapOnly` connector when no exact-direction match
+exists; ordinary machines (which never expose SnapOnly connectors) are
+unaffected.
+
+**Height control — open, deliberately postponed 2026-08-30 (user
+decision, not worth more investigation right now).** A real player can
+build a single lift spanning an arbitrary height (live-confirmed: 1200
+units in one piece, driven by where their camera is aimed when they
+click - no scroll wheel involved, scroll is used only for the
+destination end's Input/Output *rotation*, not height). This RPC cannot
+reproduce that: every synthetic-hit attempt lands at the hologram's
+~400-unit default regardless of the real destination's distance, even
+when the destination hit's position is exactly correct (confirmed via
+40 repeated `UpdateHologramPlacement` calls with an unchanged target -
+height never moved). The likely cause is a live per-tick camera trace
+inside `AFGConveyorLiftHologram`'s actual (unavailable, compiled-only)
+implementation that this mod's synthetic `FHitResult` doesn't trigger -
+not fixable from the header-only SDK available here. **Don't burn more
+investigation time on this without new evidence.**
+
+**Practical strategy instead of height-matching**: design raised
+platforms/miner interfaces so the platform's height offset from its
+source is a multiple of the RPC lift's natural ~400-unit rise per call,
+so no bridging or incline is needed at all. If a platform's height can't
+be made to land on that offset, the residual gap needs a belt with
+enough horizontal run to incline to it - belts have a real max incline
+limit (see `mMaxIncline`, `world.conveyorBeltTiers`), so a flat/aligned
+platform height is the more reliable target than relying on a steep
+bridging belt.
+
+**Existing-connection direction inheritance (2026-08-30, user-reported,
+not yet independently verified)**: if either end of a new lift/belt
+lands on a connector that already has something attached, the new piece
+orients its Input/Output to stay consistent with that existing
+connection rather than with whatever direction was requested. If BOTH
+ends already have conflicting orientations, the connection will likely
+fail. Worth checking `world.connections` on both intended endpoints
+before a build if either might not be genuinely empty.
+
+Still true regardless of the above: a lift travels straight up/down
+only, and its X/Y is locked to the SOURCE's real output-connector
+position (not the source buildable's placement X/Y). If a build still
+falls short of an intended destination, follow with a `world.connectConveyor`
+call from the lift's own `Output` connector (read its real position via
+`world.connections`) to bridge the remaining gap.
 
 ### `world.testPipe` / `world.connectPipe` — asynchronous
 `params: {"sourceBuildableId", "destBuildableId", "recipeClass" (optional,

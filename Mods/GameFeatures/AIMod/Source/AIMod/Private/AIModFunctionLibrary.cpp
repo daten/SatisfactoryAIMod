@@ -87,6 +87,9 @@
 #include "Creature/FGCreature.h"
 #include "FGSchematicManager.h"
 #include "FGSchematic.h"
+#include "FGAdminInterface.h"
+#include "FGPlayerControllerBase.h"
+#include "FGGameState.h"
 #include "Buildables/FGBuildableSpaceElevator.h"
 #include "FGResearchManager.h"
 #include "FGResearchTree.h"
@@ -3525,18 +3528,48 @@ namespace
 	// Same pattern as FindFreePowerConnection, for the conveyor-belt
 	// snap-target experiment - matches the given direction (Output for
 	// the belt's start point) and isn't already connected.
+	//
+	// SnapOnly fallback (2026-08-30, correcting a real misconception, not
+	// a regression - see docs/placement-lessons.md's "Conveyor walls are
+	// real connectors" section): conveyor walls/poles expose exactly one
+	// UFGFactoryConnectionComponent with GetDirection()==FCD_SNAP_ONLY,
+	// confirmed both live (world.connections on a player-built wall-lift-
+	// wall structure) and from source (FGFactoryConnectionComponent.h:
+	// "Special case for conveyor poles"). The strict `== Direction` match
+	// above always skipped these, so ConstructConveyorLift/ConnectConveyor
+	// could never target a wall at all - confirmed live, reproduced the
+	// exact NO_FACTORY_CONNECTION error before this fix. SnapOnly's
+	// IsConnected() is ALWAYS false by engine design (see the header's
+	// IsConnected() doc comment: "Always false if attached to hologram,
+	// snap only..."), so it can't be used to test whether a SnapOnly point
+	// is already occupied - the real game handles that via a separate
+	// overlap check (CheckIfSnapOnlyIsBlockedByOtherConnection, private to
+	// the engine) inside TrySnapToActor/DoMultiStepPlacement once fed the
+	// real connector position/normal, which this function does not need to
+	// duplicate. Only used as a fallback when no exact Input/Output match
+	// exists, so ordinary machines (which never have SnapOnly connectors)
+	// are unaffected.
 	UFGFactoryConnectionComponent* FindFreeFactoryConnection(AFGBuildable* Buildable, EFactoryConnectionDirection Direction)
 	{
 		TArray<UFGFactoryConnectionComponent*> Connections;
 		Buildable->GetComponents<UFGFactoryConnectionComponent>(Connections);
+		UFGFactoryConnectionComponent* SnapOnlyFallback = nullptr;
 		for (UFGFactoryConnectionComponent* Connection : Connections)
 		{
-			if (IsValid(Connection) && Connection->GetDirection() == Direction && !Connection->IsConnected())
+			if (!IsValid(Connection))
+			{
+				continue;
+			}
+			if (Connection->GetDirection() == Direction && !Connection->IsConnected())
 			{
 				return Connection;
 			}
+			if (!SnapOnlyFallback && Connection->GetDirection() == EFactoryConnectionDirection::FCD_SNAP_ONLY)
+			{
+				SnapOnlyFallback = Connection;
+			}
 		}
-		return nullptr;
+		return SnapOnlyFallback;
 	}
 
 	// Position-targeted variant (2026-08-30, explicit user requirement:
@@ -3557,26 +3590,38 @@ namespace
 	// possible at all; FindFreeFactoryConnection above has no direction-
 	// vs-position awareness and was never meant to guarantee which of
 	// several free connectors of the same Direction gets picked.
+	// SnapOnly fallback (2026-08-30): same reasoning as FindFreeFactoryConnection
+	// above - a free exact-direction match wins if one is within tolerance,
+	// otherwise the nearest SnapOnly connector (wall/pole) within tolerance
+	// is used, without gating on IsConnected() since that's always false
+	// for SnapOnly by engine design.
 	UFGFactoryConnectionComponent* FindFreeFactoryConnectionNear(AFGBuildable* Buildable, EFactoryConnectionDirection Direction, const FVector& TargetWorldPosition, float ToleranceCm = 10.0f)
 	{
 		TArray<UFGFactoryConnectionComponent*> Connections;
 		Buildable->GetComponents<UFGFactoryConnectionComponent>(Connections);
 		UFGFactoryConnectionComponent* Best = nullptr;
 		float BestDistSq = FMath::Square(ToleranceCm);
+		UFGFactoryConnectionComponent* SnapOnlyBest = nullptr;
+		float SnapOnlyBestDistSq = FMath::Square(ToleranceCm);
 		for (UFGFactoryConnectionComponent* Connection : Connections)
 		{
-			if (!IsValid(Connection) || Connection->GetDirection() != Direction || Connection->IsConnected())
+			if (!IsValid(Connection))
 			{
 				continue;
 			}
 			const float DistSq = FVector::DistSquared(Connection->GetConnectorLocation(), TargetWorldPosition);
-			if (DistSq <= BestDistSq)
+			if (Connection->GetDirection() == Direction && !Connection->IsConnected() && DistSq <= BestDistSq)
 			{
 				Best = Connection;
 				BestDistSq = DistSq;
 			}
+			else if (Connection->GetDirection() == EFactoryConnectionDirection::FCD_SNAP_ONLY && DistSq <= SnapOnlyBestDistSq)
+			{
+				SnapOnlyBest = Connection;
+				SnapOnlyBestDistSq = DistSq;
+			}
 		}
-		return Best;
+		return Best ? Best : SnapOnlyBest;
 	}
 }
 
@@ -5263,6 +5308,63 @@ FString UAIModFunctionLibrary::LogPlayerInventoryAsJson(UObject* WorldContextObj
 	UE_LOG(LogAIModAI, Display, TEXT("LogPlayerInventoryAsJson: %d item type(s)"), ItemsArray.Num());
 
 	return JsonString;
+}
+
+void UAIModSaveGameCallbackProxy::HandleSaveComplete(bool bSuccess, const FText& ErrorMessage)
+{
+	if (OnComplete)
+	{
+		OnComplete(bSuccess
+			? FAIModOperationResult::Success()
+			: FAIModOperationResult::Failure(TEXT("SAVE_FAILED"), ErrorMessage.ToString()));
+	}
+	RemoveFromRoot();
+}
+
+void UAIModFunctionLibrary::SaveGame(UObject* WorldContextObject, const FString& SaveName, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGPlayerControllerBase* PlayerController = Cast<AFGPlayerControllerBase>(UGameplayStatics::GetPlayerController(World, 0));
+	if (!PlayerController)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGPlayerControllerBase (player index 0)")));
+		return;
+	}
+
+	AFGAdminInterface* AdminInterface = PlayerController->GetAdminInterface();
+	if (!AdminInterface)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_ADMIN_INTERFACE"), TEXT("AFGPlayerControllerBase::GetAdminInterface() returned null")));
+		return;
+	}
+
+	FString ResolvedSaveName = SaveName;
+	if (ResolvedSaveName.IsEmpty())
+	{
+		const AFGGameState* GameState = World->GetGameState<AFGGameState>();
+		ResolvedSaveName = GameState ? GameState->GetSessionName() : FString();
+		if (ResolvedSaveName.IsEmpty())
+		{
+			OnComplete(FAIModOperationResult::Failure(TEXT("NO_SESSION_NAME"), TEXT("saveName was empty and the current session has no name to fall back to")));
+			return;
+		}
+	}
+
+	UAIModSaveGameCallbackProxy* Proxy = NewObject<UAIModSaveGameCallbackProxy>();
+	Proxy->AddToRoot();
+	Proxy->OnComplete = OnComplete;
+
+	FOnAdminSaveGameComplete Delegate;
+	Delegate.BindDynamic(Proxy, &UAIModSaveGameCallbackProxy::HandleSaveComplete);
+
+	UE_LOG(LogAIModAI, Display, TEXT("SaveGame: saving locally as '%s'"), *ResolvedSaveName);
+	AdminInterface->SaveGame(true, ResolvedSaveName, Delegate);
 }
 
 FAIModOperationResult UAIModFunctionLibrary::WithdrawFromCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount)
@@ -7780,23 +7882,43 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 // hologram does NOT derive from) - only the disqualifier list is logged.
 // No RouteMode param - lifts are a fixed vertical column, no bend/curve
 // concept applies.
-// RESOLVED 2026-08-30 (NOT a bug, confirmed via docs/placement-lessons.md's
-// "Vertical conveyor lifts" section, originally written 2026-08-27):
-// the diagnostic logging added directly below this comment (TrySnapToActor's
-// return value, GetHeight(), a repeated-UpdateHologramPlacement-call
-// experiment) was investigating what looked like a 100%-reproducible
-// bug - DestBuildable's input never connects, height stuck at a low
-// default regardless of the requested target. Re-confirmed live
-// 2026-08-30 that this is real, EXPECTED lift behavior already
-// documented 3 days earlier: a lift always rises to its own natural
-// default height in one call (X/Y locked to SourceConnection's real
-// position, not SourceBuildable's placement position), and reaching an
-// arbitrary DestBuildable requires a SEPARATE ConstructConveyorBelt call
-// afterward to bridge the residual gap - this function was never meant
-// to (and structurally cannot) connect directly to an arbitrary distant
-// DestBuildable in one call. The diagnostic logging is left in place
-// since it's genuinely useful for verifying a specific placement live,
-// not because anything here is broken.
+// CORRECTED 2026-08-30, two separate findings (see RPC_REFERENCE.md's
+// world.connectConveyorLift section for the full story) - the note that
+// used to be here conflated them into one wrong conclusion:
+//
+// 1. FIXED: FindFreeFactoryConnection/FindFreeFactoryConnectionNear (see
+//    their doc comments above) required an exact Input/Output direction
+//    match, so a wall/pole's FCD_SNAP_ONLY connector (a real, valid
+//    attachment point - "special case for conveyor poles" per
+//    FGFactoryConnectionComponent.h) was never found at all -
+//    NO_FACTORY_CONNECTION, reproduced live. Both finders now fall back
+//    to a free SnapOnly connector when no exact-direction match exists.
+//    IsConnected() is documented to always read false for SnapOnly
+//    regardless of real attachment state - not a bug, don't use it to
+//    judge whether a wall/pole slot is free.
+// 2. STILL OPEN, deliberately not pursued further (user decision
+//    2026-08-30): even with connector #1 fixed, height still lands at
+//    the hologram's ~400-unit default regardless of the real target's
+//    distance - confirmed even with 40 repeated UpdateHologramPlacement
+//    calls at the exact correct target hit (height never moved), so it's
+//    not a per-tick re-trace issue this mod can fix the way the belt
+//    hologram-drift bug was fixed. A real player builds arbitrary
+//    heights by where their camera is aimed when they click (no scroll -
+//    scroll only rotates the destination end's Input/Output, per the
+//    user) - that live camera-driven mechanism lives in
+//    AFGConveyorLiftHologram's actual (compiled-only, unavailable here)
+//    implementation and doesn't respond to this mod's synthetic
+//    FHitResult. Don't re-investigate without new evidence - instead
+//    design platform heights as multiples of this ~400-unit default so
+//    no bridging is needed.
+//
+// Still true regardless of both: a lift travels straight up/down only,
+// X/Y locked to SourceConnection's real position - if the real
+// destination isn't directly above/below the source, a separate
+// ConstructConveyorBelt call is still needed to bridge the horizontal
+// gap. The diagnostic logging directly below this comment is left in
+// place since it's genuinely useful for verifying a specific placement
+// live.
 void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;

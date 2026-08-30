@@ -1678,6 +1678,28 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogPlayerInventoryAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.saveGame"))
+	{
+		// Genuinely asynchronous - see UAIModFunctionLibrary::SaveGame's
+		// doc comment. `params` and `params.saveName` are both optional
+		// (unlike other params-object RPCs above) - an empty/missing
+		// saveName falls back to the current session's name inside
+		// SaveGame itself, so a bare {"method":"world.saveGame"} call
+		// overwrites the active save slot like a normal quicksave.
+		FString SaveName;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetStringField(TEXT("saveName"), SaveName);
+		}
+
+		UAIModFunctionLibrary::SaveGame(GetGameInstance(), SaveName,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
 	else if (Method == TEXT("world.cleanupOrphanedFlowIndicators"))
 	{
 		// A real write operation (deletes actors) but takes no params, so
