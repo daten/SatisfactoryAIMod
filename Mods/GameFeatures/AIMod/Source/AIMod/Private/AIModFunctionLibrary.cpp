@@ -5166,19 +5166,33 @@ FString UAIModFunctionLibrary::LogCentralStorageAsJson(UObject* WorldContextObje
 
 	AFGCentralStorageSubsystem* CentralStorage = AFGCentralStorageSubsystem::Get(World);
 
-	TArray<TSharedPtr<FJsonValue>> ItemsArray;
-	if (CentralStorage && CentralStorage->IsCentralStorageBuilt())
+	// Real bug found and fixed 2026-08-30: this previously gated the
+	// actual item lookup behind IsCentralStorageBuilt() (which reports
+	// mCentralStorages.Num() > 0, a SEPARATE container-registration
+	// bookkeeping array) - so on a save with real, already-built
+	// AFGCentralStorageContainer buildables (confirmed live via
+	// world.buildables), IsCentralStorageBuilt() still reported false
+	// (registration apparently doesn't reliably re-fire for containers
+	// loaded from a save, not just ones built fresh this session - stub
+	// .cpp source, exact mechanism unconfirmed) and this function never
+	// even attempted the real item lookup, silently reporting an empty
+	// Depot the whole time. GetAllItemsFromCentralStorage() has no
+	// documented precondition and is safe to call unconditionally -
+	// call it directly instead of trusting the unreliable gate.
+	TArray<FItemAmount> AllItems;
+	if (CentralStorage)
 	{
-		TArray<FItemAmount> AllItems;
 		CentralStorage->GetAllItemsFromCentralStorage(AllItems);
-		for (const FItemAmount& Item : AllItems)
-		{
-			const TSharedRef<FJsonObject> ItemObject = MakeShared<FJsonObject>();
-			ItemObject->SetStringField(TEXT("itemClass"), Item.ItemClass ? Item.ItemClass->GetPathName() : TEXT(""));
-			ItemObject->SetStringField(TEXT("itemName"), Item.ItemClass ? Item.ItemClass->GetName() : TEXT(""));
-			ItemObject->SetNumberField(TEXT("amount"), Item.Amount);
-			ItemsArray.Add(MakeShared<FJsonValueObject>(ItemObject));
-		}
+	}
+
+	TArray<TSharedPtr<FJsonValue>> ItemsArray;
+	for (const FItemAmount& Item : AllItems)
+	{
+		const TSharedRef<FJsonObject> ItemObject = MakeShared<FJsonObject>();
+		ItemObject->SetStringField(TEXT("itemClass"), Item.ItemClass ? Item.ItemClass->GetPathName() : TEXT(""));
+		ItemObject->SetStringField(TEXT("itemName"), Item.ItemClass ? Item.ItemClass->GetName() : TEXT(""));
+		ItemObject->SetNumberField(TEXT("amount"), Item.Amount);
+		ItemsArray.Add(MakeShared<FJsonValueObject>(ItemObject));
 	}
 
 	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
@@ -5189,6 +5203,64 @@ FString UAIModFunctionLibrary::LogCentralStorageAsJson(UObject* WorldContextObje
 	const FString JsonString = WriteCondensedJson(RootObject);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogCentralStorageAsJson: %d item type(s)"), ItemsArray.Num());
+
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::LogPlayerInventoryAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogPlayerInventoryAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	UFGInventoryComponent* PlayerInventory = Character ? Character->GetInventory() : nullptr;
+
+	// Aggregates by item class across every stack (a real inventory can
+	// hold the same item split across multiple slots) - reports one
+	// entry per distinct item, not a raw per-slot dump, matching
+	// LogCentralStorageAsJson's shape so both can be summed by callers
+	// wanting a "combined" carried+Depot count (2026-08-30, user
+	// request - verifying a suspected inventory-refund bug needs a
+	// reliable before/after carried count, which no RPC previously
+	// exposed at all; only Depot contents were readable).
+	TMap<TSubclassOf<UFGItemDescriptor>, int32> Totals;
+	if (PlayerInventory)
+	{
+		TArray<FInventoryStack> Stacks;
+		PlayerInventory->GetInventoryStacks(Stacks, false);
+		for (const FInventoryStack& Stack : Stacks)
+		{
+			if (!Stack.HasItems())
+			{
+				continue;
+			}
+			const TSubclassOf<UFGItemDescriptor> ItemClass = Stack.Item.GetItemClass();
+			Totals.FindOrAdd(ItemClass) += Stack.NumItems;
+		}
+	}
+
+	TArray<TSharedPtr<FJsonValue>> ItemsArray;
+	for (const TPair<TSubclassOf<UFGItemDescriptor>, int32>& Pair : Totals)
+	{
+		const TSharedRef<FJsonObject> ItemObject = MakeShared<FJsonObject>();
+		ItemObject->SetStringField(TEXT("itemClass"), Pair.Key ? Pair.Key->GetPathName() : TEXT(""));
+		ItemObject->SetStringField(TEXT("itemName"), Pair.Key ? Pair.Key->GetName() : TEXT(""));
+		ItemObject->SetNumberField(TEXT("amount"), Pair.Value);
+		ItemsArray.Add(MakeShared<FJsonValueObject>(ItemObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetBoolField(TEXT("hasPlayer"), PlayerInventory != nullptr);
+	RootObject->SetArrayField(TEXT("items"), ItemsArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogPlayerInventoryAsJson: %d item type(s)"), ItemsArray.Num());
 
 	return JsonString;
 }
@@ -5206,10 +5278,15 @@ FAIModOperationResult UAIModFunctionLibrary::WithdrawFromCentralStorage(UObject*
 		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Amount must be greater than 0"));
 	}
 
+	// Same fix as LogCentralStorageAsJson (2026-08-30): don't gate on
+	// IsCentralStorageBuilt() - confirmed live unreliable even with real,
+	// already-built AFGCentralStorageContainer buildables in the world.
+	// TryRemoveItemsFromCentralStorage has no documented precondition and
+	// itself safely clamps to whatever is actually available.
 	AFGCentralStorageSubsystem* CentralStorage = AFGCentralStorageSubsystem::Get(World);
-	if (!CentralStorage || !CentralStorage->IsCentralStorageBuilt())
+	if (!CentralStorage)
 	{
-		return FAIModOperationResult::Failure(TEXT("NO_CENTRAL_STORAGE"), TEXT("No Dimensional Depot Uploader has been built yet"));
+		return FAIModOperationResult::Failure(TEXT("NO_CENTRAL_STORAGE"), TEXT("No AFGCentralStorageSubsystem found for this world"));
 	}
 
 	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));

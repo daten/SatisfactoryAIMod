@@ -995,12 +995,37 @@ public:
 	 * player-configurable preference for draw order) - this mod's
 	 * Construct* functions do NOT yet replicate that, they only check
 	 * carried UFGInventoryComponent. See WithdrawFromCentralStorage for
-	 * the current manual workaround. Empty {"items":[]} if
-	 * IsCentralStorageBuilt() is false (no Depot Uploader exists yet)
-	 * rather than an error - a legitimately empty state.
+	 * the current manual workaround.
+	 *
+	 * FIXED 2026-08-30 (real bug): this previously gated the item lookup
+	 * behind AFGCentralStorageSubsystem::IsCentralStorageBuilt(), which
+	 * reports a SEPARATE container-registration bookkeeping array
+	 * (mCentralStorages) - confirmed live unreliable/false even with
+	 * real, already-built AFGCentralStorageContainer buildables present
+	 * (12 confirmed via world.buildables, user reported thousands of
+	 * real items), so this silently reported an empty Depot regardless
+	 * of actual contents. Now calls GetAllItemsFromCentralStorage()
+	 * unconditionally - the `isCentralStorageBuilt` field in the
+	 * response still reflects the same unreliable flag for reference/
+	 * diagnostics, but callers should trust `items` being empty (not
+	 * this flag) to mean "genuinely nothing in the Depot."
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogCentralStorageAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Reports every item currently in the local player's CARRIED
+	 * inventory (UFGInventoryComponent, general backpack - not the ARMS
+	 * equipment slot, not the Dimensional Depot), added 2026-08-30. One
+	 * aggregated entry per distinct item class, summed across every
+	 * stack. Empty {"items":[]} (hasPlayer:false) if no local
+	 * AFGCharacterPlayer exists rather than an error. Complements
+	 * LogCentralStorageAsJson - added specifically so a caller can
+	 * compute a reliable "combined carried + Depot" total for a given
+	 * item (no RPC previously exposed carried-inventory counts at all).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPlayerInventoryAsJson(UObject* WorldContextObject);
 
 	/**
 	 * Withdraws items from the Dimensional Depot into the player's
@@ -1011,8 +1036,14 @@ public:
 	 * AFGCentralStorageSubsystem::TryRemoveItemsFromCentralStorage(),
 	 * which itself clamps to whatever is actually available (a request
 	 * for more than the Depot holds is not an error - it withdraws
-	 * whatever it can). Fails with NO_CENTRAL_STORAGE if no Depot exists,
-	 * or NOTHING_WITHDRAWN if the Depot holds none of the requested item.
+	 * whatever it can). Fails with NO_CENTRAL_STORAGE only if the
+	 * subsystem itself doesn't exist for this world (should never
+	 * happen in practice), or NOTHING_WITHDRAWN if the Depot holds none
+	 * of the requested item. FIXED 2026-08-30 (same real bug as
+	 * LogCentralStorageAsJson): previously also gated on
+	 * IsCentralStorageBuilt(), which silently blocked every withdrawal
+	 * attempt even with real, populated Depot storage present - removed
+	 * that gate.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult WithdrawFromCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);

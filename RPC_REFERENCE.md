@@ -708,12 +708,39 @@ RPC surface does not yet replicate that. Use
 `world.withdrawFromCentralStorage` first if a build is failing
 `"Missing materials!"` despite the Depot showing plenty.
 
+**`isCentralStorageBuilt` is not reliable — trust `items` instead**
+(fixed 2026-08-30, real bug: this call used to gate the item lookup
+behind that flag, which tracks a separate container-registration
+bookkeeping array that was confirmed live to read `false` even with 12
+real, already-built Depot containers and thousands of real items
+present — every query silently reported an empty Depot regardless of
+actual contents). The flag is still returned for reference but no
+longer gates anything; an empty `items` array is now the trustworthy
+signal for "genuinely nothing in the Depot."
+
+### `world.playerInventory` — read-only, no params
+```json
+{ "protocolVersion": 1, "hasPlayer": true, "items": [{"itemClass","itemName","amount"}, ...] }
+```
+Reports the local player's CARRIED inventory (general backpack, not the
+ARMS equipment slot, not the Dimensional Depot) - added 2026-08-30,
+since no RPC previously exposed carried-inventory counts at all (only
+`world.centralStorage`'s Depot side was readable). One aggregated entry
+per distinct item class, summed across every stack. `hasPlayer:false`
+with empty `items` if no local `AFGCharacterPlayer` exists, rather than
+an error. Sum this with `world.centralStorage`'s `items` for a
+"combined" total of a given item across both pools.
+
 ### `world.withdrawFromCentralStorage` — synchronous
 `params: {"itemClass","amount"}`. Moves items from the Dimensional Depot
 into the player's carried inventory, making them usable for subsequent
 construction calls. Clamps to whatever is actually in the Depot — asking
 for more than available is not an error, it withdraws what it can.
-Errors: `NO_CENTRAL_STORAGE` (no Depot Uploader built yet),
+Errors: `NO_CENTRAL_STORAGE` (the `AFGCentralStorageSubsystem` itself
+doesn't exist for this world — should never happen in practice; fixed
+2026-08-30 to no longer also fire whenever `isCentralStorageBuilt` was
+`false`, the same unreliable-flag bug as `world.centralStorage`, which
+silently blocked every withdrawal even with a real, populated Depot),
 `NOTHING_WITHDRAWN` (Depot has none of the requested item),
 `INVENTORY_FULL` (some of the withdrawn amount did not fit in inventory —
 that portion is genuinely lost, no way to redeposit it programmatically).

@@ -1674,6 +1674,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogCentralStorageAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.playerInventory"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPlayerInventoryAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.cleanupOrphanedFlowIndicators"))
 	{
 		// A real write operation (deletes actors) but takes no params, so
