@@ -287,6 +287,22 @@ own requirement that every case remain separately visible.
   way (the hologram-placement-drift fix in `ConstructConveyorBelt_RealCharacterStrategy`,
   and the cleanup-radius bug in the test harness) - both documented
   above with root cause, not just patched blind.
+- **The hologram-placement-drift fix was audited and extended to every
+  other affected function** (2026-08-30, same day, prompted by the user
+  asking what's needed to stop a future session/agent from hitting the
+  same class of bug): `ConstructConveyorLift`/`ConstructPipe`/
+  `ConstructHypertube`/`ConstructRailroadTrack`/
+  `ConstructVehiclePathSegment` all had the identical latent
+  vulnerability (rotation re-asserted every poll tick, placement only
+  set once) and have never been heavily live-tested, so the bug simply
+  hadn't been triggered yet for them. Fixed identically, compiled clean.
+  Full checklist (which functions are fixed, why, and the copy-paste
+  pattern for any new one) now lives in
+  `docs/buildgun-driven-placement-research.md`'s "§3 correction"
+  checklist section - **not yet redeployed/live-tested for these 5**
+  (belts were re-verified 48/48 after the same fix; pipes/lifts/
+  hypertubes/tracks/vehicle-paths should get at least a spot-check next
+  time any of them are used for real work).
 - Phase 10 (negative tests): **all PASS**. `ERROR_NO_OUTPUT_IN_DIRECTION`
   and `INVALID_DIRECTION` proven in Phase 4. Output-to-output confirmed
   live: requesting one of a destination splitter's real OUTPUT connector

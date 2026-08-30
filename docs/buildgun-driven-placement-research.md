@@ -257,6 +257,58 @@ match on the first post-fix test is strong confirmation the
 own per-tick trace as intended. Placement is now genuinely
 API-controlled, not dependent on where the player happens to be looking.
 
+### Checklist: which `Construct*` functions have this fix (keep current)
+
+Every `AIModFunctionLibrary.cpp` function that polls across real ticks
+while driving the REAL player's `AFGBuildGun` (`instigatorStrategy:
+"RealCharacter"`, or any single-instigator point-hologram function) is
+vulnerable to this exact bug and needs its poll loop to re-assert
+placement every tick, not just once before polling starts. **This
+project was bitten by the gap TWICE** - once when this was first found
+(2026-08-24/25, the 3 functions below), and again on 2026-08-30 when
+`ConstructConveyorBelt_RealCharacterStrategy` turned out to have been
+missed (it only re-asserted rotation, not placement, in its poll loop -
+see `docs/splitter-port-control-test.md`'s "Second, real C++ bug"
+section for the full live-diagnosis). **Before adding any new
+`Construct*` poll loop, or debugging a mystery "intermittent" failure
+in an existing one, check this list first** rather than re-deriving the
+camera-live-trace hypothesis from scratch:
+
+Point-hologram functions (single `SyntheticHit`, fixed 2026-08-24/25):
+- `DebugCheckExtractorPlacementViaBuildGun` ✅
+- `ConstructExtractorOnTargetedNode` ✅
+- `ConstructBuildingNearPlayer` ✅
+- `ConstructExtractorOnNode` ✅ (re-asserts `PollState->SyntheticHit`)
+- `ConstructVehicle` ✅ (re-asserts `PollState->SyntheticHit`)
+- (other single-hit `Construct*` functions using the same
+  `PollState->SyntheticHit` pattern - grep
+  `PollState->SyntheticHit` in `AIModFunctionLibrary.cpp` for the
+  current full list; new ones should follow the same pattern)
+
+Two-click spline-hologram functions (`StartHit`/`EndHit`, only the END
+hit needs re-asserting since the start click is already committed by
+poll time) - **all fixed 2026-08-30**:
+- `ConstructConveyorBelt_RealCharacterStrategy` ✅ (fixed 2026-08-30 -
+  was the gap that triggered this checklist)
+- `ConstructConveyorBelt`'s decoy-instigator variant ✅ (already had it,
+  added earlier the same session as a `UFGCDInitializing` diagnostic
+  attempt - separately still non-functional for an unrelated reason,
+  see this doc's Finding 0 / `docs/camera-hijack-and-second-player-research.md`)
+- `ConstructConveyorLift` ✅ (fixed 2026-08-30)
+- `ConstructPipe` ✅ (fixed 2026-08-30)
+- `ConstructHypertube` ✅ (fixed 2026-08-30)
+- `ConstructRailroadTrack` ✅ (fixed 2026-08-30)
+- `ConstructVehiclePathSegment` ✅ (fixed 2026-08-30, uses
+  `StartHitPreview`/`EndHitPreview` naming instead of `StartHit`/`EndHit`)
+
+If a NEW two-click spline-hologram function is added later, give its
+`FPollState` an `FHitResult EndHit` field, set it from the local
+`EndHit` right after `MakeShared<FPollState>()`, and call
+`PollHologram->UpdateHologramPlacement(PollState->EndHit)` in the poll
+loop immediately before the disqualifier check - copy the pattern from
+`ConstructConveyorBelt_RealCharacterStrategy` rather than re-deriving
+it.
+
 ## §4 Rotation control (`rotationScrollDelta`) — investigation notes, 2026-08-25
 
 Added to unblock the demo's Constructor-orientation problem (see

@@ -7862,6 +7862,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		FString DestBuildableId;
 		bool bDryRun = true;
 		FRotator DeterministicLook;
+		FHitResult EndHit; // re-asserted every poll tick, see below
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -7874,6 +7875,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	PollState->DestBuildableId = DestBuildableId;
 	PollState->bDryRun = bDryRun;
 	PollState->DeterministicLook = LiftDeterministicLook;
+	PollState->EndHit = EndHit;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -7902,6 +7904,12 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 				PollController->SetControlRotation(PollState->DeterministicLook);
 			}
 		}
+
+		// Re-assert the end hit every poll tick (2026-08-30) - same fix
+		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
+		// for the same reason (see that function's comment for the full
+		// TickState_Implementation live-camera-trace rationale).
+		PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
@@ -8177,6 +8185,7 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 		FString DestBuildableId;
 		bool bDryRun = true;
 		FRotator DeterministicLook;
+		FHitResult EndHit; // re-asserted every poll tick, see below
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -8189,6 +8198,7 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 	PollState->DestBuildableId = DestBuildableId;
 	PollState->bDryRun = bDryRun;
 	PollState->DeterministicLook = PipeDeterministicLook;
+	PollState->EndHit = EndHit;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -8216,6 +8226,11 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 				PollController->SetControlRotation(PollState->DeterministicLook);
 			}
 		}
+
+		// Re-assert the end hit every poll tick (2026-08-30) - same fix
+		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
+		// for the same reason.
+		PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
@@ -8480,6 +8495,7 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 		FString DestBuildableId;
 		bool bDryRun = true;
 		FRotator DeterministicLook;
+		FHitResult EndHit; // re-asserted every poll tick, see below
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -8492,6 +8508,7 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 	PollState->DestBuildableId = DestBuildableId;
 	PollState->bDryRun = bDryRun;
 	PollState->DeterministicLook = HyperDeterministicLook;
+	PollState->EndHit = EndHit;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -8517,6 +8534,11 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 				PollController->SetControlRotation(PollState->DeterministicLook);
 			}
 		}
+
+		// Re-assert the end hit every poll tick (2026-08-30) - same fix
+		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
+		// for the same reason.
+		PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
@@ -8766,6 +8788,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		FString DestBuildableId;
 		bool bDryRun = true;
 		FRotator DeterministicLook;
+		FHitResult EndHit; // re-asserted every poll tick, see below
 		int32 AttemptsRemaining = 120;
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -8778,6 +8801,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 	PollState->DestBuildableId = DestBuildableId;
 	PollState->bDryRun = bDryRun;
 	PollState->DeterministicLook = TrackDeterministicLook;
+	PollState->EndHit = EndHit;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -8803,6 +8827,11 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 				PollController->SetControlRotation(PollState->DeterministicLook);
 			}
 		}
+
+		// Re-assert the end hit every poll tick (2026-08-30) - same fix
+		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
+		// for the same reason.
+		PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
@@ -9040,6 +9069,7 @@ void UAIModFunctionLibrary::ConstructVehiclePathSegment(UObject* WorldContextObj
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
 		TWeakObjectPtr<UWorld> World;
 		FRotator DeterministicLook;
+		FHitResult EndHit; // re-asserted every poll tick, see below
 		int32 AttemptsRemaining = 120;
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -9049,6 +9079,7 @@ void UAIModFunctionLibrary::ConstructVehiclePathSegment(UObject* WorldContextObj
 	PollState->Character = Character;
 	PollState->World = World;
 	PollState->DeterministicLook = PathDeterministicLook;
+	PollState->EndHit = EndHitPreview;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -9074,6 +9105,11 @@ void UAIModFunctionLibrary::ConstructVehiclePathSegment(UObject* WorldContextObj
 				PollController->SetControlRotation(PollState->DeterministicLook);
 			}
 		}
+
+		// Re-assert the end hit every poll tick (2026-08-30) - same fix
+		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
+		// for the same reason.
+		PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);

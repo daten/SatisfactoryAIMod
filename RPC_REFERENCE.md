@@ -510,6 +510,24 @@ indicator widget; deleting a Pipeline Junction does **not** delete pipes
 still attached to it (they're left dangling, and the extractor/machine
 at their other end stays "occupied" until you delete those too).
 
+**The same non-cascading behavior applies to conveyor belts/lifts/
+pipes/hypertubes/tracks connecting any two buildables** — deleting
+either endpoint (e.g. a Splitter) leaves the belt/pipe/etc. standing as
+its own orphaned buildable, exactly matching real Satisfactory (dismantling
+a machine doesn't dismantle belts touching it either). **Repeated-
+construction test scripts that reuse the same coordinates across trials
+MUST delete the constructed belt/pipe too, not just the machines/
+attachments they explicitly placed**, or leftover geometry piles up at
+that spot and silently causes real, hard-to-diagnose construction
+failures ("Conveyor Belt is too long!"/"Overlapping another object's
+clearance") on later attempts that have nothing to do with distance,
+timing, or player state — this cost a full investigation to root-cause
+once already (2026-08-30, see `docs/splitter-port-control-test.md`).
+`controller/splitter_matrix_test.py`'s `cleanup_cell()` is a real,
+tested reference implementation of doing this correctly (symmetric
+radius on X/Y/Z, deletes everything in the area) — reuse or copy it
+rather than writing a fresh ad hoc cleanup loop.
+
 **Refunds construction cost to the player's carried inventory** (fixed
 2026-08-30 — a real bug before this: the previous implementation only
 called the game's `Dismantle()`, which does **not** itself refund
