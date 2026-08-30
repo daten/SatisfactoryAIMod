@@ -1396,6 +1396,47 @@ the lift call. Iterating (place, read real connector position, re-place
 if still off) is a reasonable fallback if the exact per-connector offset
 isn't already known for the buildable class in question.
 
+**The real mechanism, finally nailed down 2026-08-30**: a single
+`ConstructConveyorLift` call always produces a **fixed ~400cm rise**
+(Mk1, confirmed identically across every test regardless of the
+destination's requested height or how precisely it was aligned) - it is
+NOT a variable-height "reach this arbitrary target" call the way
+`ConstructConveyorBelt` is. The "~1600 units in one shot" claim from
+2026-08-27 was almost certainly 4 stacked segments (400×4=1600), not one
+big jump - re-derived and confirmed live 2026-08-30 by explicitly
+chaining two lift segments: lift1's real `Output` (landed at a real,
+specific Z) connected cleanly to lift2's `Input` when lift2's
+destination was placed directly above that landed point, and lift2 then
+rose its own further fixed ~400. **The reliable, predictable pattern for
+any miner→raised-platform interface**: chain
+`ConstructConveyorLift` calls, each one targeting a destination placed
+directly above (same real X/Y) the PREVIOUS segment's real, already-
+built `Output` position (read via `world.connections` after each
+segment - never assume/precompute, the exact landed Z can vary slightly
+tick to tick) - not a single call requesting the full height. Stack
+enough segments to reach/exceed the target platform height, then bridge
+any final small residual with an ordinary `ConstructConveyorBelt` call
+(per the connector-offset-compensation approach above).
+
+**Open issue found 2026-08-30, not yet solved**: bridging FROM a lift's
+own real `Output` connector using a normal `world.connectConveyor` call
+(lift as the belt's SOURCE, not another lift) reproduced the one-sided
+"dangling belt" pattern 3/3 times in a row - the destination's input
+connects fine every time, but the lift's own output never shows
+`connected` afterward, even after the established cleanup-and-retry
+routine. Lift→lift chaining (the pattern above) works perfectly; it's
+specifically lift→ordinary-belt that's suspect so far. This echoes an
+earlier finding the same day where a Miner (an extractor, also a
+"special" buildable class) as a belt SOURCE showed the same one-sided
+dangling symptom - worth checking whether
+`ConstructConveyorBelt_RealCharacterStrategy` has a similar gap for
+non-machine source buildable classes as `ConstructConveyorLift` did
+before its `EndHit` reassertion fix. Untried alternative: since a
+platform build needs the lift chain to feed a genuine machine/splitter
+anyway, try making the LAST lift segment's destination the platform
+splitter directly (skip the separate bridging-belt step) now that the
+connector-offset math is understood, rather than lift→belt→splitter.
+
 ## Orientation: plan it, don't let it fall out of the connect calls
 
 The first full demo chain (2026-08-26) was functional end-to-end but had
