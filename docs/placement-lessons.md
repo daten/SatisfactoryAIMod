@@ -1359,6 +1359,43 @@ your calls is the only lever.
   source and let a follow-up belt handle any remaining offset instead of
   asking one lift call to do both.
 
+**Re-confirmed 2026-08-30, NOT a regression** - a copper-line build hit
+what looked at first like a 100%-reproducible construction bug (lift
+`Output` connector never connects to any destination, height stuck at a
+low default regardless of target) and got a real diagnostic investment
+(logged `TrySnapToActor()`'s return value, `AFGConveyorLiftHologram::GetHeight()`,
+tried an upward-normal hit, tried calling `UpdateHologramPlacement()` in
+a loop) before checking `git log` and finding this exact section already
+documented the same symptom from 2026-08-27 as *expected* behavior, not
+a bug. **Lesson reinforced**: check this doc (and `git log -- <file>`
+for the function in question) before spending a multi-rebuild diagnostic
+cycle on a symptom that might already be known - this is the same
+"check existing docs before re-deriving" mistake already made once this
+project (see `docs/buildgun-driven-placement-research.md`'s hologram-
+placement-drift checklist) and made again here for a different function.
+
+**New precision refinement found while re-confirming**: the lift's real
+landing X/Y is locked to the SOURCE's real OUTPUT CONNECTOR position
+(which is itself offset from the source building's center by whatever
+that connector's facing direction implies - e.g. an EAST-facing output
+sits at `center.x + <connector offset>`), not the source building's
+center. The bridging belt's destination connector has the SAME kind of
+offset from ITS OWN building's center. Placing the destination building
+at the same X/Y as the source building's *center* (rather than
+computing where its own input connector will actually land, offset-
+compensated to match the lift's real exit X/Y) leaves a genuine
+horizontal gap (several hundred units, not the "tens to ~100" seen in
+the original 2026-08-27 case) that a simple belt call can't bridge
+("too long"/clearance-overlap). **Correct approach**: after placing the
+source and reading its real output connector position via
+`world.connections` (never assume from the building's placement X/Y/
+yaw), compute the destination building's placement position so that
+ITS real input connector - accounting for its own yaw's connector
+offset - lands at that same X/Y, then place it there before attempting
+the lift call. Iterating (place, read real connector position, re-place
+if still off) is a reasonable fallback if the exact per-connector offset
+isn't already known for the buildable class in question.
+
 ## Orientation: plan it, don't let it fall out of the connect calls
 
 The first full demo chain (2026-08-26) was functional end-to-end but had

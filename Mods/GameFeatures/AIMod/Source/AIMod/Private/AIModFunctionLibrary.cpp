@@ -7780,6 +7780,23 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 // hologram does NOT derive from) - only the disqualifier list is logged.
 // No RouteMode param - lifts are a fixed vertical column, no bend/curve
 // concept applies.
+// RESOLVED 2026-08-30 (NOT a bug, confirmed via docs/placement-lessons.md's
+// "Vertical conveyor lifts" section, originally written 2026-08-27):
+// the diagnostic logging added directly below this comment (TrySnapToActor's
+// return value, GetHeight(), a repeated-UpdateHologramPlacement-call
+// experiment) was investigating what looked like a 100%-reproducible
+// bug - DestBuildable's input never connects, height stuck at a low
+// default regardless of the requested target. Re-confirmed live
+// 2026-08-30 that this is real, EXPECTED lift behavior already
+// documented 3 days earlier: a lift always rises to its own natural
+// default height in one call (X/Y locked to SourceConnection's real
+// position, not SourceBuildable's placement position), and reaching an
+// arbitrary DestBuildable requires a SEPARATE ConstructConveyorBelt call
+// afterward to bridge the residual gap - this function was never meant
+// to (and structurally cannot) connect directly to an arbitrary distant
+// DestBuildable in one call. The diagnostic logging is left in place
+// since it's genuinely useful for verifying a specific placement live,
+// not because anything here is broken.
 void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -7901,12 +7918,21 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	}
 
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	const bool bStartHitValid = LiftHologram->IsValidHitResult(StartHit);
 	LiftHologram->UpdateHologramPlacement(StartHit);
-	LiftHologram->TrySnapToActor(StartHit);
+	const bool bStartSnapped = LiftHologram->TrySnapToActor(StartHit);
 	const bool bStartStepComplete = LiftHologram->DoMultiStepPlacement(true);
 
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after start click: stepComplete=%s disqualifiers=[%s]"),
-		*SourceBuildableId, *DestBuildableId, bStartStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(LiftHologram));
+	// Diagnostic (2026-08-30): TrySnapToActor()'s own return value was
+	// previously discarded - logging it directly, plus GetHeight()
+	// (public accessor for the lift's current top-transform Z) and
+	// IsValidHitResult() (checked BEFORE UpdateHologramPlacement, to see
+	// whether the synthetic hit is even accepted), to investigate a
+	// live-confirmed 100%-reproducible bug where the destination end
+	// never actually attaches even though every step reports complete
+	// and the RPC reports success.
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after start click: hitValid=%s snapped=%s stepComplete=%s height=%.1f disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bStartHitValid ? TEXT("true") : TEXT("false"), bStartSnapped ? TEXT("true") : TEXT("false"), bStartStepComplete ? TEXT("true") : TEXT("false"), LiftHologram->GetHeight(), *SummarizeDisqualifiers(LiftHologram));
 
 	if (bStartStepComplete)
 	{
@@ -7915,13 +7941,30 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		return;
 	}
 
+	// Diagnostic experiment #2 (2026-08-30): the upward-normal hypothesis
+	// was wrong (height still stuck at the minimum regardless). New
+	// hypothesis: height adjusts INCREMENTALLY per UpdateHologramPlacement()
+	// call (mimicking a real mouse-drag/scroll-style interaction, per
+	// mStepHeight existing as a private field on the hologram) rather
+	// than jumping straight to a target from one call. Testing by
+	// calling it repeatedly with the same target hit and logging height
+	// at intervals to see whether it climbs toward the destination.
 	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
-	LiftHologram->UpdateHologramPlacement(EndHit);
-	LiftHologram->TrySnapToActor(EndHit);
+	const bool bEndHitValid = LiftHologram->IsValidHitResult(EndHit);
+	for (int32 i = 0; i < 40; ++i)
+	{
+		LiftHologram->UpdateHologramPlacement(EndHit);
+		if (i % 5 == 0)
+		{
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: repeated UpdateHologramPlacement call #%d: height=%.1f"), i, LiftHologram->GetHeight());
+		}
+	}
+	const bool bEndSnapped = LiftHologram->TrySnapToActor(EndHit);
 	const bool bEndStepComplete = LiftHologram->DoMultiStepPlacement(true);
 
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after end click: stepComplete=%s disqualifiers=[%s]"),
-		*SourceBuildableId, *DestBuildableId, bEndStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(LiftHologram));
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after end click (repeated-call test): hitValid=%s snapped=%s stepComplete=%s height=%.1f expectedHeight=%.1f disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bEndHitValid ? TEXT("true") : TEXT("false"), bEndSnapped ? TEXT("true") : TEXT("false"), bEndStepComplete ? TEXT("true") : TEXT("false"), LiftHologram->GetHeight(),
+		DestConnection->GetConnectorLocation().Z - SourceConnection->GetConnectorLocation().Z, *SummarizeDisqualifiers(LiftHologram));
 
 	if (!bEndStepComplete)
 	{
@@ -8053,6 +8096,8 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
 			return;
 		}
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (deferred): height right before InternalConstructHologram=%.1f"), PollHologram->GetHeight());
 
 		PollBuildState->InternalConstructHologram(ConstructionID);
 

@@ -148,6 +148,37 @@ only known live:
   (now also works on extractors, not just manufacturers) are both
   brand new this session, compiled but never live-tested.**
 
+## Live build in progress (2026-08-30) — Smelter stage complete
+
+Picked an unoccupied **Impure** copper node (~5800 units from the
+player, genuinely flat/empty site per `world.terrainHeightGrid`) and
+built the full input+output manifold for the 5-Smelter row. Both
+manifolds are verified live, every real connection confirmed via
+`world.connections` (not just `success:true`).
+
+**Real, reusable lesson for the rest of this build (Constructor stage,
+both lifts)**: a naive "linear chain fed from one end" splitter/merger
+layout breaks when the miner/source isn't aligned with the chain's
+end - the belt has to physically cross through other splitters/mergers
+and their belts sitting in between, producing misleading "Conveyor Belt
+is too long!"/clearance errors that look like a distance problem but
+are really a topology problem. **Fix: always feed a fan-out manifold
+from a HUB position aligned with the source**, with the chain
+branching in both directions from there (west arm + east arm + direct
+middle tap for splitters; symmetric merge-arms + direct middle tap for
+mergers) - not a single linear chain from one edge. Apply this same hub
+layout to the Constructor manifold and its merger before hitting the
+same issue there.
+
+**Second lesson**: when a specific input/output DIRECTION choice on a
+splitter/merger produces a persistent `"Invalid Conveyor Belt shape!"`
+error (not `"too long"`), the fix is usually to pick a *different*,
+more geometrically natural direction (matching which side the other
+buildable is actually on), not to keep retrying the same direction -
+retrying resolved the transient `"too long"`/clearance flakiness cases,
+but never resolved a wrong-direction case; only picking the correct
+cardinal did.
+
 ## Suggested execution order
 
 1. `world.terrainHeightGrid` survey near a real Copper Ore node candidate

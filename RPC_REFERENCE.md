@@ -826,8 +826,27 @@ attempt. Until `"LocalPlayer"` is confirmed working, `"RealCharacter"`
 remains the only strategy that reliably finishes a real belt.
 
 ### `world.testConveyorLift` / `world.connectConveyorLift` — asynchronous
-Same shape as belts, `recipeClass` default Recipe_ConveyorLiftMk1 (any
-Mk1-6). No `routeMode`.
+Same params shape as belts, `recipeClass` default Recipe_ConveyorLiftMk1
+(any Mk1-6). No `routeMode`.
+
+**Does not connect to an arbitrary distant `destBuildableId` in one call
+— this is a real physical constraint of lifts, not a bug** (see
+`docs/placement-lessons.md`'s "Vertical conveyor lifts" section, live-
+confirmed twice, 2026-08-27 and 2026-08-30). A lift travels straight
+up/down only: its X/Y is locked to the SOURCE's real output-connector
+position (not the source buildable's placement X/Y), and it rises to
+its own natural default height regardless of the destination's real
+distance — `destBuildableId` mainly determines direction/orientation,
+not an exact endpoint. **Always follow with a `world.connectConveyor`
+call** from the newly-built lift's own `Output` connector (read its
+real position via `world.connections` — the lift itself is a normal
+buildable at this point) to the actual destination, to bridge whatever
+gap remains. Placing the destination at the source building's *center*
+X/Y (rather than computing where its own input connector will land,
+offset-compensated for its yaw) typically leaves too large a gap for
+the bridging belt — read the lift's real `Output` position first and
+place/verify the destination's real input connector against that,
+not against building-placement coordinates.
 
 ### `world.testPipe` / `world.connectPipe` — asynchronous
 `params: {"sourceBuildableId", "destBuildableId", "recipeClass" (optional,
