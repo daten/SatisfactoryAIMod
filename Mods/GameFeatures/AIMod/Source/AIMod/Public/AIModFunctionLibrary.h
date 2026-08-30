@@ -1098,8 +1098,65 @@ public:
 	 * leaves the hologram default). Added because the basic click
 	 * sequence reliably fails on any real direction mismatch between
 	 * source and dest connectors - not yet live-verified to resolve it.
+	 *
+	 * InstigatorStrategy (2026-08-30, case-insensitive, empty defaults to
+	 * "PlayerController"): which pawn/controller drives the hologram's
+	 * construction. "RealCharacter" uses the actual player's real,
+	 * equipped BuildGun (proven reliable, but visibly moves the real
+	 * camera - see ConstructConveyorBelt_RealCharacterStrategy's comment
+	 * in the .cpp). "AIController"/"PlayerController" spawn a throwaway
+	 * decoy pawn+controller instead so the real player's camera is never
+	 * touched - both CONFIRMED (live-tested) to leave the hologram
+	 * permanently stuck on UFGCDInitializing, controller class ruled out
+	 * as the variable. "LocalPlayer" (added 2026-08-30, NOT YET
+	 * LIVE-TESTED - written and compiled without a redeploy being
+	 * possible) spawns a genuine second ULocalPlayer via
+	 * UGameInstance::CreateLocalPlayer() instead of a bare decoy, on the
+	 * hypothesis that genuine local-player identity (not just controller
+	 * class) is what UFGCDInitializing's gate actually requires - see
+	 * docs/camera-hijack-and-second-player-research.md for the full
+	 * research this is based on. See the .cpp's "Decoy-instigator
+	 * rewrite" comment for the full story.
+	 *
+	 * SourceConnectorPosition/DestConnectorPosition (2026-08-30, explicit
+	 * user requirement): when provided (real world coordinates, e.g. from
+	 * a prior world.connections call), targets ONE SPECIFIC connector by
+	 * position instead of "the first free one of the right direction" -
+	 * required for deterministic port selection on a multi-output
+	 * buildable like a splitter (world.connections' own "direction" field
+	 * only tells you Input vs Output, not WHICH of several same-direction
+	 * connectors will be used - this is what makes that choice explicit
+	 * and provable). Optional; omitting both keeps prior behavior exactly.
+	 * Errors NO_FACTORY_CONNECTION if nothing free is within tolerance of
+	 * the given position - never silently falls back to a different one.
 	 */
-	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, const FString& InstigatorStrategy, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * Read-only telemetry (2026-08-30) - returns a placed belt or pipe's
+	 * REAL world-space path, added specifically so a mod-constructed
+	 * conveyor's actual geometry can be compared against a normally
+	 * (player-)placed one. world.connectConveyor's belts have been
+	 * observed to curve unpredictably despite aligned connectors, and
+	 * there was previously no way to inspect the resulting path itself -
+	 * only whether the two endpoints ended up connected
+	 * (world.connections). Works on anything implementing
+	 * IFGSplineBuildableInterface - confirmed from source that both
+	 * AFGBuildableConveyorBelt and AFGBuildablePipeBase share this
+	 * interface and its exact accessor set, so this is deliberately
+	 * generic rather than belt-specific. Does NOT cover
+	 * AFGBuildableConveyorLift - lifts are not spline-based (confirmed
+	 * from source: a lift's placement is fully described by its
+	 * mTopTransform/GetHeight(), no spline component exists on that
+	 * class at all).
+	 *
+	 * Same "embed found/error in the payload" convention as
+	 * LogGroundHeightAsJson, not a thrown RPC error - see that function's
+	 * doc comment for why (every Log*AsJson result is unconditionally
+	 * wrapped success:true at the dispatch layer).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogSplineGeometryAsJson(UObject* WorldContextObject, const FString& BuildableId);
 
 	/**
 	 * Telemetry, not a mutation - same LogXAsJson convention as

@@ -1276,8 +1276,38 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		FString RouteMode;
 		ParamsObject->TryGetStringField(TEXT("routeMode"), RouteMode);
 
+		// Optional, defaults "PlayerController" - "RealCharacter"/
+		// "AIController"/"PlayerController", see ConstructConveyorBelt's
+		// doc comment. Added 2026-08-30 so multiple competing fixes for
+		// the camera-hijack issue can be tried without a fresh compile.
+		FString InstigatorStrategy;
+		ParamsObject->TryGetStringField(TEXT("instigatorStrategy"), InstigatorStrategy);
+
+		// Optional {"x","y","z"} objects (2026-08-30) - see
+		// ConstructConveyorBelt's doc comment. Lets the caller target one
+		// specific connector by its real world position (e.g. read from a
+		// prior world.connections call) instead of "the first free one of
+		// the right direction" - required for deterministic per-port
+		// selection on a multi-output buildable like a splitter.
+		auto ParseOptionalVector = [](const TSharedPtr<FJsonObject>& Params, const TCHAR* FieldName) -> TOptional<FVector>
+		{
+			const TSharedPtr<FJsonObject>* VectorObjectPtr = nullptr;
+			if (!Params->TryGetObjectField(FieldName, VectorObjectPtr) || !VectorObjectPtr || !VectorObjectPtr->IsValid())
+			{
+				return TOptional<FVector>();
+			}
+			double X = 0.0, Y = 0.0, Z = 0.0;
+			if (!(*VectorObjectPtr)->TryGetNumberField(TEXT("x"), X) || !(*VectorObjectPtr)->TryGetNumberField(TEXT("y"), Y) || !(*VectorObjectPtr)->TryGetNumberField(TEXT("z"), Z))
+			{
+				return TOptional<FVector>();
+			}
+			return FVector(X, Y, Z);
+		};
+		const TOptional<FVector> SourceConnectorPosition = ParseOptionalVector(ParamsObject, TEXT("sourceConnectorPosition"));
+		const TOptional<FVector> DestConnectorPosition = ParseOptionalVector(ParamsObject, TEXT("destConnectorPosition"));
+
 		const bool bDryRun = Method == TEXT("world.testConveyorBelt");
-		UAIModFunctionLibrary::ConstructConveyorBelt(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, RouteMode, bDryRun,
+		UAIModFunctionLibrary::ConstructConveyorBelt(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, RouteMode, InstigatorStrategy, SourceConnectorPosition, DestConnectorPosition, bDryRun,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));
@@ -1536,6 +1566,25 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.pipeConnections"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogPipeConnectionsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.splineGeometry"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		MethodResultJson = UAIModFunctionLibrary::LogSplineGeometryAsJson(GetGameInstance(), BuildableId);
 	}
 	else if (Method == TEXT("world.conveyorBeltTiers"))
 	{

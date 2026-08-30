@@ -7,6 +7,155 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## ONGOING: camera-hijack during construction, and the `instigatorStrategy` multi-fix build (2026-08-30)
+
+Real, user-reported: `world.connectConveyor` (and separately,
+`world.placeBuilding`) visibly hijacks the real player's camera during
+construction — both drive the REAL player's BuildGun/controller, and a
+prior fix forces the controller's rotation every poll tick to get
+deterministic belt routing (`AutoRouteSpline` empirically reads it,
+reason unknown - stub source). That forced rotation IS the hijack.
+
+Fix attempt: `world.connectConveyor` gained `instigatorStrategy`
+(`"RealCharacter"`/`"AIController"`/`"PlayerController"`) so several
+theories are live-testable on ONE compiled build, no fresh redeploy per
+attempt (explicit user request, since each attempt otherwise costs a full
+game restart). Status: both decoy strategies (`AIController`,
+`PlayerController`) get permanently stuck on `UFGCDInitializing` —
+present immediately after the first click, never clears even after the
+full 120-tick poll, despite `stepComplete`/`connectedCount` both
+reporting correctly. `SetActorTickEnabled(true)` and continuous
+`UpdateHologramPlacement()` reassertion in the poll loop were both tried
+and neither helped. `"RealCharacter"` (the original, camera-hijacking
+approach) is the only one confirmed to actually finish a belt right now.
+
+**Update, same day**: tried both live, in one session (no recompile
+between them, exactly what the multi-strategy switch was for) -
+`"AIController"` and `"PlayerController"` fail IDENTICALLY, same
+`CANNOT_CONSTRUCT "Initializing (hard)"`. This conclusively rules out the
+"needs a Cast<APlayerController>" hypothesis - controller class isn't the
+variable. Four real hypotheses tried total (AIController, PlayerController,
+SetActorTickEnabled, continuous UpdateHologramPlacement), all failed the
+same way - diminishing returns on further blind guessing.
+
+**Full research pass done 2026-08-30** (two parallel deep-research agents
+plus SML's native hooking system found independently) -
+see `docs/camera-hijack-and-second-player-research.md` for the complete
+findings, ranked next steps, and a concrete recommended smallest-safe
+experiment (create a REAL second local player via
+`UGameInstance::CreateLocalPlayer()`, force-disable its viewport, then
+feed it into the already-scaffolded `"PlayerController"` strategy branch
+- confirmed real, clean, revocable engine-level mechanism, with a real,
+already-proven Central Storage inventory-bridging pattern to reuse for
+its material costs). Read that doc before continuing this investigation
+- it has file/line citations for everything and explicitly separates
+confirmed findings from inference so you don't waste time re-deriving or
+re-testing anything already settled. Short version: the next real lever
+(`UGameInstance::CreateLocalPlayer()`) as construction instigator — a
+much bigger change (would need to source materials from the Dimensional
+Depot or a bridged inventory instead of the real player's carried
+inventory) - user has already flagged interest in this, deferred pending
+a dedicated design discussion. `ConstructBuildingAtPosition`'s own,
+separate camera-rotation issue (confirmed live to exist for ordinary
+`world.placeBuilding` calls too) has NOT been investigated yet.
+
+## CRITICAL: `Recipe_SmelterMk1` is the Foundry, not the Smelter (found 2026-08-30)
+
+`/Game/FactoryGame/Recipes/Buildings/Recipe_SmelterMk1.Recipe_SmelterMk1_C`
+produces a **Foundry** (`Build_FoundryMk1`, displayName "Foundry" — the
+advanced Alloy-tier building, 10 Modular Frame + 10 Rotor + 20 Concrete).
+The real basic Smelter (`Build_SmelterMk1`, displayName "Smelter", 5 Iron
+Rod + 8 Wire) is `Recipe_SmelterBasicMk1`. Caught live when the user
+looked at what actually got built and it wasn't a Smelter — cost 2
+buildings' worth of Modular Frame/Rotor/Concrete before being caught
+(refunded via the dismantle fix, no material loss). **Always resolve a
+building recipe by searching `world.recipeCatalog`'s real `displayName`
+first** (`find_real_smelter.py` pattern: filter recipes by displayName
+substring, not by guessing from the recipe's own class-name string) —
+this project already has one precedent for this exact trap (Usable vs
+Useable interface naming); recipe class names are not a reliable proxy
+for what building they actually produce.
+
+## CRITICAL: always pass explicit `yaw` on `world.placeBuilding` (found 2026-08-30)
+
+Omitting `yaw` does NOT default to 0 — it silently fell back to something
+like the player's live aim direction, live-confirmed inconsistent across
+calls in the same batch (39 foundation tiles came back at yaw≈70° except
+one stray tile at yaw≈-92° that also drifted ~140cm off its requested
+X/Y). Square tiles at mismatched non-90°-multiple rotations don't tile
+edge-to-edge even at identical centers — this is what produced a visibly
+"chaotic diagonal platform with holes" the user caught live. **Always
+pass an explicit `yaw` for any placement where orientation matters,
+foundations included** — never rely on an implicit default.
+
+## CRITICAL: machine row layout — side-by-side on the long axis, not end-to-end (found 2026-08-30, user-caught)
+
+A rectangular machine (Smelter: 500×1000, short×long) should be arranged
+**side-by-side along its short axis**, like books on a shelf — all
+machines facing the same flow direction, packed tight along the narrow
+dimension. The instinctive-but-wrong layout is end-to-end along the flow
+axis (like train cars) with large gaps between each pair to fit a
+splitter/merger — this wastes footprint and produces convoluted belt
+paths. The efficient version: one splitter row north of the whole
+machine row and one merger row south of it, each splitter/merger aligned
+in the CROSS-axis with its own machine, chained to each other along the
+row's long direction. Real connector layout confirmed live at yaw=0 for
+both attachments (mirror images of each other): **Splitter** — Input
+faces -X (west), Outputs face +X (east), -Y (north), +Y (south).
+**Merger** — Output faces +X (east), Inputs face -X (west), -Y (north),
++Y (south). This lets a west-to-east splitter/merger chain tap
+north/south into a machine row directly below/above it using the
+pre-existing yaw=0 orientation — no rotation needed for the attachments
+themselves, only correct axis placement.
+
+## CRITICAL: `world.connectConveyor` can report `success:true` while leaving the destination end unattached (found 2026-08-30, reproduced twice)
+
+Confirmed live, twice, both times on the same long-distance connection
+(Miner Mk3 → a Splitter ~2900cm away, going through both routeMode=Curve
+and routeMode=Straight at different attempts): the RPC returns
+`success:true`, the SOURCE connector shows `connected:true` pointing at a
+real belt actor, but that belt is a dangling stub near the source and the
+DESTINATION connector still shows `connected:false` — the belt never
+really reached its target. **`success:true` alone is not sufficient
+evidence a conveyor connection is real, especially over longer spans or
+larger Z deltas** — always re-check both endpoints via `world.connections`
+after the call. Recovery pattern that worked: find the dangling belt via
+`world.buildables` (it sits right next to the source, not at the
+destination), `world.deleteBuilding` it, then retry `connectConveyor` —
+different `routeMode` values succeeded on different attempts with no
+clear rule found yet for which one will actually land the far end
+(`Curve` failed on the same connection `Straight` later fixed, and
+vice versa in the very same session). The C++ source itself documents a
+related, probably-connected caveat: `AutoRouteSpline()`'s internal
+pathing reads the player CONTROLLER's live rotation as an implicit
+routing hint, independent of the connector-anchored hit data this mod
+builds — the live player's position/facing at call time may be an
+uncontrolled variable in whether a given attempt actually lands. Treat
+any `connectConveyor` success as provisional until confirmed via
+`world.connections`, and budget for at least one retry on longer belts.
+
+## Workaround for a persistently-broken single conveyor connection: use a spare input slot instead (found 2026-08-30)
+
+One specific Merger-to-Merger belt (in an otherwise-identical chain of 4)
+failed `CANNOT_CONSTRUCT`/`"Conveyor Belt is too long!"` on every retry —
+all 3 routeModes, a full delete-and-rebuild of both buildings, debris
+cleanup, and even the player physically relocating next to it. An
+intermediate relay Splitter didn't fix it either (and had its own side
+effect: a nearby unrelated belt silently re-terminated onto the new
+relay's free connector instead of the target it was actually asked to
+connect to — inspect `world.connections` broadly after inserting any new
+buildable near existing belts, not just the two endpoints you touched).
+**The actual fix wasn't the belt at all**: a Merger has 3 input slots:
+if the topology allows it, route the "extra" producer straight into
+another merger's spare input instead of chaining through a dedicated
+merger for it. 4 producers only need `ceil((n-1)/2)` merge points this
+way, not `n-1` — cheaper AND sidesteps whatever made that one specific
+segment unbuildable. When a single connection in an otherwise-working
+repeated pattern refuses to build no matter what you change about it,
+suspect the specific pair/segment itself rather than continuing to vary
+routeMode/rebuild-the-same-two-buildings — try routing around it via a
+free port on a neighboring buildable instead.
+
 ## NEW CAPABILITY: `world.terrainHeightGrid` - batched terrain survey, one call instead of hundreds (added 2026-08-30)
 
 Direct follow-up to the terrain-scan lesson below: manually looping

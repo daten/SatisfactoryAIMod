@@ -740,8 +740,45 @@ instead.
 ### `world.testConveyorBelt` / `world.connectConveyor` — asynchronous
 `params: {"sourceBuildableId", "destBuildableId", "recipeClass" (optional,
 default Recipe_ConveyorBeltMk1, any Mk1-6), "routeMode" (optional,
-`"Straight"`/`"Curve"`/`"Auto"`)}`. `source`/`dest` don't have to be
-machines — belts/splitters/mergers work too.
+`"Straight"`/`"Curve"`/`"Auto"`), "instigatorStrategy" (optional,
+case-insensitive, default `"PlayerController"`), "sourceConnectorPosition"/
+"destConnectorPosition" (optional, `{"x","y","z"}`)}`. `source`/`dest`
+don't have to be machines — belts/splitters/mergers work too.
+
+**`sourceConnectorPosition`/`destConnectorPosition`** (added 2026-08-30,
+explicit user requirement for deterministic per-port control): without
+these, source/dest resolve to "the first free connector of the right
+direction" — on a multi-output buildable like a Splitter (3 outputs) or
+multi-input Merger (3 inputs), which specific one gets used is otherwise
+unspecified/unpredictable. Passing the real world position of the exact
+connector you want (read from a prior `world.connections` call —
+`controller/satisfactory_ai/splitters.py`'s `get_splitter_output_facing`/
+`get_splitter_input` resolve a cardinal direction to that exact position)
+targets that one specific connector — a ~10cm tolerance accounts for
+float round-tripping through JSON, not for picking "close enough."
+Errors `NO_FACTORY_CONNECTION` if nothing free is within tolerance,
+never silently substitutes a different connector. See
+`docs/splitter-port-control-test.md`.
+
+**`instigatorStrategy`** (added 2026-08-30, real known issue, still being
+worked): `"RealCharacter"` drives the actual player's real BuildGun —
+proven reliable, but visibly hijacks the camera during construction
+(confirmed live: rotates the player's view every poll tick for the
+duration of each call). `"AIController"`/`"PlayerController"` spawn a
+throwaway decoy pawn+controller as the construction instigator instead,
+so the real player is never touched — both CONFIRMED (live-tested
+back-to-back) to get stuck on a permanent `UFGCDInitializing`
+disqualifier that never clears; controller class is ruled out as the
+variable. `"LocalPlayer"` (added 2026-08-30, **written and compiled but
+NOT YET LIVE-TESTED** — no redeploy was possible when it was written)
+spawns a genuine second `ULocalPlayer` via `UGameInstance::
+CreateLocalPlayer()` instead of a bare decoy, on the hypothesis that
+genuine local-player identity is what's actually required — see
+`docs/camera-hijack-and-second-player-research.md` for the full research
+this is based on. Four interchangeable values on the same build
+specifically so this can keep being debugged without a fresh compile per
+attempt. Until `"LocalPlayer"` is confirmed working, `"RealCharacter"`
+remains the only strategy that reliably finishes a real belt.
 
 ### `world.testConveyorLift` / `world.connectConveyorLift` — asynchronous
 Same shape as belts, `recipeClass` default Recipe_ConveyorLiftMk1 (any

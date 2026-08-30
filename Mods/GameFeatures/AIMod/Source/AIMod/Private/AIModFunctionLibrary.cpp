@@ -31,6 +31,11 @@
 #include "FGPowerConnectionComponent.h"
 #include "Hologram/FGConveyorBeltHologram.h"
 #include "Buildables/FGBuildableConveyorBase.h"
+#include "FGSplineBuildableInterface.h"
+#include "AIController.h"
+#include "Engine/GameInstance.h"
+#include "Engine/LocalPlayer.h"
+#include "Engine/GameViewportClient.h"
 #include "Buildables/FGBuildableWire.h"
 #include "Buildables/FGBuildablePipeline.h"
 #include "Buildables/FGBuildableConveyorAttachment.h"
@@ -107,6 +112,17 @@ namespace
 	// textual order (declare before use) matters here.
 	AFGBuildable* FindBuildableById(UWorld* World, const FString& BuildableId);
 	FString WriteCondensedJson(const TSharedRef<FJsonObject>& RootObject);
+
+	// "RealCharacter" instigator strategy (2026-08-30) - the ORIGINAL,
+	// proven-working ConstructConveyorBelt body, preserved verbatim as a
+	// fallback/comparison strategy alongside the newer decoy-instigator
+	// strategies (see ConstructConveyorBelt's own doc comment). Drives
+	// the REAL player's BuildGun - reliable belt construction, but visibly
+	// moves the real camera, which is exactly what the decoy strategies
+	// are trying to avoid. Kept selectable via params.instigatorStrategy
+	// so multiple competing fixes for the decoy path can be tried without
+	// a fresh compile each time, per explicit user request.
+	void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
 	 * Shared ground-trace logic (2026-08-27), factored out of
@@ -3522,6 +3538,46 @@ namespace
 		}
 		return nullptr;
 	}
+
+	// Position-targeted variant (2026-08-30, explicit user requirement:
+	// deterministic selection of ONE SPECIFIC connector on a multi-port
+	// buildable like a splitter/merger, by its real world position - never
+	// "first free"/"nearest"/component-array-order). The caller (Python
+	// controller side) is expected to have already queried world.connections
+	// for the real connector position it wants (e.g. via
+	// satisfactory_ai.splitters.get_splitter_output_facing(), which
+	// resolves a cardinal direction to an exact real position/normal), and
+	// pass that exact position back in. A small tolerance (not an exact
+	// float match) accounts for the caller having read the position from
+	// a prior world.connections call - same connector, same real
+	// transform, but float round-tripping through JSON. Returns nullptr
+	// (caller reports a clear error) rather than silently falling back to
+	// ANY other free connector if nothing matches within tolerance - this
+	// is the single change that makes deterministic per-port selection
+	// possible at all; FindFreeFactoryConnection above has no direction-
+	// vs-position awareness and was never meant to guarantee which of
+	// several free connectors of the same Direction gets picked.
+	UFGFactoryConnectionComponent* FindFreeFactoryConnectionNear(AFGBuildable* Buildable, EFactoryConnectionDirection Direction, const FVector& TargetWorldPosition, float ToleranceCm = 10.0f)
+	{
+		TArray<UFGFactoryConnectionComponent*> Connections;
+		Buildable->GetComponents<UFGFactoryConnectionComponent>(Connections);
+		UFGFactoryConnectionComponent* Best = nullptr;
+		float BestDistSq = FMath::Square(ToleranceCm);
+		for (UFGFactoryConnectionComponent* Connection : Connections)
+		{
+			if (!IsValid(Connection) || Connection->GetDirection() != Direction || Connection->IsConnected())
+			{
+				continue;
+			}
+			const float DistSq = FVector::DistSquared(Connection->GetConnectorLocation(), TargetWorldPosition);
+			if (DistSq <= BestDistSq)
+			{
+				Best = Connection;
+				BestDistSq = DistSq;
+			}
+		}
+		return Best;
+	}
 }
 
 FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId)
@@ -6468,7 +6524,13 @@ FString UAIModFunctionLibrary::LogConstructionCostAsJson(UObject* WorldContextOb
 	return JsonString;
 }
 
-void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
+namespace
+{
+// "RealCharacter" instigator strategy - see forward declaration's doc
+// comment near the top of this file. Verbatim copy of this function's
+// pre-2026-08-30 body (git commit be42e1595f), just renamed - drives the
+// REAL player's BuildGun exactly as before.
+void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -6497,24 +6559,35 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		return;
 	}
 
-	UFGFactoryConnectionComponent* SourceConnection = FindFreeFactoryConnection(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT);
+	// Position-targeted selection (2026-08-30) when the caller supplied
+	// one - see FindFreeFactoryConnectionNear's own comment for why this
+	// exists. Falls back to the old "first free of this direction"
+	// behavior when no position is given, so every pre-existing caller
+	// (manifold-building scripts that only care "connect these two
+	// buildables") keeps working unchanged.
+	UFGFactoryConnectionComponent* SourceConnection = SourceConnectorPosition.IsSet()
+		? FindFreeFactoryConnectionNear(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT, SourceConnectorPosition.GetValue())
+		: FindFreeFactoryConnection(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT);
 	if (!SourceConnection)
 	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"), FString::Printf(TEXT("'%s' has no free Output factory connection component"), *SourceBuildableId)));
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"),
+			SourceConnectorPosition.IsSet()
+				? FString::Printf(TEXT("'%s' has no free Output factory connection within tolerance of the requested position %s"), *SourceBuildableId, *SourceConnectorPosition.GetValue().ToString())
+				: FString::Printf(TEXT("'%s' has no free Output factory connection component"), *SourceBuildableId)));
 		return;
 	}
-	UFGFactoryConnectionComponent* DestConnection = FindFreeFactoryConnection(DestBuildable, EFactoryConnectionDirection::FCD_INPUT);
+	UFGFactoryConnectionComponent* DestConnection = DestConnectorPosition.IsSet()
+		? FindFreeFactoryConnectionNear(DestBuildable, EFactoryConnectionDirection::FCD_INPUT, DestConnectorPosition.GetValue())
+		: FindFreeFactoryConnection(DestBuildable, EFactoryConnectionDirection::FCD_INPUT);
 	if (!DestConnection)
 	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"), FString::Printf(TEXT("'%s' has no free Input factory connection component"), *DestBuildableId)));
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"),
+			DestConnectorPosition.IsSet()
+				? FString::Printf(TEXT("'%s' has no free Input factory connection within tolerance of the requested position %s"), *DestBuildableId, *DestConnectorPosition.GetValue().ToString())
+				: FString::Printf(TEXT("'%s' has no free Input factory connection component"), *DestBuildableId)));
 		return;
 	}
 
-	// Caller-chosen belt tier (2026-08-25) - was hardcoded to
-	// Recipe_ConveyorBeltMk1 before this; any of Recipe_ConveyorBeltMk1..Mk6
-	// resolve the same way. Same validation posture as
-	// ConstructBuildingAtPosition's RecipeClassPath - not a generic
-	// "load any class" capability, just requires a real UFGRecipe.
 	UClass* BeltRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
 	if (!BeltRecipeClass || !BeltRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
 	{
@@ -6552,27 +6625,6 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		return;
 	}
 
-	// RouteMode (2026-08-25, added after live-diagnosing that the 2-click
-	// TrySnapToActor flow fails ("Conveyor Belt is too long!"/"Invalid
-	// placement!") for ANY meaningful direction mismatch between source
-	// and destination connectors). Real, confirmed-on-disk asset paths
-	// (grepped from Holo_ConveyorBelt.uasset's own string table, not
-	// guessed): AFGHologram::SetBuildModeOverride() (public,
-	// FGHologram.h) accepts one of
-	// "/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Default"
-	// (the implicit default when nothing is overridden - what the player
-	// UX calls "Auto"), "...BuildMode_Straight", or "...BuildMode_Curve"
-	// - AFGConveyorBeltHologram exposes exactly two of these via its own
-	// mBuildModeStraight/mBuildModeCurve fields (GetSupportedBuildModes_Implementation).
-	// Empty RouteMode (default) leaves the hologram's own default mode
-	// untouched - matches prior behavior exactly. NOT YET LIVE-VERIFIED
-	// that forcing Curve actually resolves the bend failures above - this
-	// is a well-evidenced hypothesis (AutoRouteSpline's own doc comment:
-	// "routes the spline to the new location, inserting bends and
-	// straights"), not a proven fix, since the private engine logic
-	// behind SetBuildModeOverride()/AutoRouteSpline() is stub-source in
-	// this SDK like everything else - only the public entry point and
-	// real asset paths are confirmed from source/binary inspection.
 	if (!RouteMode.IsEmpty())
 	{
 		FString RouteModeAssetPath;
@@ -6607,15 +6659,6 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorBelt: applied RouteMode='%s' (%s)"), *RouteMode, *RouteModeAssetPath);
 	}
 
-	// Using FVector::UpVector for Normal/ImpactNormal here (as an
-	// arbitrary placeholder) previously produced a live
-	// "Invalid Conveyor Belt shape! (hard)" CanConstruct() failure even
-	// though both endpoints snapped cleanly (stepComplete/connectedCount
-	// looked correct) - the spline's arrive/leave tangent is evidently
-	// derived from the hit normal, so an UpVector normal on a
-	// horizontally-facing connector produced a degenerate tangent.
-	// UFGFactoryConnectionComponent::GetConnectorNormal() (GetComponentRotation().Vector())
-	// is the connector's real outward-facing direction - use that instead.
 	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection) -> FHitResult
 	{
 		FHitResult Hit;
@@ -6628,11 +6671,6 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		return Hit;
 	};
 
-	// Diagnostic evidence-gathering (2026-08-25): the "Invalid aim
-	// location! (hard)"/"Invalid Conveyor Belt shape! (hard)"
-	// disqualifiers have been observed to flip depending solely on
-	// Hit.Normal, at fixed player/buildable positions - log everything
-	// relevant to correlate. This block never changes behavior, only logs.
 	auto SummarizeDisqualifiers = [](AFGConveyorBeltHologram* H) -> FString
 	{
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
@@ -6650,41 +6688,12 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(), *SourceConnection->GetConnectorLocation(true).ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString(), *DestConnection->GetConnectorLocation(true).ToString());
 
-	// Player-independence, take 2 (2026-08-27): the disqualifier-ignore
-	// alone was NOT sufficient - live-confirmed this session that
-	// AutoRouteSpline()/the belt's internal pathing (stub source, called
-	// from inside DoMultiStepPlacement/TrySnapToActor below) reads the
-	// player CONTROLLER's live rotation as an implicit routing hint,
-	// completely independent of the disqualifier check and independent
-	// of the correct, connector-anchored FHitResults built above. Proven
-	// live: identical connectConveyor calls against the same two
-	// buildables produced a genuinely mis-terminated belt (far end
-	// landing near the player's actual look direction, not the
-	// destination connector) when the player's camera was aimed
-	// elsewhere, and a correctly-terminated belt (verified via
-	// world.connections) once the player was aimed at the destination.
-	// Since this function is already anchored to explicit buildable IDs,
-	// there's no legitimate reason the result should depend on the
-	// player at all - so, same spirit as ConstructBuildingAtPosition's
-	// fix, point the controller at a DETERMINISTIC target computed from
-	// the two connectors themselves (never the player's real aim), and
-	// reassert it every poll tick below so it survives the hologram
-	// re-deriving state each tick (see that same "jetpack hovering"
-	// class of bug in ConstructBuildingAtPosition's history).
 	const FRotator BeltDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
 	if (AController* BeltController = Character->GetController())
 	{
 		BeltController->SetControlRotation(BeltDeterministicLook);
 	}
 
-	// Step 1 of the flow found live via DebugCheckConveyorSnap - fix the
-	// start point on the source's Output connection. UpdateHologramPlacement()
-	// before TrySnapToActor() is not optional: DebugCheckConveyorSnap's
-	// successful trace called both, and omitting it here reproduced a
-	// live "Invalid aim location! (hard)" CanConstruct() failure even
-	// though the snap/step/connectedCount indicators all looked correct -
-	// evidently CanConstruct()'s aim-location disqualifier reads state
-	// that only UpdateHologramPlacement() sets, not TrySnapToActor() alone.
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
 	BeltHologram->UpdateHologramPlacement(StartHit);
 	BeltHologram->TrySnapToActor(StartHit);
@@ -6696,18 +6705,11 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 
 	if (bStartStepComplete)
 	{
-		// Unexpected - a two-endpoint belt shouldn't complete on the
-		// first click. Report exactly what happened rather than
-		// guessing further; do not proceed to a second click on an
-		// already-"complete" hologram.
 		Character->UnequipBuildGun();
 		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
 		return;
 	}
 
-	// Step 2 - the destination's free Input connection. Same
-	// UpdateHologramPlacement()-before-TrySnapToActor() requirement as
-	// step 1 above.
 	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
 	BeltHologram->UpdateHologramPlacement(EndHit);
 	BeltHologram->TrySnapToActor(EndHit);
@@ -6735,6 +6737,7 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		FString DestBuildableId;
 		bool bDryRun = true;
 		FRotator DeterministicLook;
+		FHitResult EndHit; // re-asserted every poll tick, see below
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -6747,6 +6750,7 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	PollState->DestBuildableId = DestBuildableId;
 	PollState->bDryRun = bDryRun;
 	PollState->DeterministicLook = BeltDeterministicLook;
+	PollState->EndHit = EndHit;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -6765,13 +6769,6 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 			return;
 		}
 
-		// Re-assert every tick, not just once before the poll started -
-		// AutoRouteSpline()/UpdateHologramPlacement() (stub source) re-reads
-		// the controller's CURRENT rotation each tick, so a live player
-		// moving their own camera between ticks (or just standing still
-		// while looking around) can still drag the resolved path off the
-		// one-time value set above. Same fix shape as
-		// ConstructBuildingAtPosition's "jetpack hovering" fix.
 		if (IsValid(PollCharacter))
 		{
 			if (AController* PollController = PollCharacter->GetController())
@@ -6779,6 +6776,24 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 				PollController->SetControlRotation(PollState->DeterministicLook);
 			}
 		}
+
+		// Re-assert the end hit every poll tick (2026-08-30) - matching
+		// the fix already proven for point holograms in
+		// ConstructBuildingNearPlayer/ConstructExtractorOnTargetedNode
+		// (see docs/buildgun-driven-placement-research.md's "§3
+		// correction"). UFGBuildGunStateBuild::TickState_Implementation
+		// runs its own real AFGBuildGun::TraceForBuilding() every tick
+		// from the REAL player's live camera aim and silently overwrites
+		// whatever hit/placement state this function set up - confirmed
+		// there via a ~4000-unit drift and a "Surface is too uneven!"
+		// failure at a location nowhere near the intended one. This poll
+		// loop already re-asserts rotation every tick for the same
+		// reason but was never given the analogous placement fix -
+		// live-suspected 2026-08-30 as the real explanation for
+		// intermittent "Conveyor Belt is too long!"/"Surface is too
+		// uneven!" failures that couldn't be explained by distance,
+		// AFK state, or leftover geometry alone.
+		PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
@@ -6791,22 +6806,6 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 			return;
 		}
 
-		// Player-independence (2026-08-26, explicit user direction): don't
-		// use the real (stub-source, opaque) CanConstruct() here - it has
-		// no way to selectively ignore a disqualifier. Belts/lifts are
-		// always built between two EXPLICIT existing buildables (never
-		// player-relative), so there is no legitimate reason a fixed
-		// source->dest connection should ever depend on where the player
-		// happens to be standing or looking. Always ignore
-		// UFGCDInvalidAimLocation here, same "any other hard disqualifier
-		// blocks" rule as ConstructBuildingAtPosition's own manual
-		// disqualifier loop. This is what let the SetControlRotation()
-		// aim-pointing workaround be removed entirely from this function -
-		// belt/lift construction results are now fully independent of
-		// player position/camera.
-		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
-		// comment on this being a player-controlled mod setting, not a
-		// per-call flag.
 		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
 
 		bool bCanConstruct = true;
@@ -6871,6 +6870,753 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+} // namespace
+
+// Decoy-instigator rewrite (2026-08-30, explicit user direction after the
+// original SetControlRotation-based fix below was confirmed live to
+// visibly hijack the REAL player's camera for the full duration of every
+// call - "hijack the player camera for minutes at a time in intermittent
+// bursts" on any multi-belt build). Root cause established by the
+// original fix's own comments: AutoRouteSpline()'s routing (stub source,
+// unverifiable directly) empirically depends on the CONSTRUCTION
+// INSTIGATOR's controller rotation, not just the connector geometry -
+// the previous fix worked around this by forcing the REAL Character's
+// controller rotation every poll tick, which is exactly what was visible
+// to the user. This version spawns the hologram via the real, public,
+// non-stub AFGHologram::SpawnHologramFromRecipe() (FGHologram.h) with an
+// explicit throwaway APawn+AController as the CONSTRUCTION INSTIGATOR,
+// instead of implicitly using Character->GetBuildGun()'s real equipped
+// hologram - the real player's BuildGun/camera is never touched at all
+// (no HotKeyRecipe/GetBuildGun/UnequipBuildGun anywhere in this
+// function). The deterministic-look rotation still gets set, but on the
+// DECOY controller only.
+//
+// Trade-off this introduces: swapping the instigator away from Character
+// means CanConstruct()'s real UFGCDUnaffordable check would resolve
+// against the decoy's (nonexistent) inventory, not the player's - so
+// this function now manually verifies and charges the recipe's real
+// ingredient cost from the player's OWN inventory (same "verify every
+// ingredient before touching any of them" pattern as SimulatedCraft
+// above), and always ignores UFGCDUnaffordable in the poll loop's
+// disqualifier check (not just when the UnlimitedResources setting is
+// on) since affordability is now handled explicitly, before Construct()
+// is ever called. NOT YET LIVE-VERIFIED - AutoRouteSpline/
+// GenerateAndUpdateSpline/ConfigureActor/Construct are all stub source
+// in this SDK, so whether a decoy instigator produces correct routing
+// and a correctly-owned/replicated real belt actor is a live-test
+// question, not something readable from source. If this regresses
+// routing correctness, the previous real-Character-rotation approach is
+// preserved in git history and this comment documents exactly what
+// changed and why, to make reverting fast.
+void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, const FString& InstigatorStrategy, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	// Strategy dispatch (2026-08-30, explicit user request: "implement
+	// multiple competing strategies per-compile... so if one test fails,
+	// you can attempt other theories before requiring a fresh build").
+	// "RealCharacter" delegates to the untouched original implementation
+	// (see its own comment) - everything below this point is the newer
+	// decoy-instigator path, parameterized only by which controller class
+	// possesses the decoy pawn.
+	//
+	// SourceConnectorPosition/DestConnectorPosition (2026-08-30, explicit
+	// user requirement - see FindFreeFactoryConnectionNear's comment):
+	// when provided, target one SPECIFIC connector by its real world
+	// position instead of "the first free one of the right direction" -
+	// required for deterministic per-port selection on a multi-output
+	// buildable like a splitter. Optional and backward-compatible -
+	// omitting them keeps every existing caller's behavior unchanged.
+	const FString Strategy = InstigatorStrategy.IsEmpty() ? TEXT("PlayerController") : InstigatorStrategy;
+	if (Strategy.Equals(TEXT("RealCharacter"), ESearchCase::IgnoreCase))
+	{
+		ConstructConveyorBelt_RealCharacterStrategy(WorldContextObject, SourceBuildableId, DestBuildableId, RecipeClassPath, RouteMode, SourceConnectorPosition, DestConnectorPosition, bDryRun, MoveTemp(OnComplete));
+		return;
+	}
+	const bool bUseAIController = Strategy.Equals(TEXT("AIController"), ESearchCase::IgnoreCase);
+	const bool bUsePlayerController = Strategy.Equals(TEXT("PlayerController"), ESearchCase::IgnoreCase);
+	// "LocalPlayer" (2026-08-30) - NOT YET LIVE-TESTED (written and
+	// compiled while the running game couldn't be redeployed - see this
+	// strategy's own comment below, and docs/camera-hijack-and-second-
+	// player-research.md, for the full research this is based on). Spawns
+	// a GENUINE second ULocalPlayer via UGameInstance::CreateLocalPlayer()
+	// - confirmed-real, non-stub engine mechanism that routes through the
+	// same Login/PostLogin path a real multiplayer join uses - instead of
+	// a bare decoy actor, on the hypothesis that whatever gates
+	// UFGCDInitializing cares about genuine local-player identity, not
+	// just controller class (both AIController and PlayerController
+	// decoys already conclusively failed identically).
+	const bool bUseLocalPlayer = Strategy.Equals(TEXT("LocalPlayer"), ESearchCase::IgnoreCase);
+	if (!bUseAIController && !bUsePlayerController && !bUseLocalPlayer)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_INSTIGATOR_STRATEGY"),
+			FString::Printf(TEXT("'%s' is not one of \"RealCharacter\", \"AIController\", \"PlayerController\", \"LocalPlayer\""), *Strategy)));
+		return;
+	}
+
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	if (!PlayerInventory)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No player inventory found")));
+		return;
+	}
+
+	AFGBuildable* SourceBuildable = FindBuildableById(World, SourceBuildableId);
+	if (!SourceBuildable)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *SourceBuildableId)));
+		return;
+	}
+	AFGBuildable* DestBuildable = FindBuildableById(World, DestBuildableId);
+	if (!DestBuildable)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *DestBuildableId)));
+		return;
+	}
+
+	UFGFactoryConnectionComponent* SourceConnection = SourceConnectorPosition.IsSet()
+		? FindFreeFactoryConnectionNear(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT, SourceConnectorPosition.GetValue())
+		: FindFreeFactoryConnection(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT);
+	if (!SourceConnection)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"), FString::Printf(TEXT("'%s' has no free Output factory connection component"), *SourceBuildableId)));
+		return;
+	}
+	UFGFactoryConnectionComponent* DestConnection = DestConnectorPosition.IsSet()
+		? FindFreeFactoryConnectionNear(DestBuildable, EFactoryConnectionDirection::FCD_INPUT, DestConnectorPosition.GetValue())
+		: FindFreeFactoryConnection(DestBuildable, EFactoryConnectionDirection::FCD_INPUT);
+	if (!DestConnection)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"), FString::Printf(TEXT("'%s' has no free Input factory connection component"), *DestBuildableId)));
+		return;
+	}
+
+	// Caller-chosen belt tier (2026-08-25) - was hardcoded to
+	// Recipe_ConveyorBeltMk1 before this; any of Recipe_ConveyorBeltMk1..Mk6
+	// resolve the same way. Same validation posture as
+	// ConstructBuildingAtPosition's RecipeClassPath - not a generic
+	// "load any class" capability, just requires a real UFGRecipe.
+	UClass* BeltRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!BeltRecipeClass || !BeltRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = BeltRecipeClass;
+
+	// Verify affordability up front (never partially consume ingredients
+	// for a belt that can't complete) - same pattern as SimulatedCraft.
+	// Actual deduction happens later, immediately before Construct(), once
+	// every other disqualifier has been confirmed clear.
+	const TArray<FItemAmount> BeltIngredients = UFGRecipe::GetIngredients(World, RecipeClass);
+	{
+		TArray<FString> ShortfallDescriptions;
+		for (const FItemAmount& Ingredient : BeltIngredients)
+		{
+			if (!Ingredient.ItemClass || !PlayerInventory->HasItems(Ingredient.ItemClass, Ingredient.Amount))
+			{
+				const int32 Have = Ingredient.ItemClass ? PlayerInventory->GetNumItems(Ingredient.ItemClass) : 0;
+				ShortfallDescriptions.Add(FString::Printf(TEXT("%s (need %d, have %d)"),
+					Ingredient.ItemClass ? *Ingredient.ItemClass->GetName() : TEXT("<null>"), Ingredient.Amount, Have));
+			}
+		}
+		if (!ShortfallDescriptions.IsEmpty())
+		{
+			OnComplete(FAIModOperationResult::Failure(TEXT("INSUFFICIENT_INGREDIENTS"),
+				FString::Printf(TEXT("Missing: %s"), *FString::Join(ShortfallDescriptions, TEXT("; ")))));
+			return;
+		}
+	}
+
+	// Decoy pawn+controller - stands in for the real player as the
+	// hologram's construction instigator so nothing here ever touches
+	// Character's actual camera/equipped item. Cleaned up on every exit
+	// path below via CleanupScratch(). Three concrete candidates,
+	// selectable via params.instigatorStrategy without a recompile:
+	// AIController and PlayerController (both live-confirmed, conclusively,
+	// to leave the hologram permanently stuck on UFGCDInitializing -
+	// present immediately after the first click, never clears across the
+	// full 120-tick poll, even though stepComplete/connectedCount both
+	// look correct - controller CLASS is not the variable, ruled out with
+	// both tested back-to-back in one session) and LocalPlayer (below).
+	APawn* DecoyPawn = nullptr;
+	AController* DecoyController = nullptr;
+	ULocalPlayer* NewLocalPlayer = nullptr; // only set for the LocalPlayer strategy - drives cleanup below
+
+	if (bUseLocalPlayer)
+	{
+		// GENUINELY LOCAL second player (2026-08-30, NOT YET LIVE-TESTED -
+		// written from source research done while a redeploy wasn't
+		// possible, see docs/camera-hijack-and-second-player-research.md
+		// for the full citations behind every claim in this comment).
+		// UGameInstance::CreateLocalPlayer() is confirmed-real, non-stub
+		// engine source (Engine\Private\GameInstance.cpp) - with
+		// bSpawnPlayerController=true and NM_Standalone (true for this
+		// project's single-player target), it drives the SAME
+		// AGameModeBase::Login()/PostLogin() path a real multiplayer
+		// client join uses, which - per AFGGameMode's real confirmed
+		// default (FGGameMode.cpp) - spawns and possesses a genuine
+		// AFGCharacterPlayer via DefaultPawnClass. That's the whole
+		// reason to try this: AIController/PlayerController decoys are
+		// bare, never-joined actors; this one goes through the actual
+		// join flow FactoryGame itself uses.
+		UGameInstance* GameInstance = World->GetGameInstance();
+		if (!GameInstance)
+		{
+			OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No UGameInstance for this world")));
+			return;
+		}
+		FString CreateLocalPlayerError;
+		NewLocalPlayer = GameInstance->CreateLocalPlayer(FPlatformUserId::CreateFromInternalId(1), CreateLocalPlayerError, /*bSpawnPlayerController=*/true);
+		if (!NewLocalPlayer)
+		{
+			OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), FString::Printf(TEXT("CreateLocalPlayer failed: %s"), *CreateLocalPlayerError)));
+			return;
+		}
+		// Headless - confirmed-real engine mechanism
+		// (GameViewportClient.cpp): forces every non-primary local
+		// player's viewport rect to zero size, so nothing is ever
+		// rendered for this second player and no split-screen ever
+		// appears. Applied immediately, before anything else can render
+		// a frame with the new player in it.
+		if (UGameViewportClient* ViewportClient = World->GetGameViewport())
+		{
+			ViewportClient->SetForceDisableSplitscreen(true);
+		}
+
+		APlayerController* NewPC = NewLocalPlayer->GetPlayerController(World);
+		APawn* NewPawn = NewPC ? NewPC->GetPawn() : nullptr;
+		if (!NewPC || !NewPawn)
+		{
+			GameInstance->RemoveLocalPlayer(NewLocalPlayer);
+			OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+				FString::Printf(TEXT("CreateLocalPlayer succeeded but no PlayerController/Pawn resulted (PC=%s pawn=%s) - login/possession may not have completed synchronously"),
+					NewPC ? TEXT("valid") : TEXT("null"), NewPawn ? TEXT("valid") : TEXT("null"))));
+			return;
+		}
+		DecoyController = NewPC;
+		DecoyPawn = NewPawn;
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorBelt: LocalPlayer strategy - spawned real second local player, pawn class=%s"), *NewPawn->GetClass()->GetName());
+	}
+	else
+	{
+		DecoyPawn = World->SpawnActor<APawn>(APawn::StaticClass(), SourceConnection->GetConnectorLocation(), FRotator::ZeroRotator);
+		// Plain AController is abstract in this engine build (live-confirmed:
+		// "SpawnActor failed because class Controller is abstract").
+		DecoyController = bUseAIController
+			? Cast<AController>(World->SpawnActor<AAIController>(AAIController::StaticClass()))
+			: Cast<AController>(World->SpawnActor<APlayerController>(APlayerController::StaticClass()));
+		if (!DecoyPawn || !DecoyController)
+		{
+			if (DecoyPawn) { DecoyPawn->Destroy(); }
+			if (DecoyController) { DecoyController->Destroy(); }
+			OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Failed to spawn the decoy instigator pawn/controller")));
+			return;
+		}
+		DecoyController->Possess(DecoyPawn);
+	}
+
+	// Replaces every former Character->UnequipBuildGun() call. For the two
+	// bare-decoy strategies, cleanup is just destroying our own scratch
+	// actors. For LocalPlayer, destroying the PlayerController directly
+	// would leave the ULocalPlayer wrapper itself dangling/leaked -
+	// GameInstance->RemoveLocalPlayer() is the confirmed-real, proper
+	// engine teardown (destroys the PlayerController AND unregisters the
+	// ULocalPlayer) - see docs/camera-hijack-and-second-player-research.md.
+	// Defined before the SpawnHologramFromRecipe call so it covers that
+	// call's own failure path too, not just later ones.
+	UGameInstance* CleanupGameInstance = World->GetGameInstance();
+	auto CleanupScratch = [CleanupGameInstance, bUseLocalPlayer](AFGHologram* H, APawn* DPawn, AController* DController, ULocalPlayer* LP)
+	{
+		if (IsValid(H)) { H->Destroy(); }
+		if (bUseLocalPlayer)
+		{
+			if (LP && CleanupGameInstance) { CleanupGameInstance->RemoveLocalPlayer(LP); }
+		}
+		else
+		{
+			if (IsValid(DController)) { DController->Destroy(); }
+			if (IsValid(DPawn)) { DPawn->Destroy(); }
+		}
+	};
+
+	// hologramOwner is ALSO the decoy now (2026-08-30, live-confirmed
+	// necessary): passing Character here - even with DecoyPawn already
+	// used as the instigator - still visibly swung the REAL player's
+	// camera (confirmed live: "the player was facing approximately south
+	// when you started, and automatically turned due east"). Something in
+	// the hologram's construction/camera-preview logic evidently reads
+	// the OWNER, not just the instigator, for whatever drives that. Fully
+	// decoupling Character from both parameters is the only way to be
+	// sure nothing in this call can reach the real player's camera - the
+	// belt's material cost is already charged from Character's inventory
+	// manually (see BeltIngredients above), so nothing here still needs
+	// Character to be the owner for cost/affordability purposes either.
+	AFGHologram* Hologram = AFGHologram::SpawnHologramFromRecipe(RecipeClass, DecoyPawn, SourceConnection->GetConnectorLocation(), DecoyPawn);
+	AFGConveyorBeltHologram* BeltHologram = Cast<AFGConveyorBeltHologram>(Hologram);
+	if (!BeltHologram)
+	{
+		CleanupScratch(Hologram, DecoyPawn, DecoyController, NewLocalPlayer);
+		OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("SpawnHologramFromRecipe(%s) did not result in an AFGConveyorBeltHologram (got %s)"),
+				*RecipeClassPath, Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
+		return;
+	}
+
+	// Live-diagnosed (2026-08-30): a hologram spawned via
+	// SpawnHologramFromRecipe (bypassing the real BuildGun's equip flow)
+	// stayed stuck on UFGCDInitializing indefinitely - CANNOT_CONSTRUCT
+	// "Initializing (hard)" after the full poll window elapsed, unlike
+	// the BuildGun-driven path this replaces, which always cleared it
+	// within a tick or two, for BOTH bare-decoy strategies. Explicitly
+	// enabling tick here is cheap and safe even though it didn't fix that
+	// on its own.
+	BeltHologram->SetActorTickEnabled(true);
+
+	// RouteMode (2026-08-25, added after live-diagnosing that the 2-click
+	// TrySnapToActor flow fails ("Conveyor Belt is too long!"/"Invalid
+	// placement!") for ANY meaningful direction mismatch between source
+	// and destination connectors). Real, confirmed-on-disk asset paths
+	// (grepped from Holo_ConveyorBelt.uasset's own string table, not
+	// guessed): AFGHologram::SetBuildModeOverride() (public,
+	// FGHologram.h) accepts one of
+	// "/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Default"
+	// (the implicit default when nothing is overridden - what the player
+	// UX calls "Auto"), "...BuildMode_Straight", or "...BuildMode_Curve"
+	// - AFGConveyorBeltHologram exposes exactly two of these via its own
+	// mBuildModeStraight/mBuildModeCurve fields (GetSupportedBuildModes_Implementation).
+	// Empty RouteMode (default) leaves the hologram's own default mode
+	// untouched - matches prior behavior exactly. NOT YET LIVE-VERIFIED
+	// that forcing Curve actually resolves the bend failures above - this
+	// is a well-evidenced hypothesis (AutoRouteSpline's own doc comment:
+	// "routes the spline to the new location, inserting bends and
+	// straights"), not a proven fix, since the private engine logic
+	// behind SetBuildModeOverride()/AutoRouteSpline() is stub-source in
+	// this SDK like everything else - only the public entry point and
+	// real asset paths are confirmed from source/binary inspection.
+	if (!RouteMode.IsEmpty())
+	{
+		FString RouteModeAssetPath;
+		if (RouteMode.Equals(TEXT("Straight"), ESearchCase::IgnoreCase))
+		{
+			RouteModeAssetPath = TEXT("/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Straight.BuildMode_Straight_C");
+		}
+		else if (RouteMode.Equals(TEXT("Curve"), ESearchCase::IgnoreCase))
+		{
+			RouteModeAssetPath = TEXT("/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Curve.BuildMode_Curve_C");
+		}
+		else if (RouteMode.Equals(TEXT("Auto"), ESearchCase::IgnoreCase) || RouteMode.Equals(TEXT("Default"), ESearchCase::IgnoreCase))
+		{
+			RouteModeAssetPath = TEXT("/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Default.BuildMode_Default_C");
+		}
+		else
+		{
+			CleanupScratch(BeltHologram, DecoyPawn, DecoyController, NewLocalPlayer);
+			OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_ROUTE_MODE"), FString::Printf(TEXT("'%s' is not one of \"Straight\", \"Curve\", \"Auto\""), *RouteMode)));
+			return;
+		}
+
+		UClass* RouteModeClass = LoadObject<UClass>(nullptr, *RouteModeAssetPath);
+		if (!RouteModeClass || !RouteModeClass->IsChildOf(UFGHologramBuildModeDescriptor::StaticClass()))
+		{
+			CleanupScratch(BeltHologram, DecoyPawn, DecoyController, NewLocalPlayer);
+			OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), FString::Printf(TEXT("Failed to resolve '%s' as a UFGHologramBuildModeDescriptor"), *RouteModeAssetPath)));
+			return;
+		}
+
+		BeltHologram->SetBuildModeOverride(TSubclassOf<UFGHologramBuildModeDescriptor>(RouteModeClass));
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorBelt: applied RouteMode='%s' (%s)"), *RouteMode, *RouteModeAssetPath);
+	}
+
+	// Using FVector::UpVector for Normal/ImpactNormal here (as an
+	// arbitrary placeholder) previously produced a live
+	// "Invalid Conveyor Belt shape! (hard)" CanConstruct() failure even
+	// though both endpoints snapped cleanly (stepComplete/connectedCount
+	// looked correct) - the spline's arrive/leave tangent is evidently
+	// derived from the hit normal, so an UpVector normal on a
+	// horizontally-facing connector produced a degenerate tangent.
+	// UFGFactoryConnectionComponent::GetConnectorNormal() (GetComponentRotation().Vector())
+	// is the connector's real outward-facing direction - use that instead.
+	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection) -> FHitResult
+	{
+		FHitResult Hit;
+		Hit.Location = Connection->GetConnectorLocation();
+		Hit.ImpactPoint = Hit.Location;
+		Hit.Normal = Connection->GetConnectorNormal();
+		Hit.ImpactNormal = Hit.Normal;
+		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
+		Hit.bBlockingHit = true;
+		return Hit;
+	};
+
+	// Diagnostic evidence-gathering (2026-08-25): the "Invalid aim
+	// location! (hard)"/"Invalid Conveyor Belt shape! (hard)"
+	// disqualifiers have been observed to flip depending solely on
+	// Hit.Normal, at fixed player/buildable positions - log everything
+	// relevant to correlate. This block never changes behavior, only logs.
+	auto SummarizeDisqualifiers = [](AFGConveyorBeltHologram* H) -> FString
+	{
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		H->GetConstructDisqualifiers(Disqualifiers);
+		TArray<FString> Texts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+		{
+			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
+		}
+		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
+	};
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorBelt diagnostic: playerLoc=%s playerRot=%s sourceConnectorLoc=%s sourceConnectorNormal=%s sourceConnectorClearanceLoc=%s destConnectorLoc=%s destConnectorNormal=%s destConnectorClearanceLoc=%s"),
+		*Character->GetActorLocation().ToString(), *Character->GetActorRotation().ToString(),
+		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(), *SourceConnection->GetConnectorLocation(true).ToString(),
+		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString(), *DestConnection->GetConnectorLocation(true).ToString());
+
+	// Player-independence, take 3 (2026-08-30): the underlying dependency
+	// (see the function's top comment) is real and still needs a
+	// deterministic rotation hint - but it now targets the DECOY
+	// controller instead of the real Character's, so the real player's
+	// camera never moves. Reasserted every poll tick below for the same
+	// "state re-derived each tick" reason as before, just on DecoyController.
+	const FRotator BeltDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
+	DecoyController->SetControlRotation(BeltDeterministicLook);
+
+	// Step 1 of the flow found live via DebugCheckConveyorSnap - fix the
+	// start point on the source's Output connection. UpdateHologramPlacement()
+	// before TrySnapToActor() is not optional: DebugCheckConveyorSnap's
+	// successful trace called both, and omitting it here reproduced a
+	// live "Invalid aim location! (hard)" CanConstruct() failure even
+	// though the snap/step/connectedCount indicators all looked correct -
+	// evidently CanConstruct()'s aim-location disqualifier reads state
+	// that only UpdateHologramPlacement() sets, not TrySnapToActor() alone.
+	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	BeltHologram->UpdateHologramPlacement(StartHit);
+	BeltHologram->TrySnapToActor(StartHit);
+	const bool bStartStepComplete = BeltHologram->DoMultiStepPlacement(true);
+	const ESplineHologramBuildStep StepAfterStart = BeltHologram->GetCurrentBuildStep();
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorBelt: source=%s dest=%s after start click: stepComplete=%s step=%d disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bStartStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterStart), *SummarizeDisqualifiers(BeltHologram));
+
+	if (bStartStepComplete)
+	{
+		// Unexpected - a two-endpoint belt shouldn't complete on the
+		// first click. Report exactly what happened rather than
+		// guessing further; do not proceed to a second click on an
+		// already-"complete" hologram.
+		CleanupScratch(BeltHologram, DecoyPawn, DecoyController, NewLocalPlayer);
+		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
+		return;
+	}
+
+	// Step 2 - the destination's free Input connection. Same
+	// UpdateHologramPlacement()-before-TrySnapToActor() requirement as
+	// step 1 above.
+	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
+	BeltHologram->UpdateHologramPlacement(EndHit);
+	BeltHologram->TrySnapToActor(EndHit);
+	const bool bEndStepComplete = BeltHologram->DoMultiStepPlacement(true);
+	const ESplineHologramBuildStep StepAfterEnd = BeltHologram->GetCurrentBuildStep();
+	const TArray<AFGBuildable*> ConnectedBuildables = BeltHologram->GetAnyConnectedBuildables();
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorBelt: source=%s dest=%s after end click: stepComplete=%s step=%d connectedCount=%d disqualifiers=[%s]"),
+		*SourceBuildableId, *DestBuildableId, bEndStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterEnd), ConnectedBuildables.Num(), *SummarizeDisqualifiers(BeltHologram));
+
+	if (!bEndStepComplete)
+	{
+		CleanupScratch(BeltHologram, DecoyPawn, DecoyController, NewLocalPlayer);
+		OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"),
+			FString::Printf(TEXT("DoMultiStepPlacement() did not report complete after the end click - step=%d connectedCount=%d, may need a third step"), static_cast<int32>(StepAfterEnd), ConnectedBuildables.Num())));
+		return;
+	}
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGConveyorBeltHologram> Hologram;
+		TWeakObjectPtr<APawn> DecoyPawn;
+		TWeakObjectPtr<AController> DecoyController;
+		TWeakObjectPtr<ULocalPlayer> NewLocalPlayer;
+		TWeakObjectPtr<UGameInstance> GameInstance;
+		bool bUseLocalPlayer = false;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UFGInventoryComponent> PlayerInventory;
+		TArray<FItemAmount> Ingredients;
+		TWeakObjectPtr<UWorld> World;
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		bool bDryRun = true;
+		FRotator DeterministicLook;
+		FHitResult EndHit;
+		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+		int32 AttemptsTaken = 0;
+		TFunction<void(const FAIModOperationResult&)> OnComplete;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = BeltHologram;
+	PollState->DecoyPawn = DecoyPawn;
+	PollState->DecoyController = DecoyController;
+	PollState->NewLocalPlayer = NewLocalPlayer;
+	PollState->GameInstance = CleanupGameInstance;
+	PollState->bUseLocalPlayer = bUseLocalPlayer;
+	PollState->Character = Character;
+	PollState->PlayerInventory = PlayerInventory;
+	PollState->Ingredients = BeltIngredients;
+	PollState->World = World;
+	PollState->SourceBuildableId = SourceBuildableId;
+	PollState->DestBuildableId = DestBuildableId;
+	PollState->bDryRun = bDryRun;
+	PollState->DeterministicLook = BeltDeterministicLook;
+	PollState->EndHit = EndHit;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	auto PollCleanup = [](const TSharedRef<FPollState>& S)
+	{
+		if (AFGConveyorBeltHologram* H = S->Hologram.Get()) { H->Destroy(); }
+		if (S->bUseLocalPlayer)
+		{
+			if (ULocalPlayer* LP = S->NewLocalPlayer.Get())
+			{
+				if (UGameInstance* GI = S->GameInstance.Get()) { GI->RemoveLocalPlayer(LP); }
+			}
+		}
+		else
+		{
+			if (AController* C = S->DecoyController.Get()) { C->Destroy(); }
+			if (APawn* P = S->DecoyPawn.Get()) { P->Destroy(); }
+		}
+	};
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn, PollCleanup]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGConveyorBeltHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AController* PollDecoyController = PollState->DecoyController.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructConveyorBelt (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			PollCleanup(PollState);
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		// Re-assert every tick, not just once before the poll started -
+		// AutoRouteSpline()/UpdateHologramPlacement() (stub source) re-reads
+		// the controller's CURRENT rotation each tick. Targets the DECOY
+		// controller only - see this function's top comment.
+		if (IsValid(PollDecoyController))
+		{
+			PollDecoyController->SetControlRotation(PollState->DeterministicLook);
+		}
+
+		// Live-diagnosed (2026-08-30): UFGCDInitializing never cleared on
+		// its own even with SetActorTickEnabled(true) - it stayed present
+		// for the full 120-tick poll window and the call failed
+		// CANNOT_CONSTRUCT "Initializing (hard)". The real BuildGun-driven
+		// flow calls UpdateHologramPlacement() continuously every frame
+		// while the player aims, not just once per click - reassert it
+		// here too, same "state re-derived each tick" shape as the
+		// rotation reassert above, in case whatever UFGCDInitializing
+		// gates only advances in response to a fresh placement update.
+		PollHologram->UpdateHologramPlacement(PollState->EndHit);
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		// Player-independence (2026-08-26, explicit user direction): don't
+		// use the real (stub-source, opaque) CanConstruct() here - it has
+		// no way to selectively ignore a disqualifier. Belts/lifts are
+		// always built between two EXPLICIT existing buildables (never
+		// player-relative), so there is no legitimate reason a fixed
+		// source->dest connection should ever depend on where the player
+		// happens to be standing or looking. Always ignore
+		// UFGCDInvalidAimLocation here, same "any other hard disqualifier
+		// blocks" rule as ConstructBuildingAtPosition's own manual
+		// disqualifier loop.
+		//
+		// UFGCDUnaffordable (2026-08-30, changed): now ALWAYS ignored, not
+		// just under the UnlimitedResources setting - the construction
+		// instigator is the decoy pawn (see top comment), which has no
+		// inventory of its own, so this disqualifier would otherwise fire
+		// unconditionally regardless of the real player's actual
+		// inventory. Affordability against the REAL player's inventory is
+		// verified up front (see BeltIngredients above) and charged
+		// explicitly right before Construct() below - this disqualifier
+		// genuinely has nothing meaningful left to check here.
+		bool bCanConstruct = true;
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDUnaffordable::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorBelt (deferred, resolved after %d real tick(s)): source=%s dest=%s dryRun=%s canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId, PollState->bDryRun ? TEXT("true") : TEXT("false"),
+			bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		if (!bCanConstruct)
+		{
+			PollCleanup(PollState);
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		if (PollState->bDryRun)
+		{
+			PollCleanup(PollState);
+			PollState->OnComplete(FAIModOperationResult::Success());
+			return;
+		}
+
+		// Re-verify affordability right before charging - real time has
+		// passed since the up-front check (other calls may have spent the
+		// same materials in the meantime). Still never partially consumes.
+		UFGInventoryComponent* PollInventory = PollState->PlayerInventory.Get();
+		if (!PollInventory)
+		{
+			PollCleanup(PollState);
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Player inventory became invalid before constructing")));
+			return;
+		}
+		TArray<FString> ShortfallDescriptions;
+		for (const FItemAmount& Ingredient : PollState->Ingredients)
+		{
+			if (!Ingredient.ItemClass || !PollInventory->HasItems(Ingredient.ItemClass, Ingredient.Amount))
+			{
+				const int32 Have = Ingredient.ItemClass ? PollInventory->GetNumItems(Ingredient.ItemClass) : 0;
+				ShortfallDescriptions.Add(FString::Printf(TEXT("%s (need %d, have %d)"),
+					Ingredient.ItemClass ? *Ingredient.ItemClass->GetName() : TEXT("<null>"), Ingredient.Amount, Have));
+			}
+		}
+		if (!ShortfallDescriptions.IsEmpty())
+		{
+			PollCleanup(PollState);
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INSUFFICIENT_INGREDIENTS"),
+				FString::Printf(TEXT("Missing: %s"), *FString::Join(ShortfallDescriptions, TEXT("; ")))));
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		TArray<AActor*> OutChildren;
+		PollHologram->Construct(OutChildren, ConstructionID);
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorBelt (deferred, resolved after %d real tick(s)): construction attempted via Hologram->Construct() - source=%s dest=%s children=%d"),
+			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId, OutChildren.Num());
+
+		for (const FItemAmount& Ingredient : PollState->Ingredients)
+		{
+			PollInventory->Remove(Ingredient.ItemClass, Ingredient.Amount);
+		}
+
+		PollCleanup(PollState);
+		PollState->OnComplete(FAIModOperationResult::Success());
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// LogSplineGeometryAsJson (2026-08-30) - see header doc comment for the
+// full rationale (added to diagnose world.connectConveyor's unpredictable
+// curving by comparing its output against a normally-placed belt's real
+// geometry). "found"/"isSplineBuildable" embedded in the payload, not a
+// thrown RPC error - same convention as LogGroundHeightAsJson's "found".
+FString UAIModFunctionLibrary::LogSplineGeometryAsJson(UObject* WorldContextObject, const FString& BuildableId)
+{
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetStringField(TEXT("buildableId"), BuildableId);
+	RootObject->SetBoolField(TEXT("found"), false);
+	RootObject->SetBoolField(TEXT("isSplineBuildable"), false);
+
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGBuildable* Buildable = World ? FindBuildableById(World, BuildableId) : nullptr;
+
+	if (Buildable)
+	{
+		RootObject->SetBoolField(TEXT("found"), true);
+		RootObject->SetStringField(TEXT("buildableClass"), Buildable->GetClass()->GetPathName());
+
+		if (IFGSplineBuildableInterface* SplineBuildable = Cast<IFGSplineBuildableInterface>(Buildable))
+		{
+			RootObject->SetBoolField(TEXT("isSplineBuildable"), true);
+			RootObject->SetNumberField(TEXT("meshLength"), SplineBuildable->GetMeshLength());
+
+			TArray<TSharedPtr<FJsonValue>> PointsJsonArray;
+			if (USplineComponent* Spline = SplineBuildable->GetSplineComponent())
+			{
+				RootObject->SetNumberField(TEXT("splineLength"), Spline->GetSplineLength());
+				const int32 NumPoints = Spline->GetNumberOfSplinePoints();
+				PointsJsonArray.Reserve(NumPoints);
+				for (int32 i = 0; i < NumPoints; ++i)
+				{
+					const FVector Location = Spline->GetLocationAtSplinePoint(i, ESplineCoordinateSpace::World);
+					const FVector Tangent = Spline->GetTangentAtSplinePoint(i, ESplineCoordinateSpace::World);
+
+					const TSharedRef<FJsonObject> PointObject = MakeShared<FJsonObject>();
+					const TSharedRef<FJsonObject> LocationObject = MakeShared<FJsonObject>();
+					LocationObject->SetNumberField(TEXT("x"), Location.X);
+					LocationObject->SetNumberField(TEXT("y"), Location.Y);
+					LocationObject->SetNumberField(TEXT("z"), Location.Z);
+					PointObject->SetObjectField(TEXT("location"), LocationObject);
+
+					const TSharedRef<FJsonObject> TangentObject = MakeShared<FJsonObject>();
+					TangentObject->SetNumberField(TEXT("x"), Tangent.X);
+					TangentObject->SetNumberField(TEXT("y"), Tangent.Y);
+					TangentObject->SetNumberField(TEXT("z"), Tangent.Z);
+					PointObject->SetObjectField(TEXT("tangent"), TangentObject);
+
+					PointsJsonArray.Add(MakeShared<FJsonValueObject>(PointObject));
+				}
+			}
+			else
+			{
+				UE_LOG(LogAIModAI, Warning, TEXT("LogSplineGeometryAsJson: '%s' implements IFGSplineBuildableInterface but GetSplineComponent() returned null"), *BuildableId);
+			}
+			RootObject->SetArrayField(TEXT("points"), PointsJsonArray);
+		}
+	}
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogSplineGeometryAsJson: %s"), *JsonString);
+
+	return JsonString;
 }
 
 // LogConveyorLiftTiersAsJson (2026-08-25, vertical conveyor groundwork,

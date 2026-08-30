@@ -639,3 +639,11 @@ FodyWeavers.xsd
 # or commit. The RPC methods it queries (docs/telemetry-protocol.md) are
 # the real source of truth, not this file.
 controller/catalog_cache.json
+
+# Run output from controller/splitter_matrix_test.py - a live diagnostic
+# result dump (per-case pass/fail, real ids/errors from one specific
+# test run), not a static reference. Re-run the script for fresh
+# results; docs/splitter-port-control-test.md tracks the durable
+# summary of what passed.
+controller/splitter_matrix_results*.json
+controller/splitter_matrix_retry_results.json
