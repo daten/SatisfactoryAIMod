@@ -84,6 +84,48 @@ exposed via the new `world.pipelinePumpTiers` RPC, see below):
   manual valve, `-1` = fully open) for deliberately throttling a run
   below the pipe's natural max, if that's ever useful for balancing.
 
+## Buffers and valves are real, distinct buildings — but the Valve reuses the Pump's own class
+
+Confirmed 2026-08-31 by grepping each `.uasset` binary directly for its
+embedded class-name string (`grep -a -o "AFGBuildable[A-Za-z]*"` against
+the raw asset file — not inference from headers or localization alone):
+
+- **Two real fluid buffer sizes, one shared C++ class**: `Build_PipeStorageTank.uasset`
+  (small, in-game "Fluid Buffer", `Recipe_PipeStorageTank`) and
+  `Build_IndustrialTank.uasset` (large, "Industrial Fluid Buffer",
+  `Recipe_IndustrialTank`) both reference `AFGBuildablePipeReservoir` -
+  the same class, just different `mStorageCapacity` CDO defaults. Real
+  public getters: `GetFluidContentMax()` `[m^3]`, `GetFluidContent()`,
+  `GetFlowFill()`/`GetFlowDrain()` `[m^3/s]`, `GetFlowLimit()` (its own
+  doc comment: "depends on the number of connection components").
+  `AFGBuildablePipeReservoir` also implements `IFGFluidIntegrantInterface`
+  with its own `FFluidBox` - i.e. a fluid buffer IS a fluid box in
+  exactly the same sense a pipe segment is, just a much larger one with
+  a purpose-built capacity, not `world.pipeFluidBoxes`-exposed yet
+  (scoped to `AFGBuildablePipeline` segments only for that RPC's first
+  pass).
+- **The Valve is NOT a separate C++ class - it's a Blueprint variant of
+  the Pump**: `Build_Valve.uasset` references `FGBuildablePipelinePump`,
+  the exact same class real Pumps use. This retroactively explains a
+  detail noticed but not investigated earlier in this research pass -
+  `AFGBuildablePipelinePump.h`'s own `SetUserFlowLimit()` doc comment
+  already says "Set this to -1 to use the max limit, i.e. **valve** is
+  fully opened," using valve terminology for what looked like an
+  ordinary Pump function. A Valve is presumably a Pump Blueprint
+  configured with ~0 headlift (`mMaxPressure`/`mDesignPressure` near
+  zero) so its only meaningful real-world effect is
+  `SetUserFlowLimit()`'s throttling, not lift - unconfirmed live.
+  `world.pipelinePumpTiers` now includes `Recipe_Valve` alongside the
+  two real pump tiers, tagged `"kind": "Valve"` so callers can tell them
+  apart.
+
+**New capabilities, both NOT YET LIVE-TESTED**: `world.pipelinePumpTiers`
+now reports the Valve too (see above); new `world.pipeReservoirTiers`
+RPC reports both fluid buffer sizes' real capacity/flow-limit. Neither
+buildable can currently be CONSTRUCTED via any RPC (see "Genuinely
+open" below - `world.connectPipe` only bridges two existing buildables'
+connectors, it doesn't place a new pump/valve/tank/junction).
+
 ## Each pipe segment has its own real volume, and fills sequentially
 
 Per the user's own description, added to this research before it
@@ -270,7 +312,17 @@ topology.
   is not identified — worth checking if a live multi-segment build
   behaves unexpectedly (e.g. a Valve or Storage Tank might isolate
   pressure groups on either side, changing how far a single pump's
-  headlift budget actually reaches).
+  headlift budget actually reaches). Given the Valve IS a Pump variant
+  (see above), whether a Valve's SnapOnly-like flow-restriction has any
+  pressure-group-breaking side effect specifically is a real open
+  question worth checking once pumps/valves can be constructed at all.
+- **No RPC exists yet to set a Valve's real flow restriction**
+  (`SetUserFlowLimit()`/`GetUserFlowLimit()` are real public setters/
+  getters on `AFGBuildablePipelinePump`, confirmed - just not wired to
+  any RPC) - a natural next addition once Valve construction exists,
+  for deliberately throttling one branch of a network below the pipe's
+  natural max (e.g. deliberately balancing a manifold instead of
+  relying on the pressure simulation to do it unassisted).
 - **Real per-tier extractor output rates** (Water Extractor, Oil
   Extractor, fracking satellites at various purities/clocks) are
   data-driven (recipe + node purity + clock%), already computable via

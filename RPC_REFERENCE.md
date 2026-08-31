@@ -248,24 +248,53 @@ needs genuinely parallel pipes (see `required_parallel_pipes` in
 
 ### `world.pipelinePumpTiers` — no params, **NOT YET LIVE-TESTED**
 ```json
-{ "protocolVersion": 1, "tiers": [ { "recipeClass": "...Recipe_PipelinePump_C", "buildableClass": "...", "maxHeadLift": 0.0, "designHeadLift": 0.0, "defaultFlowLimit": 0.0 } ] }
+{ "protocolVersion": 1, "tiers": [ { "kind": "Pump", "recipeClass": "...Recipe_PipelinePump_C", "buildableClass": "...", "maxHeadLift": 0.0, "designHeadLift": 0.0, "defaultFlowLimit": 0.0 } ] }
 ```
 One row per `Recipe_PipelinePump`/`Recipe_PipelinePumpMK2` (capital
-`MK2`, matching `world.pipelineTiers`' own naming). Added 2026-08-31,
-offline research/prep for pipe-network planning. `maxHeadLift`/
-`designHeadLift` are in **meters** — real, documented unit per
-`AFGBuildablePipelinePump.h`'s own disclaimer comment: the game's fluid
-model treats pump pressure as "the height of the fluid column." `design`
-is the pump's rated/recommended operating point; `max` is the absolute
-ceiling ("working outside of its specifications" above design, but
-still functional up to max) — budget real elevation gain against
-`design` first, treat `max` only as a hard ceiling. `defaultFlowLimit`
-is `[m³/s]` but is itself capped by whatever pipe tier the pump is
-actually connected to (per `GetDefaultFlowLimit()`'s own doc comment,
-"the neighbouring pipes") — a pump adds headlift, it does not raise a
-network's real throughput ceiling. Unlike `world.pipelineTiers`, all
-three fields come from real public `BlueprintPure` getters — no
-reflection needed.
+`MK2`, matching `world.pipelineTiers`' own naming), **plus one row for
+`Recipe_Valve`** — confirmed 2026-08-31 by grepping `Build_Valve.uasset`'s
+binary directly for the embedded class name string: the Valve is a
+Blueprint variant of `AFGBuildablePipelinePump` itself, not a separate
+C++ class (which also explains why that header's own `SetUserFlowLimit()`
+doc comment already used valve terminology — "i.e. valve is fully
+opened" — before this was investigated). Each row's `kind` field is
+`"Pump"` or `"Valve"` so a caller can tell them apart; a Valve's
+`maxHeadLift`/`designHeadLift` are expected to be ~0 (it restricts flow,
+not lift) — unconfirmed live. Added 2026-08-31, offline research/prep
+for pipe-network planning. `maxHeadLift`/`designHeadLift` are in
+**meters** — real, documented unit per `AFGBuildablePipelinePump.h`'s
+own disclaimer comment: the game's fluid model treats pump pressure as
+"the height of the fluid column." `design` is the pump's rated/
+recommended operating point; `max` is the absolute ceiling ("working
+outside of its specifications" above design, but still functional up to
+max) — budget real elevation gain against `design` first, treat `max`
+only as a hard ceiling. `defaultFlowLimit` is `[m³/s]` but is itself
+capped by whatever pipe tier the pump/valve is actually connected to
+(per `GetDefaultFlowLimit()`'s own doc comment, "the neighbouring
+pipes") — a pump adds headlift, it does not raise a network's real
+throughput ceiling; a Valve's real purpose is restricting flow below
+that ceiling via `SetUserFlowLimit()` (not yet exposed as its own RPC —
+`GetUserFlowLimit()`/`SetUserFlowLimit()` are real public getters/
+setters on the same class, a natural next addition if throttling a real
+build becomes relevant). All fields come from real public
+`BlueprintPure` getters — no reflection needed.
+
+### `world.pipeReservoirTiers` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "tiers": [ { "recipeClass": "...Recipe_PipeStorageTank_C", "buildableClass": "...", "maxContentM3": 0.0, "flowLimit": 0.0 } ] }
+```
+One row per `Recipe_PipeStorageTank` (small, in-game "Fluid Buffer") and
+`Recipe_IndustrialTank` (large, "Industrial Fluid Buffer") — the two
+real fluid-buffer sizes the user described. Both confirmed 2026-08-31 to
+share the SAME C++ class, `AFGBuildablePipeReservoir`, via a direct grep
+of both `.uasset` binaries for the embedded class name string (not
+inferred — same verification method used for the Valve above).
+`maxContentM3` `[m³]` comes from `GetFluidContentMax()`; `flowLimit`
+`[m³/s]` from `GetFlowLimit()`, whose own doc comment warns it "depends
+on the number of connection components" — a CDO's reported value may
+not reflect a real, connected instance's actual limit, treat as a rough
+per-tier reference until confirmed against a real placed tank. Both are
+real public `BlueprintPure` getters — no reflection needed.
 
 **Real caveat, not yet confirmed live**: all three values are read off
 a class default object (CDO) that has never actually been placed or

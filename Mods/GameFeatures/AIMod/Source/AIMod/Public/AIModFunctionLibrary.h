@@ -1621,6 +1621,30 @@ public:
 	static FString LogPipeFluidBoxesAsJson(UObject* WorldContextObject);
 
 	/**
+	 * Fluid buffer ("Storage Tank"/"Industrial Fluid Buffer") tier data
+	 * (added 2026-08-31, offline research/prep per explicit user request
+	 * - "two different size fluid buffers available"). Both real,
+	 * distinct buildings - `Recipe_PipeStorageTank` (small, in-game
+	 * "Fluid Buffer") and `Recipe_IndustrialTank` (large, "Industrial
+	 * Fluid Buffer") - confirmed to share the SAME C++ class,
+	 * `AFGBuildablePipeReservoir`, via a direct grep of both `.uasset`
+	 * binaries for the embedded class name string (not inferred).
+	 *
+	 * `maxContentM3`/`flowLimit` come from real public BlueprintPure
+	 * getters (`GetFluidContentMax()`/`GetFlowLimit()`) - no reflection
+	 * needed. `GetFlowLimit()`'s own doc comment: "depends on the number
+	 * of connection components" - a CDO's reported value may not reflect
+	 * a real, connected instance's actual limit; treat as a rough
+	 * per-tier reference, confirm against a real placed tank if exact
+	 * numbers matter.
+	 *
+	 * NOT YET LIVE-TESTED - same CDO-never-placed caveat as
+	 * world.pipelinePumpTiers.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipeReservoirTiersAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Near-exact mirror of ConstructConveyorBelt: same build-gun two-
 	 * click mechanism (TrySnapToActor + DoMultiStepPlacement(true) at
 	 * source, then dest), including the UpdateHologramPlacement-before-

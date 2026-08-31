@@ -46,6 +46,7 @@
 #include "Hologram/FGHologramBuildModeDescriptor.h"
 #include "Hologram/FGPipelineHologram.h"
 #include "Buildables/FGBuildablePipelinePump.h"
+#include "Buildables/FGBuildablePipeReservoir.h"
 #include "FGPipeConnectionComponent.h"
 #include "FGPipeConnectionComponentHyper.h"
 #include "Components/PrimitiveComponent.h"
@@ -6151,13 +6152,27 @@ FString UAIModFunctionLibrary::LogPipelinePumpTiersAsJson(UObject* WorldContextO
 	// Recipe_PipelinePumpMK2 (capital "MK2", confirmed from the real
 	// asset filenames on disk, matching the pipe tiers' own naming) are
 	// the two real pump tiers.
-	static const TCHAR* TierRecipePaths[] = {
+	//
+	// Recipe_Valve (2026-08-31, offline research per explicit user
+	// request) is included here too, NOT a separate tier list - confirmed
+	// directly from the binary asset (Build_Valve.uasset references the
+	// literal class name "FGBuildablePipelinePump", grepped from the
+	// .uasset itself) that the in-game Valve IS a Blueprint variant of
+	// AFGBuildablePipelinePump, not a separate C++ class. This also
+	// explains why AFGBuildablePipelinePump.h's own SetUserFlowLimit()
+	// doc comment already used valve terminology ("Set this to -1 to use
+	// the max limit, i.e. valve is fully opened") before any of this was
+	// investigated - the class was always dual-purpose. A "kind" field
+	// distinguishes Pump vs Valve entries for the caller since the RPC
+	// name itself still says "pump" tiers.
+	static const TCHAR* PumpTierRecipePaths[] = {
 		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PipelinePump.Recipe_PipelinePump_C"),
 		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PipelinePumpMK2.Recipe_PipelinePumpMK2_C"),
 	};
+	static const TCHAR* ValveRecipePath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_Valve.Recipe_Valve_C");
 
 	TArray<TSharedPtr<FJsonValue>> TierJsonArray;
-	for (const TCHAR* RecipePath : TierRecipePaths)
+	for (const TCHAR* RecipePath : PumpTierRecipePaths)
 	{
 		const TSubclassOf<AFGBuildable> BuildableClass = ResolveBuildableClassForRecipe(RecipePath);
 		const AFGBuildablePipelinePump* PumpCDO = BuildableClass ? Cast<AFGBuildablePipelinePump>(BuildableClass->GetDefaultObject()) : nullptr;
@@ -6168,6 +6183,7 @@ FString UAIModFunctionLibrary::LogPipelinePumpTiersAsJson(UObject* WorldContextO
 		}
 
 		const TSharedRef<FJsonObject> TierObject = MakeShared<FJsonObject>();
+		TierObject->SetStringField(TEXT("kind"), TEXT("Pump"));
 		TierObject->SetStringField(TEXT("recipeClass"), RecipePath);
 		TierObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
 		// All three real public BlueprintPure getters - no reflection
@@ -6179,6 +6195,26 @@ FString UAIModFunctionLibrary::LogPipelinePumpTiersAsJson(UObject* WorldContextO
 		TierObject->SetNumberField(TEXT("defaultFlowLimit"), PumpCDO->GetDefaultFlowLimit());
 
 		TierJsonArray.Add(MakeShared<FJsonValueObject>(TierObject));
+	}
+
+	{
+		const TSubclassOf<AFGBuildable> ValveBuildableClass = ResolveBuildableClassForRecipe(ValveRecipePath);
+		const AFGBuildablePipelinePump* ValveCDO = ValveBuildableClass ? Cast<AFGBuildablePipelinePump>(ValveBuildableClass->GetDefaultObject()) : nullptr;
+		if (ValveCDO)
+		{
+			const TSharedRef<FJsonObject> ValveObject = MakeShared<FJsonObject>();
+			ValveObject->SetStringField(TEXT("kind"), TEXT("Valve"));
+			ValveObject->SetStringField(TEXT("recipeClass"), ValveRecipePath);
+			ValveObject->SetStringField(TEXT("buildableClass"), ValveBuildableClass->GetPathName());
+			ValveObject->SetNumberField(TEXT("maxHeadLift"), ValveCDO->GetMaxHeadLift());
+			ValveObject->SetNumberField(TEXT("designHeadLift"), ValveCDO->GetDesignHeadLift());
+			ValveObject->SetNumberField(TEXT("defaultFlowLimit"), ValveCDO->GetDefaultFlowLimit());
+			TierJsonArray.Add(MakeShared<FJsonValueObject>(ValveObject));
+		}
+		else
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("LogPipelinePumpTiersAsJson: could not resolve a AFGBuildablePipelinePump CDO for the Valve recipe '%s' - omitting"), ValveRecipePath);
+		}
 	}
 
 	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
@@ -6254,6 +6290,51 @@ FString UAIModFunctionLibrary::LogPipeFluidBoxesAsJson(UObject* WorldContextObje
 	const FString JsonString = WriteCondensedJson(RootObject);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogPipeFluidBoxesAsJson: %d pipe segment(s)"), BoxJsonArray.Num());
+
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::LogPipeReservoirTiersAsJson(UObject* WorldContextObject)
+{
+	// Read-only telemetry, no World/player needed - mirrors
+	// LogPipelinePumpTiersAsJson's structure. Both recipes confirmed to
+	// resolve to AFGBuildablePipeReservoir via a direct grep of each
+	// .uasset's binary for the embedded class name string.
+	static const TCHAR* TierRecipePaths[] = {
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PipeStorageTank.Recipe_PipeStorageTank_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_IndustrialTank.Recipe_IndustrialTank_C"),
+	};
+
+	TArray<TSharedPtr<FJsonValue>> TierJsonArray;
+	for (const TCHAR* RecipePath : TierRecipePaths)
+	{
+		const TSubclassOf<AFGBuildable> BuildableClass = ResolveBuildableClassForRecipe(RecipePath);
+		const AFGBuildablePipeReservoir* ReservoirCDO = BuildableClass ? Cast<AFGBuildablePipeReservoir>(BuildableClass->GetDefaultObject()) : nullptr;
+		if (!ReservoirCDO)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("LogPipeReservoirTiersAsJson: could not resolve a AFGBuildablePipeReservoir CDO for '%s' - omitting"), RecipePath);
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> TierObject = MakeShared<FJsonObject>();
+		TierObject->SetStringField(TEXT("recipeClass"), RecipePath);
+		TierObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
+		// Real public BlueprintPure getters - no reflection needed.
+		// Units per AFGBuildablePipeReservoir.h's own doc comments:
+		// capacity in [m^3], flow limit in [m^3/s].
+		TierObject->SetNumberField(TEXT("maxContentM3"), ReservoirCDO->GetFluidContentMax());
+		TierObject->SetNumberField(TEXT("flowLimit"), ReservoirCDO->GetFlowLimit());
+
+		TierJsonArray.Add(MakeShared<FJsonValueObject>(TierObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("tiers"), TierJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogPipeReservoirTiersAsJson: %s"), *JsonString);
 
 	return JsonString;
 }
