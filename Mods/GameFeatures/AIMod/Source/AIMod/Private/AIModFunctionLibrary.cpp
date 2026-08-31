@@ -3863,6 +3863,46 @@ FAIModOperationResult UAIModFunctionLibrary::SetBuildableRotation(UObject* World
 	return FAIModOperationResult::Success();
 }
 
+FAIModOperationResult UAIModFunctionLibrary::SetBuildableColor(UObject* WorldContextObject, const FString& BuildableId, float PrimaryR, float PrimaryG, float PrimaryB, float SecondaryR, float SecondaryG, float SecondaryB, bool bHasSecondaryColor)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
+	if (!Buildable)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+	}
+
+	if (!Buildable->GetCanBeColored_Native())
+	{
+		return FAIModOperationResult::Failure(TEXT("NOT_COLORABLE"), FString::Printf(TEXT("'%s' reports GetCanBeColored_Native()=false"), *BuildableId));
+	}
+
+	// Start from the EXISTING data (not a fresh default-constructed
+	// struct) so SwatchDesc/PatternDesc/MaterialDesc/SkinDesc are
+	// preserved - only the color override and slot are touched. See
+	// this function's header doc comment for the full source-confirmed
+	// rationale (FGColorInterface.h/FGFactoryColoringTypes.h).
+	FFactoryCustomizationData NewData = Buildable->GetCustomizationData_Native();
+	NewData.OverrideColorData.PrimaryColor = FLinearColor(PrimaryR, PrimaryG, PrimaryB, 1.0f);
+	NewData.OverrideColorData.SecondaryColor = bHasSecondaryColor
+		? FLinearColor(SecondaryR, SecondaryG, SecondaryB, 1.0f)
+		: FLinearColor(PrimaryR, PrimaryG, PrimaryB, 1.0f);
+	NewData.ColorSlot = INDEX_CUSTOM_COLOR_SLOT;
+
+	Buildable->SetCustomizationData_Native(NewData);
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetBuildableColor: %s primary=(%.2f,%.2f,%.2f) secondary=(%.2f,%.2f,%.2f)"),
+		*BuildableId, PrimaryR, PrimaryG, PrimaryB,
+		NewData.OverrideColorData.SecondaryColor.R, NewData.OverrideColorData.SecondaryColor.G, NewData.OverrideColorData.SecondaryColor.B);
+
+	return FAIModOperationResult::Success();
+}
+
 FAIModOperationResult UAIModFunctionLibrary::DebugCheckPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;

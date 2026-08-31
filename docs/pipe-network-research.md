@@ -294,6 +294,30 @@ rest of `satisfactory_ai`: these answer one question each about
 already-known numbers; they don't fetch telemetry or choose a network
 topology.
 
+## Pipe variants (indicator vs "smooth") and color-coding by content
+
+Confirmed 2026-08-31, same binary-grep technique as the Valve/fluid
+buffer findings above: `Recipe_Pipeline_NoIndicator`/
+`Recipe_PipelineMK2_NoIndicator` (the "smooth pipe" the user described -
+no floating fill-level indicator widget) both resolve to the exact same
+`FGBuildablePipeline` class as the normal, indicator-bearing recipes.
+Purely a cosmetic choice at construction time (whether the pipe spawns
+its child `AFGBuildablePipelineFlowIndicator` actor or not, per the
+already-documented `GetFlowIndicator()` accessor from the earlier
+orphaned-indicator cleanup work) - functionally identical flow limit,
+volume, and simulation behavior either way. `world.pipelineTiers`
+currently only queries the two indicator-bearing recipes; the
+NoIndicator variants would report identical numbers if added, so
+they're not separately listed.
+
+**Color-coding by content** (the user's stated motivation for asking
+about the "smooth" variant and customization together - e.g. blue pipes
+for water, yellow for acid, black for oil) is now directly supported by
+the new `world.setBuildableColor` RPC (see `RPC_REFERENCE.md`) - a
+general mechanic that works on any `AFGBuildable`, not pipe-specific,
+confirmed from `FGColorInterface.h`/`FGFactoryColoringTypes.h`. Not yet
+live-tested, including on a real pipe segment specifically.
+
 ## Genuinely open / not yet built
 
 - **No RPC exists yet to construct a Pipeline Pump or Junction as a

@@ -698,6 +698,46 @@ instead for lifts. This RPC's real behavior on OTHER buildable types
 unconfirmed — don't assume it works elsewhere just because it failed
 here.
 
+### `world.setBuildableColor` — **NOT YET LIVE-TESTED**
+`params: {"buildableId", "primaryR", "primaryG", "primaryB", "secondaryR" (optional), "secondaryG" (optional), "secondaryB" (optional)}`.
+Sets a buildable's paint color directly, bypassing the normal
+swatch-picker UI — works on any `AFGBuildable`, not just pipes, added
+2026-08-31 per explicit user request (motivating use case: color-coding
+pipes by content, e.g. blue for water, yellow for acid, black for oil —
+per the user, "the customization is the general mechanic used for
+changing the color or material of most in-game objects").
+
+All color channels are **`[0,1]` floats** (`FLinearColor` convention,
+not 0-255). `secondaryR/G/B` default to matching `primaryR/G/B` if
+omitted (most buildables only show one solid color to a casual glance —
+the primary/secondary split mainly matters for patterned buildables).
+Alpha is always 1.0 regardless of input — confirmed from source
+(`FFactoryCustomizationColorSlot::NetSerialize` explicitly forces
+`Alpha=1` on receive), so there's no point accepting it as a param.
+
+**Real mechanism, confirmed from source** (`FGColorInterface.h`/
+`FGFactoryColoringTypes.h`): `AFGBuildable` implements
+`IFGColorInterface` directly. `SetCustomizationData_Native()`'s own doc
+comment says it "should call ApplyCustomizationData" itself — one
+self-contained call, no separate apply step needed. This RPC reads the
+buildable's *existing* `FFactoryCustomizationData` first and only
+overwrites `OverrideColorData` (a direct RGB override, bypassing the
+normal `SwatchDesc` pre-made-palette system entirely) and `ColorSlot`
+(set to `INDEX_CUSTOM_COLOR_SLOT`, a real constant from
+`FGFactoryColoringTypes.h` whose own comment says it's "the index used
+to specify a 'slot' is a custom user color and thus not really a slot
+at all") — `SwatchDesc`/`PatternDesc`/`MaterialDesc`/`SkinDesc` are left
+untouched, so this doesn't clobber an existing pattern or material
+choice, only the color.
+
+Validates `GetCanBeColored_Native()` first and refuses with
+`NOT_COLORABLE` if false, rather than calling the setter on something
+the game itself says shouldn't be painted. **Real open question, not
+yet confirmed live**: whether setting `ColorSlot=INDEX_CUSTOM_COLOR_SLOT`
+is really sufficient on its own for the visual change to actually
+appear (vs. needing some other field combination) — inferred from the
+constant's own doc comment, not observed live.
+
 ### `world.setTimeOfDay`
 `params: {"hour" (0-23, required), "minute" (0-59, optional, default 0)}`.
 Forces the day/night cycle to that time; the cycle continues advancing

@@ -563,6 +563,57 @@ public:
 	static FAIModOperationResult SetBuildableRotation(UObject* WorldContextObject, const FString& BuildableId, float Yaw);
 
 	/**
+	 * Sets a buildable's paint color directly, bypassing the normal
+	 * swatch-picker UI (added 2026-08-31, offline research/prep per
+	 * explicit user request - color-coding pipes by content, e.g. blue
+	 * for water, yellow for acid, black for oil - "the customization is
+	 * the general mechanic used for changing the color or material of
+	 * most in-game objects," so this works on any AFGBuildable, not just
+	 * pipes).
+	 *
+	 * Real mechanism, confirmed from source (FGColorInterface.h/
+	 * FGFactoryColoringTypes.h, not guessed): AFGBuildable implements
+	 * IFGColorInterface directly. SetCustomizationData_Native()'s own
+	 * doc comment says it "should call ApplyCustomizationData" itself -
+	 * a single, self-contained call, no separate Apply step needed.
+	 * Colors are set via FFactoryCustomizationData::OverrideColorData
+	 * (a FFactoryCustomizationColorSlot with real FLinearColor Primary/
+	 * SecondaryColor fields) - this bypasses the normal SwatchDesc
+	 * (pre-made palette) entirely for a direct, arbitrary RGB override.
+	 * ColorSlot is set to INDEX_CUSTOM_COLOR_SLOT (255,
+	 * FGFactoryColoringTypes.h's own real constant: "the index used to
+	 * specify a 'slot' is a custom user color and thus not really a slot
+	 * at all") so the override takes visual precedence over whatever
+	 * swatch/slot was previously active.
+	 *
+	 * Reads the buildable's EXISTING FFactoryCustomizationData first
+	 * (GetCustomizationData_Native()) and only overwrites
+	 * OverrideColorData/ColorSlot - SwatchDesc/PatternDesc/MaterialDesc/
+	 * SkinDesc are left untouched, so this doesn't clobber an existing
+	 * pattern or material choice, only the color.
+	 *
+	 * Color channels are [0,1] floats (FLinearColor convention, not
+	 * 0-255) - secondaryR/G/B default to the same value as primary if
+	 * omitted (most buildables only show one solid color to a casual
+	 * glance; the primary/secondary split matters mainly for patterned
+	 * buildables). Alpha is always 1.0 - FFactoryCustomizationColorSlot's
+	 * NetSerialize explicitly always sets Alpha=1 on receive, so a
+	 * caller-supplied alpha would never actually persist.
+	 *
+	 * Validates GetCanBeColored_Native() first and refuses with
+	 * NOT_COLORABLE if false, rather than calling the setter on
+	 * something the game itself says shouldn't be painted.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * In particular, whether setting ColorSlot=INDEX_CUSTOM_COLOR_SLOT
+	 * is really sufficient (vs. needing some other field combination) is
+	 * inferred from the constant's own doc comment, not confirmed by
+	 * observing a real color change in-game.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetBuildableColor(UObject* WorldContextObject, const FString& BuildableId, float PrimaryR, float PrimaryG, float PrimaryB, float SecondaryR, float SecondaryG, float SecondaryB, bool bHasSecondaryColor);
+
+	/**
 	 * Returns telemetry for the resource node the local player is
 	 * currently aiming at, via the same
 	 * AFGCharacterPlayer::GetBestUsableActor() GetTargetedManufacturer

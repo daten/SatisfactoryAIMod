@@ -552,6 +552,45 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	if (Method == TEXT("world.setBuildableColor"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		double PrimaryR = 0.0, PrimaryG = 0.0, PrimaryB = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("primaryR"), PrimaryR)
+			|| !ParamsObject->TryGetNumberField(TEXT("primaryG"), PrimaryG)
+			|| !ParamsObject->TryGetNumberField(TEXT("primaryB"), PrimaryB))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.primaryR/primaryG/primaryB must all be numbers in [0,1]")));
+			return true;
+		}
+		// secondary is optional - defaults to matching primary (see
+		// SetBuildableColor's own doc comment for why) if any of the
+		// three fields is missing.
+		double SecondaryR = 0.0, SecondaryG = 0.0, SecondaryB = 0.0;
+		const bool bHasSecondaryColor = ParamsObject->TryGetNumberField(TEXT("secondaryR"), SecondaryR)
+			&& ParamsObject->TryGetNumberField(TEXT("secondaryG"), SecondaryG)
+			&& ParamsObject->TryGetNumberField(TEXT("secondaryB"), SecondaryB);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetBuildableColor(GetGameInstance(), BuildableId,
+			static_cast<float>(PrimaryR), static_cast<float>(PrimaryG), static_cast<float>(PrimaryB),
+			static_cast<float>(SecondaryR), static_cast<float>(SecondaryG), static_cast<float>(SecondaryB), bHasSecondaryColor);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous - direct AFGTimeOfDaySubsystem::SetDaySeconds() call, no
 	// build gun/hologram involved. Added 2026-08-27 per explicit user
 	// request so live testing/observation isn't blocked by the day/night
