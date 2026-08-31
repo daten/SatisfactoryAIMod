@@ -3830,9 +3830,32 @@ FAIModOperationResult UAIModFunctionLibrary::SetBuildableRotation(UObject* World
 	const FRotator OldRotation = Buildable->GetActorRotation();
 	FRotator NewRotation = OldRotation;
 	NewRotation.Yaw = Yaw;
+
+	// Diagnostic (2026-08-31): SetActorRotation() alone reported success
+	// but produced ZERO actual change live (GetActorRotation() read back
+	// identical afterward, in the same process/call - not a replication
+	// issue). Real Unreal buildables commonly mark their root/mesh
+	// components Static for lighting/rendering optimization, which
+	// silently refuses runtime SetWorldRotation() (the warning macros for
+	// this are usually compiled out of Shipping, explaining the total
+	// silence in the log). Testing by forcing every scene component to
+	// Movable first, logging each one's ORIGINAL mobility so this either
+	// confirms the theory or rules it out.
+	TArray<USceneComponent*> SceneComponents;
+	Buildable->GetComponents<USceneComponent>(SceneComponents);
+	for (USceneComponent* Component : SceneComponents)
+	{
+		if (IsValid(Component))
+		{
+			UE_LOG(LogAIModAI, Display, TEXT("SetBuildableRotation: component %s original mobility=%d"), *Component->GetName(), static_cast<int32>(Component->Mobility.GetValue()));
+			Component->SetMobility(EComponentMobility::Movable);
+		}
+	}
+
 	Buildable->SetActorRotation(NewRotation);
 
-	UE_LOG(LogAIModAI, Display, TEXT("SetBuildableRotation: %s yaw %.2f -> %.2f"), *BuildableId, OldRotation.Yaw, Yaw);
+	const FRotator ActualRotation = Buildable->GetActorRotation();
+	UE_LOG(LogAIModAI, Display, TEXT("SetBuildableRotation: %s yaw %.2f -> requested %.2f, actual after SetActorRotation=%.2f"), *BuildableId, OldRotation.Yaw, Yaw, ActualRotation.Yaw);
 
 	return FAIModOperationResult::Success();
 }
@@ -7900,50 +7923,112 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 // Reuses FindFreeFactoryConnection/UFGFactoryConnectionComponent -
 // AFGBuildableConveyorLift shares the exact same connection component
 // type as regular belts (both derive from AFGBuildableConveyorBase).
-// NOT YET LIVE-TESTED. No post-end-click connectivity diagnostic is
-// available here (unlike belts' GetAnyConnectedBuildables() or pipes'
-// IsConnectionSnapped(), inherited from AFGSplineHologram which this
-// hologram does NOT derive from) - only the disqualifier list is logged.
 // No RouteMode param - lifts are a fixed vertical column, no bend/curve
 // concept applies.
-// CORRECTED 2026-08-30, two separate findings (see RPC_REFERENCE.md's
-// world.connectConveyorLift section for the full story) - the note that
-// used to be here conflated them into one wrong conclusion:
 //
-// 1. FIXED: FindFreeFactoryConnection/FindFreeFactoryConnectionNear (see
-//    their doc comments above) required an exact Input/Output direction
-//    match, so a wall/pole's FCD_SNAP_ONLY connector (a real, valid
-//    attachment point - "special case for conveyor poles" per
-//    FGFactoryConnectionComponent.h) was never found at all -
-//    NO_FACTORY_CONNECTION, reproduced live. Both finders now fall back
-//    to a free SnapOnly connector when no exact-direction match exists.
-//    IsConnected() is documented to always read false for SnapOnly
-//    regardless of real attachment state - not a bug, don't use it to
-//    judge whether a wall/pole slot is free.
-// 2. STILL OPEN, deliberately not pursued further (user decision
-//    2026-08-30): even with connector #1 fixed, height still lands at
-//    the hologram's ~400-unit default regardless of the real target's
-//    distance - confirmed even with 40 repeated UpdateHologramPlacement
-//    calls at the exact correct target hit (height never moved), so it's
-//    not a per-tick re-trace issue this mod can fix the way the belt
-//    hologram-drift bug was fixed. A real player builds arbitrary
-//    heights by where their camera is aimed when they click (no scroll -
-//    scroll only rotates the destination end's Input/Output, per the
-//    user) - that live camera-driven mechanism lives in
-//    AFGConveyorLiftHologram's actual (compiled-only, unavailable here)
-//    implementation and doesn't respond to this mod's synthetic
-//    FHitResult. Don't re-investigate without new evidence - instead
-//    design platform heights as multiples of this ~400-unit default so
-//    no bridging is needed.
+// CONNECTOR-FINDING: FIXED 2026-08-30 (see FindFreeFactoryConnection/
+// FindFreeFactoryConnectionNear's doc comments above for the full story).
+// A wall/pole's FCD_SNAP_ONLY connector - a real, valid attachment point
+// ("special case for conveyor poles" per FGFactoryConnectionComponent.h)
+// - was never found by either finder, which required an exact
+// Input/Output direction match, so any call targeting a wall failed
+// immediately with NO_FACTORY_CONNECTION. Both finders now fall back to
+// a free SnapOnly connector when no exact-direction match exists.
+// IsConnected() is documented to always read false for SnapOnly
+// regardless of real attachment state - not a bug, don't use it to judge
+// whether a wall/pole slot is free.
 //
-// Still true regardless of both: a lift travels straight up/down only,
-// X/Y locked to SourceConnection's real position - if the real
+// HEIGHT: an open, actively-investigated gap - a single call always
+// lands at the hologram's ~400-unit default regardless of the real
+// target's distance, where a real player can build an arbitrary height
+// in one piece by wherever their camera is aimed when they click (no
+// scroll wheel - scroll only rotates the destination end's Input/Output,
+// per the user). SIX hypotheses tried, all with real log evidence, five
+// ruled out (findings from 2026-08-30, kept here since each cost a full
+// live-test cycle and re-deriving any of them would waste another):
+//   1. Rotation origin point (source connector position vs the player's
+//      real actor location, as the vector origin for the deterministic
+//      look rotation) - no effect either way. Refined further
+//      (2026-08-31, offline research, NOT YET LIVE-TESTED): the
+//      "player's real location" used Character->GetActorLocation() (the
+//      pawn's root/capsule), not AFGCharacterPlayer::
+//      GetCameraComponentWorldLocation() (a real, dedicated accessor for
+//      the actual first-person camera position, offset upward from the
+//      capsule by roughly eye height) - now uses the real camera
+//      position, since any camera-position-based logic (per #6/#7)
+//      would otherwise have a systematic vertical offset error baked in
+//      regardless of whether #6/#7 themselves pan out.
+//   2. Connector type (SnapOnly wall vs a real machine Input/Output pair,
+//      e.g. splitter Output -> merger Input) - identical ~400-unit-stuck
+//      failure regardless, ruling out walls/SnapOnly as a factor.
+//   3. Absolute vs incremental hit updates - 40 repeated IDENTICAL target
+//      hits (no movement, unsurprising) vs a smooth 40-step Lerp sweep
+//      from the start position to the end position (ALSO zero movement
+//      at every single step) - rules out both an absolute-jump model and
+//      a delta/incremental model.
+//   4. Physical surface reference - Hit.Component set to a real
+//      UPrimitiveComponent from the target buildable (previously only
+//      Hit.HitObjectHandle, the actor, was set) - no effect,
+//      TrySnapToActor still returns false either way.
+//   5. Genuinely elapsed real time - held for an EXTRA 60 real ticks
+//      (~500ms, confirmed via real log timestamps) after construction
+//      would otherwise proceed, SetControlRotation+UpdateHologramPlacement
+//      reasserted every tick, height logged every 10 ticks - stayed at
+//      EXACTLY 400.0 the entire time. Retested hands-off (a possible
+//      mouse bump was flagged on the first run) - identical result.
+//   6. CURRENTLY BEING TESTED (2026-08-31, not yet live-verified): all
+//      five hypotheses above modified the FHitResult passed directly
+//      into LiftHologram->UpdateHologramPlacement()/TrySnapToActor() -
+//      but AFGBuildGun owns its OWN separate cached trace
+//      (FHitResult& GetHitResult(), a MUTABLE reference getter - a
+//      strong signal external code is meant to write to it, not just
+//      read it; TraceForBuilding() refreshes it from the REAL camera
+//      every AFGBuildGun::Tick()). If height is read from
+//      BuildGun->GetHitResult() internally rather than from whatever
+//      this mod passes into UpdateHologramPlacement() directly, none of
+//      hypotheses 1-5 could ever have worked, since none of them touched
+//      that member at all. Now writes directly into
+//      BuildGun->GetHitResult() before each click, reasserted every poll
+//      tick alongside the existing rotation/hit reassertion. WEAKENED
+//      by further header research the same day (see #7) - FGHologram.h
+//      documents SetHologramLocationAndRotation as taking hitResult by
+//      EXPLICIT PARAMETER, not silently reading a BuildGun member - but
+//      kept and tested anyway since it's cheap and something else in the
+//      per-frame orchestration might still read it.
+//   7. CURRENTLY BEING TESTED (2026-08-31, not yet live-verified, found
+//      via FGHologram.h's doc comments rather than trial-and-error):
+//      TrySnapToActor()'s doc comment says returning true means "no
+//      further location and rotation will be updated this frame by the
+//      build gun" - implying SetHologramLocationAndRotation() (which
+//      almost certainly does the real height computation for lifts,
+//      via the private UpdateTopTransform()) is called AUTOMATICALLY,
+//      ONLY when TrySnapToActor() returns false, as part of
+//      UpdateHologramPlacement()'s OWN internal orchestration - not
+//      something this function needs to trigger separately at all. This
+//      function calls UpdateHologramPlacement(hit) AND THEN a separate,
+//      explicit LiftHologram->TrySnapToActor(hit) (kept for its own
+//      return value, used in the diagnostic log) - if a failed
+//      TrySnapToActor() resets height/transform state in preparation
+//      for a fresh attempt, this REDUNDANT second call could be undoing
+//      a correct height UpdateHologramPlacement() already computed
+//      internally, on the very same line, one call earlier. Now logs
+//      GetHeight() immediately after UpdateHologramPlacement(), BEFORE
+//      the explicit TrySnapToActor() call, for both StartHit and EndHit
+//      - if that log ever shows a non-400 height that then reverts to
+//      400.0 by the very next log line, this is confirmed and the fix
+//      is simply deleting the redundant explicit TrySnapToActor() calls.
+//
+// Standing recommendation until #6/#7 are confirmed either way: design
+// platform/miner-interface heights as multiples of the ~400-unit default
+// so no bridging is needed, per RPC_REFERENCE.md's world.connectConveyorLift
+// section.
+//
+// Still true regardless of the above: a lift travels straight up/down
+// only, X/Y locked to SourceConnection's real position - if the real
 // destination isn't directly above/below the source, a separate
 // ConstructConveyorBelt call is still needed to bridge the horizontal
-// gap. The diagnostic logging directly below this comment is left in
-// place since it's genuinely useful for verifying a specific placement
-// live.
-void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
+// gap.
+void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -8022,19 +8107,9 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		return;
 	}
 
-	// Diagnostic experiment #4 (2026-08-30): experiments #1-3 (rotation
-	// origin, repeated identical calls, gradual Z-sweep) all left height
-	// completely unmoved at the ~400 default, even at very close range
-	// (4.4m in one earlier test) - ruling out rotation, absolute target,
-	// incremental delta, and aim-range as the cause. New hypothesis: the
-	// height computation may require a genuine physical-surface hit -
-	// Hit.Component (a real UPrimitiveComponent, what a real trace against
-	// a wall's mesh would populate) has never been set on this synthetic
-	// hit, only Hit.HitObjectHandle (the actor reference). If
-	// TrySnapToActor's real internal logic checks GetComponent() to
-	// confirm "this is really solid geometry, not nothing," a null
-	// Component could explain a 100%-consistent fallback to minimum
-	// height regardless of Location/rotation.
+	// Sets Hit.Component to a real UPrimitiveComponent (hypothesis #4 in
+	// this function's doc comment - ruled out, kept since it's harmless
+	// and matches what a real trace would populate anyway).
 	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection) -> FHitResult
 	{
 		FHitResult Hit;
@@ -8068,28 +8143,25 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString());
 
-	// Player-independence, take 3 (2026-08-30) - take 2's rotation
-	// (2026-08-27, commit 524f4f951e) used the vector from the SOURCE
-	// CONNECTOR to the dest connector, applied as the PLAYER's rotation.
-	// That's the right direction only if the trace/height computation
-	// this rotation feeds originates AT the source connector - but it's
-	// applied to the PLAYER controller, and the player is generally
-	// standing somewhere else entirely (measured live 2026-08-30: ~425
-	// units off in Y from the source connector in one real test). Before
-	// take 2 existed (no override at all, see git history), height came
-	// from the player's REAL live aim - which only worked because a real
-	// human was standing there actually looking at the real target,
-	// consistent with the user's own description of how they build a
-	// custom-height lift ("the height follows my view"). Take 2 broke
-	// that for any non-trivial player/source offset: a live-verified
-	// wall-to-wall lift test the same day got stuck at a fixed ~400-unit
-	// default height using take 2's rotation. Take 3 computes the look
-	// direction from the PLAYER's real location instead, so the
-	// resulting ray - however the engine's internal pathing actually uses
-	// it - originates from where the player actually is, same as take
-	// 2's stated intent (player-independent) but geometrically correct
-	// for whatever camera-position-based logic reads it.
-	const FRotator LiftDeterministicLook = (DestConnection->GetConnectorLocation() - Character->GetActorLocation()).Rotation();
+	// Player-independence rotation (hypothesis #1 in this function's doc
+	// comment - ruled out on its own, kept since a deterministic look
+	// direction is still needed for general player-independence, matching
+	// ConstructConveyorBelt's identical pattern). Computed from the
+	// PLAYER's real location, not the source connector's - see hypothesis
+	// #1's writeup for why that distinction mattered.
+	//
+	// Take 4 (2026-08-31, found during offline research, NOT YET
+	// LIVE-TESTED): take 3 used Character->GetActorLocation(), the
+	// pawn's root/capsule position - NOT the same as the camera. Found
+	// AFGCharacterPlayer::GetCameraComponentWorldLocation(), a real,
+	// dedicated accessor for the actual first-person camera position,
+	// which is offset upward from the capsule root by roughly eye
+	// height. If any camera-position-based logic is involved in height/
+	// placement (per hypotheses #6/#7's reasoning), using the capsule
+	// root instead of the real eye position bakes in a systematic
+	// vertical error on top of whatever #6/#7 do or don't fix - using
+	// the real camera location now regardless.
+	const FRotator LiftDeterministicLook = (DestConnection->GetConnectorLocation() - Character->GetCameraComponentWorldLocation()).Rotation();
 	if (AController* LiftController = Character->GetController())
 	{
 		LiftController->SetControlRotation(LiftDeterministicLook);
@@ -8098,17 +8170,25 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
 	const bool bStartHitValid = LiftHologram->IsValidHitResult(StartHit);
 	LiftHologram->UpdateHologramPlacement(StartHit);
+	// Hypothesis #7 (2026-08-31, NOT YET LIVE-TESTED) - see this
+	// function's doc comment. UpdateHologramPlacement() is documented to
+	// already call TrySnapToActor()/SetHologramLocationAndRotation()
+	// internally with whatever hit it's given - the explicit, SEPARATE
+	// TrySnapToActor() call below (kept for its own return value, used
+	// in the diagnostic log) may be redundant, and if a failed
+	// TrySnapToActor() resets height/transform state in preparation for
+	// a fresh attempt, this redundant second call could be undoing a
+	// correct height UpdateHologramPlacement() just computed internally.
+	// Logging height BEFORE the explicit call to check.
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height immediately after UpdateHologramPlacement(StartHit), before explicit TrySnapToActor=%.1f"), LiftHologram->GetHeight());
+	// Hypothesis #6 (2026-08-31, NOT YET LIVE-TESTED) - see this
+	// function's doc comment. Injects the same hit directly into the
+	// build gun's own cached trace, in case height is read from there
+	// rather than from whatever's passed into UpdateHologramPlacement().
+	BuildGun->GetHitResult() = StartHit;
 	const bool bStartSnapped = LiftHologram->TrySnapToActor(StartHit);
 	const bool bStartStepComplete = LiftHologram->DoMultiStepPlacement(true);
 
-	// Diagnostic (2026-08-30): TrySnapToActor()'s own return value was
-	// previously discarded - logging it directly, plus GetHeight()
-	// (public accessor for the lift's current top-transform Z) and
-	// IsValidHitResult() (checked BEFORE UpdateHologramPlacement, to see
-	// whether the synthetic hit is even accepted), to investigate a
-	// live-confirmed 100%-reproducible bug where the destination end
-	// never actually attaches even though every step reports complete
-	// and the RPC reports success.
 	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after start click: hitValid=%s snapped=%s stepComplete=%s height=%.1f disqualifiers=[%s]"),
 		*SourceBuildableId, *DestBuildableId, bStartHitValid ? TEXT("true") : TEXT("false"), bStartSnapped ? TEXT("true") : TEXT("false"), bStartStepComplete ? TEXT("true") : TEXT("false"), LiftHologram->GetHeight(), *SummarizeDisqualifiers(LiftHologram));
 
@@ -8119,45 +8199,53 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		return;
 	}
 
-	// Diagnostic experiment #2 (2026-08-30): the upward-normal hypothesis
-	// was wrong (height still stuck at the minimum regardless). New
-	// hypothesis: height adjusts INCREMENTALLY per UpdateHologramPlacement()
-	// call (mimicking a real mouse-drag/scroll-style interaction, per
-	// mStepHeight existing as a private field on the hologram) rather
-	// than jumping straight to a target from one call. Testing by
-	// calling it repeatedly with the same target hit and logging height
-	// at intervals to see whether it climbs toward the destination.
 	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
 	const bool bEndHitValid = LiftHologram->IsValidHitResult(EndHit);
+	LiftHologram->UpdateHologramPlacement(EndHit);
+	// Hypothesis #7 (2026-08-31) - same check as on StartHit above.
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height immediately after UpdateHologramPlacement(EndHit), before explicit TrySnapToActor=%.1f"), LiftHologram->GetHeight());
+	// Hypothesis #6 (2026-08-31, NOT YET LIVE-TESTED) - see this
+	// function's doc comment and the identical injection on StartHit
+	// above.
+	BuildGun->GetHitResult() = EndHit;
+	const bool bEndSnapped = LiftHologram->TrySnapToActor(EndHit);
 
-	// Diagnostic experiment #3 (2026-08-30): experiment #2 (repeated calls
-	// with the IDENTICAL target hit) never moved height at all, including
-	// on the very first call - suggesting height doesn't jump to an
-	// absolute target in one step, but responds to the DELTA between
-	// successive aim points (mimicking a real mouse-drag/view-sweep,
-	// per the user's own description: "the height follows my view... no
-	// mouse wheel"). An identical repeated hit has zero delta between
-	// calls, which would explain zero movement either way. Testing by
-	// sweeping the hit's Location gradually from the START hit to the
-	// END hit across many calls, instead of jumping straight there.
-	for (int32 i = 0; i < 40; ++i)
+	// FreeEndRotationSteps (2026-08-31): rotates the still-unconnected
+	// end in 90-degree increments via ScrollRotate() BEFORE the final
+	// click, mirroring ConstructBuildingAtPosition's established
+	// Scroll()-called-N-times-per-notch pattern (see its comment) - a
+	// real player can only do this while the hologram is still being
+	// placed, per the user, matching why world.setBuildableRotation
+	// failed silently on an already-built lift.
+	//
+	// Explicit zero-reset FIRST, unconditionally (2026-08-31, per the
+	// user's own description: a fresh lift's free-end orientation "may
+	// default to the orientation of the last-placed lift" - if
+	// mScrollRotation is a value that persists/carries forward across
+	// hologram instances rather than resetting per-spawn, ScrollRotate()
+	// calls here would land on top of an unpredictable inherited
+	// baseline, not a clean zero - defeating the whole point of exposing
+	// this as a deterministic RPC param. SetScrollRotateValue(0) forces a
+	// known starting point every call, whether or not rotation was
+	// requested, so the NO-rotation-requested default also becomes
+	// deterministic instead of inheriting whatever a previous build left
+	// behind. NOT YET LIVE-TESTED - including whether 0 is really the
+	// hologram's own "natural"/unrotated baseline value.
+	LiftHologram->SetScrollRotateValue(0);
+	if (FreeEndRotationSteps != 0)
 	{
-		const float Alpha = static_cast<float>(i + 1) / 40.0f;
-		FHitResult SweepHit = EndHit;
-		SweepHit.Location = FMath::Lerp(StartHit.Location, EndHit.Location, Alpha);
-		SweepHit.ImpactPoint = SweepHit.Location;
-		LiftHologram->UpdateHologramPlacement(SweepHit);
-		if (i % 5 == 0)
+		const int32 ScrollRotateStep = FreeEndRotationSteps > 0 ? 1 : -1;
+		for (int32 i = 0; i < FMath::Abs(FreeEndRotationSteps); ++i)
 		{
-			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: sweep call #%d alpha=%.2f sweepZ=%.1f: height=%.1f"), i, Alpha, SweepHit.Location.Z, LiftHologram->GetHeight());
+			LiftHologram->ScrollRotate(ScrollRotateStep, 90);
 		}
 	}
-	LiftHologram->UpdateHologramPlacement(EndHit);
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: after final exact-target call: height=%.1f"), LiftHologram->GetHeight());
-	const bool bEndSnapped = LiftHologram->TrySnapToActor(EndHit);
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: freeEndRotationSteps=%d scrollRotateValue after reset+rotate=%d"),
+		FreeEndRotationSteps, LiftHologram->GetScrollRotateValue());
+
 	const bool bEndStepComplete = LiftHologram->DoMultiStepPlacement(true);
 
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after end click (repeated-call test): hitValid=%s snapped=%s stepComplete=%s height=%.1f expectedHeight=%.1f disqualifiers=[%s]"),
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after end click: hitValid=%s snapped=%s stepComplete=%s height=%.1f expectedHeight=%.1f disqualifiers=[%s]"),
 		*SourceBuildableId, *DestBuildableId, bEndHitValid ? TEXT("true") : TEXT("false"), bEndSnapped ? TEXT("true") : TEXT("false"), bEndStepComplete ? TEXT("true") : TEXT("false"), LiftHologram->GetHeight(),
 		DestConnection->GetConnectorLocation().Z - SourceConnection->GetConnectorLocation().Z, *SummarizeDisqualifiers(LiftHologram));
 
@@ -8172,6 +8260,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	{
 		TWeakObjectPtr<AFGConveyorLiftHologram> Hologram;
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<AFGBuildGun> BuildGun; // hypothesis #6, see below
 		TWeakObjectPtr<UWorld> World;
 		FString SourceBuildableId;
 		FString DestBuildableId;
@@ -8180,21 +8269,12 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		FHitResult EndHit; // re-asserted every poll tick, see below
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
-		// Diagnostic experiment #5 (2026-08-30): experiments #1-4 all ran
-		// entirely synchronously (zero real ticks elapsed) or exited the
-		// poll loop after just 1 real tick (Initializing clears fast).
-		// Testing whether height responds to genuinely elapsed real time -
-		// if it converges via a smoothed/interpolated rate rather than an
-		// instant snap, 1 tick (a few ms) wouldn't be nearly enough to
-		// climb from 400 to a 1000+ target. Holds an EXTRA 60 real ticks
-		// (~1s at 60fps) after Initializing clears, still reasserting
-		// rotation+EndHit every tick, logging height at intervals.
-		int32 HeightSettleTicksRemaining = 60;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
 	};
 	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
 	PollState->Hologram = LiftHologram;
 	PollState->Character = Character;
+	PollState->BuildGun = BuildGun;
 	PollState->World = World;
 	PollState->SourceBuildableId = SourceBuildableId;
 	PollState->DestBuildableId = DestBuildableId;
@@ -8236,6 +8316,14 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		// TickState_Implementation live-camera-trace rationale).
 		PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
+		// Hypothesis #6 (2026-08-31, NOT YET LIVE-TESTED) - see this
+		// function's doc comment. Reasserted every tick alongside the
+		// above, same rationale.
+		if (AFGBuildGun* PollBuildGun = PollState->BuildGun.Get())
+		{
+			PollBuildGun->GetHitResult() = PollState->EndHit;
+		}
+
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
 		PollHologram->GetConstructDisqualifiers(Disqualifiers);
 		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
@@ -8247,21 +8335,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 			return;
 		}
 
-		// Diagnostic experiment #5 (2026-08-30, see HeightSettleTicksRemaining's
-		// doc comment) - hold here for extra real ticks purely to see
-		// whether height ever moves given real elapsed time, logging every
-		// 10 ticks.
-		if (PollState->HeightSettleTicksRemaining > 0)
-		{
-			if (PollState->HeightSettleTicksRemaining % 10 == 0)
-			{
-				UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (settle wait): %d tick(s) remaining, height=%.1f"), PollState->HeightSettleTicksRemaining, PollHologram->GetHeight());
-			}
-			--PollState->HeightSettleTicksRemaining;
-			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
-			return;
-		}
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (settle wait complete): final height=%.1f"), PollHologram->GetHeight());
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (initializing cleared): height=%.1f"), PollHologram->GetHeight());
 
 		// Player-independence fix - same rationale as ConstructConveyorBelt's
 		// identical block above.

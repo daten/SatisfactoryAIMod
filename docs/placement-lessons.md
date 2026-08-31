@@ -1394,33 +1394,47 @@ is *documented* (engine header) to always read `false` regardless of
 real attachment state - don't use `world.connections`' `connected` field
 to judge whether a wall/pole slot is free.
 
-**Finding #2, genuinely open, deliberately not being pursued further
-(user decision 2026-08-30)**: even with Finding #1 fixed, a single
-`ConstructConveyorLift` RPC call still only produces the hologram's
-~400-unit default rise, regardless of the real destination's distance -
-confirmed even feeding the exact correct target position 40 times in a
-row with no change in height. A real player CAN build an arbitrary
-height in one piece (the user's reference structure proves it - 1200
-units, no chaining) by however far their camera happens to be aimed when
-they click; scroll wheel is used only to rotate the destination end's
-Input/Output orientation, not height. That live, camera-driven height
-mechanism lives inside `AFGConveyorLiftHologram`'s actual implementation,
-which is compiled into the shipping binary and not available to read in
-this SDK (only stub `.cpp` bodies ship) - so this can't be fixed the way
-the belt hologram-placement-drift bug was (there, the fix was
-`UpdateHologramPlacement()` reasserting a value the engine's own tick
-was overwriting; here, feeding the exact right value repeatedly still
-doesn't move the needle, meaning the height computation doesn't come from
-this mod's synthetic hit at all). **Chaining lift segments each rising
-their own ~400 units still works as a fallback** (each segment's real
-`Output`, read via `world.connections`, becomes the next segment's
-destination) but is no longer the recommended default - instead, **design
-platform/miner-interface heights as multiples of the ~400-unit default**
-so a single lift call reaches the target with no bridging or chaining
-needed at all. If a platform's height can't land on that offset, the
-residual gap needs a belt with enough horizontal run to incline to it
-(see belts' real max-incline limit, `world.conveyorBeltTiers`) rather
-than a steep short bridge.
+**Finding #2, genuinely open, actively being re-investigated (2026-08-31
+update - supersedes the 2026-08-30 "deliberately postponed" framing)**:
+even with Finding #1 fixed, a single `ConstructConveyorLift` RPC call
+still only produces the hologram's ~400-unit default rise, regardless of
+the real destination's distance - confirmed even feeding the exact
+correct target position 40 times in a row with no change in height. A
+real player CAN build an arbitrary height in one piece by however far
+their camera happens to be aimed when they click (scroll wheel only
+rotates the destination end's Input/Output orientation, not height) -
+confirmed twice now: the user's hand-built wall→lift→wall reference
+(1200 units, 2026-08-30) AND a real historical build the user pointed to
+directly, on a 2026-08-27 11:51AM save, that achieved a 1600-unit rise
+via THIS MOD'S OWN RPC, repeatedly.
+
+**This is a real regression, not an inherent limitation** - `git log`
+traces it to commit `524f4f951e` ("Fix belt/lift camera dependency for
+real", 2026-08-27 12:31, ~40 minutes after the working save), which
+added a `SetControlRotation()` override to `ConstructConveyorLift` for
+player-independence. Before that commit there was no override at all,
+and height came from the player's real, live camera - meaning the
+2026-08-27 build only worked because a real human was actually standing
+there aiming at the target when the RPC call fired. See
+`AIModFunctionLibrary.cpp`'s `ConstructConveyorLift` doc comment for the
+full numbered list of hypotheses tried - five ruled out with real log
+evidence (rotation origin, connector type, absolute-vs-incremental hit
+updates, a real `Hit.Component` reference, genuinely elapsed real time
+up to 500ms), two more (#6: inject the hit into `AFGBuildGun`'s own
+cached trace; #7: a redundant explicit `TrySnapToActor()` call may be
+resetting a height `UpdateHologramPlacement()` already computed
+correctly) added 2026-08-31 from careful `FGHologram.h` doc-comment
+reading, compiled but **not yet live-tested**.
+
+**Until #6/#7 are tested, the practical fallback remains**: chaining
+lift segments each rising their own ~400 units works (each segment's
+real `Output`, read via `world.connections`, becomes the next segment's
+destination), or **design platform/miner-interface heights as multiples
+of the ~400-unit default** so a single lift call reaches the target with
+no bridging or chaining needed at all. If a platform's height can't land
+on that offset, the residual gap needs a belt with enough horizontal run
+to incline to it (see belts' real max-incline limit,
+`world.conveyorBeltTiers`) rather than a steep short bridge.
 
 **Existing-connection direction inheritance (2026-08-30, user-reported,
 not yet independently verified in this codebase)**: if either end of a
@@ -1469,11 +1483,26 @@ neighbors. Confirmed by direct user inspection in-game:
   to match via `rotationScrollDelta` at placement time, rather than placing
   everything at default rotation and letting belts bend around whatever
   mismatch results.
-- **User-confirmed, not yet re-verified in this codebase**: a vertical
-  lift's input/output *can* be rotated in 90° increments — but only while
-  it isn't yet connected to another belt/machine. Rotate it into the
-  desired facing first, then connect. This wasn't used for the first demo
-  chain; try it before falling back to letting the connect call decide.
+- **User-confirmed 2026-08-26, root cause pinned down 2026-08-31**: a
+  vertical lift's free (unconnected) end's facing direction lands
+  unpredictably - the user described it as likely inheriting from
+  whatever orientation the player's last-placed lift used, a convenience
+  default for chaining similar builds, not something to rely on. Real
+  players can only rotate it (in 90° increments, via mouse wheel) while
+  the hologram is still being placed - **not after construction**,
+  confirmed live 2026-08-31: `world.setBuildableRotation`'s
+  `SetActorRotation()` reported `success:true` on an already-built lift
+  but produced zero real change (`world.buildables`/`world.connections`
+  read back completely identical afterward - very likely `Static`
+  component mobility applied once a buildable is placed, matching the
+  user's own real-gameplay experience exactly). Use
+  `world.connectConveyorLift`'s `freeEndRotationSteps` param instead
+  (`AFGHologram::ScrollRotate()` called on the hologram before the final
+  click, added 2026-08-31, **not yet live-tested**) - it only affects
+  whichever end is still free; the already-connected end's orientation
+  is forced by its snap target regardless of scroll value, matching the
+  user's own description ("not talking about changing which end is
+  input/output, just the orientation of the unconnected end").
 - A splitter can be placed to **dock directly onto a lift's (or belt's)
   output** — no intermediate connecting belt needed — if its input
   connector is positioned to exactly coincide with the upstream output.

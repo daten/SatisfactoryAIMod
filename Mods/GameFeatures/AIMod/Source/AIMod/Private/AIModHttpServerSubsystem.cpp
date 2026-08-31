@@ -1377,8 +1377,18 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk1.Recipe_ConveyorLiftMk1_C");
 		}
 
+		// Optional, defaults to 0 (no rotation requested) - number of
+		// 90-degree ScrollRotate() steps to apply to the free end before
+		// the final click, see ConstructConveyorLift's doc comment.
+		int32 FreeEndRotationSteps = 0;
+		double FreeEndRotationStepsRaw = 0.0;
+		if (ParamsObject->TryGetNumberField(TEXT("freeEndRotationSteps"), FreeEndRotationStepsRaw))
+		{
+			FreeEndRotationSteps = static_cast<int32>(FreeEndRotationStepsRaw);
+		}
+
 		const bool bDryRun = Method == TEXT("world.testConveyorLift");
-		UAIModFunctionLibrary::ConstructConveyorLift(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRun,
+		UAIModFunctionLibrary::ConstructConveyorLift(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, FreeEndRotationSteps, bDryRun,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

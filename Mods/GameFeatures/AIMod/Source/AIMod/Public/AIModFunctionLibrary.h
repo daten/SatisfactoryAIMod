@@ -1320,8 +1320,28 @@ public:
 	 * column, no bend/curve concept applies. Same `bDryRun` switch and
 	 * real-construction posture as every other `Construct*` function.
 	 * Not a `UFUNCTION` - same reason as the other async entry points.
+	 *
+	 * FreeEndRotationSteps (2026-08-31, per explicit user correction):
+	 * a lift's free (not-yet-connected) end lands facing an
+	 * unpredictable direction, and per the user, real players can ONLY
+	 * rotate it while the hologram is still being placed - NOT after
+	 * construction (confirmed live the hard way: world.setBuildableRotation's
+	 * SetActorRotation() on an already-built lift reported success but
+	 * produced zero real change - the buildable's components are very
+	 * likely Static mobility once placed, matching the user's own
+	 * real-gameplay experience exactly). Real players rotate the free
+	 * end in 90-degree steps via mouse-wheel DURING placement (per the
+	 * user - not the same input as height, which follows their view with
+	 * no scroll wheel involved) - this is `AFGHologram::ScrollRotate()`,
+	 * called on `LiftHologram` BEFORE the final click, mirroring
+	 * `ConstructBuildingAtPosition`'s established `Scroll()`-called-N-
+	 * times-per-real-player-notch pattern for regular building rotation.
+	 * Positive rotates one way, negative the other, magnitude is number
+	 * of 90-degree steps. 0 (default) leaves rotation exactly as the
+	 * hologram itself would resolve it - NOT YET LIVE-TESTED, including
+	 * whether this actually affects the free end at all.
 	 */
-	static void ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+	static void ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
 	 * Telemetry. KEY FINDING (see docs/conveyor-attachment-research.md):

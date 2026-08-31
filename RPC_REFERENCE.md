@@ -544,6 +544,28 @@ Also works on vehicle ids returned by `world.constructVehicle`/
 to a `TActorIterator<AFGVehicle>` path-name match when the normal
 `FindBuildableById` lookup misses.
 
+### `world.setBuildableRotation`
+`params: {"buildableId", "yaw"}`. Rotates an existing buildable's yaw in
+place via plain `AActor::SetActorRotation()` — the same mechanism
+`world.placeBuilding`'s absolute `yaw` param uses at placement time,
+just applied after construction. Only changes yaw (pitch/roll
+preserved); does not change Input/Output flow direction.
+
+**Confirmed NOT to work on an already-built conveyor lift** (live-tested
+2026-08-31): reports `success:true` but produces zero actual change —
+`world.buildables`/`world.connections` read back completely identical
+positions/rotations/normals afterward. Matches the user's own real
+gameplay experience exactly: a lift's free end can only be rotated
+while its hologram is still being placed, not after construction (very
+likely `Static` component mobility applied once a buildable is placed,
+silently refusing runtime rotation — the warning for this is typically
+compiled out of Shipping builds, which is why nothing showed in the
+log). Use `world.connectConveyorLift`'s `freeEndRotationSteps` param
+instead for lifts. This RPC's real behavior on OTHER buildable types
+(especially ones without a hologram-only rotation constraint) is
+unconfirmed — don't assume it works elsewhere just because it failed
+here.
+
 ### `world.setTimeOfDay`
 `params: {"hour" (0-23, required), "minute" (0-59, optional, default 0)}`.
 Forces the day/night cycle to that time; the cycle continues advancing
@@ -846,7 +868,28 @@ remains the only strategy that reliably finishes a real belt.
 
 ### `world.testConveyorLift` / `world.connectConveyorLift` — asynchronous
 Same params shape as belts, `recipeClass` default Recipe_ConveyorLiftMk1
-(any Mk1-6). No `routeMode`.
+(any Mk1-6). No `routeMode`. New: `freeEndRotationSteps` (optional,
+default 0, integer) - number of 90-degree steps to rotate the lift's
+still-unconnected end before finishing construction (positive/negative
+= opposite directions, magnitude = step count). **NOT YET LIVE-TESTED.**
+Added 2026-08-31 because a lift's free end lands facing an unpredictable
+direction and - per the user, confirmed by a live failure of
+`world.setBuildableRotation` on an already-built lift - can only be
+rotated while still in hologram/placement mode, matching real player
+behavior exactly (real players use the mouse wheel for this, in
+90-degree steps, only before their final click). Implemented via
+`AFGHologram::ScrollRotate()` called on the lift hologram before the
+final click, mirroring `world.placeBuilding`'s established
+`rotationScrollDelta` pattern (call once per notch, not one call with
+an arbitrary magnitude - see that section above for why). Every call
+first resets the hologram's scroll-rotation to a known zero baseline via
+`SetScrollRotateValue(0)`, unconditionally - per the user, a fresh
+lift's free end may otherwise default to whatever orientation the
+*previous* lift build happened to use, which would make this param's
+effect depend on unrelated prior state instead of being deterministic.
+`world.setBuildableRotation` (below) remains available for OTHER
+buildable types where post-construction rotation might behave
+differently - just confirmed NOT to work for an already-built lift.
 
 **Wall/pole connectors — fixed and live-verified 2026-08-30.** Conveyor
 walls (`Build_Wall_Conveyor_8x4_*`) are real, valid connection targets
@@ -865,21 +908,64 @@ fall back to a free `SnapOnly` connector when no exact-direction match
 exists; ordinary machines (which never expose SnapOnly connectors) are
 unaffected.
 
-**Height control — open, deliberately postponed 2026-08-30 (user
-decision, not worth more investigation right now).** A real player can
-build a single lift spanning an arbitrary height (live-confirmed: 1200
-units in one piece, driven by where their camera is aimed when they
-click - no scroll wheel involved, scroll is used only for the
-destination end's Input/Output *rotation*, not height). This RPC cannot
-reproduce that: every synthetic-hit attempt lands at the hologram's
-~400-unit default regardless of the real destination's distance, even
-when the destination hit's position is exactly correct (confirmed via
-40 repeated `UpdateHologramPlacement` calls with an unchanged target -
-height never moved). The likely cause is a live per-tick camera trace
-inside `AFGConveyorLiftHologram`'s actual (unavailable, compiled-only)
-implementation that this mod's synthetic `FHitResult` doesn't trigger -
-not fixable from the header-only SDK available here. **Don't burn more
-investigation time on this without new evidence.**
+**Height control — open, actively being re-investigated 2026-08-31 (new
+evidence surfaced, two untested hypotheses pending a live-test cycle).**
+A real player can build a single lift spanning an arbitrary height
+(live-confirmed twice: 1200 units on 2026-08-30, 1600 units on a
+2026-08-27 save the user later loaded, both driven by where their camera
+is aimed when they click - no scroll wheel involved, scroll is used only
+for the destination end's Input/Output *rotation*, not height). This RPC
+cannot reproduce that: every synthetic-hit attempt lands at the
+hologram's ~400-unit default regardless of the real destination's
+distance.
+
+**Root cause identified, not yet fixed**: this is a real regression, not
+an inherent limitation. `git log` traces it to commit `524f4f951e`
+("Fix belt/lift camera dependency for real", 2026-08-27 12:31 - about 40
+minutes after the working 2026-08-27 11:51AM save the user later
+reloaded), which added a `SetControlRotation()` override for player-
+independence. Before that commit, `ConstructConveyorLift` had NO
+rotation override at all, and height came from the player's real, live
+camera - which only worked because a real human was standing there
+actually aiming at the target when the call fired.
+
+Five follow-up hypotheses have been tried live and ruled out, each with
+real log evidence (full writeup in `AIModFunctionLibrary.cpp`'s
+`ConstructConveyorLift` doc comment and `docs/placement-lessons.md`):
+rotation-origin point, connector type (SnapOnly vs real Input/Output -
+identical failure either way), absolute-vs-incremental hit updates (a
+40-step smooth sweep never moved height), a real `Hit.Component`
+reference, and genuinely elapsed real time (61 real ticks, ~500ms,
+continuous reassertion - height stayed exactly flat).
+
+**Two new hypotheses added 2026-08-31, compiled but NOT YET LIVE-TESTED**
+(found via careful reading of `FGHologram.h`'s doc comments rather than
+further trial-and-error):
+- **#6**: `AFGBuildGun` owns its own cached trace
+  (`FHitResult& GetHitResult()`, a mutable reference getter) refreshed
+  from the real camera every `AFGBuildGun::Tick()`. If height is read
+  from that member internally rather than from whatever this mod passes
+  into `UpdateHologramPlacement()` directly, none of hypotheses 1-5
+  could ever have worked. Now writes directly into
+  `BuildGun->GetHitResult()` before each click and every poll tick.
+- **#7**: `TrySnapToActor()`'s doc comment says returning `true` means
+  "no further location and rotation will be updated this frame by the
+  build gun" - implying `SetHologramLocationAndRotation()` (which likely
+  does the real height computation for lifts) is called AUTOMATICALLY
+  by `UpdateHologramPlacement()`'s own internal orchestration, only when
+  `TrySnapToActor()` returns false. This function calls
+  `UpdateHologramPlacement()` and then a SEPARATE, explicit
+  `TrySnapToActor()` (kept for its own return value) - if a failed
+  `TrySnapToActor()` resets height/transform state, that redundant
+  second call could be undoing a correct height the first call already
+  computed. Now logs `GetHeight()` immediately after
+  `UpdateHologramPlacement()`, before the explicit `TrySnapToActor()`
+  call, to check.
+
+**If both come back negative**, revert to the previous posture: design
+platform heights as multiples of the ~400-unit default instead (see
+below) - but don't assume that's necessary until these two are actually
+tested live.
 
 **Practical strategy instead of height-matching**: design raised
 platforms/miner interfaces so the platform's height offset from its
