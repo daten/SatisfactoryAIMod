@@ -1512,6 +1512,93 @@ not-yet-exposed capability (real source API exists:
 `AFGWheeledVehicleIdentifier::SetVehicleRoute`/`AddWaypoint`/
 `SetAutopilotEnabled`). **Not yet live-tested.**
 
+### `world.constructBeam` — asynchronous, **NOT YET LIVE-TESTED**
+`params: {"recipeClass" (required), "startX"/"startY"/"endX"/"endY"
+(required numbers), "startZ"/"endZ" (optional), "ignoreGroundTrace"
+(optional bool), "freeformMode" (optional bool, default false),
+"rotationScrollSteps" (optional int, default 0)}`
+
+Added 2026-08-31 per explicit user request ("how much control do we
+have over the intentional rotation and possibly dynamic length of beam
+related objects"). Architecture "Beam" pieces (`Recipe_Beam`/
+`Recipe_Beam_Support`/`Recipe_Beam_Cross`/etc — note the real content
+path is under `.../Prototype/Buildable/Beams/`, possibly still
+newer/less-finalized content) use their own dedicated hologram,
+`AFGBeamHologram`, a genuinely different placement paradigm from both
+`world.placeBuilding`'s single-click grid flow and the connector-to-
+connector spline flow `world.connectPipe`/`world.connectConveyor` use.
+Modeled directly on `world.constructVehiclePathSegment` just above
+(same shape: literal Start/End coordinates, same `ignoreGroundTrace`
+convention, same two-click flow) since both hologram classes share the
+same underlying construction contract; **not** modeled on the
+pipe/belt functions, which need real connector components neither
+holograms have.
+
+**Ground-tracing both ends independently (the default) places a beam
+flat along the terrain at each end's height — not a diagonal support
+between two elevated points**, which is beams' most compelling actual
+use case. For a real angled/diagonal beam, pass `ignoreGroundTrace:
+true` with explicit `startZ`/`endZ` — the ground-trace default only
+exists for consistency with every other `world.construct*` method, not
+because it's the useful mode for beams specifically.
+
+`freeformMode` selects between the hologram's two real, distinct build
+modes (confirmed from source, `AFGBeamHologram::mBuildModeDiagonal`/
+`mBuildModeFreeForm`, read via reflection since they're protected with
+no public getter): `false` (default) snaps to vertical/diagonal angles
+only; `true` allows an arbitrary angle — exactly the Start→End vector.
+
+`rotationScrollSteps` mirrors `world.connectConveyorLift`'s
+`freeEndRotationSteps` pattern, but queries the beam hologram's real,
+overridden `GetRotationStep()` at runtime instead of assuming 90° —
+confirmed from source that beams genuinely override this, meaning real
+finer-than-default rotation precision, not just a UI illusion. Since a
+beam's yaw/pitch are already fully determined by the Start→End vector,
+this is inferred (not confirmed live) to control roll around the
+beam's own long axis — first thing to check against a real placed beam
+if it doesn't do what's expected.
+
+**Length is not construction-time-only** — see `world.setBeamLength`
+below for adjusting an already-placed beam directly. This function's
+own length is simply the distance between Start and End, clamped by
+the hologram to the recipe's real max length (not independently
+validated here — a too-long request should surface as a real construct
+disqualifier).
+
+### `world.setBeamLength` — `{"buildableId", "newLength"}`, **NOT YET LIVE-TESTED**
+```json
+{ "success": true, "result": { "detail": { "oldLength": 800.0, "newLength": 1600.0, "maxLength": 2400.0 } } }
+```
+Companion to `world.constructBeam` — adjusts an **already-placed**
+beam's length directly. Unlike most of this project's other "length"
+concerns (pipe segments, conveyor lifts), a beam's length is a real,
+permanent, always-adjustable property of the placed actor itself, not
+just a hologram-time preview — confirmed from source
+(`FGBuildableBeam.h`): `AFGBuildableBeam::GetLength()`/`SetLength(float)`,
+bounded by real `GetDefaultLength()`/`GetMaxLength()`. This is a direct
+call to that real setter — no build-gun/hologram flow involved.
+`newLength` is rejected (`INVALID_LENGTH`) if `<= 0` or `>` the beam's
+real `maxLength`.
+
+`buildableId` accepts either a plain buildable id or this project's
+`lightweight:<class>|<index>` synthetic id (see `world.buildables`) —
+beams derive from the same lightweight-instancing base foundations use,
+so most placed beams aren't real actors until materialized via the
+same `AFGLightweightBuildableSubsystem::FindOrSpawnBuildableForRuntimeData()`
+path `world.deleteBuilding` already established for lightweight
+dismantle.
+
+**Real, specific, flagged uncertainty**: whether calling `SetLength()`
+on a temporary actor materialized this way correctly persists back into
+the lightweight instance data (visible on the next `world.buildables`
+call or save), or only affects the transient temporary actor.
+`FGBuildableBeam.h`'s own lightweight-data round-trip functions
+(`GetLightweightTypeSpecificData()`/`ApplyLightweightTypeSpecificData()`,
+carrying a real `BeamLength` field) strongly suggest the sync path is
+real, first-class game logic — but this is inference from struct shape,
+not a confirmed call trace. First thing to verify live: set a beam's
+length, then re-query `world.buildables` and confirm the change stuck.
+
 ### `world.milestoneProgress` — synchronous, no params
 ```json
 {

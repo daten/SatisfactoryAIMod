@@ -1719,6 +1719,89 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.constructBeam - see ConstructBeam's doc comment. NOT YET
+	// LIVE-TESTED.
+	if (Method == TEXT("world.constructBeam"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		double StartX = 0.0, StartY = 0.0, EndX = 0.0, EndY = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("startX"), StartX) || !ParamsObject->TryGetNumberField(TEXT("startY"), StartY)
+			|| !ParamsObject->TryGetNumberField(TEXT("endX"), EndX) || !ParamsObject->TryGetNumberField(TEXT("endY"), EndY))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.startX/startY/endX/endY must all be numbers")));
+			return true;
+		}
+
+		double StartZ = -1000000.0;
+		double EndZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("startZ"), StartZ);
+		ParamsObject->TryGetNumberField(TEXT("endZ"), EndZ);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		bool bFreeformMode = false;
+		ParamsObject->TryGetBoolField(TEXT("freeformMode"), bFreeformMode);
+
+		double RotationScrollSteps = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("rotationScrollSteps"), RotationScrollSteps);
+
+		UAIModFunctionLibrary::ConstructBeam(GetGameInstance(), RecipeClassPath,
+			static_cast<float>(StartX), static_cast<float>(StartY), static_cast<float>(StartZ),
+			static_cast<float>(EndX), static_cast<float>(EndY), static_cast<float>(EndZ),
+			bIgnoreGroundTrace, bFreeformMode, static_cast<int32>(RotationScrollSteps),
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.setBeamLength - see SetBeamLength's doc comment. NOT YET
+	// LIVE-TESTED.
+	if (Method == TEXT("world.setBeamLength"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		double NewLength = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("newLength"), NewLength))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.newLength must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetBeamLength(GetGameInstance(), BuildableId, static_cast<float>(NewLength));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
 	// not implement GetWorld(); UGameInstance does.
 	FString MethodResultJson;

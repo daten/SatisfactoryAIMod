@@ -2168,6 +2168,133 @@ public:
 	static void ConstructVehiclePathSegment(UObject* WorldContextObject, const FString& RecipeClassPath, float StartX, float StartY, float StartZ, float EndX, float EndY, float EndZ, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
+	 * world.constructBeam (added 2026-08-31, explicit user request -
+	 * "how much control do we have over the intentional rotation and
+	 * possibly dynamic length of beam related objects"). Architecture
+	 * "Beam" pieces (`Recipe_Beam`/`Recipe_Beam_Support`/
+	 * `Recipe_Beam_Cross`/etc, `Content/.../Prototype/Buildable/Beams/`
+	 * - note the "Prototype" content path, this may still be
+	 * newer/less-finalized content than the rest of the catalog) use
+	 * their OWN dedicated hologram, `AFGBeamHologram :
+	 * AFGBuildableHologram` (`FGBeamHologram.h`) - a genuinely different
+	 * placement paradigm from both ConstructBuildingAtPosition's single-
+	 * click-on-grid flow and the connector-to-connector spline flow
+	 * ConstructPipe/ConstructConveyorBelt use. Modeled directly on
+	 * ConstructVehiclePathSegment just above (nearly identical shape:
+	 * literal Start/End coordinates, same bIgnoreGroundTrace convention,
+	 * same two-click TrySnapToActor+DoMultiStepPlacement(true) flow,
+	 * same deferred-poll-for-UFGCDInitializing-then-InternalConstructHologram
+	 * completion) since `AFGBeamHologram` shares the same
+	 * `DoMultiStepPlacement`/`GetConstructDisqualifiers` contract - NOT
+	 * modeled on ConstructPipe/ConstructConveyorBelt, which need real
+	 * connector components neither beams nor path segments have.
+	 *
+	 * Ground-tracing BOTH ends independently (the default,
+	 * `bIgnoreGroundTrace=false`) will place a beam flat along the
+	 * terrain surface at each end's ground height - NOT a diagonal
+	 * support between two elevated points, which is beams' most
+	 * compelling real use case per the user's own framing ("build more
+	 * complex visual architecture"). For an actual angled/diagonal beam,
+	 * callers almost certainly want `bIgnoreGroundTrace=true` with
+	 * explicit Start/EndZ - the ground-trace default exists only for
+	 * consistency with every other Construct* function in this file, not
+	 * because it's the useful mode here.
+	 *
+	 * `bFreeformMode` selects between the hologram's two real, distinct
+	 * build modes - confirmed from source (`AFGBeamHologram::
+	 * mBuildModeDiagonal`/`mBuildModeFreeForm`, both
+	 * `TSubclassOf<UFGHologramBuildModeDescriptor>`) but read here via
+	 * `FindFProperty` reflection since they're protected with no public
+	 * getter (first reflection read of a `TSubclassOf`/`FObjectPropertyBase`
+	 * field in this codebase, same "search the source, don't guess"
+	 * posture as every other reflection field read here), then applied
+	 * via the real, public `AFGHologram::SetBuildModeOverride()` before
+	 * the start click. `false` (default) uses `CreateVerticalBeam`
+	 * (vertical/diagonal-snapped angles only); `true` uses
+	 * `CreateFreeformBeam` (arbitrary angle, exactly the Start->End
+	 * vector).
+	 *
+	 * `RotationScrollSteps` mirrors ConstructConveyorLift's
+	 * `freeEndRotationSteps` pattern - `SetScrollRotateValue(0)` then
+	 * `ScrollRotate(direction, step)` called N times - but queries the
+	 * REAL runtime `Hologram->GetRotationStep()` for the step size
+	 * instead of a hardcoded 90 (its own doc comment: "0 or negative
+	 * means no override", falls back to 90 in that case) - confirmed
+	 * from source that `AFGBeamHologram` genuinely overrides this,
+	 * meaning beams get a real, finer per-notch rotation than ordinary
+	 * buildings, not just a visual illusion of precision. Applied AFTER
+	 * the end-click's `UpdateHologramPlacement`/`TrySnapToActor` but
+	 * BEFORE that click's `DoMultiStepPlacement(true)` - since a beam's
+	 * yaw/pitch are already fully determined by the Start->End vector,
+	 * this is a best-effort inference that it controls ROLL around the
+	 * beam's own long axis (which face of an asymmetric profile points
+	 * which way) - genuinely NOT confirmed live, first thing to check
+	 * against a real placed beam if this parameter appears to do
+	 * nothing or something unexpected.
+	 *
+	 * Real length is NOT a construction-time-only concern here - see
+	 * SetBeamLength below for adjusting an already-placed beam's length
+	 * directly via the real, permanent `AFGBuildableBeam::SetLength()`.
+	 * This function's own length is simply `Distance(Start, End)`,
+	 * clamped by the hologram to the recipe's real `mMaxLength` (not
+	 * independently validated here - a too-long request should surface
+	 * as a real construct disqualifier from the hologram itself, same
+	 * "let the real engine trace decide" posture as
+	 * ConstructExtractorOnNode).
+	 *
+	 * NOT YET LIVE-TESTED - implemented from header research only
+	 * (FGBeamHologram.cpp is a stub, real placement/build-mode/rotation
+	 * behavior unconfirmed).
+	 */
+	static void ConstructBeam(UObject* WorldContextObject, const FString& RecipeClassPath, float StartX, float StartY, float StartZ, float EndX, float EndY, float EndZ, bool bIgnoreGroundTrace, bool bFreeformMode, int32 RotationScrollSteps, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.setBeamLength (added 2026-08-31, companion to
+	 * world.constructBeam - same user request about beam length
+	 * control). Unlike most of this project's "length" concerns (pipe
+	 * segments, conveyor lifts), a beam's length is a real, permanent,
+	 * always-adjustable property of the PLACED actor itself, not just a
+	 * hologram-time preview - confirmed from source
+	 * (`FGBuildableBeam.h`): `AFGBuildableBeam::GetLength()`/
+	 * `SetLength(float)`, bounded by real `GetDefaultLength()`/
+	 * `GetMaxLength()`. This function is a direct call to that real
+	 * setter - it does not re-run any hologram/build-gun flow.
+	 *
+	 * `BuildableId` accepts BOTH a plain buildable id and this project's
+	 * `lightweight:<class>|<index>` synthetic id (see
+	 * MakeLightweightBuildableId, 2026-08-25) - beams derive from
+	 * `AFGBuildableFactoryBuildingLightweight`, the same lightweight-
+	 * instancing base as foundations, so most placed beams are NOT real
+	 * actors until materialized. Reuses the exact same
+	 * `AFGLightweightBuildableSubsystem::FindOrSpawnBuildableForRuntimeData()`
+	 * resolution DismantleBuildable already established, rather than
+	 * duplicating that logic.
+	 *
+	 * NewLength is rejected (`INVALID_LENGTH`) if `<= 0` or
+	 * `> GetMaxLength()` - a real, validated bound, not left to the
+	 * engine to silently clamp.
+	 *
+	 * REAL, SPECIFIC UNCERTAINTY (flagged, not assumed away): whether
+	 * calling `SetLength()` on a temporary actor materialized via
+	 * `FindOrSpawnBuildableForRuntimeData()` correctly persists back into
+	 * the lightweight instance data callers will see on the NEXT
+	 * `world.buildables`/save, or whether it only affects the transient
+	 * temporary actor. `FGBuildableBeam.h`'s own
+	 * `GetLightweightTypeSpecificData()`/`ApplyLightweightTypeSpecificData()`
+	 * override pair (round-tripping a real `FBuildableBeamLightweightData::
+	 * BeamLength` field) strongly suggests the sync path exists and is
+	 * real, first-class game logic - but this is inference from struct
+	 * shape, not a confirmed call trace (the actual sync call happens
+	 * inside stub-sourced .cpp bodies this project can't read). First
+	 * thing to verify live: set a beam's length, then re-query
+	 * world.buildables (or dismantle it) and confirm the change stuck.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetBeamLength(UObject* WorldContextObject, const FString& BuildableId, float NewLength);
+
+	/**
 	 * world.milestoneProgress (2026-08-29) - reports HUB milestone/tutorial
 	 * schematic progress by tier (AFGSchematicManager::GetHubSchematicsForTier/
 	 * GetTechTierState/GetRemainingCostFor/GetPaidOffCostFor/IsSchematicPurchased/

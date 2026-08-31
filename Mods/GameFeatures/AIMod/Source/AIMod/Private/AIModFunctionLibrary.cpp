@@ -114,6 +114,8 @@
 #include "FGMapManager.h"
 #include "FGIconDatabaseSubsystem.h"
 #include "FGEventSubsystem.h"
+#include "FGBuildableBeam.h"
+#include "Hologram/FGBeamHologram.h"
 
 namespace
 {
@@ -10386,6 +10388,387 @@ void UAIModFunctionLibrary::ConstructVehiclePathSegment(UObject* WorldContextObj
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+namespace
+{
+	// Beam build-mode fields (mBuildModeDiagonal/mBuildModeFreeForm) are
+	// protected TSubclassOf<UFGHologramBuildModeDescriptor> with no public
+	// getter - reflected as FObjectPropertyBase (TSubclassOf boxes to a
+	// UClass* value), same reflection posture as every other
+	// no-public-getter field this project reads (mMaxIncline,
+	// mPotentialShardSlots, etc), just the first FObjectPropertyBase
+	// instance rather than FFloatProperty/FIntProperty/FBoolProperty.
+	TSubclassOf<UFGHologramBuildModeDescriptor> ReadBeamBuildModeProperty(const AFGBeamHologram* Hologram, const TCHAR* PropertyName)
+	{
+		if (!Hologram) { return nullptr; }
+		const FObjectPropertyBase* Property = FindFProperty<FObjectPropertyBase>(Hologram->GetClass(), PropertyName);
+		if (!Property) { return nullptr; }
+		return TSubclassOf<UFGHologramBuildModeDescriptor>(Cast<UClass>(Property->GetObjectPropertyValue_InContainer(Hologram)));
+	}
+}
+
+// See ConstructBeam's doc comment in the header for the real
+// AFGBeamHologram sourcing, the build-mode reflection reasoning, and the
+// (unconfirmed) RotationScrollSteps timing/meaning.
+void UAIModFunctionLibrary::ConstructBeam(UObject* WorldContextObject, const FString& RecipeClassPath, float StartX, float StartY, float StartZ, float EndX, float EndY, float EndZ, bool bIgnoreGroundTrace, bool bFreeformMode, int32 RotationScrollSteps, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
+
+	if (bIgnoreGroundTrace && (StartZ <= -1000000.0f || EndZ <= -1000000.0f))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("MISSING_REFERENCE_Z"),
+			TEXT("bIgnoreGroundTrace requires explicit startZ and endZ - there is no ground trace to fall back to")));
+		return;
+	}
+
+	auto MakeHit = [World, Character, bIgnoreGroundTrace](float X, float Y, float Z) -> FHitResult
+	{
+		FHitResult Hit;
+		if (bIgnoreGroundTrace)
+		{
+			Hit.Location = FVector(X, Y, Z);
+			Hit.ImpactPoint = Hit.Location;
+			Hit.Normal = FVector::UpVector;
+			Hit.ImpactNormal = FVector::UpVector;
+			Hit.bBlockingHit = true;
+		}
+		else
+		{
+			const float ZSearchCenter = (Z > -1000000.0f) ? Z : Character->GetActorLocation().Z;
+			const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+			Hit = GroundTrace.Hit;
+		}
+		return Hit;
+	};
+
+	const FHitResult StartHitPreview = MakeHit(StartX, StartY, StartZ);
+	const FHitResult EndHitPreview = MakeHit(EndX, EndY, EndZ);
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGBeamHologram* BeamHologram = Cast<AFGBeamHologram>(BuildState->GetHologram());
+	if (!BeamHologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGBeamHologram (got %s)"),
+				*RecipeClassPath, BuildState->GetHologram() ? *BuildState->GetHologram()->GetClass()->GetName() : TEXT("null"))));
+		return;
+	}
+
+	// Build-mode selection - see header doc comment. Missing property
+	// (nullptr) just means the override is skipped, not a hard failure -
+	// the hologram's own mDefaultBuildMode still applies.
+	const TSubclassOf<UFGHologramBuildModeDescriptor> RequestedBuildMode = ReadBeamBuildModeProperty(
+		BeamHologram, bFreeformMode ? TEXT("mBuildModeFreeForm") : TEXT("mBuildModeDiagonal"));
+	if (RequestedBuildMode)
+	{
+		BeamHologram->SetBuildModeOverride(RequestedBuildMode);
+	}
+
+	auto SummarizeDisqualifiers = [](AFGBeamHologram* H) -> FString
+	{
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		H->GetConstructDisqualifiers(Disqualifiers);
+		TArray<FString> Texts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+		{
+			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
+		}
+		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
+	};
+
+	const FRotator BeamDeterministicLook = (EndHitPreview.Location - StartHitPreview.Location).Rotation();
+	if (AController* BeamController = Character->GetController())
+	{
+		BeamController->SetControlRotation(BeamDeterministicLook);
+	}
+
+	BeamHologram->UpdateHologramPlacement(StartHitPreview);
+	BeamHologram->TrySnapToActor(StartHitPreview);
+	const bool bStartStepComplete = BeamHologram->DoMultiStepPlacement(true);
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructBeam: start=(%.0f,%.0f,%.0f) end=(%.0f,%.0f,%.0f) freeform=%s after start click: stepComplete=%s disqualifiers=[%s]"),
+		StartX, StartY, StartZ, EndX, EndY, EndZ, bFreeformMode ? TEXT("true") : TEXT("false"), bStartStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(BeamHologram));
+
+	if (bStartStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
+		return;
+	}
+
+	BeamHologram->UpdateHologramPlacement(EndHitPreview);
+	BeamHologram->TrySnapToActor(EndHitPreview);
+
+	// RotationScrollSteps - see header doc comment for why this timing
+	// (after the end hit, before finalizing) and the real
+	// GetRotationStep() query (0/negative means "no override", per its
+	// own doc comment) instead of a hardcoded 90.
+	const int32 RawRotationStep = BeamHologram->GetRotationStep();
+	const int32 EffectiveRotationStep = RawRotationStep > 0 ? RawRotationStep : 90;
+	BeamHologram->SetScrollRotateValue(0);
+	if (RotationScrollSteps != 0)
+	{
+		const int32 ScrollDirection = RotationScrollSteps > 0 ? 1 : -1;
+		for (int32 i = 0; i < FMath::Abs(RotationScrollSteps); ++i)
+		{
+			BeamHologram->ScrollRotate(ScrollDirection, EffectiveRotationStep);
+		}
+	}
+
+	const bool bEndStepComplete = BeamHologram->DoMultiStepPlacement(true);
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructBeam: start=(%.0f,%.0f,%.0f) end=(%.0f,%.0f,%.0f) rotationStep=%d rotationScrollSteps=%d after end click: stepComplete=%s disqualifiers=[%s]"),
+		StartX, StartY, StartZ, EndX, EndY, EndZ, RawRotationStep, RotationScrollSteps, bEndStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(BeamHologram));
+
+	if (!bEndStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"), TEXT("DoMultiStepPlacement() did not report complete after the end click")));
+		return;
+	}
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGBeamHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FRotator DeterministicLook;
+		FHitResult EndHit; // re-asserted every poll tick, see below
+		int32 AttemptsRemaining = 120;
+		int32 AttemptsTaken = 0;
+		TFunction<void(const FAIModOperationResult&)> OnComplete;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = BeamHologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->DeterministicLook = BeamDeterministicLook;
+	PollState->EndHit = EndHitPreview;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGBeamHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructBeam (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
+		}
+
+		// Re-assert the end hit every poll tick - same fix as
+		// ConstructConveyorBelt_RealCharacterStrategy/
+		// ConstructVehiclePathSegment, applied here for the same reason.
+		PollHologram->UpdateHologramPlacement(PollState->EndHit);
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
+		bool bCanConstruct = true;
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructBeam (deferred, resolved after %d real tick(s)): canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		if (!bCanConstruct)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogAIModAI, Error, TEXT("ConstructBeam (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructBeam (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram"),
+			PollState->AttemptsTaken);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		PollState->OnComplete(FAIModOperationResult::Success());
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// See SetBeamLength's doc comment in the header for the real
+// AFGBuildableBeam::SetLength() sourcing and the lightweight-instance
+// persistence caveat.
+FAIModOperationResult UAIModFunctionLibrary::SetBeamLength(UObject* WorldContextObject, const FString& BuildableId, float NewLength)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildable* Buildable = nullptr;
+
+	if (IsLightweightBuildableId(BuildableId))
+	{
+		// Same resolution as DismantleBuildable's lightweight branch -
+		// see that function's comment for the full rationale.
+		FString ClassPath;
+		int32 Index = INDEX_NONE;
+		if (!ParseLightweightBuildableId(BuildableId, ClassPath, Index))
+		{
+			return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"),
+				FString::Printf(TEXT("'%s' is not a well-formed lightweight buildable id"), *BuildableId));
+		}
+
+		UClass* ResolvedClass = LoadObject<UClass>(nullptr, *ClassPath);
+		const TSubclassOf<AFGBuildable> BuildableClass = (ResolvedClass && ResolvedClass->IsChildOf(AFGBuildable::StaticClass())) ? ResolvedClass : nullptr;
+		if (!BuildableClass)
+		{
+			return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+				FString::Printf(TEXT("'%s' did not resolve to an AFGBuildable subclass"), *ClassPath));
+		}
+
+		AFGLightweightBuildableSubsystem* LightweightSubsystem = AFGLightweightBuildableSubsystem::Get(World);
+		FRuntimeBuildableInstanceData* RuntimeData = LightweightSubsystem ? LightweightSubsystem->GetRuntimeDataForBuildableClassAndIndex(BuildableClass, Index) : nullptr;
+		if (!RuntimeData || !RuntimeData->IsValid())
+		{
+			return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+				FString::Printf(TEXT("No lightweight buildable found with id '%s'"), *BuildableId));
+		}
+
+		bool bDidSpawn = false;
+		FInstanceToTemporaryBuildable* Temporary = LightweightSubsystem->FindOrSpawnBuildableForRuntimeData(BuildableClass, RuntimeData, Index, bDidSpawn);
+		if (!Temporary || !Temporary->IsValid())
+		{
+			return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+				FString::Printf(TEXT("Failed to materialize a temporary buildable for '%s'"), *BuildableId));
+		}
+		Buildable = Temporary->Buildable;
+	}
+	else
+	{
+		Buildable = FindBuildableById(World, BuildableId);
+	}
+
+	if (!Buildable)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+	}
+
+	AFGBuildableBeam* Beam = Cast<AFGBuildableBeam>(Buildable);
+	if (!Beam)
+	{
+		return FAIModOperationResult::Failure(TEXT("WRONG_TYPE"), FString::Printf(TEXT("'%s' is a %s, not an AFGBuildableBeam"), *BuildableId, *Buildable->GetClass()->GetName()));
+	}
+
+	if (NewLength <= 0.0f || NewLength > Beam->GetMaxLength())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_LENGTH"),
+			FString::Printf(TEXT("newLength %.1f must be > 0 and <= this beam's real maxLength %.1f"), NewLength, Beam->GetMaxLength()));
+	}
+
+	const float OldLength = Beam->GetLength();
+	Beam->SetLength(NewLength);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("oldLength"), OldLength);
+	DetailObject->SetNumberField(TEXT("newLength"), Beam->GetLength());
+	DetailObject->SetNumberField(TEXT("maxLength"), Beam->GetMaxLength());
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetBeamLength: '%s' %.1f -> %.1f (maxLength=%.1f)"), *BuildableId, OldLength, Beam->GetLength(), Beam->GetMaxLength());
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = WriteCondensedJson(DetailObject);
+	return Result;
 }
 
 namespace
