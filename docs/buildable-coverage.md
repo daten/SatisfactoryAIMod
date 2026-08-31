@@ -33,11 +33,11 @@ memory of what "should" be in the game.
 
 Everything in this file inherits the project's standing caveat: **NONE
 of this session's newer additions (2026-08-31: teleportPlayer, map
-markers, active events, beams) have been live-tested against a running
-game yet** — "✅ Supported" means "a real RPC exists and is believed
-correct from source research," not "confirmed working in practice."
-Check `RPC_REFERENCE.md` entries for individual "NOT YET LIVE-TESTED"
-flags.
+markers, active events, beams, priority power switches) have been
+live-tested against a running game yet** — "✅ Supported" means "a real
+RPC exists and is believed correct from source research," not
+"confirmed working in practice." Check `RPC_REFERENCE.md` entries for
+individual "NOT YET LIVE-TESTED" flags.
 
 ## Generic single-hologram buildables — ✅ via `world.placeBuilding`
 
@@ -52,7 +52,8 @@ building. This covers the large majority of ordinary buildables:
 | Particle Accelerator, Quantum Encoder, Converter | `Factory/{HadronCollider,QuantumEncoder,Converter}` | ✅ |
 | Generators: Biomass, Coal, Fuel, Geothermal, Nuclear | `Factory/Generator{Biomass,Coal,Fuel,GeoThermal,Nuclear}` | ✅ |
 | Storage: containers Mk1/Mk2, Fluid Buffer, Industrial Fluid Buffer, Central Storage (Depot), personal Space Container | `Factory/{StorageContainerMk1,StorageContainerMk2,StorageTank,IndustrialFluidContainer,CentralStorage,StoragePlayer}` | ✅ |
-| Power poles (Mk1-3, wall, wall double), Power Tower, Power Storage, Power Switch, Smart/Priority Power Switch | `Factory/{PowerPoleMk1,PowerPoleMk2,PowerPoleMk3,PowerPoleWall,PowerPoleWallDouble,PowerTower,PowerStorage,PowerSwitch,SmartPowerSwitch,PriorityPowerSwitch}` | ✅ (the pole/switch itself; the wire between two poles is a separate connector RPC — see below) |
+| Power poles (Mk1-3, wall, wall double), Power Tower, Power Storage, Power Switch | `Factory/{PowerPoleMk1,PowerPoleMk2,PowerPoleMk3,PowerPoleWall,PowerPoleWallDouble,PowerTower,PowerStorage,PowerSwitch}` | ✅ (the pole/switch itself; the wire between two poles is a separate connector RPC — see below). Plain Power Switch on/off: `world.setPowerSwitchOn` |
+| Priority Power Switch (there is no separate "Smart Power Switch" recipe — confirmed 2026-08-31, only `Recipe_PowerSwitch`/`Recipe_PriorityPowerSwitch` exist; the `SmartPowerSwitch/` content folder is source art only) | `Factory/{PriorityPowerSwitch,SmartPowerSwitch}` | ✅ Full config+control: `world.priorityPowerSwitches` (telemetry — priority, on/off, circuit group ids), `world.setPowerSwitchOn`, `world.setPriorityPowerSwitchPriority` |
 | Splitter/Merger and all Smart/Programmable/Priority/Lift variants | `Factory/CA_{Splitter,Merger,SplitterLift,SplitterLiftProgrammable,SplitterLiftSmart,SplitterProgrammable,SplitterSmart,MergerLift,MergerLiftPriority,MergerPriority}` | ✅ — confirmed generic (`AFGConveyorAttachmentHologram : AFGFactoryHologram`, same lineage), see `docs/conveyor-attachment-research.md` |
 | Structural: Foundation, Wall, Floor, Ramp, Stair, Roof, Pillars, Fence, Tarp Fence, Barrier, Catwalk, Walkway, Ladder, Doors, Vent, Corner Block, Decor, Stackable Shelf, Potty, conveyor/foundation holes+passthrough | `Building/{Foundation,Wall,Floor,Ramp,Stair,Roof,Pillars,Fence,TarpFence,Barrier,Catwalk,Walkway,Ladder,Doors,Vent,Potty}`, `Factory/{CornerBlock,ConveyorHole,ConveyorFloorHole,FoundationPassthrough}` | ✅ (many of these are "lightweight" instances at runtime — see `world.buildables`' `lightweight:` id scheme, `docs/lightweight-buildable-research.md`) |
 | Lighting: Ceiling Light, Floodlight, Street Light, Lights Control Panel | `Factory/{CeilingLight,Floodlight,StreetLight,LightsControlPanel}` | ✅ placement; ❌ no dedicated RPC to control panel-driven light grouping/scheduling |
@@ -148,6 +149,7 @@ none can go through the generic single-click flow:
 | Drone Station | `world.droneStations`, `world.pairDroneStations` | ✅ |
 | Train | `world.trains`, `world.setTrainSelfDriving`, `world.setTrainTimetable` | ✅ |
 | Power line limits | `world.powerLineLimits` | ⚠️ Telemetry only |
+| Priority Power Switch (priority, on/off, circuit topology) | `world.priorityPowerSwitches`, `world.setPowerSwitchOn`, `world.setPriorityPowerSwitchPriority` | ✅ — not live-tested |
 | Conveyor/pipe connection topology | `world.connections`, `world.pipeConnections`, `world.pipeFluidBoxes` | ⚠️ Telemetry only |
 | Map markers | `world.mapMarkers`/`world.placeMapMarker`/`world.removeMapMarker`/`world.mapMarkerIcons` | ✅ — not a buildable, but the closest thing to "player-assist annotation," included for completeness |
 
@@ -159,3 +161,11 @@ none can go through the generic single-click flow:
   specifically (teleportPlayer, map markers, active events, beams) is
   real but **not yet live-tested** — see `project_satisfactory_ai_interface.md`
   memory for the full backlog.
+- **2026-08-31 (later)**: Added Priority Power Switch config/control
+  (`world.priorityPowerSwitches`/`world.setPowerSwitchOn`/
+  `world.setPriorityPowerSwitchPriority`). Real finding while
+  researching: no separate "Smart Power Switch" recipe exists — this
+  file previously listed "Smart/Priority Power Switch" as if they might
+  be two things; confirmed via a full Content-tree search that only
+  `Recipe_PowerSwitch`/`Recipe_PriorityPowerSwitch` are real, corrected
+  the row above.

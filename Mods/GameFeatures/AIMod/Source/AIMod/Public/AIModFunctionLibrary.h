@@ -1818,6 +1818,84 @@ public:
 	static FString LogPowerLineLimitsAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.priorityPowerSwitches (added 2026-08-31, explicit user
+	 * request - "add support for configuring and controlling priority
+	 * power switches"). Lists every placed `AFGBuildablePriorityPowerSwitch`
+	 * - real, public, non-stub-bodied getters throughout (`GetPriority()`/
+	 * `IsSwitchOn()`/`IsSwitchConnected()` are all plain inline getters on
+	 * `FGBuildableCircuitSwitch.h`/`FGBuildablePriorityPowerSwitch.h`, not
+	 * the usual stub-.cpp caveat this project carries almost everywhere
+	 * else).
+	 *
+	 * `circuitGroupID0`/`circuitGroupID1` come from
+	 * `GetInfo()->GetCircuitGroupID0()`/`GetCircuitGroupID1()`
+	 * (`AFGPriorityPowerSwitchInfo`, "the circuit group ID we belong to
+	 * at our first/second connection, -1 if disconnected") - real circuit
+	 * topology, not fabricated. `hasBuildingTag`/`buildingTag` come from
+	 * `IFGBuildingTagInterface::Execute_HasBuildingTag`/
+	 * `Execute_GetBuildingTag` (called via the interface's generated
+	 * `Execute_` wrapper, not the `_Implementation` methods directly -
+	 * the correct call convention for a `BlueprintNativeEvent`) - the
+	 * player-set label shown on the switch in-game, separate from
+	 * `switchName` (`GetInfo()->GetSwitchName()`, a real, distinct
+	 * getter - unconfirmed whether these two ever actually differ in
+	 * practice).
+	 *
+	 * **Real finding, not a naming choice**: there is no separate "Smart
+	 * Power Switch" buildable/recipe - only `Recipe_PowerSwitch` and
+	 * `Recipe_PriorityPowerSwitch` exist as real recipe assets
+	 * (confirmed: searched the whole Content tree). The
+	 * `Buildable/Factory/SmartPowerSwitch/` content folder holds only
+	 * mesh/material/texture assets with no `Build_`/`Recipe_` Blueprint
+	 * of its own - almost certainly just the source art for
+	 * `Build_PriorityPowerSwitch`'s mesh, not a distinct buildable.
+	 * `docs/buildable-coverage.md`'s "Smart/Priority Power Switch" row
+	 * should be read as one real thing, not two.
+	 *
+	 * NOT YET LIVE-TESTED - no game running this session, though the
+	 * non-stub-bodied getters here carry real confidence they'll resolve
+	 * correctly at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPriorityPowerSwitchesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setPowerSwitchOn (added 2026-08-31, same explicit user
+	 * request as world.priorityPowerSwitches). Turns a circuit switch on
+	 * or off via the real, public `AFGBuildableCircuitSwitch::
+	 * SetSwitchOn(bool)` - deliberately targets the BASE class, not just
+	 * `AFGBuildablePriorityPowerSwitch`, since on/off is shared,
+	 * identical behavior across every switch on this hierarchy (plain
+	 * `Recipe_PowerSwitch` included) - a natural generalization that
+	 * costs nothing extra, not scope creep beyond what was asked (a
+	 * Priority Power Switch's on/off control IS `AFGBuildableCircuitSwitch::
+	 * SetSwitchOn`, there is no priority-specific override of it).
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetPowerSwitchOn(UObject* WorldContextObject, const FString& BuildableId, bool bSwitchOn);
+
+	/**
+	 * world.setPriorityPowerSwitchPriority (added 2026-08-31, same
+	 * explicit user request). Sets the real, public
+	 * `AFGBuildablePriorityPowerSwitch::SetPriority(int32)` - "the
+	 * priority with which this switch will be turned off automatically
+	 * in case of power shortage. A higher number will be turned off
+	 * before a lower number. 0 (or less) means this switch will never be
+	 * turned off automatically" (its own doc comment, quoted verbatim
+	 * since it's the exact real semantics, not summarized/guessed).
+	 * Unlike `world.setPowerSwitchOn`, this is genuinely
+	 * `AFGBuildablePriorityPowerSwitch`-specific - only that subclass has
+	 * a priority field, a plain `Recipe_PowerSwitch` instance fails
+	 * `WRONG_TYPE` here.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetPriorityPowerSwitchPriority(UObject* WorldContextObject, const FString& BuildableId, int32 Priority);
+
+	/**
 	 * Telemetry, not a mutation - same LogXAsJson convention as
 	 * LogConveyorBeltTiersAsJson/LogPowerLineLimitsAsJson. Added
 	 * 2026-08-25 for pipe groundwork, directly motivated by the user

@@ -591,6 +591,67 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.setPowerSwitchOn/world.setPriorityPowerSwitchPriority - see
+	// SetPowerSwitchOn's/SetPriorityPowerSwitchPriority's doc comments.
+	// Added 2026-08-31 per explicit user request ("add support for
+	// configuring and controlling priority power switches").
+	if (Method == TEXT("world.setPowerSwitchOn"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		bool bSwitchOn = false;
+		if (!ParamsObject->TryGetBoolField(TEXT("switchOn"), bSwitchOn))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.switchOn must be a boolean")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetPowerSwitchOn(GetGameInstance(), BuildableId, bSwitchOn);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+	if (Method == TEXT("world.setPriorityPowerSwitchPriority"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		double Priority = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("priority"), Priority))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.priority must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetPriorityPowerSwitchPriority(GetGameInstance(), BuildableId, static_cast<int32>(Priority));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous - direct AActor::TeleportTo() call, no build gun/hologram
 	// involved. Added 2026-08-31 per explicit user request ("move the
 	// player position... mostly for building-purposes, if specific
@@ -1875,6 +1936,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.powerLineLimits"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogPowerLineLimitsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.priorityPowerSwitches"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPriorityPowerSwitchesAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.pipelineTiers"))
 	{

@@ -372,6 +372,60 @@ Same shape as `conveyorBeltTiers`, for `Recipe_ConveyorLiftMk1`..`Mk6`.
 ```
 Flat object (only one power line tier exists), all lengths in cm.
 
+### `world.priorityPowerSwitches` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "prioritySwitches": [ { "id": "...", "buildableClass": "...", "priority": 0, "isSwitchOn": true, "isSwitchConnected": true, "hasBuildingTag": false, "buildingTag": "", "switchName": "", "circuitGroupID0": 3, "circuitGroupID1": 7 } ] }
+```
+Added 2026-08-31 per explicit user request ("add support for
+configuring and controlling priority power switches"). Every field
+comes from a real, public, plain-inline getter — `GetPriority()`/
+`IsSwitchOn()`/`IsSwitchConnected()` on `AFGBuildableCircuitSwitch`/
+`AFGBuildablePriorityPowerSwitch` are NOT stub-bodied like most of this
+project's other subsystem calls. `circuitGroupID0`/`circuitGroupID1`
+come from `GetInfo()->GetCircuitGroupID0()`/`GetCircuitGroupID1()` —
+real circuit topology ("the circuit group ID we belong to at our
+first/second connection, `-1` if disconnected", own doc comment).
+`buildingTag` is the player-set label shown on the switch in-game
+(`IFGBuildingTagInterface`); `switchName` is a separate, distinct
+getter on the switch's info object — unconfirmed whether these two
+ever actually differ in practice.
+
+**Real finding, not a naming choice**: there is no separate "Smart
+Power Switch" buildable or recipe — only `Recipe_PowerSwitch` and
+`Recipe_PriorityPowerSwitch` exist (confirmed: searched the whole
+Content tree). The `Buildable/Factory/SmartPowerSwitch/` content folder
+holds only mesh/material/texture assets with no `Build_`/`Recipe_`
+Blueprint of its own — almost certainly just the source art used by
+`Build_PriorityPowerSwitch`, not a distinct buildable. Treat "Smart"
+and "Priority" Power Switch as the same real thing.
+
+### `world.setPowerSwitchOn` — `{"buildableId", "switchOn"}`, **NOT YET LIVE-TESTED**
+```json
+{ "success": true, "result": { "detail": { "wasOn": true, "isOn": false } } }
+```
+Turns a circuit switch on or off — the real, public
+`AFGBuildableCircuitSwitch::SetSwitchOn(bool)`. Deliberately targets
+the BASE class, not just the priority subclass: on/off is shared,
+identical behavior across every switch on this hierarchy (plain
+`Recipe_PowerSwitch` included), so this also works for an ordinary
+Power Switch — a natural generalization, not scope creep, since a
+Priority Power Switch's on/off control genuinely is
+`AFGBuildableCircuitSwitch::SetSwitchOn` with no priority-specific
+override.
+
+### `world.setPriorityPowerSwitchPriority` — `{"buildableId", "priority"}`, **NOT YET LIVE-TESTED**
+```json
+{ "success": true, "result": { "detail": { "oldPriority": 0, "newPriority": 5 } } }
+```
+Sets the real, public `AFGBuildablePriorityPowerSwitch::SetPriority(int32)`
+— quoting its own doc comment verbatim since it's the exact real
+semantics: "the priority with which this switch will be turned off
+automatically in case of power shortage. A higher number will be
+turned off before a lower number. 0 (or less) means this switch will
+never be turned off automatically." Unlike `world.setPowerSwitchOn`,
+this is genuinely `AFGBuildablePriorityPowerSwitch`-specific — a plain
+`Recipe_PowerSwitch` instance fails `WRONG_TYPE` here.
+
 ### `world.pipelineTiers` — no params
 ```json
 { "protocolVersion": 1, "tiers": [ { "recipeClass": "...Recipe_Pipeline_C", "buildableClass": "...", "flowLimit": 0.0, "maxSplineLength": 5600.1, "bendRadius": 0.0, "minBendRadius": 0.0 } ] }

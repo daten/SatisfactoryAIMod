@@ -116,6 +116,10 @@
 #include "FGEventSubsystem.h"
 #include "FGBuildableBeam.h"
 #include "Hologram/FGBeamHologram.h"
+#include "Buildables/FGBuildableCircuitSwitch.h"
+#include "Buildables/FGBuildablePriorityPowerSwitch.h"
+#include "FGPriorityPowerSwitchInfo.h"
+#include "FGBuildingTagInterface.h"
 
 namespace
 {
@@ -6422,6 +6426,136 @@ FString UAIModFunctionLibrary::LogPowerLineLimitsAsJson(UObject* WorldContextObj
 	UE_LOG(LogAIModAI, Display, TEXT("LogPowerLineLimitsAsJson: %s"), *JsonString);
 
 	return JsonString;
+}
+
+// See LogPriorityPowerSwitchesAsJson's doc comment in the header for the
+// real GetInfo()/circuit-group/building-tag sourcing and the "no
+// separate Smart Power Switch buildable" finding.
+FString UAIModFunctionLibrary::LogPriorityPowerSwitchesAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogPriorityPowerSwitchesAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> SwitchesJsonArray;
+	for (TActorIterator<AFGBuildablePriorityPowerSwitch> It(World); It; ++It)
+	{
+		AFGBuildablePriorityPowerSwitch* Switch = *It;
+		if (!IsValid(Switch))
+		{
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> SwitchObject = MakeShared<FJsonObject>();
+		SwitchObject->SetStringField(TEXT("id"), Switch->GetPathName());
+		SwitchObject->SetStringField(TEXT("buildableClass"), Switch->GetClass()->GetPathName());
+		SwitchObject->SetNumberField(TEXT("priority"), Switch->GetPriority());
+		SwitchObject->SetBoolField(TEXT("isSwitchOn"), Switch->IsSwitchOn());
+		SwitchObject->SetBoolField(TEXT("isSwitchConnected"), Switch->IsSwitchConnected());
+		SwitchObject->SetBoolField(TEXT("hasBuildingTag"), IFGBuildingTagInterface::Execute_HasBuildingTag(Switch));
+		SwitchObject->SetStringField(TEXT("buildingTag"), IFGBuildingTagInterface::Execute_GetBuildingTag(Switch));
+
+		if (const AFGPriorityPowerSwitchInfo* Info = Switch->GetInfo())
+		{
+			SwitchObject->SetStringField(TEXT("switchName"), Info->GetSwitchName());
+			SwitchObject->SetNumberField(TEXT("circuitGroupID0"), Info->GetCircuitGroupID0());
+			SwitchObject->SetNumberField(TEXT("circuitGroupID1"), Info->GetCircuitGroupID1());
+		}
+		else
+		{
+			SwitchObject->SetStringField(TEXT("switchName"), FString());
+			SwitchObject->SetNumberField(TEXT("circuitGroupID0"), -1);
+			SwitchObject->SetNumberField(TEXT("circuitGroupID1"), -1);
+		}
+
+		SwitchesJsonArray.Add(MakeShared<FJsonValueObject>(SwitchObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("prioritySwitches"), SwitchesJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogPriorityPowerSwitchesAsJson: %d switch(es)"), SwitchesJsonArray.Num());
+
+	return JsonString;
+}
+
+// See SetPowerSwitchOn's doc comment in the header for why this targets
+// the base AFGBuildableCircuitSwitch rather than just the priority
+// subclass.
+FAIModOperationResult UAIModFunctionLibrary::SetPowerSwitchOn(UObject* WorldContextObject, const FString& BuildableId, bool bSwitchOn)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
+	if (!Buildable)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+	}
+
+	AFGBuildableCircuitSwitch* Switch = Cast<AFGBuildableCircuitSwitch>(Buildable);
+	if (!Switch)
+	{
+		return FAIModOperationResult::Failure(TEXT("WRONG_TYPE"), FString::Printf(TEXT("'%s' is a %s, not an AFGBuildableCircuitSwitch"), *BuildableId, *Buildable->GetClass()->GetName()));
+	}
+
+	const bool bWasOn = Switch->IsSwitchOn();
+	Switch->SetSwitchOn(bSwitchOn);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetBoolField(TEXT("wasOn"), bWasOn);
+	DetailObject->SetBoolField(TEXT("isOn"), Switch->IsSwitchOn());
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetPowerSwitchOn: '%s' %s -> %s"), *BuildableId, bWasOn ? TEXT("on") : TEXT("off"), Switch->IsSwitchOn() ? TEXT("on") : TEXT("off"));
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = WriteCondensedJson(DetailObject);
+	return Result;
+}
+
+// See SetPriorityPowerSwitchPriority's doc comment in the header for the
+// real SetPriority() semantics, quoted from source.
+FAIModOperationResult UAIModFunctionLibrary::SetPriorityPowerSwitchPriority(UObject* WorldContextObject, const FString& BuildableId, int32 Priority)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
+	if (!Buildable)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+	}
+
+	AFGBuildablePriorityPowerSwitch* Switch = Cast<AFGBuildablePriorityPowerSwitch>(Buildable);
+	if (!Switch)
+	{
+		return FAIModOperationResult::Failure(TEXT("WRONG_TYPE"), FString::Printf(TEXT("'%s' is a %s, not an AFGBuildablePriorityPowerSwitch"), *BuildableId, *Buildable->GetClass()->GetName()));
+	}
+
+	const int32 OldPriority = Switch->GetPriority();
+	Switch->SetPriority(Priority);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("oldPriority"), OldPriority);
+	DetailObject->SetNumberField(TEXT("newPriority"), Switch->GetPriority());
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetPriorityPowerSwitchPriority: '%s' %d -> %d"), *BuildableId, OldPriority, Switch->GetPriority());
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = WriteCondensedJson(DetailObject);
+	return Result;
 }
 
 FString UAIModFunctionLibrary::LogPipelineTiersAsJson(UObject* WorldContextObject)
