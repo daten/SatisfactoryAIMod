@@ -1691,6 +1691,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogTrainCargoPlatformsAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.truckStations"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogTruckStationsAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.conveyorAttachments"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(GetGameInstance());

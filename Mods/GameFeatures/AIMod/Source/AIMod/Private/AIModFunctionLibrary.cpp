@@ -108,6 +108,8 @@
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGDroneSubsystem.h"
 #include "FGDroneStationInfo.h"
+#include "Buildables/FGBuildableDockingStation.h"
+#include "WheeledVehicles/FGWheeledVehicle.h"
 
 namespace
 {
@@ -6784,6 +6786,64 @@ FString UAIModFunctionLibrary::LogItemCatalogAsJson(UObject* WorldContextObject)
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogItemCatalogAsJson: %d item(s)"), ItemJsonArray.Num());
+
+	return JsonString;
+}
+
+// See LogTruckStationsAsJson's doc comment in the header for the real
+// Recipe_TruckStation/Recipe_FluidTruckStation -> AFGBuildableDockingStation
+// unified-class finding this mirrors from world.trainCargoPlatforms.
+FString UAIModFunctionLibrary::LogTruckStationsAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogTruckStationsAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> StationsJsonArray;
+	for (TActorIterator<AFGBuildableDockingStation> It(World); It; ++It)
+	{
+		AFGBuildableDockingStation* Station = *It;
+		if (!IsValid(Station))
+		{
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> StationObject = MakeShared<FJsonObject>();
+		StationObject->SetStringField(TEXT("id"), Station->GetPathName());
+		StationObject->SetStringField(TEXT("buildableClass"), Station->GetClass()->GetPathName());
+		StationObject->SetStringField(TEXT("resourceForm"), ResourceFormToString(Station->GetDockingStationResourceForm()));
+
+		const TSubclassOf<UFGItemDescriptor> FluidDescriptor = Station->GetCurrentFluidDescriptor();
+		StationObject->SetStringField(TEXT("currentFluidDescriptor"), FluidDescriptor ? FluidDescriptor->GetPathName() : FString());
+
+		StationObject->SetBoolField(TEXT("isInLoadMode"), Station->GetIsInLoadMode());
+		StationObject->SetBoolField(TEXT("isLoadUnloading"), Station->IsLoadUnloading());
+		StationObject->SetNumberField(TEXT("loadUnloadCycleProgress"), Station->GetLoadUnloadCycleProgress());
+		StationObject->SetNumberField(TEXT("loadUnloadCycleLength"), Station->GetLoadUnloadCycleLength());
+
+		// Combined, station-level rates "for all vehicles that dock to
+		// this station" (own doc comments) - not per-vehicle.
+		StationObject->SetNumberField(TEXT("vehicleFuelConsumptionRate"), Station->GetVehicleFuelConsumptionRate());
+		StationObject->SetNumberField(TEXT("itemTransferRate"), Station->GetItemTransferRate());
+		StationObject->SetNumberField(TEXT("maximumStackTransferRate"), Station->GetMaximumStackTransferRate());
+
+		AActor* DockedActor = Station->GetDockedActor();
+		StationObject->SetStringField(TEXT("dockedVehicleId"), IsValid(DockedActor) ? DockedActor->GetPathName() : FString());
+		StationObject->SetStringField(TEXT("dockedVehicleClass"), IsValid(DockedActor) ? DockedActor->GetClass()->GetPathName() : FString());
+
+		StationsJsonArray.Add(MakeShared<FJsonValueObject>(StationObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("truckStations"), StationsJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogTruckStationsAsJson: %d truck station(s)"), StationsJsonArray.Num());
 
 	return JsonString;
 }

@@ -1737,6 +1737,53 @@ public:
 	static FString LogTrainCargoPlatformsAsJson(UObject* WorldContextObject);
 
 	/**
+	 * Truck station telemetry (added 2026-08-31, offline research per
+	 * explicit user request - "the game might have recently added fluid
+	 * trucks and fluid truck stations, unsure"). Confirmed real, and NOT
+	 * new/uncertain - both `Recipe_TruckStation` (solid) and
+	 * `Recipe_FluidTruckStation` (fluid, "Fluid Truck Station" in-game)
+	 * exist as genuinely distinct recipes/Blueprints
+	 * (Build_TruckStation.uasset / Build_FluidTruckStation.uasset), but -
+	 * same unified-class pattern as world.trainCargoPlatforms and
+	 * AFGFreightWagon before it - both resolve to the SAME native class,
+	 * `AFGBuildableDockingStation`, confirmed by grepping both `.uasset`
+	 * binaries for the embedded class name string. There is no separate
+	 * "AFGFluidTruckStation" class; the fluid variant is just a
+	 * `mIsFluidStorageInventory=true` instance of the same buildable
+	 * (GetDockingStationResourceForm() reports which one a given
+	 * instance is - its header doc comment: "This determines whenever
+	 * it is a fluid docking station or solid docking station").
+	 *
+	 * `GetVehicleFuelConsumptionRate()`/`GetItemTransferRate()`/
+	 * `GetMaximumStackTransferRate()` are combined, station-level rates
+	 * "for all vehicles that dock to this station" (own doc comments) -
+	 * not per-vehicle. `currentFluidDescriptor` (fluid stations only)
+	 * comes from `GetCurrentFluidDescriptor()`, empty string when unset
+	 * or on a solid station. `dockedVehicleId` uses `GetDockedActor()`
+	 * (returns a bare AActor* - both wheeled AFGWheeledVehicle and rail
+	 * AFGTrain/AFGRailroadVehicle can dock, per source's
+	 * IFGDockableInterface being implemented by AFGWheeledVehicle - this
+	 * function does not assume which).
+	 *
+	 * AFGBuildableDockingStation : AFGBuildableFactory : AFGBuildable,
+	 * so truck stations already appear in world.buildables like any
+	 * other buildable - this function adds the truck/fluid-specific
+	 * fields (resourceForm, load/unload cycle, per-vehicle-tracking
+	 * combined rates) that world.buildables does not expose.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * GetDockingStationResourceForm() is stub-bodied in this local
+	 * source tree (returns default EResourceForm() unconditionally when
+	 * read from source) - the real logic only exists in the compiled
+	 * game binary, same caveat as every other stub-sourced getter this
+	 * project already depends on (e.g. GetOutflowRate on cargo
+	 * platforms) - expected to resolve correctly at actual runtime, not
+	 * confirmed live yet.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTruckStationsAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Near-exact mirror of ConstructConveyorBelt: same build-gun two-
 	 * click mechanism (TrySnapToActor + DoMultiStepPlacement(true) at
 	 * source, then dest), including the UpdateHologramPlacement-before-

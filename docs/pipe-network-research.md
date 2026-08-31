@@ -358,6 +358,59 @@ stack size) is a genuinely separate open item, same
 `AFGRailroadVehicle`-not-`AFGBuildable` gap already solved once before
 for wheeled vehicles.
 
+## Fluid trucks are real, and the same unified-class pattern applies again
+
+Per the user's own framing - "the game might have recently added fluid
+trucks and fluid truck stations, unsure" (2026-08-31). Confirmed real
+via the same binary-grep technique used throughout this document: both
+`Recipe_TruckStation` (solid, "Truck Station") and
+`Recipe_FluidTruckStation` (fluid, "Fluid Truck Station") are genuinely
+distinct recipes with their own Blueprint assets
+(`Build_TruckStation.uasset` / `Build_FluidTruckStation.uasset`, plus
+dedicated meshes like `SM_TruckStation_Fluid_01`/
+`SK_TruckStation_Fluid_nozzle` and a `MSG_Tier5_FluidTruckStation`
+narrative unlock message), but - exactly the same pattern already found
+for `Recipe_TrainDockingStation`/`Recipe_TrainDockingStationLiquid`
+above - both resolve to the SAME native class,
+`AFGBuildableDockingStation`. There is no separate "fluid truck station"
+C++ class; the fluid variant is a `mIsFluidStorageInventory=true`/
+`GetDockingStationResourceForm()==RF_LIQUID` instance of the exact same
+buildable used for solid-item truck stations. `AFGWheeledVehicle`
+(the Truck/Tractor/Explorer base) implements `IFGDockableInterface`
+directly, so no separate "fluid truck" vehicle class exists either - a
+regular Truck becomes a fluid hauler purely by what's loaded into its
+inventory, the same "typed by contents, not by class" pattern already
+confirmed for `AFGFreightWagon`.
+
+This is now the THIRD time this exact pattern has held across every
+long-distance fluid-transport option researched this session (pipe
+Valve = Pump class, rail cargo = same wagon/platform class, road cargo
+= same truck/station class) - fluid support in Satisfactory is
+consistently "the same infrastructure, typed by contents/config," never
+a parallel class hierarchy. Worth treating as a reliable prior for any
+future "is X a separate fluid-only thing" question rather than
+re-deriving it from scratch each time.
+
+`AFGBuildableDockingStation` also tracks real per-vehicle statistics
+internally (`mVehicleTracking`: average items/fuel per dock, time
+between docks, `VehicleFluidSlotCapacity`) but exposes no public getter
+for that array - the new RPC below only surfaces the station-level
+combined rates that DO have public getters.
+
+**New capability, NOT YET LIVE-TESTED**: `world.truckStations` RPC (see
+`RPC_REFERENCE.md` for the full field list) - `resourceForm`,
+`currentFluidDescriptor`, load/unload cycle state, combined
+station-level `vehicleFuelConsumptionRate`/`itemTransferRate`/
+`maximumStackTransferRate`, and docked vehicle id/class. Same
+`GetDockingStationResourceForm()`-is-stub-bodied-in-source caveat as
+every other stub-sourced getter this project already relies on at
+runtime. No RPC exists yet to construct a truck station, nor to command
+a truck's autopilot route (the real API,
+`AFGWheeledVehicleIdentifier::SetVehicleRoute`/`AddWaypoint`/
+`SetAutopilotEnabled`, was already identified as a separate deferred
+follow-up when `world.constructVehiclePathSegment` was built - see that
+function's doc comment) - both genuinely open, not done here.
+
 ## Genuinely open / not yet built
 
 - **No RPC exists yet to construct a Pipeline Pump or Junction as a
@@ -409,3 +462,21 @@ for wheeled vehicles.
   against a specific source passage this session — flagged as a real
   planning consideration, not yet a source-confirmed fact the way the
   elevation/overfill mechanics are.
+- **No RPC exists yet to construct a truck station, nor to command a
+  truck's autopilot route for fluid hauling** — `world.truckStations`
+  is read-only telemetry against stations that already exist. Placing a
+  new one is unstarted (likely a plain `ConstructBuildingAtPosition`
+  case, since `AFGBuildableDockingStation` is an ordinary
+  non-spline-snapped `AFGBuildable` — not yet confirmed). Route/
+  autopilot control (`AFGWheeledVehicleIdentifier::SetVehicleRoute`/
+  `AddWaypoint`/`SetAutopilotEnabled`) is real and public but has no
+  telemetry layer (path node GUIDs aren't exposed anywhere) — same
+  deferred item already noted under `ConstructVehiclePathSegment`.
+- **`world.truckStations` exists now but has never been called against
+  a running game** — same "unconfirmed live" caveat as every other RPC
+  added this offline session. In particular, whether
+  `GetDockingStationResourceForm()` actually returns `RF_LIQUID` for a
+  real placed Fluid Truck Station (vs. some other value, since its body
+  is a stub in this source tree and was inferred purely from the
+  header's doc comment) is the single most important thing to check the
+  first time this gets polled.

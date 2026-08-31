@@ -375,6 +375,62 @@ fallback, 2026-08-29). A genuinely open, separate future addition for
 freight wagons specifically (their own cargo type, inventory contents,
 fluid stack size) — not done here.
 
+### `world.truckStations` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "truckStations": [ { "id": "...", "buildableClass": "...", "resourceForm": "Liquid", "currentFluidDescriptor": "", "isInLoadMode": true, "isLoadUnloading": false, "loadUnloadCycleProgress": 0.0, "loadUnloadCycleLength": 10.0, "vehicleFuelConsumptionRate": 0.0, "itemTransferRate": 0.0, "maximumStackTransferRate": 0.0, "dockedVehicleId": "", "dockedVehicleClass": "" } ] }
+```
+Added 2026-08-31 per explicit user request ("the game might have
+recently added fluid trucks and fluid truck stations, unsure").
+**Confirmed real, and confirmed via the same unified-class pattern
+already found for `world.trainCargoPlatforms`/`AFGFreightWagon`**: both
+`Recipe_TruckStation` (solid, in-game "Truck Station") and
+`Recipe_FluidTruckStation` (fluid, "Fluid Truck Station") are genuinely
+distinct recipes/Blueprints (`Build_TruckStation.uasset` /
+`Build_FluidTruckStation.uasset` both exist), but both resolve to the
+SAME native class, `AFGBuildableDockingStation` — confirmed by grepping
+both `.uasset` binaries for the embedded class name string. There is no
+separate "fluid truck" C++ class; the fluid variant is just a
+`mIsFluidStorageInventory=true` instance of the same buildable.
+`resourceForm` (`"Solid"`/`"Liquid"`/`"Gas"`/`"Invalid"`) comes from the
+real public getter `GetDockingStationResourceForm()`, whose own header
+doc comment says it "determines whenever it is a fluid docking station
+or solid docking station."
+
+`vehicleFuelConsumptionRate`/`itemTransferRate`/
+`maximumStackTransferRate` are combined, **station-level** rates "for
+all vehicles that dock to this station" (own doc comments) — not
+per-vehicle; the source class also tracks real per-vehicle statistics
+internally (`mVehicleTracking`, average items/fuel per dock, time
+between docks) but there is no public getter for that array, so it is
+not exposed here. `currentFluidDescriptor` is only meaningful on a
+fluid station (empty string on solid stations or before any fluid has
+been loaded). `dockedVehicleId`/`dockedVehicleClass` use
+`GetDockedActor()` (a bare `AActor*` — source confirms
+`AFGWheeledVehicle` implements `IFGDockableInterface`, so a truck is
+the expected docked type, but the getter itself does not restrict to
+wheeled vehicles).
+
+`AFGBuildableDockingStation : AFGBuildableFactory : AFGBuildable`, so
+truck stations already appear in `world.buildables` like any other
+buildable — this call exists purely to add the truck/fluid-specific
+fields `world.buildables` does not expose (resource form, load/unload
+cycle progress, combined vehicle rates, docked vehicle).
+`GetDockingStationResourceForm()` is stub-bodied in this local source
+tree (only the compiled game binary has the real logic) — same
+already-relied-upon caveat as `GetOutflowRate()` on cargo platforms;
+expected to resolve correctly at runtime, not yet confirmed live.
+
+There is currently no RPC to *construct* a truck station or to command
+a truck's route/autopilot for fluid hauling — see
+`ConstructVehiclePathSegment`'s doc comment for the real, existing
+`AFGWheeledVehicleIdentifier::SetVehicleRoute`/`AddWaypoint`/
+`SetAutopilotEnabled` API already identified as a separate, deferred
+follow-up (needs its own path-node-GUID telemetry layer, not built
+yet). Fluid-truck-specific inventory (tank slot capacity per vehicle,
+`VehicleFluidSlotCapacity` on the internal tracking struct) is likewise
+not yet exposed — same posture as freight-wagon-level telemetry being
+deferred for `world.trainCargoPlatforms`.
+
 ### `world.pipeFluidBoxes` — no params, **NOT YET LIVE-TESTED**
 ```json
 { "protocolVersion": 1, "pipes": [ { "id": "...", "lengthCm": 0.0, "contentM3": 0.0, "maxContentM3": 0.0, "fillPct": 0.0, "maxOverfillPct": 0.4, "flowThrough": 0.0, "flowFill": 0.0, "flowDrain": 0.0, "flowLimit": 0.0, "pressureColumn": 0.0, "elevationPressureColumn": 0.0, "addedPressure": 0.0, "pressureGroup": -1, "z": 0.0 } ] }
