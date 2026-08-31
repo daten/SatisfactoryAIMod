@@ -524,6 +524,34 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	if (Method == TEXT("world.setBuildableRotation"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		double Yaw = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("yaw"), Yaw))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.yaw must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetBuildableRotation(GetGameInstance(), BuildableId, static_cast<float>(Yaw));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous - direct AFGTimeOfDaySubsystem::SetDaySeconds() call, no
 	// build gun/hologram involved. Added 2026-08-27 per explicit user
 	// request so live testing/observation isn't blocked by the day/night

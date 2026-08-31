@@ -3813,6 +3813,30 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	return FAIModOperationResult::Success();
 }
 
+FAIModOperationResult UAIModFunctionLibrary::SetBuildableRotation(UObject* WorldContextObject, const FString& BuildableId, float Yaw)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
+	if (!Buildable)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+	}
+
+	const FRotator OldRotation = Buildable->GetActorRotation();
+	FRotator NewRotation = OldRotation;
+	NewRotation.Yaw = Yaw;
+	Buildable->SetActorRotation(NewRotation);
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetBuildableRotation: %s yaw %.2f -> %.2f"), *BuildableId, OldRotation.Yaw, Yaw);
+
+	return FAIModOperationResult::Success();
+}
+
 FAIModOperationResult UAIModFunctionLibrary::DebugCheckPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -7998,6 +8022,19 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		return;
 	}
 
+	// Diagnostic experiment #4 (2026-08-30): experiments #1-3 (rotation
+	// origin, repeated identical calls, gradual Z-sweep) all left height
+	// completely unmoved at the ~400 default, even at very close range
+	// (4.4m in one earlier test) - ruling out rotation, absolute target,
+	// incremental delta, and aim-range as the cause. New hypothesis: the
+	// height computation may require a genuine physical-surface hit -
+	// Hit.Component (a real UPrimitiveComponent, what a real trace against
+	// a wall's mesh would populate) has never been set on this synthetic
+	// hit, only Hit.HitObjectHandle (the actor reference). If
+	// TrySnapToActor's real internal logic checks GetComponent() to
+	// confirm "this is really solid geometry, not nothing," a null
+	// Component could explain a 100%-consistent fallback to minimum
+	// height regardless of Location/rotation.
 	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection) -> FHitResult
 	{
 		FHitResult Hit;
@@ -8007,6 +8044,10 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
+		if (UPrimitiveComponent* RealPrimitive = Buildable->FindComponentByClass<UPrimitiveComponent>())
+		{
+			Hit.Component = RealPrimitive;
+		}
 		return Hit;
 	};
 
@@ -8027,13 +8068,28 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString());
 
-	// Player-independence, take 2 (2026-08-27): see ConstructConveyorBelt's
-	// identical comment/incident - the disqualifier-ignore alone was not
-	// sufficient, since the belt/lift's internal pathing separately reads
-	// the player controller's live rotation. Point the controller at a
-	// deterministic target computed from the two connectors (never the
-	// player's real aim), reasserted every poll tick below.
-	const FRotator LiftDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
+	// Player-independence, take 3 (2026-08-30) - take 2's rotation
+	// (2026-08-27, commit 524f4f951e) used the vector from the SOURCE
+	// CONNECTOR to the dest connector, applied as the PLAYER's rotation.
+	// That's the right direction only if the trace/height computation
+	// this rotation feeds originates AT the source connector - but it's
+	// applied to the PLAYER controller, and the player is generally
+	// standing somewhere else entirely (measured live 2026-08-30: ~425
+	// units off in Y from the source connector in one real test). Before
+	// take 2 existed (no override at all, see git history), height came
+	// from the player's REAL live aim - which only worked because a real
+	// human was standing there actually looking at the real target,
+	// consistent with the user's own description of how they build a
+	// custom-height lift ("the height follows my view"). Take 2 broke
+	// that for any non-trivial player/source offset: a live-verified
+	// wall-to-wall lift test the same day got stuck at a fixed ~400-unit
+	// default height using take 2's rotation. Take 3 computes the look
+	// direction from the PLAYER's real location instead, so the
+	// resulting ray - however the engine's internal pathing actually uses
+	// it - originates from where the player actually is, same as take
+	// 2's stated intent (player-independent) but geometrically correct
+	// for whatever camera-position-based logic reads it.
+	const FRotator LiftDeterministicLook = (DestConnection->GetConnectorLocation() - Character->GetActorLocation()).Rotation();
 	if (AController* LiftController = Character->GetController())
 	{
 		LiftController->SetControlRotation(LiftDeterministicLook);
@@ -8073,14 +8129,31 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	// at intervals to see whether it climbs toward the destination.
 	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
 	const bool bEndHitValid = LiftHologram->IsValidHitResult(EndHit);
+
+	// Diagnostic experiment #3 (2026-08-30): experiment #2 (repeated calls
+	// with the IDENTICAL target hit) never moved height at all, including
+	// on the very first call - suggesting height doesn't jump to an
+	// absolute target in one step, but responds to the DELTA between
+	// successive aim points (mimicking a real mouse-drag/view-sweep,
+	// per the user's own description: "the height follows my view... no
+	// mouse wheel"). An identical repeated hit has zero delta between
+	// calls, which would explain zero movement either way. Testing by
+	// sweeping the hit's Location gradually from the START hit to the
+	// END hit across many calls, instead of jumping straight there.
 	for (int32 i = 0; i < 40; ++i)
 	{
-		LiftHologram->UpdateHologramPlacement(EndHit);
+		const float Alpha = static_cast<float>(i + 1) / 40.0f;
+		FHitResult SweepHit = EndHit;
+		SweepHit.Location = FMath::Lerp(StartHit.Location, EndHit.Location, Alpha);
+		SweepHit.ImpactPoint = SweepHit.Location;
+		LiftHologram->UpdateHologramPlacement(SweepHit);
 		if (i % 5 == 0)
 		{
-			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: repeated UpdateHologramPlacement call #%d: height=%.1f"), i, LiftHologram->GetHeight());
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: sweep call #%d alpha=%.2f sweepZ=%.1f: height=%.1f"), i, Alpha, SweepHit.Location.Z, LiftHologram->GetHeight());
 		}
 	}
+	LiftHologram->UpdateHologramPlacement(EndHit);
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: after final exact-target call: height=%.1f"), LiftHologram->GetHeight());
 	const bool bEndSnapped = LiftHologram->TrySnapToActor(EndHit);
 	const bool bEndStepComplete = LiftHologram->DoMultiStepPlacement(true);
 
@@ -8107,6 +8180,16 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		FHitResult EndHit; // re-asserted every poll tick, see below
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
+		// Diagnostic experiment #5 (2026-08-30): experiments #1-4 all ran
+		// entirely synchronously (zero real ticks elapsed) or exited the
+		// poll loop after just 1 real tick (Initializing clears fast).
+		// Testing whether height responds to genuinely elapsed real time -
+		// if it converges via a smoothed/interpolated rate rather than an
+		// instant snap, 1 tick (a few ms) wouldn't be nearly enough to
+		// climb from 400 to a 1000+ target. Holds an EXTRA 60 real ticks
+		// (~1s at 60fps) after Initializing clears, still reasserting
+		// rotation+EndHit every tick, logging height at intervals.
+		int32 HeightSettleTicksRemaining = 60;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
 	};
 	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
@@ -8163,6 +8246,22 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
 			return;
 		}
+
+		// Diagnostic experiment #5 (2026-08-30, see HeightSettleTicksRemaining's
+		// doc comment) - hold here for extra real ticks purely to see
+		// whether height ever moves given real elapsed time, logging every
+		// 10 ticks.
+		if (PollState->HeightSettleTicksRemaining > 0)
+		{
+			if (PollState->HeightSettleTicksRemaining % 10 == 0)
+			{
+				UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (settle wait): %d tick(s) remaining, height=%.1f"), PollState->HeightSettleTicksRemaining, PollHologram->GetHeight());
+			}
+			--PollState->HeightSettleTicksRemaining;
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (settle wait complete): final height=%.1f"), PollHologram->GetHeight());
 
 		// Player-independence fix - same rationale as ConstructConveyorBelt's
 		// identical block above.

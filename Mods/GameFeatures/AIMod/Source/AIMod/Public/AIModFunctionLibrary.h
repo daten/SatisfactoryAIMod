@@ -526,6 +526,43 @@ public:
 	static FAIModOperationResult DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId);
 
 	/**
+	 * Rotates an existing buildable in place around its own vertical (Z)
+	 * axis - added 2026-08-30 per explicit user request: a vertical
+	 * lift's free/unconnected end lands facing an unpredictable direction
+	 * (per the user, likely inherited from whatever orientation the
+	 * player's last-placed lift used, a convenience default for chaining
+	 * similar builds) - there was previously no way to correct this after
+	 * construction, only at initial placement via world.placeBuilding's
+	 * `yaw` param.
+	 *
+	 * Uses plain AActor::SetActorRotation() - the same mechanism
+	 * world.placeBuilding's absolute `yaw` param already uses at
+	 * placement time (see ConstructBuildingAtPosition), just applied
+	 * after the fact. Factory connectors are child USceneComponents, so
+	 * GetConnectorLocation()/GetConnectorNormal() reflect the new
+	 * rotation automatically - no special-casing needed for that part.
+	 *
+	 * Only changes yaw (pitch/roll preserved as-is) - this does NOT
+	 * change which end is Input vs Output (item flow direction), only
+	 * which way the buildable (and therefore its connectors) face
+	 * horizontally.
+	 *
+	 * SAFETY, NOT YET FULLY VERIFIED LIVE: for a vertical lift
+	 * specifically, both connectors sit on the lift's own vertical axis,
+	 * so rotating yaw doesn't move either connector's position - only the
+	 * direction each one faces. If one end is ALREADY connected (the
+	 * normal case for a lift built via world.connectConveyorLift, whose
+	 * Input is connected and Output is free), this rotates that
+	 * connected end's facing normal too, alongside the free end's. The
+	 * logical connection (mConnectedComponent, a pointer-based link) is
+	 * not expected to break, but the visual/geometric alignment at that
+	 * end may look off after rotating - test on a real connected lift
+	 * before trusting this broadly for that case.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetBuildableRotation(UObject* WorldContextObject, const FString& BuildableId, float Yaw);
+
+	/**
 	 * Returns telemetry for the resource node the local player is
 	 * currently aiming at, via the same
 	 * AFGCharacterPlayer::GetBestUsableActor() GetTargetedManufacturer
