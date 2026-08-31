@@ -1296,6 +1296,31 @@ Real disqualifiers `UFGCDNeedsWaterVolume`/`UFGCDResourceIsTooShallow`
 are never bypassed — an offset landing on dry land or too-shallow water
 should still correctly fail via `CANNOT_CONSTRUCT`.
 
+### `world.constructWaterPumpAtPosition` — asynchronous, `result.buildableId` on success, **NOT YET LIVE-TESTED**
+`params: {"x"/"y"/"z" (required numbers), "recipeClass" (optional, default Recipe_WaterPump)}`
+
+Added 2026-08-31, the from-scratch counterpart to
+`world.constructWaterPumpNearReference` (explicit user follow-up: "if
+as part of a larger build you determined you required a large amount
+of water... would you be able to locate it and plan a layout").
+`constructWaterPumpNearReference` deliberately requires an
+already-placed reference pump; this closes the resulting gap — a fully
+autonomous build had no way to seed the very FIRST pump in a field
+without a human placing one by hand. Shares the exact same internal
+mechanism (same `AFGWaterVolume`/`IFGExtractableResourceInterface`
+targeting, same disqualifiers, same proximity-based success
+confirmation — see `world.constructWaterPumpNearReference` above), just
+resolves its candidate position from a literal `(x, y, z)` instead of
+a reference buildable + offset.
+
+No ground-trace mode — unlike ordinary buildings, a water pump's valid
+Z is decided entirely by which `AFGWaterVolume` (if any) contains the
+point and that volume's own depth/placement disqualifiers, not by
+where the terrain surface is. Pass a real Z, typically read from
+`world.waterVolumes`' `bounds` for the target lake (see
+`controller/satisfactory_ai/water.py` for a layout planner that
+computes real candidate positions from a queried water volume).
+
 ### `world.constructVehicle` — asynchronous, `result.buildableId` on success
 `params: {"recipeClass" (required), "droneStationId" (optional),
 "x"/"y"/"z" (optional, numbers), "ignoreGroundTrace" (optional bool),

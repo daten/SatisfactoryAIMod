@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from .models import Buildable, FactoryConnection, Position
 
@@ -444,6 +444,117 @@ def compute_disk_fill_grid(
                     continue
             positions.append(Position(x=center.x + local_x, y=center.y + local_y, z=center.z))
     return positions
+
+
+def group_producers_by_flow_capacity(flow_rates: List[float], tier_flow_limit: float) -> List[List[int]]:
+    """Greedily groups producers (by index into flow_rates, in the
+    given order) into clusters whose combined flow stays within
+    tier_flow_limit - "rows of pumps that feed pipe junctions until
+    each predicted pipe is saturated" (added 2026-08-31, explicit user
+    request for a water-pump-field planner, but deliberately generic:
+    "producers" can be individual pumps at one level, or already-merged
+    junction points feeding a higher trunk tier at the next level up -
+    same data shape either way, just a position + a flow rate).
+
+    Generalizes satisfactory_ai.pipes.max_producers_per_pipe (which
+    assumes every producer has the SAME rate) to handle mixed rates too
+    - e.g. grouping rows of different sizes, or a mix of pumps and
+    other liquid producers. Greedy and order-preserving: fills the
+    current group until the NEXT producer would push it over
+    tier_flow_limit, then starts a new group - not a bin-packing
+    optimizer (does not reorder producers to minimize group count).
+    Reorder flow_rates yourself first if a different grouping strategy
+    is wanted; this function makes no attempt to find an optimal
+    packing.
+
+    Raises ValueError if tier_flow_limit <= 0, any single flow_rates[i]
+    is <= 0 (not a meaningful producer rate), or any single
+    flow_rates[i] alone exceeds tier_flow_limit (that producer can
+    never fit in a group of this tier at all - needs a larger tier or
+    its own dedicated pipe).
+    """
+    if tier_flow_limit <= 0:
+        raise ValueError(f"tier_flow_limit must be positive, got {tier_flow_limit}")
+
+    groups: List[List[int]] = []
+    current_group: List[int] = []
+    current_total = 0.0
+    for i, rate in enumerate(flow_rates):
+        if rate <= 0:
+            raise ValueError(f"flow_rates[{i}] must be positive, got {rate}")
+        if rate > tier_flow_limit:
+            raise ValueError(
+                f"flow_rates[{i}] ({rate}) alone exceeds tier_flow_limit ({tier_flow_limit}) - "
+                "needs a larger tier or its own dedicated pipe"
+            )
+        if current_group and current_total + rate > tier_flow_limit:
+            groups.append(current_group)
+            current_group = []
+            current_total = 0.0
+        current_group.append(i)
+        current_total += rate
+    if current_group:
+        groups.append(current_group)
+    return groups
+
+
+@dataclass(frozen=True)
+class SharedSupportColumn:
+    """One X/Y support point shared by multiple routed systems at their
+    own Z levels - added 2026-08-31 per explicit user follow-up ("there
+    are stackable support structures for pipes and belts that could
+    help with intentional routing of both and provide snap points").
+
+    Real, confirmed recipes exist for exactly this:
+    `Recipe_PipeSupportStackable`, `Recipe_ConveyorPoleStackable`, and
+    `Recipe_HyperPoleStackable` (Content/FactoryGame/Recipes/Buildings/
+    - confirmed present on disk) each let a player stack multiple
+    copies at the SAME X/Y footprint via the build gun's own drag/"Zoop"
+    mechanic (`AFGStackablePoleHologram::CreateZoopInstances`,
+    `GetStackHeight()` - a real per-tier vertical increment). This
+    project does NOT yet drive that Zoop-stacking mechanic via an RPC
+    (a real, separate follow-up, not attempted here) - this dataclass
+    only captures the LAYOUT idea (one shared column position, multiple
+    Z levels) so a caller can place separate pole instances at each
+    level today, or drive real stacking later once that RPC exists,
+    without changing the geometry.
+    """
+
+    x: float
+    y: float
+    pipe_z: Optional[float] = None
+    power_z: Optional[float] = None
+    belt_z: Optional[float] = None
+
+
+def plan_shared_support_columns(
+    start: Position,
+    end: Position,
+    max_segment_length: float,
+    pipe_z: Optional[float] = None,
+    power_z: Optional[float] = None,
+    belt_z: Optional[float] = None,
+) -> List[SharedSupportColumn]:
+    """compute_waypoint_positions() for the shared X/Y column positions,
+    then attaches whichever real Z level(s) the caller supplies for
+    each routed system - added 2026-08-31, see SharedSupportColumn's
+    doc comment for the real stackable-support recipes this models.
+
+    Pass only the systems actually being routed through this corridor
+    (e.g. pipe_z and power_z, leaving belt_z=None) - a level left None
+    means "not routed here," not "routed at z=0."
+
+    Raises ValueError if max_segment_length <= 0 (same as
+    compute_waypoint_positions) or if pipe_z, power_z, and belt_z are
+    ALL None (nothing to route - not a meaningful call).
+    """
+    if pipe_z is None and power_z is None and belt_z is None:
+        raise ValueError("at least one of pipe_z/power_z/belt_z must be given")
+    waypoints = compute_waypoint_positions(start, end, max_segment_length)
+    return [
+        SharedSupportColumn(x=p.x, y=p.y, pipe_z=pipe_z, power_z=power_z, belt_z=belt_z)
+        for p in waypoints
+    ]
 
 
 def compute_waypoint_positions(start: Position, end: Position, max_segment_length: float) -> List[Position]:

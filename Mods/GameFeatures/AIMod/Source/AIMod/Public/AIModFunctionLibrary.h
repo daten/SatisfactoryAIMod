@@ -1191,6 +1191,30 @@ public:
 	static void ConstructWaterPumpNearReference(UObject* WorldContextObject, const FString& ReferenceBuildableId, float OffsetX, float OffsetY, float OffsetZ, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
+	 * world.constructWaterPumpAtPosition (added 2026-08-31, explicit
+	 * user follow-up - "if as part of a larger build you determined you
+	 * required a large amount of water... would you be able to locate
+	 * it and plan a layout"). `ConstructWaterPumpNearReference`
+	 * deliberately requires an already-placed reference pump - correct
+	 * for that request, but it means a fully autonomous build has no
+	 * way to seed the very FIRST pump in a field without a human having
+	 * placed one by hand already. This closes that hole: same real
+	 * mechanism (shares the `ConstructWaterPumpAtCandidatePosition`
+	 * internal helper wholesale, not a reimplementation - see that
+	 * helper's own comment in the .cpp), just a literal `(X, Y, Z)`
+	 * candidate position instead of resolving one from a reference
+	 * buildable. No ground-trace mode - unlike ordinary buildings, a
+	 * water pump's valid Z is decided entirely by which
+	 * `AFGWaterVolume` (if any) contains the point and that volume's
+	 * own `CanPlaceResourceExtractor()`/depth disqualifiers, not by
+	 * where the terrain surface is - pass a real Z, typically read from
+	 * `world.waterVolumes`' bounds for the target lake.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	static void ConstructWaterPumpAtPosition(UObject* WorldContextObject, float X, float Y, float Z, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
 	 * world.constructVehicle (2026-08-29) - Drones and wheeled vehicles
 	 * (Tractor/Truck/Explorer/Cyber Wagon/Golf Cart) are hologram-driven
 	 * (AFGVehicleHologram : AFGHologram), the SAME class hierarchy every

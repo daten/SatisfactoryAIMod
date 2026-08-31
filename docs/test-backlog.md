@@ -52,17 +52,25 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
 
 ## Tier 2 — moderate setup, real correctness questions
 
-- [ ] **`world.waterVolumes` / `world.constructWaterPumpNearReference`**
-  — hand-place a reference Water Pump on a real lake, call
-  `world.waterVolumes` and confirm it reports that lake with sane
-  `bounds`. Then call `world.constructWaterPumpNearReference` with a
-  real offset and confirm a second pump actually gets built nearby (not
-  just "success" with nothing visible). Try an offset that lands on dry
-  land or too-shallow water and confirm it correctly fails
+- [ ] **`world.waterVolumes` / `world.constructWaterPumpAtPosition` /
+  `world.constructWaterPumpNearReference`** — call `world.waterVolumes`
+  near a real lake and confirm it reports sane `bounds`. Then call
+  `world.constructWaterPumpAtPosition` with a literal x/y/z read from
+  those bounds and confirm a FIRST pump actually gets built with no
+  reference needed. Then call `world.constructWaterPumpNearReference`
+  with a real offset from that pump and confirm a second one builds
+  nearby (not just "success" with nothing visible). Try an offset that
+  lands on dry land or too-shallow water and confirm it correctly fails
   (`CANNOT_CONSTRUCT`) rather than silently building somewhere wrong.
   This whole feature was built from source reasoning (a real,
   previously-mis-documented gap — `world.placeExtractor` never actually
-  supported Water Pump) and never tried against an actual lake.
+  supported Water Pump) and never tried against an actual lake. Once
+  basic placement works, also try feeding a real lake's bounds into
+  `controller/satisfactory_ai/water.py`'s `plan_water_pump_field()` and
+  constructing the resulting row of pumps - this is the first real test
+  of both the placement RPCs AND the layout planner together, and the
+  first opportunity to measure a real minimum pump spacing (currently
+  an unconfirmed, caller-supplied value in the planner).
 - [ ] **`world.priorityPowerSwitches` / `world.setPriorityPowerSwitchPriority`**
   — set a priority on a placed switch, cause a real power shortage
   (or check in-game), confirm it actually sheds before a lower-priority

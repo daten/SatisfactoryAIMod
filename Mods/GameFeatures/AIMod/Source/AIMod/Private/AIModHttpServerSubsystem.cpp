@@ -1097,6 +1097,38 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.constructWaterPumpAtPosition - see
+	// ConstructWaterPumpAtPosition's doc comment. Added 2026-08-31, the
+	// from-scratch counterpart for seeding the first pump in a field.
+	if (Method == TEXT("world.constructWaterPumpAtPosition"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0, Y = 0.0, Z = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y) || !ParamsObject->TryGetNumberField(TEXT("z"), Z))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x, params.y, and params.z must all be numbers")));
+			return true;
+		}
+
+		FString RecipeClassPath;
+		ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath);
+
+		UAIModFunctionLibrary::ConstructWaterPumpAtPosition(GetGameInstance(),
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z), RecipeClassPath,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// Drones/wheeled vehicles - see ConstructVehicle's doc comment.
 	// Hologram-driven like every other Construct* method above, NOT the
 	// Portable Miner's equipment-dispenser mechanism below.

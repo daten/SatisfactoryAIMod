@@ -4864,34 +4864,19 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 // delegating to ConstructBuildingAtPosition's generic ground-trace flow -
 // this uses the real, purpose-built placement-snapping mechanism the
 // hologram itself relies on, not a guessed literal position.
-void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContextObject, const FString& ReferenceBuildableId, float OffsetX, float OffsetY, float OffsetZ, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete)
+namespace
 {
-	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
-	if (!World)
+	// Shared by ConstructWaterPumpNearReference and
+	// ConstructWaterPumpAtPosition - everything downstream of "we have a
+	// candidate world position, now find the real AFGWaterVolume and
+	// drive the hologram" is identical between the two; only HOW the
+	// candidate position is computed differs (reference pump + offset,
+	// vs. a literal position). See ConstructWaterPumpNearReference's doc
+	// comment in the header for the full sourcing
+	// (IFGExtractableResourceInterface/AFGResourceExtractorHologram
+	// reasoning) - not repeated here.
+	void ConstructWaterPumpAtCandidatePosition(UWorld* World, AFGCharacterPlayer* Character, const FVector& CandidatePosition, const FString& RecipeClassPath, const FString& ContextLabel, TFunction<void(const FAIModOperationResult&)> OnComplete)
 	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
-		return;
-	}
-
-	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
-	if (!Character)
-	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
-		return;
-	}
-
-	AFGBuildable* ReferenceBuildable = FindBuildableById(World, ReferenceBuildableId);
-	AFGBuildableWaterPump* ReferencePump = Cast<AFGBuildableWaterPump>(ReferenceBuildable);
-	if (!ReferencePump)
-	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("WRONG_TYPE"),
-			FString::Printf(TEXT("'%s' did not resolve to an AFGBuildableWaterPump (%s)"), *ReferenceBuildableId,
-				ReferenceBuildable ? *ReferenceBuildable->GetClass()->GetName() : TEXT("not found"))));
-		return;
-	}
-
-	const FVector CandidatePosition = ReferencePump->GetActorLocation() + FVector(OffsetX, OffsetY, OffsetZ);
-
 	// AFGWaterVolume::EncompassesPoint (IInterface_PostProcessVolume) - a
 	// real, public containment check, not a distance guess. Falls back to
 	// nearest-by-distance only if no volume directly contains the
@@ -5006,7 +4991,7 @@ void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContex
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
 		TWeakObjectPtr<AFGWaterVolume> TargetVolume;
 		TWeakObjectPtr<UWorld> World;
-		FString ReferenceBuildableId;
+		FString ContextLabel;
 		FHitResult SyntheticHit;
 		FRotator DeterministicLook;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -5018,7 +5003,7 @@ void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContex
 	PollState->Character = Character;
 	PollState->TargetVolume = TargetVolume;
 	PollState->World = World;
-	PollState->ReferenceBuildableId = ReferenceBuildableId;
+	PollState->ContextLabel = ContextLabel;
 	PollState->SyntheticHit = SyntheticHit;
 	PollState->DeterministicLook = DeterministicLook;
 	PollState->OnComplete = MoveTemp(OnComplete);
@@ -5033,7 +5018,7 @@ void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContex
 		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
 		if (!IsValid(PollHologram) || !PollWorld)
 		{
-			UE_LOG(LogAIModAI, Warning, TEXT("ConstructWaterPumpNearReference (deferred): hologram or world became invalid while polling (after %d tick(s)) - nothing built"), PollState->AttemptsTaken);
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructWaterPumpAtCandidatePosition (deferred): hologram or world became invalid while polling (after %d tick(s)) - nothing built"), PollState->AttemptsTaken);
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
 			return;
@@ -5081,8 +5066,8 @@ void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContex
 
 		if (!bCanConstruct)
 		{
-			UE_LOG(LogAIModAI, Display, TEXT("ConstructWaterPumpNearReference (deferred, resolved after %d real tick(s)): CanConstruct()=false, NOT constructing - reference=%s disqualifiers=[%s]"),
-				PollState->AttemptsTaken, *PollState->ReferenceBuildableId, *DisqualifierSummary);
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructWaterPumpAtCandidatePosition (deferred, resolved after %d real tick(s)): CanConstruct()=false, NOT constructing - context=%s disqualifiers=[%s]"),
+				PollState->AttemptsTaken, *PollState->ContextLabel, *DisqualifierSummary);
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
 			return;
@@ -5095,7 +5080,7 @@ void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContex
 		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
 		if (!PollBuildState)
 		{
-			UE_LOG(LogAIModAI, Error, TEXT("ConstructWaterPumpNearReference (deferred): lost the build state before constructing - aborting, nothing built"));
+			UE_LOG(LogAIModAI, Error, TEXT("ConstructWaterPumpAtCandidatePosition (deferred): lost the build state before constructing - aborting, nothing built"));
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
 			return;
@@ -5135,8 +5120,8 @@ void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContex
 			}
 		}
 
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructWaterPumpNearReference (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - reference=%s id=%s"),
-			PollState->AttemptsTaken, *PollState->ReferenceBuildableId, *ConstructedBuildableId);
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructWaterPumpAtCandidatePosition (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - context=%s id=%s"),
+			PollState->AttemptsTaken, *PollState->ContextLabel, *ConstructedBuildableId);
 
 		if (IsValid(PollCharacter))
 		{
@@ -5153,6 +5138,66 @@ void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContex
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+	}
+}
+
+// See ConstructWaterPumpNearReference's doc comment in the header for
+// the full "water pump was never reachable via ConstructExtractorOnNode"
+// finding - both this and ConstructWaterPumpAtPosition below just
+// resolve their own candidate position, then delegate to the shared
+// ConstructWaterPumpAtCandidatePosition helper above.
+void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContextObject, const FString& ReferenceBuildableId, float OffsetX, float OffsetY, float OffsetZ, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	AFGBuildable* ReferenceBuildable = FindBuildableById(World, ReferenceBuildableId);
+	AFGBuildableWaterPump* ReferencePump = Cast<AFGBuildableWaterPump>(ReferenceBuildable);
+	if (!ReferencePump)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("WRONG_TYPE"),
+			FString::Printf(TEXT("'%s' did not resolve to an AFGBuildableWaterPump (%s)"), *ReferenceBuildableId,
+				ReferenceBuildable ? *ReferenceBuildable->GetClass()->GetName() : TEXT("not found"))));
+		return;
+	}
+
+	const FVector CandidatePosition = ReferencePump->GetActorLocation() + FVector(OffsetX, OffsetY, OffsetZ);
+	ConstructWaterPumpAtCandidatePosition(World, Character, CandidatePosition, RecipeClassPath, ReferenceBuildableId, MoveTemp(OnComplete));
+}
+
+// See ConstructWaterPumpAtPosition's doc comment in the header - the
+// from-scratch counterpart to ConstructWaterPumpNearReference, for
+// seeding the FIRST pump in a field with no existing reference.
+void UAIModFunctionLibrary::ConstructWaterPumpAtPosition(UObject* WorldContextObject, float X, float Y, float Z, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	const FVector CandidatePosition(X, Y, Z);
+	ConstructWaterPumpAtCandidatePosition(World, Character, CandidatePosition, RecipeClassPath,
+		FString::Printf(TEXT("(%.0f,%.0f,%.0f)"), X, Y, Z), MoveTemp(OnComplete));
 }
 
 void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const FString& RecipeClassPath, const FString& DroneStationId, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees, TFunction<void(const FAIModOperationResult&)> OnComplete)

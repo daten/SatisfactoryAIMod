@@ -74,7 +74,7 @@ confirmed to cover every extractor type in the game:
 | Fracking Smasher (Pressurizer, on a `FrackingCore` node) | ✅ |
 | Fracking Extractor (on an *activated* `FrackingSatellite` node) | ✅ |
 | Portable Miner (handheld, on a node) | ✅ — separate RPC, `world.placePortableMiner`, different mechanism (equipment dispenser, not build-gun hologram) |
-| Water Pump (on an `AFGWaterVolume`, NOT a resource node) | ✅ — **correction 2026-08-31**: this row previously said `world.placeExtractor` covered it; that was never true (Water Pump has no `AFGResourceNodeBase` to target). Real support is `world.constructWaterPumpNearReference` (build one near an already-placed reference pump) + `world.waterVolumes` (real, discoverable water bodies — directly resolves the "water is hard to locate" problem this project had previously flagged as too difficult). Not live-tested |
+| Water Pump (on an `AFGWaterVolume`, NOT a resource node) | ✅ — **correction 2026-08-31**: this row previously said `world.placeExtractor` covered it; that was never true (Water Pump has no `AFGResourceNodeBase` to target). Real support is `world.constructWaterPumpAtPosition` (seed the first pump from scratch, literal x/y/z), `world.constructWaterPumpNearReference` (build additional pumps near an already-placed one), + `world.waterVolumes` (real, discoverable water bodies — directly resolves the "water is hard to locate" problem this project had previously flagged as too difficult). Large-scale field layout (rows of pumps grouped until a pipe tier saturates, multi-row trunk merging, shared stackable-support columns for pipe+power routing): `controller/satisfactory_ai/water.py`. Not live-tested |
 
 ## Vehicles — ✅ via `world.constructVehicle`
 
@@ -194,3 +194,17 @@ none can go through the generic single-click flow:
   Fixed with a real, purpose-built mechanism
   (`world.constructWaterPumpNearReference`/`world.waterVolumes`) rather
   than just leaving it as a documented limitation.
+- **2026-08-31 (later still)**: User asked whether this project could
+  plan a full large-scale water pump field (locate water, lay out rows
+  of pumps, group into pipe junctions until saturated, route pipes and
+  power lines cleanly back to the main project). Answer was "partially"
+  with two real gaps, both closed in this pass: added
+  `world.constructWaterPumpAtPosition` (seed the first pump from
+  scratch, no reference required) and
+  `controller/satisfactory_ai/water.py` (row/field layout planner using
+  the real `max_producers_per_pipe` flow-saturation math already built
+  for pipes generally, plus a new generic
+  `group_producers_by_flow_capacity` for merging rows into higher
+  trunks). Also incorporated the user's note about real stackable
+  support recipes (`Recipe_PipeSupportStackable`/
+  `Recipe_ConveyorPoleStackable`) via `layout.plan_shared_support_columns`.

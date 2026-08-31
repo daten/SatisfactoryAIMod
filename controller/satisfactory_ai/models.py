@@ -60,6 +60,65 @@ class ResourceNode:
 
 
 @dataclass(frozen=True)
+class Bounds:
+    """Axis-aligned bounding box - min/max corners plus size (max - min,
+    provided directly by the RPC rather than recomputed here)."""
+
+    min: Position
+    max: Position
+    size: Position
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Bounds":
+        return cls(
+            min=Position.from_dict(data["min"]),
+            max=Position.from_dict(data["max"]),
+            size=Position.from_dict(data["size"]),
+        )
+
+
+@dataclass(frozen=True)
+class WaterVolume:
+    """Mirrors one entry of "world.waterVolumes" (added 2026-08-31, per
+    explicit user request - see satisfactory_ai.water's module
+    docstring for the full "water pumps were never reachable via
+    world.placeExtractor" finding this RPC/model pair resolves).
+
+    id is session-local only, same non-persistence caveat as
+    ResourceNode.id (AFGWaterVolume's own path name, not a stable
+    save-spanning key). bounds is the volume's real
+    GetComponentsBoundingBox() - the actual usable extent for computing
+    candidate pump positions inside it, not a guess at lake shape.
+    resource_class is usually the water resource descriptor but is
+    whatever AFGWaterVolume::GetResourceClass() reports for THIS
+    instance - do not assume it is always water without checking, in
+    case a modded/custom water volume reports something else.
+    """
+
+    id: str
+    position: Position
+    bounds: Bounds
+    is_occupied: bool
+    can_become_occupied: bool
+    can_place_resource_extractor: bool
+    has_any_resources: bool
+    resource_class: str
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WaterVolume":
+        return cls(
+            id=data["id"],
+            position=Position.from_dict(data["position"]),
+            bounds=Bounds.from_dict(data["bounds"]),
+            is_occupied=bool(data["isOccupied"]),
+            can_become_occupied=bool(data["canBecomeOccupied"]),
+            can_place_resource_extractor=bool(data["canPlaceResourceExtractor"]),
+            has_any_resources=bool(data["hasAnyResources"]),
+            resource_class=data["resourceClass"],
+        )
+
+
+@dataclass(frozen=True)
 class Rotation:
     pitch: float
     yaw: float
