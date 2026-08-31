@@ -84,6 +84,88 @@ exposed via the new `world.pipelinePumpTiers` RPC, see below):
   manual valve, `-1` = fully open) for deliberately throttling a run
   below the pipe's natural max, if that's ever useful for balancing.
 
+## Each pipe segment has its own real volume, and fills sequentially
+
+Per the user's own description, added to this research before it
+becomes directly relevant: pipe segments have real volume proportional
+to length, fill sequentially from the source, and an imbalanced/
+starved network can "slosh." All confirmed directly from source
+(`Source/FactoryGame/Public/FGFluidIntegrantInterface.h`'s `FFluidBox`
+struct) — this is not speculation:
+
+- **"A fluid box is a simulation unit in the fluid system, it has a
+  volume and keeps track of pressures, flow etc."** (the struct's own
+  top comment). **Each individual `AFGBuildablePipeline` segment is its
+  own independent `FFluidBox`** (`mFluidBox` member, `GetFluidBox()`
+  override) — not the whole network as one unit. `Content`/`MaxContent`
+  are both real `[m^3]` fields. Paired with `AFGBuildablePipeBase::
+  GetLength()` ("Length of the pipe in centimeters," a real public
+  getter), this confirms the length-to-volume relationship: a longer
+  segment has more volume. Real per-tier constants (how many m³ per cm
+  of a Pipeline Mk1 vs Mk2) are not decodable from source, only
+  queryable live via the new `world.pipeFluidBoxes` RPC (see below).
+- **`FlowFill`/`FlowDrain` are explicitly documented**: "Fill and drain
+  is how fast the box is filling up or emptying in [m^3/s]." This is
+  the real mechanism behind sequential fill: a box's `Content` climbs
+  via `FlowFill` until some threshold, before the NEXT segment's own box
+  starts receiving meaningful flow - the doc comment doesn't spell out
+  the exact per-box handoff logic (only `.cpp`-body-level, not readable
+  in this SDK), but the existence of distinct per-box fill/drain state,
+  updated by the network's own `UpdateFlow`/`UpdateContent`
+  junction-pair functions (`FGPipeNetwork.h`), structurally confirms
+  segments are filled and drained as discrete units rather than the
+  whole pipeline updating uniformly.
+- **A real, documented overfill/pressure-buildup mechanic exists,
+  plausibly the source of "sloshing"**: `MaxOverfillPct` (a fraction,
+  e.g. the struct's own worked example uses 40%) lets a box hold MORE
+  than `MaxContent`, and part of that overfill contributes to real
+  pressure (`OVERFILL_USED_FOR_PRESSURE_PCT`) - "Overfilling is what
+  creates pressure in the pipes" per the struct's own comment. Notably,
+  the source also documents `PRESSURE_LOSS`, "A small damping factor...
+  so we cannot use our own pressure to pump up ourselves" - i.e. the
+  developers explicitly engineered against a feedback-instability risk
+  in this exact mechanic. This is real, corroborating evidence for the
+  user's "sloshing effects"/slow-or-never-stabilizing-network concern -
+  not just community folklore, a documented simulation characteristic
+  the developers themselves had to guard against.
+- **Explicit caveat directly relevant to "telemetry may produce chaotic
+  results"**: `FlowThrough`/`FlowFill`/`FlowDrain` are documented as
+  "not used for any simulations only for feedback... For the
+  simulation see the junction pairs in the network" - meaning these
+  are real but DERIVED/reactive values, not the authoritative
+  simulation state. Expect exactly what the user anticipated: noisy,
+  transient readings during startup or under starved/imbalanced
+  consumption, not clean steady-state numbers, especially before a
+  network has been running long enough to settle (if it settles at
+  all without deliberate pre-priming).
+
+**New capability, NOT YET LIVE-TESTED**: `world.pipeFluidBoxes` RPC -
+per-segment `contentM3`/`maxContentM3`/`fillPct`/`maxOverfillPct`/
+`flowThrough`/`flowFill`/`flowDrain`/`flowLimit`/`pressureColumn`/
+`elevationPressureColumn`/`addedPressure`/`pressureGroup`/`z`, plus the
+segment's real `lengthCm`. Scoped to `AFGBuildablePipeline` only for
+this first pass (pumps/tanks/other `IFGFluidIntegrantInterface`
+implementers are not included - a real, separate future widening if
+their fluid-box state turns out to matter for planning too). This is
+the RPC to reach for once observing real fill/sloshing/manifold-balance
+behavior becomes relevant, per the user's own framing ("before it
+becomes relevant later").
+
+**Manifold load-balancing, not yet independently confirmed from
+source**: the user also described a linear manifold feeding multiple
+consumers from one high-rate pipe potentially favoring the
+first-in-line machines, with slow or uncertain convergence to a
+balanced state unless the network is deliberately pre-filled before
+consumers start drawing. This is consistent with everything confirmed
+above (per-segment sequential fill, pressure/overfill-driven flow
+rather than an even split at junctions - see "Flow-rate capacity"
+below) but the SPECIFIC claim about linear-manifold ordering bias
+wasn't independently verified against a dedicated source passage this
+session - treat it as a real, plausible planning consideration (worth
+designing around, e.g. preferring a tree/balanced junction topology
+over a long daisy-chain of consumers) rather than a source-confirmed
+fact the way the elevation/overfill mechanics above are.
+
 ## Flow-rate capacity: a pipe segment has a hard ceiling regardless of pumps
 
 `world.pipelineTiers`' `flowLimit` (already exposed, live-queryable) is
@@ -196,3 +278,18 @@ topology.
   `production.py` already uses elsewhere — not pipe-specific research,
   just noting it's the missing input the new flow calculators need to
   be useful for a real site.
+- **`world.pipeFluidBoxes` exists now but has never been called against
+  a running game** — same "unconfirmed live" caveat as
+  `world.pipelinePumpTiers`. In particular, whether `fillPct`/
+  `flowFill`/`flowDrain` actually show the noisy/transient behavior
+  during startup that this research predicts (vs. converging cleanly)
+  is a real, interesting thing to check the first time this gets
+  polled during an actual fill.
+- **Linear-manifold consumer-ordering bias** (the user's description:
+  feeding several consumers in a daisy-chain off one high-rate pipe may
+  favor the first-in-line machines, converging slowly or not at all
+  without deliberate pre-priming) is plausible and consistent with
+  everything else confirmed here, but was NOT independently verified
+  against a specific source passage this session — flagged as a real
+  planning consideration, not yet a source-confirmed fact the way the
+  elevation/overfill mechanics are.

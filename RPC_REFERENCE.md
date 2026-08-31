@@ -299,6 +299,52 @@ elevation gain). All are pure toolkit functions on already-known
 numbers — same "answers one question, doesn't plan a route" posture as
 the rest of the module — and explicitly do NOT apply to gas.
 
+### `world.pipeFluidBoxes` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "pipes": [ { "id": "...", "lengthCm": 0.0, "contentM3": 0.0, "maxContentM3": 0.0, "fillPct": 0.0, "maxOverfillPct": 0.4, "flowThrough": 0.0, "flowFill": 0.0, "flowDrain": 0.0, "flowLimit": 0.0, "pressureColumn": 0.0, "elevationPressureColumn": 0.0, "addedPressure": 0.0, "pressureGroup": -1, "z": 0.0 } ] }
+```
+Real-time per-segment fluid simulation state for every placed
+`AFGBuildablePipeline`, added 2026-08-31 (offline research/prep,
+anticipating the user's own description of pipe-fill/sloshing dynamics
+being worth observing once relevant). Confirmed from source
+(`FGFluidIntegrantInterface.h`'s `FFluidBox`): **each individual pipe
+SEGMENT — not the whole network — is its own independent simulation
+unit** with real content/capacity in `[m^3]` (`contentM3`/`maxContentM3`),
+paired here with the segment's own real length in centimeters
+(`lengthCm`, `AFGBuildablePipeBase::GetLength()`) — confirms the real
+length-to-volume relationship (a longer segment holds more fluid).
+`fillPct` is `contentM3/maxContentM3`, computed here for convenience
+(0 if `maxContentM3` is 0), not a real engine field.
+
+**`flowThrough`/`flowFill`/`flowDrain` `[m^3/s]` are documented in
+`FFluidBox`'s own comment as "not used for any simulations, only for
+feedback"** — real telemetry, but not the authoritative simulation
+state (that lives in the pipe network's own junction-pair updates,
+not exposed by this RPC). Expect these to be noisy or transient during
+startup, or under starved/inconsistent consumption, rather than clean
+steady values — matches the user's own expectation that pipe telemetry
+"may produce chaotic results."
+
+**`maxOverfillPct` documents a real, confirmed overfill/pressure
+mechanic**: a segment can hold more than `maxContentM3`, up to this
+extra fraction, and part of that overfill contributes to real pressure
+(`FFluidBox`'s own comment gives a worked example: max pressure at 105%
+content, allowed to fill to 110%, though the exact real numbers for
+this game's tiers are unconfirmed). The engine's own source includes a
+documented `PRESSURE_LOSS` damping constant specifically because,
+per its own comment, "we cannot use our own pressure to pump up
+ourselves" — i.e. the developers explicitly engineered against a
+feedback-instability risk here, lending real weight to "sloshing" as a
+genuine simulation phenomenon, not just a community rumor.
+
+Scoped to `AFGBuildablePipeline` (pipe segments) specifically for this
+first pass — `IFGFluidIntegrantInterface` is also implemented by pumps/
+storage tanks/other attachments, which are NOT included here. Widening
+to other fluid integrants is a real, separate future addition, not done
+yet. Full mechanic writeup, including the liquid-vs-gas pressure-group
+simulation this segment-level data feeds into, in
+`docs/pipe-network-research.md`.
+
 ### `world.conveyorAttachments` — no params
 ```json
 { "protocolVersion": 1, "attachments": [ { "recipeClass": "...Recipe_ConveyorAttachmentSplitter_C", "buildableClass": "...", "inputCount": 1, "outputCount": 3, "supportsSortRules": false } ] }

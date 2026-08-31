@@ -1583,6 +1583,44 @@ public:
 	static FString LogPipelinePumpTiersAsJson(UObject* WorldContextObject);
 
 	/**
+	 * Real-time per-segment fluid simulation state for every placed
+	 * AFGBuildablePipeline (added 2026-08-31, offline research/prep per
+	 * explicit user request - anticipating that pipe-network telemetry
+	 * may look "chaotic" during fill/startup and wanting the ability to
+	 * actually observe it once relevant).
+	 *
+	 * Confirmed from source (FGFluidIntegrantInterface.h's FFluidBox):
+	 * each individual pipe SEGMENT (not the whole network) is its own
+	 * independent simulation unit with real content/capacity in [m^3] -
+	 * "contentM3"/"maxContentM3" here, alongside the segment's own real
+	 * length in centimeters ("lengthCm", AFGBuildablePipeBase::GetLength())
+	 * - together giving the real length-to-volume relationship the user
+	 * described (longer segment, more volume).
+	 *
+	 * "fillPct" is content/maxContent, computed here for convenience (not
+	 * a real engine field) - 0 if maxContent is 0.
+	 *
+	 * "flowFill"/"flowDrain"/"flowThrough" [m^3/s] are documented in
+	 * FFluidBox's own comment as "not used for any simulations, only for
+	 * feedback" - i.e. real telemetry values, not authoritative
+	 * simulation state (that lives in the pipe NETWORK's junction-pair
+	 * updates, not exposed here) - expect these to be noisy/transient
+	 * during startup or under sloshing conditions, not simple steady
+	 * values, matching the user's own expectation.
+	 *
+	 * "maxOverfillPct" documents FFluidBox's real overfill-for-pressure
+	 * mechanic (a pipe can hold MORE than maxContentM3, up to this extra
+	 * fraction, and part of that overfill builds real pressure) - the
+	 * likely source of "sloshing" oscillation the user described,
+	 * confirmed as a real, documented simulation feature, not
+	 * speculation.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipeFluidBoxesAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Near-exact mirror of ConstructConveyorBelt: same build-gun two-
 	 * click mechanism (TrySnapToActor + DoMultiStepPlacement(true) at
 	 * source, then dest), including the UpdateHologramPlacement-before-

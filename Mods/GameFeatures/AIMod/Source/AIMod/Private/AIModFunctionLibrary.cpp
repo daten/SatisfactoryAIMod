@@ -38,6 +38,7 @@
 #include "Engine/GameViewportClient.h"
 #include "Buildables/FGBuildableWire.h"
 #include "Buildables/FGBuildablePipeline.h"
+#include "FGFluidIntegrantInterface.h"
 #include "Buildables/FGBuildableConveyorAttachment.h"
 #include "Buildables/FGBuildableSplitterSmart.h"
 #include "Buildables/FGBuildableConveyorLift.h"
@@ -6190,6 +6191,69 @@ FString UAIModFunctionLibrary::LogPipelinePumpTiersAsJson(UObject* WorldContextO
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogPipelinePumpTiersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::LogPipeFluidBoxesAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogPipeFluidBoxesAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	// Scoped to AFGBuildablePipeline (real pipe SEGMENTS) specifically -
+	// IFGFluidIntegrantInterface is also implemented by pumps/storage
+	// tanks/etc, but segments are what the user's own volume/fill
+	// question was about. Widening to other fluid integrants is a real,
+	// separate future addition if needed, not done here.
+	TArray<TSharedPtr<FJsonValue>> BoxJsonArray;
+	for (TActorIterator<AFGBuildablePipeline> It(World); It; ++It)
+	{
+		AFGBuildablePipeline* Pipe = *It;
+		if (!IsValid(Pipe))
+		{
+			continue;
+		}
+		FFluidBox* Box = Pipe->GetFluidBox();
+		if (!Box)
+		{
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> BoxObject = MakeShared<FJsonObject>();
+		BoxObject->SetStringField(TEXT("id"), Pipe->GetPathName());
+		// GetLength() is documented "Length of the pipe in centimeters"
+		// (FGBuildablePipeBase.h) - real unit, paired here with the
+		// fluid box's own real volume for the length-to-volume
+		// relationship the user asked about.
+		BoxObject->SetNumberField(TEXT("lengthCm"), Pipe->GetLength());
+		BoxObject->SetNumberField(TEXT("contentM3"), Box->Content);
+		BoxObject->SetNumberField(TEXT("maxContentM3"), Box->MaxContent);
+		BoxObject->SetNumberField(TEXT("fillPct"), Box->MaxContent > 0.f ? (Box->Content / Box->MaxContent) : 0.f);
+		BoxObject->SetNumberField(TEXT("maxOverfillPct"), Box->MaxOverfillPct);
+		BoxObject->SetNumberField(TEXT("flowThrough"), Box->FlowThrough);
+		BoxObject->SetNumberField(TEXT("flowFill"), Box->FlowFill);
+		BoxObject->SetNumberField(TEXT("flowDrain"), Box->FlowDrain);
+		BoxObject->SetNumberField(TEXT("flowLimit"), Box->FlowLimit);
+		BoxObject->SetNumberField(TEXT("pressureColumn"), Box->PressureColumn);
+		BoxObject->SetNumberField(TEXT("elevationPressureColumn"), Box->ElevationPressureColumn);
+		BoxObject->SetNumberField(TEXT("addedPressure"), Box->GetCurrentAddedPressure());
+		BoxObject->SetNumberField(TEXT("pressureGroup"), Box->PressureGroup);
+		BoxObject->SetNumberField(TEXT("z"), Box->Z);
+
+		BoxJsonArray.Add(MakeShared<FJsonValueObject>(BoxObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("pipes"), BoxJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogPipeFluidBoxesAsJson: %d pipe segment(s)"), BoxJsonArray.Num());
 
 	return JsonString;
 }

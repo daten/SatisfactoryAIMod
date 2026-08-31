@@ -1640,6 +1640,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogPipelinePumpTiersAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.pipeFluidBoxes"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPipeFluidBoxesAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.conveyorAttachments"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(GetGameInstance());
