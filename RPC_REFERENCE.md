@@ -97,6 +97,42 @@ no `params` at all — noted where one does.
 ```
 Local player character's position/rotation.
 
+### `world.teleportPlayer` — `{ "x": float, "y": float, "z"?: float, "ignoreGroundTrace"?: bool, "yaw"?: float }`, **NOT YET LIVE-TESTED**
+```json
+{ "success": true }
+```
+Added 2026-08-31 per explicit user request ("move the player
+position, essentially teleporting the player on the map... mostly for
+building-purposes, if specific situations or tests require a change in
+the player location"). Player index 0 only, single-player/local scope,
+same as `world.player`.
+
+Uses the real, standard Unreal `AActor::TeleportTo()` — not a raw
+`SetActorLocation` — so the engine's own `FindTeleportSpot` nudges the
+destination clear of solid geometry if the literal point would embed
+the player in it, and the move goes through
+`MoveComponent(..., ETeleportType::TeleportPhysics)`, the correct way
+to relocate an `ACharacter`. Fails with `TELEPORT_BLOCKED` (a real
+failure, not silently ignored) if no clear destination exists nearby.
+`GetCharacterMovement()->StopMovementImmediately()` runs right after a
+successful teleport — zeroes residual velocity so a player teleported
+mid-fall/mid-sprint doesn't carry that momentum (and potential fall
+damage) into the new location.
+
+Same ground-trace-or-literal-`z` convention as `world.placeBuilding`:
+omit `ignoreGroundTrace` (or pass `false`) to ground-snap `x`/`y` via a
+line trace (`z`, if given, only anchors the search center — otherwise
+the player's current `z` is used), or pass `ignoreGroundTrace: true`
+with an explicit `z` for literal world coordinates (fails
+`MISSING_REFERENCE_Z` if `z` is omitted in that mode). `yaw` is
+optional — when omitted, the player's current facing is kept and only
+position changes.
+
+Does NOT touch `IFGUnsafePawnRelocationInterface` (the elevators'
+last-safe-location bookkeeping for save/load) — out of scope for this
+first pass; relies on `TeleportTo`'s own encroachment check having
+picked a genuinely clear spot rather than that separate mechanism.
+
 ### `world.timeOfDay` — no params
 ```json
 { "protocolVersion": 1, "hour": 10, "minute": 30, "daySeconds": 37800.0, "isDay": true }

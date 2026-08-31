@@ -293,6 +293,54 @@ public:
 	static FString LogPlayerAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.teleportPlayer (added 2026-08-31, explicit user request -
+	 * "move the player position, essentially teleporting the player on
+	 * the map... mostly for building-purposes, if specific situations
+	 * or tests require a change in the player location"). Player index
+	 * 0 only, single-player/local scope, same as GetPlayerTelemetry.
+	 *
+	 * Uses the real, standard Unreal `AActor::TeleportTo(DestLocation,
+	 * DestRotation, bIsATest=false, bNoCheck=false)` - NOT a raw
+	 * SetActorLocation - so the engine's own `FindTeleportSpot` runs
+	 * first (nudges the destination clear of solid geometry if the
+	 * literal point would embed the player in it) and the move goes
+	 * through `MoveComponent(..., ETeleportType::TeleportPhysics)`,
+	 * which is the correct way to relocate a `ACharacter` (properly
+	 * notifies `UCharacterMovementComponent` rather than fighting its
+	 * next tick). Returns false (surfaced as TELEPORT_BLOCKED) if the
+	 * destination has no nearby clear spot - real failure signal, not
+	 * silently ignored.
+	 *
+	 * `GetCharacterMovement()->StopMovementImmediately()` is called
+	 * right after a successful teleport - zeroes residual velocity so a
+	 * player teleported mid-fall/mid-sprint doesn't carry that momentum
+	 * (and potential fall damage) into the new location. This is the
+	 * standard, public `UMovementComponent` API for exactly this, not a
+	 * custom workaround.
+	 *
+	 * Same ground-trace-or-literal-Z convention as
+	 * ConstructVehicle/ConstructBuildingAtPosition: pass
+	 * bIgnoreGroundTrace=true with an explicit Z to place at literal
+	 * world coordinates (e.g. a known building/node's height), or
+	 * false to ground-snap X/Y via FindGroundAtXY (Z becomes the search
+	 * center, or the player's current Z if omitted) - useful for
+	 * "teleport near this resource node/buildable" callers that only
+	 * know X/Y. bHasTargetYaw/TargetYawDegrees optionally sets facing;
+	 * when false the player's current camera yaw/pitch/roll is kept
+	 * (only position changes).
+	 *
+	 * Does NOT touch `IFGUnsafePawnRelocationInterface` (last-safe-
+	 * location bookkeeping the elevators use for save/load) - out of
+	 * scope for this first pass; a teleported-then-saved player relies
+	 * on TeleportTo's own encroachment check having picked a genuinely
+	 * clear spot, not on that separate mechanism.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult TeleportPlayer(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees);
+
+	/**
 	 * Serializes the current in-game time of day to
 	 * {"protocolVersion":1,"hour":H,"minute":M,"daySeconds":S,"isDay":bool}
 	 * via AFGTimeOfDaySubsystem::Get()'s own GetHours()/GetMinutes()/

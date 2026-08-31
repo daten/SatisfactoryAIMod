@@ -591,6 +591,46 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Synchronous - direct AActor::TeleportTo() call, no build gun/hologram
+	// involved. Added 2026-08-31 per explicit user request ("move the
+	// player position... mostly for building-purposes, if specific
+	// situations or tests require a change in the player location") - see
+	// TeleportPlayer's doc comment for the real TeleportTo/
+	// StopMovementImmediately sourcing.
+	if (Method == TEXT("world.teleportPlayer"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0, Y = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		// Same -1000000 "not provided" sentinel as world.placeBuilding's z.
+		double Z = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), Z);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		double TargetYawDegrees = 0.0;
+		const bool bHasTargetYaw = ParamsObject->TryGetNumberField(TEXT("yaw"), TargetYawDegrees);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::TeleportPlayer(GetGameInstance(),
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z),
+			bIgnoreGroundTrace, bHasTargetYaw, static_cast<float>(TargetYawDegrees));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous - direct AFGTimeOfDaySubsystem::SetDaySeconds() call, no
 	// build gun/hologram involved. Added 2026-08-27 per explicit user
 	// request so live testing/observation isn't blocked by the day/night

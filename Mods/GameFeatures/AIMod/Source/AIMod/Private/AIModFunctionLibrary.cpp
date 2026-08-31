@@ -110,6 +110,7 @@
 #include "FGDroneStationInfo.h"
 #include "Buildables/FGBuildableDockingStation.h"
 #include "WheeledVehicles/FGWheeledVehicle.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 namespace
 {
@@ -1601,6 +1602,71 @@ FString UAIModFunctionLibrary::LogPlayerAsJson(UObject* WorldContextObject)
 	UE_LOG(LogAIModAI, Display, TEXT("LogPlayerAsJson: %s"), *JsonString);
 
 	return JsonString;
+}
+
+// See TeleportPlayer's doc comment in the header for the real
+// TeleportTo/StopMovementImmediately/FindGroundAtXY sourcing behind this.
+FAIModOperationResult UAIModFunctionLibrary::TeleportPlayer(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	// Same ground-trace-or-literal-Z sentinel convention as
+	// ConstructVehicle/ConstructBuildingAtPosition.
+	if (bIgnoreGroundTrace && Z <= -1000000.0f)
+	{
+		return FAIModOperationResult::Failure(TEXT("MISSING_REFERENCE_Z"),
+			TEXT("bIgnoreGroundTrace requires an explicit z - there is no ground trace to fall back to"));
+	}
+
+	FVector DestLocation;
+	if (bIgnoreGroundTrace)
+	{
+		DestLocation = FVector(X, Y, Z);
+	}
+	else
+	{
+		const float ZSearchCenter = (Z > -1000000.0f) ? Z : Character->GetActorLocation().Z;
+		const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+		// +100cm margin above the traced ground point - FindTeleportSpot
+		// (inside TeleportTo) still resolves any remaining capsule
+		// overlap, this just reduces reliance on it for the common case.
+		DestLocation = GroundTrace.Hit.Location + FVector(0.0f, 0.0f, 100.0f);
+	}
+
+	const FRotator DestRotation = bHasTargetYaw
+		? FRotator(Character->GetActorRotation().Pitch, TargetYawDegrees, Character->GetActorRotation().Roll)
+		: Character->GetActorRotation();
+
+	const bool bTeleportSucceeded = Character->TeleportTo(DestLocation, DestRotation, false, false);
+	if (!bTeleportSucceeded)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("TeleportPlayer: TeleportTo(%s) failed - no clear destination found nearby"), *DestLocation.ToString());
+		return FAIModOperationResult::Failure(TEXT("TELEPORT_BLOCKED"), TEXT("TeleportTo found no clear destination near the requested location"));
+	}
+
+	if (UCharacterMovementComponent* MovementComponent = Character->GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	if (AController* Controller = Character->GetController())
+	{
+		Controller->SetControlRotation(DestRotation);
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("TeleportPlayer: moved to %s"), *DestLocation.ToString());
+
+	return FAIModOperationResult::Success();
 }
 
 FString UAIModFunctionLibrary::LogTimeOfDayAsJson(UObject* WorldContextObject)
