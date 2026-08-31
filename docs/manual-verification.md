@@ -2,7 +2,11 @@
 
 This is a living checklist of everything that still needs a human to
 confirm at runtime (Unreal Editor and/or Satisfactory), beyond what runs
-automatically now.
+automatically now. For a tighter, date-scoped list of just the newest
+RPCs/fixes added since the last real test session, see
+[test-backlog.md](test-backlog.md) instead — this file is the broader,
+long-running checklist; that one is meant to shrink to empty as items
+get tested.
 
 **Most of the "does it crash / is the returned data well-formed" checking
 below is now automatic** — see

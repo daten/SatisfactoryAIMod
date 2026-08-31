@@ -11,7 +11,8 @@ If you *do* have the repo, `PLAYBOOK.md` covers how to phrase a request in
 plain language; this file covers how the interface actually works once a
 request has been decided. For "is building family X supported yet" at a
 glance, see `docs/buildable-coverage.md` instead of scanning this whole
-file.
+file. For "what's new since the last time this was actually tested in
+game," see `docs/test-backlog.md`.
 
 ---
 
