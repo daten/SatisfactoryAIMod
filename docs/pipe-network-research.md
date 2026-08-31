@@ -318,6 +318,46 @@ general mechanic that works on any `AFGBuildable`, not pipe-specific,
 confirmed from `FGColorInterface.h`/`FGFactoryColoringTypes.h`. Not yet
 live-tested, including on a real pipe segment specifically.
 
+## Long-distance fluid transport: rail is an alternative to pipes+pumps, not a separate system
+
+Per the user's own framing - "fluid train station segments and freight
+cars... a consideration for long distance fluid networks." Confirmed
+2026-08-31, same binary-grep technique as the Valve/fluid-buffer/smooth-
+pipe findings above: there is no separate "Fluid Freight Platform" or
+"Fluid Freight Car" C++ class. `Recipe_TrainDockingStation` (solid) and
+`Recipe_TrainDockingStationLiquid` (fluid) both resolve to
+`AFGBuildableTrainPlatformCargo`; the single `Recipe_FreightWagon`'s
+`AFGFreightWagon` dynamically becomes "Standard" or "Liquid" typed based
+on whatever item is actually loaded into it. Rail cargo for fluids is
+genuinely the same infrastructure as solid cargo, not a distinct
+system - the practical difference is just which items get loaded and
+which connector type (pipe vs conveyor) the docking station uses.
+
+**Why this matters for long-distance planning**: everything else in
+this document (headlift budgets, parallel-pipe flow ceilings,
+per-segment volume/sloshing) is a real constraint specifically on
+CONTINUOUS PIPE runs. Rail sidesteps all of it for the transport leg
+itself - a loaded freight car isn't limited by pipe `flowLimit`,
+headlift, or segment volume between stations, only by train
+capacity/frequency and the station's own load/unload rate
+(`GetOutflowRate()`/`GetInflowRate()`, now exposed via the new
+`world.trainCargoPlatforms` RPC). For a source whose output would
+otherwise need 3-4 parallel pipelines over a long distance (the
+motivating example from earlier in this document), rail is a real
+structural alternative worth weighing against just building more
+parallel pipe - short pipe runs at each end (source → loading station,
+unloading station → destination) plus rail for the long haul, rather
+than pipe/pump infrastructure spanning the whole distance.
+
+**New capability, NOT YET LIVE-TESTED**: `world.trainCargoPlatforms` RPC
+(see `RPC_REFERENCE.md` for the full field list) - real per-platform
+`outflowRate`/`inflowRate` `[m³/s]`, load/unload state, and docked
+vehicle id. Scoped to the station side only for this first pass -
+freight wagon telemetry itself (cargo type, inventory contents, fluid
+stack size) is a genuinely separate open item, same
+`AFGRailroadVehicle`-not-`AFGBuildable` gap already solved once before
+for wheeled vehicles.
+
 ## Genuinely open / not yet built
 
 - **No RPC exists yet to construct a Pipeline Pump or Junction as a

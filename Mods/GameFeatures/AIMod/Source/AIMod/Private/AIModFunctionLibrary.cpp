@@ -105,6 +105,7 @@
 #include "FGTrainStationIdentifier.h"
 #include "FGTrainDockingRules.h"
 #include "Buildables/FGBuildableRailroadStation.h"
+#include "Buildables/FGBuildableTrainPlatformCargo.h"
 #include "FGDroneSubsystem.h"
 #include "FGDroneStationInfo.h"
 
@@ -6375,6 +6376,78 @@ FString UAIModFunctionLibrary::LogPipeReservoirTiersAsJson(UObject* WorldContext
 	const FString JsonString = WriteCondensedJson(RootObject);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogPipeReservoirTiersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::LogTrainCargoPlatformsAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogTrainCargoPlatformsAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> PlatformsJsonArray;
+	for (TActorIterator<AFGBuildableTrainPlatformCargo> It(World); It; ++It)
+	{
+		AFGBuildableTrainPlatformCargo* Platform = *It;
+		if (!IsValid(Platform))
+		{
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> PlatformObject = MakeShared<FJsonObject>();
+		PlatformObject->SetStringField(TEXT("id"), Platform->GetPathName());
+		PlatformObject->SetStringField(TEXT("buildableClass"), Platform->GetClass()->GetPathName());
+
+		// mFreightCargoType has no public getter on the PLATFORM class
+		// (unlike AFGFreightWagon, which has GetFreightCargoType()) -
+		// read via FindFProperty<FEnumProperty> reflection, the first
+		// enum (not float) field this codebase has read this way. NOT
+		// YET LIVE-VERIFIED that this correctly resolves - if it fails
+		// to resolve, "freightCargoType" is simply omitted rather than
+		// erroring the whole call.
+		if (const FEnumProperty* CargoTypeProperty = FindFProperty<FEnumProperty>(Platform->GetClass(), TEXT("mFreightCargoType")))
+		{
+			const void* ValuePtr = CargoTypeProperty->ContainerPtrToValuePtr<void>(Platform);
+			const int64 RawValue = CargoTypeProperty->GetUnderlyingProperty()->GetSignedIntPropertyValue(ValuePtr);
+			const EFreightCargoType CargoType = static_cast<EFreightCargoType>(RawValue);
+			FString CargoTypeString = TEXT("None");
+			switch (CargoType)
+			{
+			case EFreightCargoType::FCT_Standard: CargoTypeString = TEXT("Standard"); break;
+			case EFreightCargoType::FCT_Liquid: CargoTypeString = TEXT("Liquid"); break;
+			default: break;
+			}
+			PlatformObject->SetStringField(TEXT("freightCargoType"), CargoTypeString);
+		}
+
+		// GetOutflowRate()/GetInflowRate() [m^3/s] - real public getters,
+		// own doc comments say "Only valid for Liquid Freight Platforms"
+		// - the key data for observing a real long-distance fluid-by-
+		// rail network's station-side load/unload rate.
+		PlatformObject->SetNumberField(TEXT("outflowRate"), Platform->GetOutflowRate());
+		PlatformObject->SetNumberField(TEXT("inflowRate"), Platform->GetInflowRate());
+		PlatformObject->SetBoolField(TEXT("isInLoadMode"), Platform->GetIsInLoadMode());
+		PlatformObject->SetBoolField(TEXT("isLoadUnloading"), Platform->IsLoadUnloading());
+		PlatformObject->SetBoolField(TEXT("isFullLoad"), Platform->IsFullLoad() != 0);
+		PlatformObject->SetBoolField(TEXT("isFullUnload"), Platform->IsFullUnload() != 0);
+
+		AFGRailroadVehicle* DockedVehicle = Platform->GetDockedActor();
+		PlatformObject->SetStringField(TEXT("dockedVehicleId"), IsValid(DockedVehicle) ? DockedVehicle->GetPathName() : FString());
+
+		PlatformsJsonArray.Add(MakeShared<FJsonValueObject>(PlatformObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("platforms"), PlatformsJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogTrainCargoPlatformsAsJson: %d cargo platform(s)"), PlatformsJsonArray.Num());
 
 	return JsonString;
 }

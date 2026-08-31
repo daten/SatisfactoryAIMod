@@ -328,6 +328,53 @@ elevation gain). All are pure toolkit functions on already-known
 numbers — same "answers one question, doesn't plan a route" posture as
 the rest of the module — and explicitly do NOT apply to gas.
 
+### `world.trainCargoPlatforms` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "platforms": [ { "id": "...", "buildableClass": "...", "freightCargoType": "Liquid", "outflowRate": 0.0, "inflowRate": 0.0, "isInLoadMode": false, "isLoadUnloading": false, "isFullLoad": false, "isFullUnload": false, "dockedVehicleId": "" } ] }
+```
+Added 2026-08-31 per explicit user request ("fluid train station
+segments and freight cars... a consideration for long distance fluid
+networks"). **Confirmed from source, not guessed**: there is no
+separate "Fluid Freight Platform" C++ class — both
+`Recipe_TrainDockingStation` (solid/conveyor) and
+`Recipe_TrainDockingStationLiquid` (fluid/pipe) resolve to the SAME
+class, `AFGBuildableTrainPlatformCargo` (confirmed by grepping both
+`.uasset` binaries for the embedded class name string), differentiated
+only by the CDO's `mFreightCargoType` default. Likewise
+`AFGFreightWagon` (only one `Recipe_FreightWagon` exists) dynamically
+becomes "Standard" or "Liquid" typed based on whatever item is actually
+loaded into it — rail cargo for fluids is genuinely the same
+infrastructure as solid cargo, not a distinct system, which is why this
+RPC reports every cargo platform regardless of type rather than a
+separate "liquid platforms" call.
+
+`outflowRate`/`inflowRate` `[m³/s]` come from real public
+`BlueprintPure` getters, `GetOutflowRate()`/`GetInflowRate()` — their
+own doc comments say "Only valid for Liquid Freight Platforms," so
+expect `0` on solid/conveyor-type platforms. This is the key missing
+piece for observing a real long-distance fluid-by-rail network's
+station-side load/unload rate — for a fully overclocked source whose
+output exceeds what parallel pipes can practically carry, loading onto
+a train sidesteps pipe length/headlift constraints entirely, governed
+instead by train capacity and rail line throughput.
+
+`freightCargoType` (`"Standard"`/`"Liquid"`/`"None"`) is read via
+`FindFProperty<FEnumProperty>` reflection — the platform class has no
+public getter for this field (unlike the wagon class, which does), and
+this is the first *enum* (not float) reflection read in this codebase —
+**genuinely unconfirmed whether the resolution is correct**, omitted
+from the response rather than erroring the whole call if the property
+can't be found.
+
+**Scoped to the STATION side only for this first pass** —
+`AFGFreightWagon` itself is NOT included: it's an `AFGRailroadVehicle`,
+not an `AFGBuildable`, the same "invisible to `world.buildables`" gap
+already found and fixed once before for ordinary wheeled `AFGVehicle`
+(see `world.vehicles`/`world.deleteBuilding`'s `TActorIterator<AFGVehicle>`
+fallback, 2026-08-29). A genuinely open, separate future addition for
+freight wagons specifically (their own cargo type, inventory contents,
+fluid stack size) — not done here.
+
 ### `world.pipeFluidBoxes` — no params, **NOT YET LIVE-TESTED**
 ```json
 { "protocolVersion": 1, "pipes": [ { "id": "...", "lengthCm": 0.0, "contentM3": 0.0, "maxContentM3": 0.0, "fillPct": 0.0, "maxOverfillPct": 0.4, "flowThrough": 0.0, "flowFill": 0.0, "flowDrain": 0.0, "flowLimit": 0.0, "pressureColumn": 0.0, "elevationPressureColumn": 0.0, "addedPressure": 0.0, "pressureGroup": -1, "z": 0.0 } ] }

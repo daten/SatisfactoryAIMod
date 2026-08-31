@@ -1696,6 +1696,47 @@ public:
 	static FString LogPipeReservoirTiersAsJson(UObject* WorldContextObject);
 
 	/**
+	 * Train cargo platform telemetry (added 2026-08-31, offline research
+	 * per explicit user request - "fluid train station segments and
+	 * freight cars... a consideration for long distance fluid
+	 * networks"). Confirmed from source, not guessed: there is no
+	 * separate "Fluid Freight Platform" C++ class - both
+	 * `Recipe_TrainDockingStation` (solid/conveyor) and
+	 * `Recipe_TrainDockingStationLiquid` (fluid/pipe) resolve to the
+	 * SAME class, `AFGBuildableTrainPlatformCargo`, confirmed by
+	 * grepping both `.uasset` binaries for the embedded class name
+	 * string - differentiated only by the CDO's `mFreightCargoType`
+	 * default (`FCT_Standard` vs `FCT_Liquid`). Likewise
+	 * `AFGFreightWagon` (the single, unified wagon - only one
+	 * `Recipe_FreightWagon` exists) dynamically becomes "Standard" or
+	 * "Liquid" typed based on whatever item is actually loaded into it,
+	 * not a separate wagon class - rail cargo transport for fluids is
+	 * genuinely the same infrastructure as solid cargo, not a distinct
+	 * system.
+	 *
+	 * `outflowRate`/`inflowRate` [m^3/s] come from real public
+	 * BlueprintPure getters, `GetOutflowRate()`/`GetInflowRate()` -
+	 * their own doc comments say "Only valid for Liquid Freight
+	 * Platforms," so expect 0 on solid/conveyor-type platforms. This is
+	 * the key missing piece for observing a real long-distance
+	 * fluid-by-rail network (station-side load/unload rate), directly
+	 * analogous to world.pipeFluidBoxes for ordinary pipe segments.
+	 *
+	 * Scoped to the STATION side of rail cargo for this first pass -
+	 * `AFGFreightWagon` itself is NOT included (it's an
+	 * `AFGRailroadVehicle`, not an `AFGBuildable`, same "invisible to
+	 * world.buildables" gap already found and fixed once before for
+	 * ordinary wheeled AFGVehicle - see world.vehicles/
+	 * DismantleBuildable's TActorIterator<AFGVehicle> fallback - a
+	 * genuinely open, separate future addition for freight wagons
+	 * specifically, not done here).
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTrainCargoPlatformsAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Near-exact mirror of ConstructConveyorBelt: same build-gun two-
 	 * click mechanism (TrySnapToActor + DoMultiStepPlacement(true) at
 	 * source, then dest), including the UpdateHologramPlacement-before-
