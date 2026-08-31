@@ -4880,33 +4880,65 @@ namespace
 	void ConstructWaterPumpAtCandidatePosition(UWorld* World, AFGCharacterPlayer* Character, const FVector& CandidatePosition, const FString& RecipeClassPath, const FString& ContextLabel, TFunction<void(const FAIModOperationResult&)> OnComplete)
 	{
 	// AFGWaterVolume::EncompassesPoint (IInterface_PostProcessVolume) - a
-	// real, public containment check, not a distance guess. Falls back to
-	// nearest-by-distance only if no volume directly contains the
-	// candidate point (e.g. the offset landed just past a volume's real
-	// boundary), so a caller isn't forced to hit the boundary exactly.
+	// real, public containment check, not a distance guess.
+	//
+	// CONFIRMED LIVE CRASH (2026-08-31, unattended test session): this
+	// used to fall back to the NEAREST volume by actor-location distance
+	// whenever no volume's EncompassesPoint() matched, on the theory that
+	// a caller shouldn't be forced to hit a boundary exactly. In practice
+	// a literal on-land candidate position (well outside any real water,
+	// e.g. standing on a placed foundation near the shore) still has SOME
+	// nearest ocean volume - the fallback silently accepted it as
+	// TargetVolume anyway. CanPlaceResourceExtractor() is a volume-level
+	// flag (true for the whole ocean), not a check of this specific
+	// point, so it passed too. The hologram was then driven at a
+	// synthetic hit that doesn't correspond to real water geometry -
+	// TrySnapToActor()/TrySnapToExtractableResource() apparently failed
+	// to actually populate mSnappedExtractableResource, but
+	// GetConstructDisqualifiers() did NOT reliably flag this (same
+	// "disqualifier isn't a reliable gate for this precondition" failure
+	// mode already documented above ConstructBuildingAtPosition's
+	// extractor refusal) - bCanConstruct came out true, construction was
+	// attempted, and AFGResourceExtractorHologram::ConfigureActor()'s
+	// unconditional mSnappedExtractableResource assert took the whole
+	// game process down (confirmed via the real crash log: Assertion
+	// failed: mSnappedExtractableResource, FGResourceExtractorHologram.cpp:235).
+	//
+	// Fix: EncompassesPoint() is now a HARD requirement, not a
+	// best-effort preference - a point outside every real water volume's
+	// actual (possibly non-box) collision shape fails cleanly with
+	// NO_WATER_VOLUME_FOUND before any hologram is ever touched, exactly
+	// the same "refuse outright rather than gamble on disqualifiers"
+	// posture already used for extractor recipes going through
+	// world.placeBuilding. The nearest-by-distance volume is still
+	// computed, but ONLY to name it in the error message (e.g. "did you
+	// mean X's bounds") - never as an actual construction target.
 	AFGWaterVolume* TargetVolume = nullptr;
+	AFGWaterVolume* NearestVolumeForDiagnostics = nullptr;
 	float BestDistSq = TNumericLimits<float>::Max();
 	for (TActorIterator<AFGWaterVolume> It(World); It; ++It)
 	{
 		AFGWaterVolume* Candidate = *It;
 		if (!IsValid(Candidate)) { continue; }
-		if (Candidate->EncompassesPoint(CandidatePosition))
+		if (!TargetVolume && Candidate->EncompassesPoint(CandidatePosition))
 		{
 			TargetVolume = Candidate;
-			break;
 		}
 		const float DistSq = FVector::DistSquared(Candidate->GetActorLocation(), CandidatePosition);
 		if (DistSq < BestDistSq)
 		{
 			BestDistSq = DistSq;
-			TargetVolume = Candidate;
+			NearestVolumeForDiagnostics = Candidate;
 		}
 	}
 	if (!TargetVolume)
 	{
 		OnComplete(FAIModOperationResult::Failure(TEXT("NO_WATER_VOLUME_FOUND"),
-			FString::Printf(TEXT("No AFGWaterVolume found near (%.0f, %.0f, %.0f) - see world.waterVolumes for real, discoverable water bodies"),
-				CandidatePosition.X, CandidatePosition.Y, CandidatePosition.Z)));
+			FString::Printf(TEXT("No AFGWaterVolume actually contains (%.0f, %.0f, %.0f) - see world.waterVolumes for real, discoverable water bodies.%s"),
+				CandidatePosition.X, CandidatePosition.Y, CandidatePosition.Z,
+				NearestVolumeForDiagnostics
+					? *FString::Printf(TEXT(" Nearest volume by distance: '%s' (not used - EncompassesPoint()=false, this point is not really in that water body)."), *NearestVolumeForDiagnostics->GetPathName())
+					: TEXT(""))));
 		return;
 	}
 

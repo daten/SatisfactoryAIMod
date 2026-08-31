@@ -1167,26 +1167,26 @@ public:
 	 * defaults to `0`, i.e. same height as the reference, since that's
 	 * already known-good water-surface height nearby, deliberately NOT
 	 * re-ground-tracing which could hit the lakebed under the water
-	 * rather than its surface), then delegates straight into the
-	 * existing, already-implemented `ConstructBuildingAtPosition` with
-	 * `bIgnoreGroundTrace=true` and `gridSnapSize=0` - reusing its real
-	 * disqualifier-handling/polling/construction logic wholesale rather
-	 * than duplicating a parallel driving loop, the same "don't
-	 * duplicate an existing generic mechanism" posture already proven
-	 * for conveyor attachments.
+	 * rather than its surface), then delegates into the shared
+	 * `ConstructWaterPumpAtCandidatePosition` internal helper (also used
+	 * by `ConstructWaterPumpAtPosition` below) - real
+	 * `AFGWaterVolume`-lookup/hologram-driving logic, not
+	 * `ConstructBuildingAtPosition`.
 	 *
 	 * `RecipeClassPath` defaults to `Recipe_WaterPump` (confirmed the
 	 * only real Water Pump recipe/tier that exists) if left empty.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
-	 * In particular, whether `ConstructBuildingAtPosition`'s generic
-	 * disqualifier-ignoring logic (built for ordinary buildings)
-	 * interacts correctly with `UFGCDNeedsWaterVolume`/
-	 * `UFGCDResourceIsTooShallow` specifically is unconfirmed - these
-	 * are real, hard disqualifiers this function does NOT attempt to
-	 * bypass, so a genuinely-too-shallow or out-of-water offset should
-	 * still correctly fail, but that path has never been exercised
-	 * before this change.
+	 * **CONFIRMED LIVE WORKING (2026-08-31)**: tested against a real
+	 * ocean with a real reference pump. Also gave the first real data
+	 * point on minimum pump spacing (previously an unconfirmed, caller-
+	 * supplied value in the Python planner): a 2000-unit offset
+	 * correctly failed `CANNOT_CONSTRUCT`/"Encroaching another object's
+	 * clearance!", 3000/4000/5000-unit offsets all succeeded and were
+	 * verified via `world.buildables` at the exact expected positions -
+	 * real minimum spacing is somewhere in (2000, 3000], not yet
+	 * narrowed further. See `docs/placement-lessons.md`'s "CRITICAL:
+	 * `world.constructWaterPumpAtPosition`... CRASHED THE GAME" entry
+	 * for a related fix (shared helper) found in the SAME session.
 	 */
 	static void ConstructWaterPumpNearReference(UObject* WorldContextObject, const FString& ReferenceBuildableId, float OffsetX, float OffsetY, float OffsetZ, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
@@ -1210,7 +1210,23 @@ public:
 	 * where the terrain surface is - pass a real Z, typically read from
 	 * `world.waterVolumes`' bounds for the target lake.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * **CONFIRMED LIVE WORKING for a genuine in-water position
+	 * (2026-08-31)** - verified via `world.buildables`. **Also found a
+	 * real CRASH, now fixed, on the negative path**: a literal on-land
+	 * position (well outside any real water) took the whole game
+	 * process down via `AFGResourceExtractorHologram::ConfigureActor()`'s
+	 * `mSnappedExtractableResource` assert, because the shared helper's
+	 * water-volume lookup used to fall back to the NEAREST volume by
+	 * distance when no volume actually contained the point - for a
+	 * huge ocean volume, "nearest" could still be dry land. Fixed:
+	 * `AFGWaterVolume::EncompassesPoint()` is now a hard requirement,
+	 * no distance fallback as an actual target - see
+	 * `docs/placement-lessons.md`'s dedicated crash writeup for the
+	 * full root-cause/fix detail. **The fix itself has NOT yet been
+	 * redeployed/re-verified live** (the crash killed the running game;
+	 * needs Alpakit + relaunch before the negative path can be
+	 * re-tested) - only the positive (genuine in-water) path above is
+	 * confirmed against the current running build.
 	 */
 	static void ConstructWaterPumpAtPosition(UObject* WorldContextObject, float X, float Y, float Z, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
 

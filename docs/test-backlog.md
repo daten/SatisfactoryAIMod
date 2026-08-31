@@ -52,25 +52,28 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
 
 ## Tier 2 — moderate setup, real correctness questions
 
-- [ ] **`world.waterVolumes` / `world.constructWaterPumpAtPosition` /
-  `world.constructWaterPumpNearReference`** — call `world.waterVolumes`
-  near a real lake and confirm it reports sane `bounds`. Then call
-  `world.constructWaterPumpAtPosition` with a literal x/y/z read from
-  those bounds and confirm a FIRST pump actually gets built with no
-  reference needed. Then call `world.constructWaterPumpNearReference`
-  with a real offset from that pump and confirm a second one builds
-  nearby (not just "success" with nothing visible). Try an offset that
-  lands on dry land or too-shallow water and confirm it correctly fails
-  (`CANNOT_CONSTRUCT`) rather than silently building somewhere wrong.
-  This whole feature was built from source reasoning (a real,
-  previously-mis-documented gap — `world.placeExtractor` never actually
-  supported Water Pump) and never tried against an actual lake. Once
-  basic placement works, also try feeding a real lake's bounds into
+- [x] **`world.waterVolumes` / `world.constructWaterPumpAtPosition` /
+  `world.constructWaterPumpNearReference`** — **PARTIALLY DONE
+  2026-08-31, real crash found and fixed along the way, redeploy still
+  needed.** `world.waterVolumes` near the player's real ocean reported
+  sane bounds. `world.constructWaterPumpNearReference` from a real
+  reference pump: PASS — 2000-unit offset correctly failed
+  `CANNOT_CONSTRUCT`, 3000/4000/5000-unit offsets all succeeded and
+  verified via `world.buildables` at the exact expected positions
+  (**real minimum pump spacing is somewhere in (2000, 3000]**, closing
+  the "unconfirmed value" gap noted below). `world.constructWaterPumpAtPosition`
+  for a genuine in-water position: PASS, verified via
+  `world.buildables`. **Then the negative-path test (a literal on-land
+  position) CRASHED THE GAME** — real bug, root-caused and fixed same
+  session (see `docs/placement-lessons.md`'s dedicated writeup), both
+  targets compiled clean. **Still needed**: redeploy (Alpakit +
+  relaunch) and re-test the on-land case now returns a clean
+  `NO_WATER_VOLUME_FOUND`/`CANNOT_CONSTRUCT` instead of crashing, plus
+  a too-shallow-water case (not yet tried). Once the crash fix is
+  confirmed, also try feeding a real lake's bounds into
   `controller/satisfactory_ai/water.py`'s `plan_water_pump_field()` and
-  constructing the resulting row of pumps - this is the first real test
-  of both the placement RPCs AND the layout planner together, and the
-  first opportunity to measure a real minimum pump spacing (currently
-  an unconfirmed, caller-supplied value in the planner).
+  constructing the resulting row of pumps - the first real test of the
+  placement RPCs AND the layout planner together (still not done).
 - [ ] **`world.constructStackableSupport`** — construct one with
   `stackCount: 0` first (should behave like an ordinary single pole)
   and confirm it builds. Then try `stackCount: 2` or more and confirm

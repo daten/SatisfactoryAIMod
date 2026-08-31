@@ -75,7 +75,7 @@ confirmed to cover every extractor type in the game:
 | Fracking Smasher (Pressurizer, on a `FrackingCore` node) | ✅ |
 | Fracking Extractor (on an *activated* `FrackingSatellite` node) | ✅ |
 | Portable Miner (handheld, on a node) | ✅ — separate RPC, `world.placePortableMiner`, different mechanism (equipment dispenser, not build-gun hologram) |
-| Water Pump (on an `AFGWaterVolume`, NOT a resource node) | ✅ — **correction 2026-08-31**: this row previously said `world.placeExtractor` covered it; that was never true (Water Pump has no `AFGResourceNodeBase` to target). Real support is `world.constructWaterPumpAtPosition` (seed the first pump from scratch, literal x/y/z), `world.constructWaterPumpNearReference` (build additional pumps near an already-placed one), + `world.waterVolumes` (real, discoverable water bodies — directly resolves the "water is hard to locate" problem this project had previously flagged as too difficult). Large-scale field layout (rows of pumps grouped until a pipe tier saturates, multi-row trunk merging, shared stackable-support columns for pipe+power routing): `controller/satisfactory_ai/water.py`. Not live-tested |
+| Water Pump (on an `AFGWaterVolume`, NOT a resource node) | ✅ — **correction 2026-08-31**: this row previously said `world.placeExtractor` covered it; that was never true (Water Pump has no `AFGResourceNodeBase` to target). Real support is `world.constructWaterPumpAtPosition` (seed the first pump from scratch, literal x/y/z), `world.constructWaterPumpNearReference` (build additional pumps near an already-placed one), + `world.waterVolumes` (real, discoverable water bodies — directly resolves the "water is hard to locate" problem this project had previously flagged as too difficult). Large-scale field layout (rows of pumps grouped until a pipe tier saturates, multi-row trunk merging, shared stackable-support columns for pipe+power routing): `controller/satisfactory_ai/water.py`. **Live-tested 2026-08-31**: `constructWaterPumpNearReference` CONFIRMED WORKING (real min spacing found: fails at 2000 units, succeeds at 3000+); `constructWaterPumpAtPosition` CONFIRMED WORKING for genuine in-water positions, but its on-land negative path CRASHED THE GAME (real bug, root-caused and fixed same session — `AFGWaterVolume::EncompassesPoint()` is now a hard requirement instead of a distance-based fallback; see `docs/placement-lessons.md`). Fix compiled clean on both targets but NOT yet redeployed/re-verified live |
 
 ## Vehicles — ✅ via `world.constructVehicle`
 
@@ -231,3 +231,18 @@ none can go through the generic single-click flow:
   `Recipe_HyperPoleStackable` in one column. Both RPCs share an
   internal helper; `constructStackableSupport`'s doc comment now flags
   `stackCount` as the secondary, same-recipe-only case.
+- **2026-08-31 (live test session)**: game running, player at a real
+  ocean shoreline with a reference pump - first live test of the
+  water-pump RPCs. `constructWaterPumpNearReference` CONFIRMED WORKING,
+  plus a real minimum-spacing data point (fails at 2000 units, succeeds
+  at 3000+, closing a previously-unconfirmed planner input).
+  `constructWaterPumpAtPosition` CONFIRMED WORKING for genuine in-water
+  positions - but its on-land negative-path test CRASHED THE GAME
+  (`mSnappedExtractableResource` assert, same failure class as the
+  already-documented extractor/spline-snapped crashes - a nearest-by-
+  distance volume fallback let a dry-land point through as a fake
+  target). Root-caused and fixed same session
+  (`AFGWaterVolume::EncompassesPoint()` now a hard requirement), both
+  targets compiled clean, but the crash killed the running game -
+  **fix not yet redeployed/re-verified live**. Full writeup in
+  `docs/placement-lessons.md`.

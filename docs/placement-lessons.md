@@ -7,6 +7,85 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## CRITICAL: `world.constructWaterPumpAtPosition` on a genuinely dry-land position CRASHED THE GAME (fixed 2026-08-31, found live)
+
+First live test of the water-pump RPCs (added the day before, never
+run against a real game). Test sequence and results:
+
+1. `world.waterVolumes` near the player (standing at the edge of a
+   real ocean extending east) correctly identified `FGWaterVolume32`
+   (the map's main ocean), bounds sane, player position ~330 units
+   from its bounds.
+2. `world.constructWaterPumpNearReference`, offset **2000** units east
+   of an existing reference pump - correctly failed
+   `CANNOT_CONSTRUCT` / "Encroaching another object's clearance!
+   (hard)". **First real data point on minimum pump spacing** (an
+   explicitly unconfirmed value the Python planner had left as a
+   required caller input): fails at 2000, succeeds at 3000+ (tested
+   3000/4000/5000, all succeeded and verified via `world.buildables`
+   at the exact expected offset positions). Real minimum spacing is
+   somewhere in (2000, 3000] - not yet narrowed further.
+3. `world.constructWaterPumpAtPosition`, literal X/Y/Z far out in the
+   same ocean - succeeded, verified via `world.buildables`.
+4. `world.constructWaterPumpAtPosition` again, this time with a
+   **literal position on dry land** (the reference foundations near
+   the player, well above the water surface) as a deliberate
+   negative-path test (expecting a clean `CANNOT_CONSTRUCT` or
+   similar) - **crashed the entire game process**. Confirmed via the
+   user's own pasted crash callstack: `Assertion failed:
+   mSnappedExtractableResource [FGResourceExtractorHologram.cpp:235]`,
+   called from `AFGBuildableHologram::ConstructInstance()` ←
+   `UFGBuildGunStateBuild::InternalConstructHologram()` ← AIMod's
+   `ConstructWaterPumpAtCandidatePosition` lambda.
+
+**Root cause**: `ConstructWaterPumpAtCandidatePosition`'s
+water-volume-lookup loop tried `AFGWaterVolume::EncompassesPoint()`
+first, but fell back to the volume NEAREST by actor-location distance
+if no volume actually contained the point - "so a caller isn't forced
+to hit a boundary exactly." For a literal on-land position, no volume
+ever really contains it, so the fallback always fires - and since the
+main ocean's actor origin is huge, it's the "nearest" volume for
+almost anywhere on that side of the map, including dry land. The code
+then treated that wrong volume as a genuine target:
+`CanPlaceResourceExtractor()` is a volume-level flag (true for the
+whole ocean, not a check of the exact point), so it passed too. The
+hologram was driven at a synthetic hit that doesn't correspond to real
+water geometry - `TrySnapToActor()` apparently failed to populate
+`mSnappedExtractableResource`, but `GetConstructDisqualifiers()` did
+NOT reliably flag this (the exact same "disqualifier isn't a reliable
+gate for this precondition" failure mode already documented below for
+`world.placeBuilding` + extractor recipes - see "never use
+`world.placeBuilding` for extractor recipes"). `bCanConstruct` came
+out true, construction was attempted, and the engine's own
+unconditional assert took the whole process down - a hard crash, not
+a catchable disqualifier.
+
+**Fix**: `EncompassesPoint()` is now a HARD requirement for both
+`world.constructWaterPumpAtPosition` and
+`world.constructWaterPumpNearReference` (they share the same internal
+helper) - no more nearest-by-distance fallback as an actual
+construction target. A point outside every real water volume's actual
+collision shape now fails cleanly with `NO_WATER_VOLUME_FOUND` before
+the hologram is ever touched (the nearest volume is still computed,
+but only to name it in the error message). Same "refuse outright
+rather than gamble on `GetConstructDisqualifiers()`" posture this
+project already uses for extractor recipes going through
+`world.placeBuilding` and for spline-snapped buildables - this is now
+the THIRD confirmed instance of this exact failure class in this
+codebase (spline-snapped Conveyor Monitor, resource-node extractors
+through the wrong entry point, now water volumes) - **standing
+lesson, reinforced again: never trust `GetConstructDisqualifiers()`
+alone to catch a missing mandatory hologram reference; a wrong-target
+guess must be refused by our OWN code before `InternalConstructHologram()`,
+not left to the engine's own disqualifier list.**
+
+Compiled clean on both `FactoryEditor` and `FactoryGameSteam`
+Shipping. **The crash killed the running game process** - this fix is
+NOT yet redeployed/re-verified live (needs Alpakit + relaunch before
+the rest of the water-pump/stackable-support test backlog can
+continue). Positive-path results (steps 1-3 above) stand as
+CONFIRMED LIVE WORKING.
+
 ## ONGOING: camera-hijack during construction, and the `instigatorStrategy` multi-fix build (2026-08-30)
 
 Real, user-reported: `world.connectConveyor` (and separately,

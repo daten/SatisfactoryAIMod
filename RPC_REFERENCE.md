@@ -1263,7 +1263,7 @@ simultaneously or is exclusive like a solid node (the interface's own
 doc comment: "Return false for resources that can hold many
 extractors" — plausible either way for water specifically).
 
-### `world.constructWaterPumpNearReference` — asynchronous, `result.buildableId` on success, **NOT YET LIVE-TESTED**
+### `world.constructWaterPumpNearReference` — asynchronous, `result.buildableId` on success, **CONFIRMED LIVE WORKING (2026-08-31)**
 `params: {"referenceBuildableId" (required), "offsetX"/"offsetY"
 (required numbers), "offsetZ" (optional, default 0), "recipeClass"
 (optional, default Recipe_WaterPump)}`
@@ -1280,13 +1280,14 @@ suggestion — see the `world.placeExtractor` correction above.
 as the reference rather than re-ground-tracing, since a real water
 pump's own height is already known-good water-surface elevation
 nearby). The target `AFGWaterVolume` is found by real containment check
-(`EncompassesPoint`, falling back to nearest-by-distance if the offset
-landed just past a volume's boundary) — fails `NO_WATER_VOLUME_FOUND`
-if none exists near the computed point (check `world.waterVolumes`
-first). Uses the SAME real `IFGExtractableResourceInterface::
-GetPlacementLocation()`/`GetPlacementRotation()` mechanism the game's
-own hologram relies on for snapping, mirroring `world.placeExtractor`'s
-own construction pattern — not a generic ground-trace placement.
+(`EncompassesPoint`, a HARD requirement as of the 2026-08-31 crash fix
+below — no more nearest-by-distance fallback as an actual target) —
+fails `NO_WATER_VOLUME_FOUND` if no volume actually contains the
+computed point (check `world.waterVolumes` first). Uses the SAME real
+`IFGExtractableResourceInterface::GetPlacementLocation()`/
+`GetPlacementRotation()` mechanism the game's own hologram relies on
+for snapping, mirroring `world.placeExtractor`'s own construction
+pattern — not a generic ground-trace placement.
 
 Confirms success by finding a real, newly-constructed buildable near
 the target location (same proximity check `world.placeBuilding` uses)
@@ -1296,7 +1297,16 @@ Real disqualifiers `UFGCDNeedsWaterVolume`/`UFGCDResourceIsTooShallow`
 are never bypassed — an offset landing on dry land or too-shallow water
 should still correctly fail via `CANNOT_CONSTRUCT`.
 
-### `world.constructWaterPumpAtPosition` — asynchronous, `result.buildableId` on success, **NOT YET LIVE-TESTED**
+**Live-tested 2026-08-31** against a real ocean, with a real reference
+pump: an offset of 2000 units correctly failed `CANNOT_CONSTRUCT` /
+"Encroaching another object's clearance!"; offsets of 3000/4000/5000
+units all succeeded and were verified via `world.buildables` at the
+exact expected positions. **First real data point on minimum pump
+spacing** (previously an unconfirmed value the Python planner left as
+a required caller input): somewhere in `(2000, 3000]`, not yet
+narrowed further.
+
+### `world.constructWaterPumpAtPosition` — asynchronous, `result.buildableId` on success, **CONFIRMED LIVE WORKING for genuine in-water positions (2026-08-31); see crash note below**
 `params: {"x"/"y"/"z" (required numbers), "recipeClass" (optional, default Recipe_WaterPump)}`
 
 Added 2026-08-31, the from-scratch counterpart to
@@ -1320,6 +1330,30 @@ where the terrain surface is. Pass a real Z, typically read from
 `world.waterVolumes`' `bounds` for the target lake (see
 `controller/satisfactory_ai/water.py` for a layout planner that
 computes real candidate positions from a queried water volume).
+
+**CONFIRMED LIVE CRASH, fixed same day**: a literal on-land position
+(a caller mistake, or a genuinely dry candidate point — this is
+exactly the negative path a caller SHOULD be able to rely on failing
+cleanly) took the whole game process down —
+`Assertion failed: mSnappedExtractableResource
+[FGResourceExtractorHologram.cpp:235]`. Root cause: the shared
+candidate-position helper used to fall back to the water volume
+NEAREST by actor-location distance whenever no volume's
+`EncompassesPoint()` matched — for a huge ocean volume, "nearest" can
+still be dry land arbitrarily far from real water, and
+`CanPlaceResourceExtractor()`/`GetConstructDisqualifiers()` didn't
+reliably catch the mismatch before `InternalConstructHologram()` ran.
+Same failure class already documented for `world.placeBuilding` +
+extractor recipes (see below) — a THIRD confirmed instance of "never
+trust `GetConstructDisqualifiers()` alone to catch a missing mandatory
+hologram reference." **Fixed**: `EncompassesPoint()` is now a hard
+requirement, no distance-based fallback as an actual target — see
+`docs/placement-lessons.md`'s dedicated writeup for full detail. The
+fix compiles clean on both `FactoryEditor` and `FactoryGameSteam`
+Shipping, but **has NOT yet been redeployed/re-verified live** (the
+crash killed the running game process) — only the positive,
+genuine-in-water path above is confirmed against the currently
+running build.
 
 ### `world.constructVehicle` — asynchronous, `result.buildableId` on success
 `params: {"recipeClass" (required), "droneStationId" (optional),
