@@ -244,6 +244,49 @@ class PipelineTier:
 
 
 @dataclass(frozen=True)
+class PipelinePumpTier:
+    """Mirrors one entry of "world.pipelinePumpTiers" (added 2026-08-31,
+    offline pipe-network research/prep - NOT YET LIVE-TESTED, see
+    LogPipelinePumpTiersAsJson's C++ doc comment).
+
+    Unlike PipelineTier's max_spline_length/bend_radius/min_bend_radius
+    (private fields read via reflection), all three fields here come
+    from real public BlueprintPure getters on AFGBuildablePipelinePump -
+    no reflection caveat.
+
+    max_head_lift/design_head_lift are in METERS (real, documented unit
+    per AFGBuildablePipelinePump.h's own disclaimer comment - the game's
+    fluid model treats pump pressure as "the height of the fluid
+    column"). design is the pump's rated/recommended operating point;
+    max is the absolute ceiling ("working outside of its specifications"
+    above design, but still functional up to max) - check real elevation
+    gain against design first, max only as a hard ceiling.
+
+    default_flow_limit [m^3/s] is the pump's own max throughput, but per
+    its own doc comment this is itself capped by "the neighbouring
+    pipes" - a pump adds headlift, it does NOT raise a network's real
+    throughput ceiling beyond whatever PipelineTier.flow_limit the
+    connected pipe already has.
+    """
+
+    recipe_class: str
+    buildable_class: str
+    max_head_lift: float
+    design_head_lift: float
+    default_flow_limit: float
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PipelinePumpTier":
+        return cls(
+            recipe_class=data["recipeClass"],
+            buildable_class=data["buildableClass"],
+            max_head_lift=float(data["maxHeadLift"]),
+            design_head_lift=float(data["designHeadLift"]),
+            default_flow_limit=float(data["defaultFlowLimit"]),
+        )
+
+
+@dataclass(frozen=True)
 class ConveyorAttachmentInfo:
     """Mirrors one entry of "world.conveyorAttachments" (added
     2026-08-25, splitter/merger groundwork - NOT YET LIVE-TESTED). See

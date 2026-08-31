@@ -240,7 +240,64 @@ Flat object (only one power line tier exists), all lengths in cm.
 { "protocolVersion": 1, "tiers": [ { "recipeClass": "...Recipe_Pipeline_C", "buildableClass": "...", "flowLimit": 0.0, "maxSplineLength": 5600.1, "bendRadius": 0.0, "minBendRadius": 0.0 } ] }
 ```
 One row per `Recipe_Pipeline`/`Recipe_PipelineMK2` (capital `MK2`).
-`flowLimit` is in m³/s.
+`flowLimit` is in m³/s. A pump does NOT raise this ceiling — see
+`world.pipelinePumpTiers` below — a pipe's own `flowLimit` is the real
+throughput cap regardless of how many pumps are attached; exceeding it
+needs genuinely parallel pipes (see `required_parallel_pipes` in
+`controller/satisfactory_ai/pipes.py`).
+
+### `world.pipelinePumpTiers` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "tiers": [ { "recipeClass": "...Recipe_PipelinePump_C", "buildableClass": "...", "maxHeadLift": 0.0, "designHeadLift": 0.0, "defaultFlowLimit": 0.0 } ] }
+```
+One row per `Recipe_PipelinePump`/`Recipe_PipelinePumpMK2` (capital
+`MK2`, matching `world.pipelineTiers`' own naming). Added 2026-08-31,
+offline research/prep for pipe-network planning. `maxHeadLift`/
+`designHeadLift` are in **meters** — real, documented unit per
+`AFGBuildablePipelinePump.h`'s own disclaimer comment: the game's fluid
+model treats pump pressure as "the height of the fluid column." `design`
+is the pump's rated/recommended operating point; `max` is the absolute
+ceiling ("working outside of its specifications" above design, but
+still functional up to max) — budget real elevation gain against
+`design` first, treat `max` only as a hard ceiling. `defaultFlowLimit`
+is `[m³/s]` but is itself capped by whatever pipe tier the pump is
+actually connected to (per `GetDefaultFlowLimit()`'s own doc comment,
+"the neighbouring pipes") — a pump adds headlift, it does not raise a
+network's real throughput ceiling. Unlike `world.pipelineTiers`, all
+three fields come from real public `BlueprintPure` getters — no
+reflection needed.
+
+**Real caveat, not yet confirmed live**: all three values are read off
+a class default object (CDO) that has never actually been placed or
+connected to a real pipe network — whether the CDO's getters return
+meaningful defaults in that state, or need a real placed-and-connected
+pump to query correctly, is unconfirmed. There is currently no RPC to
+construct a pump at all (`world.connectPipe` doesn't place attachments)
+— building that, and confirming this tier data live, is unstarted work.
+
+**Elevation/gravity mechanic, confirmed from source** (`FGPipeNetwork.h`):
+liquid pipe networks track a real per-group `HighestPumpZ`/
+`HighestElevationZ` (in meters) via a genuine pressure-group simulation
+(`CreatePressureGroup`/`UpdatePressureGroups`/`UpdatePressure`) — if a
+liquid source sits at a higher elevation than where it's consumed, no
+pump is needed for that segment; gravity alone moves it, exactly
+matching the user's own description. **Gas pipes are NOT subject to
+this** — confirmed from source: gas has a fully separate physics path
+(`TickPhysics_Gas`/`UpdatePressure_Gas`/`UpdateFlow_Gas`) with no
+elevation/pressure-group tracking equivalent at all.
+
+`controller/satisfactory_ai/pipes.py` has four new deterministic
+calculators for this (2026-08-31, NOT YET LIVE-TESTED but unit-checked
+with sample values): `required_parallel_pipes` (flow budget — how many
+parallel pipes to carry a total rate through one tier),
+`max_producers_per_pipe` (inverse — how many equal-rate producers, e.g.
+identical Water Extractors, can share one pipe before it needs to
+split), `pump_required_for_elevation` (pure sign check — does this
+liquid run need a pump at all), and `required_pumps_for_elevation`
+(height budget — how many pumps in series to overcome a net-uphill
+elevation gain). All are pure toolkit functions on already-known
+numbers — same "answers one question, doesn't plan a route" posture as
+the rest of the module — and explicitly do NOT apply to gas.
 
 ### `world.conveyorAttachments` — no params
 ```json

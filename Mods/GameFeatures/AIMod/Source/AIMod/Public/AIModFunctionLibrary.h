@@ -1542,6 +1542,47 @@ public:
 	static FString LogPipelineTiersAsJson(UObject* WorldContextObject);
 
 	/**
+	 * Pipeline Pump tier data (added 2026-08-31, offline research/prep
+	 * for pipe-network planning per explicit user request - headlift/
+	 * flow-rate math for real builds, e.g. sizing parallel pipelines for
+	 * a fully-overclocked Pressurized Water Extractor). Mirrors
+	 * LogPipelineTiersAsJson's structure for Recipe_PipelinePump (Mk1)
+	 * and Recipe_PipelinePumpMK2 (capital "MK2", matching the pipe
+	 * tiers' own naming - confirmed from the real asset filenames on
+	 * disk).
+	 *
+	 * Unlike the pipe tier's maxSplineLength/bendRadius/minBendRadius,
+	 * ALL THREE fields here are real PUBLIC BlueprintPure getters on
+	 * AFGBuildablePipelinePump - GetMaxHeadLift()/GetDesignHeadLift()/
+	 * GetDefaultFlowLimit() - no FindFProperty reflection needed.
+	 *
+	 * "designHeadLift" vs "maxHeadLift": per AFGBuildablePipelinePump.h's
+	 * own disclaimer comment, headlift is pump pressure measured in
+	 * meters - "the height of the fluid column." Design is the
+	 * pump's rated/recommended operating point; max is the absolute
+	 * ceiling, "working outside of its specifications" above design but
+	 * still functional up to max. Real elevation gain a pump needs to
+	 * overcome should be checked against design first, max only as a
+	 * hard ceiling.
+	 *
+	 * "defaultFlowLimit" is the pump's own max throughput [m^3/s], but
+	 * per GetDefaultFlowLimit()'s doc comment this is itself capped by
+	 * "the neighbouring pipes" - i.e. a pump never exceeds whatever pipe
+	 * tier it's actually connected to (see world.pipelineTiers'
+	 * flowLimit) - a pump adds headlift, it does NOT increase a
+	 * network's real throughput ceiling beyond the pipe tier in use.
+	 *
+	 * NOT YET LIVE-TESTED (compiled only) - in particular, whether the
+	 * CDO's GetDefaultFlowLimit()/GetMaxHeadLift()/GetDesignHeadLift()
+	 * return meaningful defaults absent a real connected pipe network
+	 * (CDOs are never actually placed/connected) is unconfirmed; a
+	 * placeholder/zero value here would need a real placed-pump query
+	 * instead, not yet built.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipelinePumpTiersAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Near-exact mirror of ConstructConveyorBelt: same build-gun two-
 	 * click mechanism (TrySnapToActor + DoMultiStepPlacement(true) at
 	 * source, then dest), including the UpdateHologramPlacement-before-

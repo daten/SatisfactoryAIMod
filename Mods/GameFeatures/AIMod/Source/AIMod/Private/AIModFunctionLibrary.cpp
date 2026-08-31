@@ -44,6 +44,7 @@
 #include "Hologram/FGConveyorLiftHologram.h"
 #include "Hologram/FGHologramBuildModeDescriptor.h"
 #include "Hologram/FGPipelineHologram.h"
+#include "Buildables/FGBuildablePipelinePump.h"
 #include "FGPipeConnectionComponent.h"
 #include "FGPipeConnectionComponentHyper.h"
 #include "Components/PrimitiveComponent.h"
@@ -6138,6 +6139,57 @@ FString UAIModFunctionLibrary::LogPipelineTiersAsJson(UObject* WorldContextObjec
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogPipelineTiersAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::LogPipelinePumpTiersAsJson(UObject* WorldContextObject)
+{
+	// Read-only telemetry, no World/player needed - mirrors
+	// LogPipelineTiersAsJson's structure. Recipe_PipelinePump (Mk1) and
+	// Recipe_PipelinePumpMK2 (capital "MK2", confirmed from the real
+	// asset filenames on disk, matching the pipe tiers' own naming) are
+	// the two real pump tiers.
+	static const TCHAR* TierRecipePaths[] = {
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PipelinePump.Recipe_PipelinePump_C"),
+		TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PipelinePumpMK2.Recipe_PipelinePumpMK2_C"),
+	};
+
+	TArray<TSharedPtr<FJsonValue>> TierJsonArray;
+	for (const TCHAR* RecipePath : TierRecipePaths)
+	{
+		const TSubclassOf<AFGBuildable> BuildableClass = ResolveBuildableClassForRecipe(RecipePath);
+		const AFGBuildablePipelinePump* PumpCDO = BuildableClass ? Cast<AFGBuildablePipelinePump>(BuildableClass->GetDefaultObject()) : nullptr;
+		if (!PumpCDO)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("LogPipelinePumpTiersAsJson: could not resolve a AFGBuildablePipelinePump CDO for '%s' - omitting"), RecipePath);
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> TierObject = MakeShared<FJsonObject>();
+		TierObject->SetStringField(TEXT("recipeClass"), RecipePath);
+		TierObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
+		// All three real public BlueprintPure getters - no reflection
+		// needed, unlike the pipe tier's maxSplineLength/bendRadius/
+		// minBendRadius. Units per AFGBuildablePipelinePump.h's own doc
+		// comments: headlift in meters, flow in [m^3/s].
+		TierObject->SetNumberField(TEXT("maxHeadLift"), PumpCDO->GetMaxHeadLift());
+		TierObject->SetNumberField(TEXT("designHeadLift"), PumpCDO->GetDesignHeadLift());
+		TierObject->SetNumberField(TEXT("defaultFlowLimit"), PumpCDO->GetDefaultFlowLimit());
+
+		TierJsonArray.Add(MakeShared<FJsonValueObject>(TierObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("tiers"), TierJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogPipelinePumpTiersAsJson: %s"), *JsonString);
 
 	return JsonString;
 }
