@@ -631,7 +631,8 @@ sort rules on one.
       "ingredients": [ {"itemClass":"...","itemName":"Iron Ingot","amount":3} ],
       "products": [ {"itemClass":"...","itemName":"Iron Plate","amount":2} ],
       "producedIn": ["...Build_ConstructorMk1_C"],
-      "variablePowerConsumptionConstant": 0.0, "variablePowerConsumptionFactor": 0.0
+      "variablePowerConsumptionConstant": 0.0, "variablePowerConsumptionFactor": 0.0,
+      "isAvailable": true, "relevantEvents": []
     }
   ]
 }
@@ -656,11 +657,35 @@ Concrete; the same wall, built normally, also needed 2 Iron Plate for
 whatever pattern was active). Use `world.constructionCost` (below) for the
 real total before relying on this field for an affordability check.
 
+**`isAvailable`/`relevantEvents`** (added 2026-08-31, explicit user
+request — "there are some item types and buildings for special events
+such as around Christmas... do we have support for these items, recipes
+and buildings that are not always unlocked"). This catalog already
+included event-only recipes — it's every registered recipe class,
+unlocked or not — but had no way to tell them apart or know if one is
+currently obtainable. `isAvailable` is the real, public
+`AFGRecipeManager::IsRecipeAvailable()` — true only once actually
+unlocked. `relevantEvents` is the real, public, static
+`UFGRecipe::GetRelevantEvents()` — empty for an ordinary
+always-obtainable recipe, `["Christmas"]` for a FICSMAS-only one (see
+`world.activeEvents` below for whether that event is running right
+now). **`"Christmas"` is FactoryGame's own internal name for the event
+players see in-game as "FICSMAS"** — searching for the literal string
+`"FICSMAS"` will find nothing here.
+
 ### `world.itemCatalog` — no params
 ```json
-{ "protocolVersion": 1, "items": [ { "itemClass": "...", "name": "Iron Plate", "form": "Solid", "isBuildingDescriptor": false, "stackSize": 100, "energyValue": 0.0, "radioactiveDecay": 0.0 } ] }
+{ "protocolVersion": 1, "items": [ { "itemClass": "...", "name": "Iron Plate", "form": "Solid", "isBuildingDescriptor": false, "stackSize": 100, "energyValue": 0.0, "radioactiveDecay": 0.0, "isAvailable": true } ] }
 ```
-`form` is `"Solid"`/`"Liquid"`/`"Gas"`/`"Invalid"`.
+`form` is `"Solid"`/`"Liquid"`/`"Gas"`/`"Invalid"`. `isAvailable` (added
+2026-08-31, same event-support request as `world.recipeCatalog`) is the
+real, public `AFGRecipeManager::IsItemDescriptorAvailable()`. An
+event-only item (e.g. FICSMAS's Candy Cane) still appears in this
+catalog year-round — it's a real, permanently-registered item class —
+but reports `isAvailable: false` outside its event or before its
+calendar slot is opened. Items carry no event tag of their own; cross-
+reference the item's producing recipe in `world.recipeCatalog` for
+`relevantEvents` context.
 
 ### `world.buildableCatalog` — no params
 ```json
@@ -676,7 +701,8 @@ real total before relying on this field for an affordability check.
       "minPotential": 0.01, "maxPotential": 1.0, "canChangePotential": true,
       "overridesShardSlotCount": false,
       "factoryInputCount": 1, "factoryOutputCount": 1,
-      "pipeInputCount": 0, "pipeOutputCount": 0, "powerConnectionCount": 1
+      "pipeInputCount": 0, "pipeOutputCount": 0, "powerConnectionCount": 1,
+      "isAvailable": true, "relevantEvents": []
     }
   ]
 }
@@ -688,7 +714,36 @@ for Generator. `maxPotential` is the un-overclocked baseline (does not
 account for installed Power Shards). `clearance` is present on every entry.
 Like `world.recipeCatalog`'s `ingredients`, `constructionCost` is the base
 recipe only — see `world.constructionCost` below for the real total
-including any active customization cost.
+including any active customization cost. `isAvailable`/`relevantEvents`
+(added 2026-08-31) mean the same as `world.recipeCatalog`'s fields —
+`relevantEvents` is pulled from the SAME backing recipe already used for
+`constructionCost` above, not a second lookup. A seasonal decoration
+buildable (e.g. a FICSMAS tree/wreath) is still listed here year-round
+with `isAvailable: false` outside its event.
+
+### `world.activeEvents` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "events": [ { "event": "Christmas", "isActive": false }, { "event": "Anniversary", "isActive": false }, { "event": "CSSBirthday", "isActive": false }, { "event": "FirstOfApril", "isActive": false } ] }
+```
+Added 2026-08-31, same explicit user request as the catalog fields
+above. Reports every real `EEvents` value FactoryGame defines
+(`FGEventSubsystem.h`) with whether it's currently active —
+`AFGEventSubsystem::GetCurrentEvents()`, a plain inline getter over a
+replicated array, one of the few genuinely reliable-from-source signals
+in this project (not stub-bodied like most subsystem calls here).
+
+This is the top-level context for `world.recipeCatalog`/
+`world.buildableCatalog`'s `relevantEvents` fields: a recipe tagged
+`relevantEvents: ["Christmas"]` is only eligible to become available
+while `"Christmas"` shows `isActive: true` here
+(`AFGRecipeManager::ShouldAddRecipeByEvent()` gates on exactly this) —
+event-active is necessary, but whether that specific recipe has ALSO
+actually been unlocked (e.g. by opening the right calendar slot) is a
+separate question, answered by that recipe's own `isAvailable`.
+Real-world/in-game-date-driven, not something this mod controls — there
+is no RPC to force an event active, only to observe FactoryGame's own
+determination of it. **`"Christmas"` is FactoryGame's internal name for
+the event players see in-game as "FICSMAS."**
 
 ### `world.constructionCost` — params: `{"recipeClass"}`
 ```json

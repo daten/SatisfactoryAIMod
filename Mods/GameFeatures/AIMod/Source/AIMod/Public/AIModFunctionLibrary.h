@@ -1609,6 +1609,33 @@ public:
 	 * world.buildableCatalog for the per-building min/max potential and
 	 * production-boost fields needed to do that arithmetic on the caller
 	 * side, per this project's toolkit-not-solver preference.
+	 *
+	 * `isAvailable`/`relevantEvents` (added 2026-08-31, explicit user
+	 * request - "there are some item types and buildings for special
+	 * events such as around Christmas... do we have support for these
+	 * items, recipes and buildings that are not always unlocked"). This
+	 * catalog already listed event-only recipes (GetAllRecipes() is
+	 * every recipe class registered in the game, unlocked or not) but
+	 * gave no way to tell them apart from normal ones or know if they're
+	 * CURRENTLY obtainable - these two fields close that gap.
+	 * `isAvailable` is the real, public
+	 * `AFGRecipeManager::IsRecipeAvailable()` - true only once actually
+	 * unlocked (milestone/MAM/alternate/calendar reward/etc, whatever
+	 * unlocked it). `relevantEvents` is the real, public, static
+	 * `UFGRecipe::GetRelevantEvents()` - empty for an ordinary
+	 * always-obtainable recipe, non-empty (e.g. `["Christmas"]`) for a
+	 * seasonal-event-only one; see world.activeEvents for whether that
+	 * event is running right now. Confirmed from source
+	 * (`FGRecipe.h`'s real `mRelevantEvents` field,
+	 * `AFGRecipeManager::ShouldAddRecipeByEvent()`) that recipe
+	 * event-gating is a genuine, first-class FactoryGame mechanic, not
+	 * something this project has to infer or fake.
+	 *
+	 * NOTE: the internal `EEvents::EV_Christmas` name (and this field's
+	 * string value `"Christmas"`) is FactoryGame's own internal name for
+	 * the event players see in-game as "FICSMAS" - searching this data
+	 * for the literal string "FICSMAS" will find nothing; use
+	 * "Christmas".
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogRecipeCatalogAsJson(UObject* WorldContextObject);
@@ -1623,6 +1650,18 @@ public:
 	 * against world.recipeCatalog's isBuildingRecipe), stackSize,
 	 * energyValue (for fuel), radioactiveDecay, and gasType (only set when
 	 * form is "Gas").
+	 *
+	 * `isAvailable` (added 2026-08-31, same event-support request as
+	 * world.recipeCatalog) - the real, public
+	 * `AFGRecipeManager::IsItemDescriptorAvailable()`, "true if... has a
+	 * recipe that produces it or it has been explicitly unlocked" (its
+	 * own doc comment). An event-only item (e.g. FICSMAS's Candy Cane)
+	 * still appears in this catalog year-round (it's a real, permanently-
+	 * registered item class) but reports `isAvailable: false` outside
+	 * its event/before its calendar slot is opened - cross-reference the
+	 * item's producing recipe in world.recipeCatalog for
+	 * `relevantEvents` context, since items themselves carry no event
+	 * tag directly (only recipes do, per `FGRecipe.h`'s `mRelevantEvents`).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogItemCatalogAsJson(UObject* WorldContextObject);
@@ -1644,9 +1683,56 @@ public:
 	 * are read via GetDefaultComponents<>() not GetComponents<>(), which
 	 * misses Blueprint-SCS-added connectors (see
 	 * LogConveyorAttachmentCatalogAsJson).
+	 *
+	 * `isAvailable`/`relevantEvents` (added 2026-08-31, same event-support
+	 * request as world.recipeCatalog) - `isAvailable` is the real, public
+	 * `AFGRecipeManager::IsBuildingAvailable()`; `relevantEvents` is
+	 * pulled from the SAME backing recipe already in scope here
+	 * (`UFGRecipe::GetRelevantEvents(RecipeClass)`), not a second lookup.
+	 * A seasonal decoration buildable (e.g. a FICSMAS tree/wreath) will
+	 * still be listed here year-round with `isAvailable: false` outside
+	 * its event.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogBuildableCatalogAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.activeEvents (added 2026-08-31, explicit user request -
+	 * "there are some item types and buildings for special events such
+	 * as around Christmas... do we have support for these items, recipes
+	 * and buildings that are not always unlocked"). Reports every real
+	 * `EEvents` value FactoryGame defines (`FGEventSubsystem.h`) with
+	 * whether it's currently active - `AFGEventSubsystem::
+	 * GetCurrentEvents()`/`IsEventActive()`, both real and public
+	 * (`GetCurrentEvents()` is a plain inline getter over a replicated
+	 * `TArray<EEvents>`, not stub-bodied like most of this project's
+	 * other subsystem calls - one of the few genuinely reliable-from-
+	 * source signals here).
+	 *
+	 * This is the top-level context needed to interpret
+	 * world.recipeCatalog/world.buildableCatalog's `relevantEvents`
+	 * fields: a recipe tagged `relevantEvents: ["Christmas"]` is only
+	 * eligible to become available while `"Christmas"` shows
+	 * `isActive: true` here (`AFGRecipeManager::ShouldAddRecipeByEvent()`
+	 * gates on exactly this) - event-active is necessary, but whether a
+	 * specific recipe is ALSO actually unlocked yet (e.g. via opening the
+	 * right calendar slot) is a separate question, answered by that
+	 * recipe's own `isAvailable` field.
+	 *
+	 * Real-world/in-game-date-driven (`FSimpleDate`/`ShouldRunEvent()`),
+	 * not something this mod controls - there is no RPC to force an
+	 * event active, only to observe FactoryGame's own real determination
+	 * of it. `EEvents::EV_Christmas` is FactoryGame's internal name for
+	 * the event players see in-game as "FICSMAS" - reported here as
+	 * `"Christmas"`, matching world.recipeCatalog's `relevantEvents`
+	 * string exactly (not `"FICSMAS"`).
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session;
+	 * `AFGEventSubsystem::Get()` is stub-bodied like most subsystem
+	 * `Get()` calls in this file.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogActiveEventsAsJson(UObject* WorldContextObject);
 
 	/**
 	 * world.constructionCost (2026-08-28) - the recipe catalog's own

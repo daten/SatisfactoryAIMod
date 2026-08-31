@@ -1837,6 +1837,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogBuildableCatalogAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.activeEvents"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogActiveEventsAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.constructionCost"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;

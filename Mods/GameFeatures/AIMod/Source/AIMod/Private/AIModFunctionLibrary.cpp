@@ -113,6 +113,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "FGMapManager.h"
 #include "FGIconDatabaseSubsystem.h"
+#include "FGEventSubsystem.h"
 
 namespace
 {
@@ -6909,6 +6910,32 @@ namespace
 		}
 	}
 
+	// "Christmas" is FactoryGame's own internal name for the event
+	// players see in-game as "FICSMAS" - deliberately not renamed here,
+	// this string must match what UFGRecipe::GetRelevantEvents() and
+	// AFGEventSubsystem::GetCurrentEvents() actually mean.
+	FString EventToString(EEvents Event)
+	{
+		switch (Event)
+		{
+		case EEvents::EV_Christmas: return TEXT("Christmas");
+		case EEvents::EV_Birthday: return TEXT("Anniversary");
+		case EEvents::EV_CSSBirthday: return TEXT("CSSBirthday");
+		case EEvents::EV_FirstOfApril: return TEXT("FirstOfApril");
+		default: return TEXT("None");
+		}
+	}
+
+	TArray<TSharedPtr<FJsonValue>> RelevantEventsToJsonArray(const TArray<EEvents>& Events)
+	{
+		TArray<TSharedPtr<FJsonValue>> Result;
+		for (const EEvents Event : Events)
+		{
+			Result.Add(MakeShared<FJsonValueString>(EventToString(Event)));
+		}
+		return Result;
+	}
+
 	TSharedRef<FJsonObject> VectorToJson(const FVector& V)
 	{
 		const TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
@@ -7025,6 +7052,8 @@ FString UAIModFunctionLibrary::LogRecipeCatalogAsJson(UObject* WorldContextObjec
 			EntryObject->SetArrayField(TEXT("producedIn"), ProducedInJsonArray);
 			EntryObject->SetNumberField(TEXT("variablePowerConsumptionConstant"), RecipeCDO->GetPowerConsumptionConstant());
 			EntryObject->SetNumberField(TEXT("variablePowerConsumptionFactor"), RecipeCDO->GetPowerConsumptionFactor());
+			EntryObject->SetBoolField(TEXT("isAvailable"), RecipeManager->IsRecipeAvailable(RecipeClass));
+			EntryObject->SetArrayField(TEXT("relevantEvents"), RelevantEventsToJsonArray(UFGRecipe::GetRelevantEvents(RecipeClass)));
 
 			RecipeJsonArray.Add(MakeShared<FJsonValueObject>(EntryObject));
 		}
@@ -7072,6 +7101,7 @@ FString UAIModFunctionLibrary::LogItemCatalogAsJson(UObject* WorldContextObject)
 			EntryObject->SetNumberField(TEXT("stackSize"), UFGItemDescriptor::GetStackSize(ItemClass));
 			EntryObject->SetNumberField(TEXT("energyValue"), UFGItemDescriptor::GetEnergyValue(ItemClass));
 			EntryObject->SetNumberField(TEXT("radioactiveDecay"), UFGItemDescriptor::GetRadioactiveDecay(ItemClass));
+			EntryObject->SetBoolField(TEXT("isAvailable"), RecipeManager->IsItemDescriptorAvailable(ItemClass));
 			if (Form == EResourceForm::RF_GAS)
 			{
 				EntryObject->SetStringField(TEXT("gasType"), UFGItemDescriptor::GetGasType(ItemClass) == EGasType::GT_ENERGY ? TEXT("Energy") : TEXT("Normal"));
@@ -7207,6 +7237,8 @@ FString UAIModFunctionLibrary::LogBuildableCatalogAsJson(UObject* WorldContextOb
 			EntryObject->SetStringField(TEXT("category"), Category);
 			EntryObject->SetArrayField(TEXT("constructionCost"), ItemAmountsToJsonArray(RecipeCDO->GetIngredients()));
 			EntryObject->SetArrayField(TEXT("clearance"), ClearanceDataToJsonArray(BuildableCDO));
+			EntryObject->SetBoolField(TEXT("isAvailable"), RecipeManager->IsBuildingAvailable(BuildableClass));
+			EntryObject->SetArrayField(TEXT("relevantEvents"), RelevantEventsToJsonArray(UFGRecipe::GetRelevantEvents(RecipeClass)));
 
 			if (const AFGBuildableFactory* FactoryCDO = Cast<AFGBuildableFactory>(BuildableCDO))
 			{
@@ -7309,6 +7341,43 @@ FString UAIModFunctionLibrary::LogBuildableCatalogAsJson(UObject* WorldContextOb
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogBuildableCatalogAsJson: %d buildable(s)"), BuildableJsonArray.Num());
+
+	return JsonString;
+}
+
+// See LogActiveEventsAsJson's doc comment in the header for the real
+// AFGEventSubsystem::GetCurrentEvents() sourcing and why "Christmas"
+// (not "FICSMAS") is the string used here.
+FString UAIModFunctionLibrary::LogActiveEventsAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGEventSubsystem* EventSubsystem = World ? AFGEventSubsystem::Get(World) : nullptr;
+	if (!EventSubsystem)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogActiveEventsAsJson: no valid world context or AFGEventSubsystem"));
+		return TEXT("{}");
+	}
+
+	static const EEvents AllEvents[] = { EEvents::EV_Christmas, EEvents::EV_Birthday, EEvents::EV_CSSBirthday, EEvents::EV_FirstOfApril };
+
+	const TArray<EEvents>& CurrentEvents = EventSubsystem->GetCurrentEvents();
+
+	TArray<TSharedPtr<FJsonValue>> EventsJsonArray;
+	for (const EEvents Event : AllEvents)
+	{
+		const TSharedRef<FJsonObject> EventObject = MakeShared<FJsonObject>();
+		EventObject->SetStringField(TEXT("event"), EventToString(Event));
+		EventObject->SetBoolField(TEXT("isActive"), CurrentEvents.Contains(Event));
+		EventsJsonArray.Add(MakeShared<FJsonValueObject>(EventObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("events"), EventsJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogActiveEventsAsJson: %s"), *JsonString);
 
 	return JsonString;
 }
