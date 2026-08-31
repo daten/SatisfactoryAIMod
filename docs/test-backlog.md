@@ -83,6 +83,23 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
   `Recipe_HyperPoleStackable`) since the "one shared class covers all
   three" claim was inferred from naming, not confirmed via binary-grep
   like most other "shared class" findings this session.
+- [ ] **`world.constructStackableSupportOnTop`** — the corrected
+  PRIMARY mechanism (per user: real stacking is "usually as multiple
+  separate attachments, not in one instantaneous placement"). Place
+  one base support with `world.constructStackableSupport`
+  (`stackCount: 0`), then call `world.constructStackableSupportOnTop`
+  with its `buildableId` as `referenceBuildableId` and a DIFFERENT
+  recipe (e.g. base = `Recipe_PipeSupportStackable`, on-top =
+  `Recipe_ConveyorPoleStackable`) — confirm the new instance actually
+  snaps onto the real top (position = reference's `GetStackHeight()`
+  above it, not overlapping or floating) and that the mix is visually
+  and functionally correct (a pipe attachment point at one level, a
+  belt attachment point at the next). Then chain a third call on top
+  of THAT result to confirm an arbitrarily tall mixed column works,
+  not just two levels. Also try passing a `referenceBuildableId` that
+  ISN'T a stackable support (e.g. an ordinary pole or wall) and
+  confirm it correctly fails `WRONG_TYPE` rather than doing something
+  undefined.
 - [ ] **`world.priorityPowerSwitches` / `world.setPriorityPowerSwitchPriority`**
   — set a priority on a placed switch, cause a real power shortage
   (or check in-game), confirm it actually sheds before a lower-priority

@@ -2634,8 +2634,58 @@ public:
 	 * via `SetZoopAmount()` rather than the ordinary single-click/
 	 * two-click flow - real confidence here is lower than most of
 	 * today's other additions, flagged accordingly.
+	 *
+	 * **Corrected understanding (2026-08-31, explicit user follow-up)**:
+	 * `StackCount` produces multiple UNIFORM instances of the SAME
+	 * recipe in one Zoop placement - a real, valid mechanic, but NOT
+	 * the primary real-world workflow. Per the user: stackable supports
+	 * "can also be mixed so belts and pipes can be stacked
+	 * interchangeably, usually as multiple separate attachments, not in
+	 * one instantaneous placement" - i.e. a player normally builds each
+	 * level as its OWN separate placement, snapping onto the previous
+	 * one's real top, which is exactly what lets a single column mix
+	 * `Recipe_PipeSupportStackable` at one level with
+	 * `Recipe_ConveyorPoleStackable` at another. See
+	 * `ConstructStackableSupportOnTop` below for that mechanism -
+	 * that one, not `StackCount`, is the right tool for the "dense way
+	 * to bring back multiple pipes" use case this was originally
+	 * requested for.
 	 */
 	static void ConstructStackableSupport(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, float Z, int32 StackCount, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructStackableSupportOnTop (added 2026-08-31, same
+	 * explicit user follow-up as `world.constructStackableSupport` -
+	 * clarifying that mixed pipe+belt dense routing is normally built
+	 * as separate stacked attachments, "usually as multiple separate
+	 * attachments, not in one instantaneous placement," and can mix
+	 * recipe tiers freely between levels). This is the real mechanism
+	 * for that: places a NEW stackable support directly on top of an
+	 * ALREADY-PLACED one, at its real top - `RecipeClassPath` may be
+	 * a DIFFERENT stackable tier than the reference's own recipe (e.g.
+	 * a `Recipe_PipeSupportStackable` reference with a
+	 * `Recipe_ConveyorPoleStackable` placed on top of it), matching the
+	 * user's own description of mixing belt and pipe supports
+	 * interchangeably in one column.
+	 *
+	 * `ReferenceBuildableId` must be a real, already-placed
+	 * `AFGBuildablePoleStackable` (fails `WRONG_TYPE` otherwise). The
+	 * candidate position is computed as the reference's real
+	 * `GetActorLocation() + FVector(0, 0, GetStackHeight())` -
+	 * `GetStackHeight()` is a real, public, per-instance getter
+	 * (`FGBuildablePoleStackable.h`), not a guessed constant. Shares
+	 * the exact same underlying construction path as
+	 * `ConstructStackableSupport` with `StackCount=0` (a single
+	 * ordinary placement, not a Zoop multi-instance one) - see that
+	 * function's doc comment for the full sourcing; not repeated here.
+	 * The shared helper's own `TrySnapToActor` call gets a chance to
+	 * correct any small error in this computed position against the
+	 * reference's real top attachment point, same "let the real engine
+	 * decide" posture as every other Construct* function in this file.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	static void ConstructStackableSupportOnTop(UObject* WorldContextObject, const FString& ReferenceBuildableId, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
 	 * world.setBeamLength (added 2026-08-31, companion to

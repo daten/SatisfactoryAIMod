@@ -2005,6 +2005,42 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.constructStackableSupportOnTop - see
+	// ConstructStackableSupportOnTop's doc comment. Added 2026-08-31,
+	// same explicit user follow-up clarifying mixed pipe+belt dense
+	// routing is normally built as separate stacked attachments.
+	if (Method == TEXT("world.constructStackableSupportOnTop"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ReferenceBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("referenceBuildableId"), ReferenceBuildableId) || ReferenceBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.referenceBuildableId must be a non-empty string")));
+			return true;
+		}
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		UAIModFunctionLibrary::ConstructStackableSupportOnTop(GetGameInstance(), ReferenceBuildableId, RecipeClassPath,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// world.setBeamLength - see SetBeamLength's doc comment. NOT YET
 	// LIVE-TESTED.
 	if (Method == TEXT("world.setBeamLength"))

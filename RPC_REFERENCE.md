@@ -1853,6 +1853,54 @@ is only the FIRST one found — check `result.detail.foundCount` /
 `result.detail.requestedCount` / `result.detail.buildableIds` for the
 full picture of what actually got built.
 
+**Corrected understanding (2026-08-31, explicit user follow-up)**:
+`stackCount`/Zoop only produces multiple UNIFORM instances of the SAME
+recipe in one placement. Per the user, that is a real but SECONDARY
+mechanic — the primary real-world workflow for a dense pipe/belt
+routing column is placing each level as its OWN separate attachment
+that snaps onto the previous one's actual top, which is the only way
+to MIX different recipe tiers (e.g. a pipe support at one level, a
+conveyor pole at the next) in a single column. See
+`world.constructStackableSupportOnTop` immediately below for that
+mechanism — prefer it over `stackCount` unless every level in the
+column is genuinely the same recipe.
+
+### `world.constructStackableSupportOnTop` — asynchronous, `result.buildableId` on success, **NOT YET LIVE-TESTED**
+`params: {"referenceBuildableId" (required string), "recipeClass" (required string)}`
+
+Added 2026-08-31 in direct response to the user's correction on
+`world.constructStackableSupport`: "the stackable supports go vertical
+and can also be mixed so belts and pipes can be stacked
+interchangeably, usually as multiple separate attachments, not in one
+instantaneous placement." This is the primary mechanism that
+correction describes — no X/Y/Z is taken from the caller at all;
+position is fully derived from a real, already-placed
+`AFGBuildablePoleStackable` reference.
+
+Resolves `referenceBuildableId` via the existing `FindBuildableById`
+lookup and `Cast<AFGBuildablePoleStackable>`s it (`WRONG_TYPE` failure
+if the reference isn't actually a stackable support — e.g. a normal
+pole or an unrelated buildable). Computes the candidate placement
+position as `ReferencePole->GetActorLocation() + FVector(0, 0,
+ReferencePole->GetStackHeight())` — `GetStackHeight()` is a real,
+public, per-instance getter, so this uses the REFERENCE's own real
+vertical increment rather than a hardcoded or assumed constant. Since
+`recipeClass` for the new instance is independent of the reference's
+own recipe, this is what lets a column mix
+`Recipe_PipeSupportStackable` at one level with
+`Recipe_ConveyorPoleStackable` at the next — the actual point of this
+function.
+
+Shares its post-candidate-position logic (hologram drive, poll,
+disqualifier checks, buildable counting) with
+`world.constructStackableSupport` via a common internal helper —
+same caveats about `SetZoopFromHitresult()`/poll-loop reassertion
+apply where relevant, though this path always uses `stackCount=0`
+(a single ordinary placement, no Zoop multiplication) since stacking
+here comes from repeated CALLS, not one Zoop. Call this once per
+level, feeding each result's `buildableId` back in as the next call's
+`referenceBuildableId`, to build an arbitrarily tall mixed column.
+
 ### `world.setBeamLength` — `{"buildableId", "newLength"}`, **NOT YET LIVE-TESTED**
 ```json
 { "success": true, "result": { "detail": { "oldLength": 800.0, "newLength": 1600.0, "maxLength": 2400.0 } } }

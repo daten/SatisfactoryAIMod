@@ -11518,22 +11518,17 @@ void UAIModFunctionLibrary::ConstructBeam(UObject* WorldContextObject, const FSt
 // See ConstructStackableSupport's doc comment in the header for the
 // real AFGBuildablePoleStackable/AFGStackablePoleHologram/SetZoopAmount
 // sourcing and the SetZoopFromHitresult-may-overwrite-it risk.
-void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, float Z, int32 StackCount, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete)
+namespace
 {
-	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
-	if (!World)
+	// Shared by ConstructStackableSupport and ConstructStackableSupportOnTop
+	// - everything downstream of "we have a candidate world position" is
+	// identical between the two; only how the candidate is computed
+	// differs (literal X/Y/Z-or-ground-trace, vs. a reference stackable's
+	// real position + its own GetStackHeight()). See
+	// ConstructStackableSupport's doc comment in the header for the full
+	// Zoop/SetZoopAmount sourcing - not repeated here.
+	void ConstructStackableSupportAtCandidatePosition(UWorld* World, AFGCharacterPlayer* Character, const FVector& CandidatePosition, const FString& RecipeClassPath, int32 StackCount, const FString& ContextLabel, TFunction<void(const FAIModOperationResult&)> OnComplete)
 	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
-		return;
-	}
-
-	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
-	if (!Character)
-	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
-		return;
-	}
-
 	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
 	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGRecipe::StaticClass()))
 	{
@@ -11542,28 +11537,12 @@ void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObjec
 	}
 	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
 
-	if (bIgnoreGroundTrace && Z <= -1000000.0f)
-	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("MISSING_REFERENCE_Z"),
-			TEXT("bIgnoreGroundTrace requires an explicit z - there is no ground trace to fall back to")));
-		return;
-	}
-
 	FHitResult SyntheticHit;
-	if (bIgnoreGroundTrace)
-	{
-		SyntheticHit.Location = FVector(X, Y, Z);
-		SyntheticHit.ImpactPoint = SyntheticHit.Location;
-		SyntheticHit.Normal = FVector::UpVector;
-		SyntheticHit.ImpactNormal = FVector::UpVector;
-		SyntheticHit.bBlockingHit = true;
-	}
-	else
-	{
-		const float ZSearchCenter = (Z > -1000000.0f) ? Z : Character->GetActorLocation().Z;
-		const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
-		SyntheticHit = GroundTrace.Hit;
-	}
+	SyntheticHit.Location = CandidatePosition;
+	SyntheticHit.ImpactPoint = SyntheticHit.Location;
+	SyntheticHit.Normal = FVector::UpVector;
+	SyntheticHit.ImpactNormal = FVector::UpVector;
+	SyntheticHit.bBlockingHit = true;
 
 	Character->HotKeyRecipe(RecipeClass);
 
@@ -11620,8 +11599,8 @@ void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObjec
 	Hologram->TrySnapToActor(SyntheticHit);
 	const bool bStartStepComplete = Hologram->DoMultiStepPlacement(true);
 
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructStackableSupport: recipe=%s pos=(%.0f,%.0f,%.0f) stackCount=%d after start click: stepComplete=%s disqualifiers=[%s]"),
-		*RecipeClassPath, X, Y, Z, StackCount, bStartStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(Hologram));
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructStackableSupportAtCandidatePosition: recipe=%s context=%s stackCount=%d after start click: stepComplete=%s disqualifiers=[%s]"),
+		*RecipeClassPath, *ContextLabel, StackCount, bStartStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(Hologram));
 
 	if (bStartStepComplete)
 	{
@@ -11641,8 +11620,8 @@ void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObjec
 
 	const bool bEndStepComplete = Hologram->DoMultiStepPlacement(true);
 
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructStackableSupport: recipe=%s pos=(%.0f,%.0f,%.0f) stackCount=%d after zoop click: stepComplete=%s disqualifiers=[%s]"),
-		*RecipeClassPath, X, Y, Z, StackCount, bEndStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(Hologram));
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructStackableSupportAtCandidatePosition: recipe=%s context=%s stackCount=%d after zoop click: stepComplete=%s disqualifiers=[%s]"),
+		*RecipeClassPath, *ContextLabel, StackCount, bEndStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(Hologram));
 
 	if (!bEndStepComplete)
 	{
@@ -11688,7 +11667,7 @@ void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObjec
 		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
 		if (!IsValid(PollHologram) || !PollWorld)
 		{
-			UE_LOG(LogAIModAI, Warning, TEXT("ConstructStackableSupport (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructStackableSupportAtCandidatePosition (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
 			return;
@@ -11753,7 +11732,7 @@ void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObjec
 		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
 		if (!PollBuildState)
 		{
-			UE_LOG(LogAIModAI, Error, TEXT("ConstructStackableSupport (deferred): lost the build state before constructing - aborting, nothing built"));
+			UE_LOG(LogAIModAI, Error, TEXT("ConstructStackableSupportAtCandidatePosition (deferred): lost the build state before constructing - aborting, nothing built"));
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
 			return;
@@ -11783,7 +11762,7 @@ void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObjec
 			}
 		}
 
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructStackableSupport (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - found=%d requested=%d"),
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructStackableSupportAtCandidatePosition (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - found=%d requested=%d"),
 			PollState->AttemptsTaken, FoundBuildableIds.Num(), PollState->RequestedCount);
 
 		if (IsValid(PollCharacter))
@@ -11813,6 +11792,94 @@ void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObjec
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+	}
+}
+
+// See ConstructStackableSupport's doc comment in the header for the
+// real Zoop/SetZoopAmount sourcing - this and
+// ConstructStackableSupportOnTop below just resolve their own candidate
+// position, then delegate to the shared
+// ConstructStackableSupportAtCandidatePosition helper above.
+void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, float Z, int32 StackCount, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	if (bIgnoreGroundTrace && Z <= -1000000.0f)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("MISSING_REFERENCE_Z"),
+			TEXT("bIgnoreGroundTrace requires an explicit z - there is no ground trace to fall back to")));
+		return;
+	}
+
+	FVector CandidatePosition;
+	if (bIgnoreGroundTrace)
+	{
+		CandidatePosition = FVector(X, Y, Z);
+	}
+	else
+	{
+		const float ZSearchCenter = (Z > -1000000.0f) ? Z : Character->GetActorLocation().Z;
+		const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+		CandidatePosition = GroundTrace.Hit.Location;
+	}
+
+	ConstructStackableSupportAtCandidatePosition(World, Character, CandidatePosition, RecipeClassPath, StackCount,
+		FString::Printf(TEXT("(%.0f,%.0f,%.0f)"), X, Y, Z), MoveTemp(OnComplete));
+}
+
+// See ConstructStackableSupportOnTop's doc comment in the header - the
+// "snap a (possibly different) support onto an existing one's real top"
+// counterpart to ConstructStackableSupport's literal-position/StackCount
+// mode, per the user's own clarification that mixed pipe+belt dense
+// routing is normally built as separate stacked attachments, not one
+// uniform Zoop placement.
+void UAIModFunctionLibrary::ConstructStackableSupportOnTop(UObject* WorldContextObject, const FString& ReferenceBuildableId, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	AFGBuildable* ReferenceBuildable = FindBuildableById(World, ReferenceBuildableId);
+	AFGBuildablePoleStackable* ReferencePole = Cast<AFGBuildablePoleStackable>(ReferenceBuildable);
+	if (!ReferencePole)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("WRONG_TYPE"),
+			FString::Printf(TEXT("'%s' did not resolve to an AFGBuildablePoleStackable (%s)"), *ReferenceBuildableId,
+				ReferenceBuildable ? *ReferenceBuildable->GetClass()->GetName() : TEXT("not found"))));
+		return;
+	}
+
+	// GetStackHeight() is real, public, per-instance (FGBuildablePoleStackable.h)
+	// - the exact vertical increment a stack of THIS tier uses. Feeding
+	// this candidate position through TrySnapToActor (inside the shared
+	// helper) below should let the real engine's own snap logic correct
+	// any small error here, same "let the real engine decide" posture as
+	// every other Construct* function in this file.
+	const FVector CandidatePosition = ReferencePole->GetActorLocation() + FVector(0.0f, 0.0f, ReferencePole->GetStackHeight());
+
+	ConstructStackableSupportAtCandidatePosition(World, Character, CandidatePosition, RecipeClassPath, 0, ReferenceBuildableId, MoveTemp(OnComplete));
 }
 
 // See SetBeamLength's doc comment in the header for the real
