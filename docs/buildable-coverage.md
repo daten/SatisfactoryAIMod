@@ -57,6 +57,7 @@ building. This covers the large majority of ordinary buildables:
 | Priority Power Switch (there is no separate "Smart Power Switch" recipe — confirmed 2026-08-31, only `Recipe_PowerSwitch`/`Recipe_PriorityPowerSwitch` exist; the `SmartPowerSwitch/` content folder is source art only) | `Factory/{PriorityPowerSwitch,SmartPowerSwitch}` | ✅ Full config+control: `world.priorityPowerSwitches` (telemetry — priority, on/off, circuit group ids), `world.setPowerSwitchOn`, `world.setPriorityPowerSwitchPriority` |
 | Splitter/Merger and all Smart/Programmable/Priority/Lift variants | `Factory/CA_{Splitter,Merger,SplitterLift,SplitterLiftProgrammable,SplitterLiftSmart,SplitterProgrammable,SplitterSmart,MergerLift,MergerLiftPriority,MergerPriority}` | ✅ placement — confirmed generic (`AFGConveyorAttachmentHologram : AFGFactoryHologram`, same lineage), see `docs/conveyor-attachment-research.md`. Smart/Programmable Splitter sort-rule config: `world.splitterSortRules`/`world.setSplitterSortRules` — ✅, not live-tested |
 | Structural: Foundation, Wall, Floor, Ramp, Stair, Roof, Pillars, Fence, Tarp Fence, Barrier, Catwalk, Walkway, Ladder, Doors, Vent, Corner Block, Decor, Stackable Shelf, Potty, conveyor/foundation holes+passthrough | `Building/{Foundation,Wall,Floor,Ramp,Stair,Roof,Pillars,Fence,TarpFence,Barrier,Catwalk,Walkway,Ladder,Doors,Vent,Potty}`, `Factory/{CornerBlock,ConveyorHole,ConveyorFloorHole,FoundationPassthrough}` | ✅ (many of these are "lightweight" instances at runtime — see `world.buildables`' `lightweight:` id scheme, `docs/lightweight-buildable-research.md`) |
+| Stackable supports: Conveyor Pole Stackable, Pipe Support Stackable, Hyper Pole Stackable — one shared column, multiple vertically-stacked instances (real dense routing for pipes/belts/hypertube) | `Recipe_ConveyorPoleStackable`/`Recipe_PipeSupportStackable`/`Recipe_HyperPoleStackable` (all confirmed real recipes; class is `AFGBuildablePoleStackable`/`AFGStackablePoleHologram`, generic across all three) | ✅ — added 2026-08-31, explicit user request. **NOT via `world.placeBuilding`** — these use a real two-step Zoop build flow (`BHBS_PlacementAndRotation`→`BHBS_Zoop`), not the ordinary single-click hologram most of this table's other rows rely on, so the generic placement path alone would fail on these. `world.constructStackableSupport` drives the real `SetZoopAmount(FIntVector)` API directly. Not live-tested, and the FIntVector-to-vertical-axis mapping is inferred, not confirmed |
 | Lighting: Ceiling Light, Floodlight, Street Light, Lights Control Panel | `Factory/{CeilingLight,Floodlight,StreetLight,LightsControlPanel}` | ✅ placement; ❌ no dedicated RPC to control panel-driven light grouping/scheduling |
 | Signs: Sign Pole, Digital Sign, Standalone Sign | `Factory/{SignPole,SignDigital,StandaloneSign}` | ✅ placement; ❌ no RPC to set sign text/icon content |
 | Hub Terminal, Trading Post, MAM, Workbench, Automated Work Bench, Workshop, Space Elevator, Radar Tower, Resource Sink, Resource Sink Shop, Lookout Tower, Jump Pad, Landing Pad, Large Fan, Drone Station | `Factory/{HubTerminal,TradingPost,Mam,WorkBench,AutomatedWorkBench,Workshop,SpaceElevator,RadarTower,ResourceSink,ResourceSinkShop,LookoutTower,JumpPad,LandingPad,LargeFan,DroneStation}` | ✅ placement (these are singleton/rare-placement structures in practice, not repeatedly built) |
@@ -208,3 +209,13 @@ none can go through the generic single-click flow:
   trunks). Also incorporated the user's note about real stackable
   support recipes (`Recipe_PipeSupportStackable`/
   `Recipe_ConveyorPoleStackable`) via `layout.plan_shared_support_columns`.
+- **2026-08-31 (later still)**: Two follow-up corrections from the
+  same user in one message: (1) `water.py`'s foundation placement was
+  WRONG - it centered foundations directly under each pump, but a
+  Water Pump sits in real water, a foundation can't share that spot;
+  fixed to lay out a walkway strip ALONGSIDE the row instead
+  (`foundation_offset` param added). (2) User asked to add real
+  stackable-support construction rather than just modeling it as a
+  layout idea - added `world.constructStackableSupport`, the first RPC
+  in this project to drive the Zoop mechanic via `SetZoopAmount()`
+  directly. See the new dedicated Stackable supports row above.

@@ -1957,6 +1957,54 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.constructStackableSupport - see ConstructStackableSupport's
+	// doc comment. Added 2026-08-31 per explicit user follow-up ("if we
+	// don't already support the stackables, we should add that now
+	// because that provides a dense way to bring back multiple pipes").
+	if (Method == TEXT("world.constructStackableSupport"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		double X = 0.0, Y = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		// Same -1000000 "not provided" sentinel as world.placeBuilding's z.
+		double Z = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), Z);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		double StackCount = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("stackCount"), StackCount);
+
+		UAIModFunctionLibrary::ConstructStackableSupport(GetGameInstance(), RecipeClassPath,
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z),
+			static_cast<int32>(StackCount), bIgnoreGroundTrace,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// world.setBeamLength - see SetBeamLength's doc comment. NOT YET
 	// LIVE-TESTED.
 	if (Method == TEXT("world.setBeamLength"))

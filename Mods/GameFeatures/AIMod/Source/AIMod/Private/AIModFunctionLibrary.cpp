@@ -124,6 +124,8 @@
 #include "Buildables/FGBuildablePowerPole.h"
 #include "FGWaterVolume.h"
 #include "Buildables/FGBuildableWaterPump.h"
+#include "Buildables/FGBuildablePoleStackable.h"
+#include "Hologram/FGStackablePoleHologram.h"
 
 namespace
 {
@@ -11508,6 +11510,306 @@ void UAIModFunctionLibrary::ConstructBeam(UObject* WorldContextObject, const FSt
 		}
 
 		PollState->OnComplete(FAIModOperationResult::Success());
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// See ConstructStackableSupport's doc comment in the header for the
+// real AFGBuildablePoleStackable/AFGStackablePoleHologram/SetZoopAmount
+// sourcing and the SetZoopFromHitresult-may-overwrite-it risk.
+void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, float Z, int32 StackCount, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
+
+	if (bIgnoreGroundTrace && Z <= -1000000.0f)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("MISSING_REFERENCE_Z"),
+			TEXT("bIgnoreGroundTrace requires an explicit z - there is no ground trace to fall back to")));
+		return;
+	}
+
+	FHitResult SyntheticHit;
+	if (bIgnoreGroundTrace)
+	{
+		SyntheticHit.Location = FVector(X, Y, Z);
+		SyntheticHit.ImpactPoint = SyntheticHit.Location;
+		SyntheticHit.Normal = FVector::UpVector;
+		SyntheticHit.ImpactNormal = FVector::UpVector;
+		SyntheticHit.bBlockingHit = true;
+	}
+	else
+	{
+		const float ZSearchCenter = (Z > -1000000.0f) ? Z : Character->GetActorLocation().Z;
+		const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+		SyntheticHit = GroundTrace.Hit;
+	}
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGStackablePoleHologram* Hologram = Cast<AFGStackablePoleHologram>(BuildState->GetHologram());
+	if (!Hologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGStackablePoleHologram (got %s)"),
+				*RecipeClassPath, BuildState->GetHologram() ? *BuildState->GetHologram()->GetClass()->GetName() : TEXT("null"))));
+		return;
+	}
+
+	auto SummarizeDisqualifiers = [](AFGStackablePoleHologram* H) -> FString
+	{
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		H->GetConstructDisqualifiers(Disqualifiers);
+		TArray<FString> Texts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+		{
+			Texts.Add(FString::Printf(TEXT("%s (%s)"), *UFGConstructDisqualifier::GetDisqualifyingText(D).ToString(),
+				UFGConstructDisqualifier::GetIsSoftDisqualifier(D) ? TEXT("soft") : TEXT("hard")));
+		}
+		return Texts.IsEmpty() ? TEXT("<none>") : FString::Join(Texts, TEXT("; "));
+	};
+
+	const FRotator DeterministicLook = (SyntheticHit.Location - Character->GetActorLocation()).Rotation();
+	if (AController* Controller = Character->GetController())
+	{
+		Controller->SetControlRotation(DeterministicLook);
+	}
+
+	// First click: placement/rotation - transitions
+	// EBuildableHologramBuildStep::BHBS_PlacementAndRotation -> BHBS_Zoop
+	// (FGBuildableHologram.h), same two-step shape ConstructBeam already
+	// drives successfully.
+	Hologram->UpdateHologramPlacement(SyntheticHit);
+	Hologram->TrySnapToActor(SyntheticHit);
+	const bool bStartStepComplete = Hologram->DoMultiStepPlacement(true);
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructStackableSupport: recipe=%s pos=(%.0f,%.0f,%.0f) stackCount=%d after start click: stepComplete=%s disqualifiers=[%s]"),
+		*RecipeClassPath, X, Y, Z, StackCount, bStartStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(Hologram));
+
+	if (bStartStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
+		return;
+	}
+
+	// StackCount additional instances stacked in the hologram's local
+	// "Up" direction - see this function's header doc comment for why
+	// the FIntVector's Z component is used (inferred from
+	// EHologramZoopDirections' HZD_Up/HZD_Down naming, not independently
+	// confirmed) and the real SetZoopFromHitresult-may-overwrite-it risk
+	// this is reasserted against every poll tick below.
+	const FIntVector DesiredZoop(0, 0, FMath::Max(0, StackCount));
+	Hologram->SetZoopAmount(DesiredZoop);
+
+	const bool bEndStepComplete = Hologram->DoMultiStepPlacement(true);
+
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructStackableSupport: recipe=%s pos=(%.0f,%.0f,%.0f) stackCount=%d after zoop click: stepComplete=%s disqualifiers=[%s]"),
+		*RecipeClassPath, X, Y, Z, StackCount, bEndStepComplete ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(Hologram));
+
+	if (!bEndStepComplete)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"), TEXT("DoMultiStepPlacement() did not report complete after the zoop click")));
+		return;
+	}
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGStackablePoleHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		FHitResult SyntheticHit;
+		FIntVector DesiredZoop;
+		FRotator DeterministicLook;
+		TSubclassOf<AFGBuildable> ExpectedBuildableClass;
+		FVector TargetPosition;
+		int32 RequestedCount = 1;
+		int32 AttemptsRemaining = 120;
+		int32 AttemptsTaken = 0;
+		TFunction<void(const FAIModOperationResult&)> OnComplete;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = Hologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->SyntheticHit = SyntheticHit;
+	PollState->DesiredZoop = DesiredZoop;
+	PollState->DeterministicLook = DeterministicLook;
+	PollState->ExpectedBuildableClass = ResolveBuildableClassForRecipe(RecipeClassPath);
+	PollState->TargetPosition = SyntheticHit.Location;
+	PollState->RequestedCount = FMath::Max(0, StackCount) + 1;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGStackablePoleHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructStackableSupport (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
+		}
+
+		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
+		// Reassert every tick - see this function's header doc comment on
+		// why UpdateHologramPlacement() may internally re-derive (and
+		// overwrite) the zoop amount from the hit result while in the
+		// Zoop build step.
+		PollHologram->SetZoopAmount(PollState->DesiredZoop);
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
+		bool bCanConstruct = true;
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		if (!bCanConstruct)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogAIModAI, Error, TEXT("ConstructStackableSupport (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		// A Zoop placement can legitimately construct MULTIPLE separate
+		// buildable actors in one call - unlike every other Construct*
+		// function here, a single ResultBuildableId can't represent the
+		// whole stack. Count real buildables of the resolved class found
+		// near the target X/Y (any Z - they're stacked vertically) and
+		// report foundCount/requestedCount in ResultDetailJson rather
+		// than silently only acknowledging one.
+		TArray<FString> FoundBuildableIds;
+		if (BuildableSubsystem && PollState->ExpectedBuildableClass)
+		{
+			for (AFGBuildable* Candidate : BuildableSubsystem->GetAllBuildablesRef())
+			{
+				if (!IsValid(Candidate) || !Candidate->IsA(PollState->ExpectedBuildableClass)) { continue; }
+				const FVector CandidateLocation = Candidate->GetActorLocation();
+				const float HorizontalDistSq = FVector::DistSquared2D(CandidateLocation, PollState->TargetPosition);
+				if (HorizontalDistSq < FMath::Square(200.0f))
+				{
+					FoundBuildableIds.Add(Candidate->GetPathName());
+				}
+			}
+		}
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructStackableSupport (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - found=%d requested=%d"),
+			PollState->AttemptsTaken, FoundBuildableIds.Num(), PollState->RequestedCount);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		if (FoundBuildableIds.IsEmpty())
+		{
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CONSTRUCTION_UNCONFIRMED"), TEXT("InternalConstructHologram was called but no new buildable was found near the intended location afterward")));
+			return;
+		}
+
+		const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+		DetailObject->SetNumberField(TEXT("requestedCount"), PollState->RequestedCount);
+		DetailObject->SetNumberField(TEXT("foundCount"), FoundBuildableIds.Num());
+		TArray<TSharedPtr<FJsonValue>> IdsJsonArray;
+		for (const FString& Id : FoundBuildableIds)
+		{
+			IdsJsonArray.Add(MakeShared<FJsonValueString>(Id));
+		}
+		DetailObject->SetArrayField(TEXT("buildableIds"), IdsJsonArray);
+
+		FAIModOperationResult Result = FAIModOperationResult::SuccessWithBuildableId(FoundBuildableIds[0]);
+		Result.ResultDetailJson = WriteCondensedJson(DetailObject);
+		PollState->OnComplete(Result);
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));

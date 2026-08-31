@@ -1813,6 +1813,46 @@ the hologram to the recipe's real max length (not independently
 validated here — a too-long request should surface as a real construct
 disqualifier).
 
+### `world.constructStackableSupport` — asynchronous, `result.buildableId` on success, **NOT YET LIVE-TESTED**
+`params: {"recipeClass" (required), "x"/"y" (required numbers), "z" (optional), "ignoreGroundTrace" (optional bool), "stackCount" (optional, default 0)}`
+
+Added 2026-08-31 per explicit user follow-up ("if we don't already
+support the stackables, we should add that now because that provides
+a dense way to bring back multiple pipes"). Real, confirmed recipes —
+`Recipe_ConveyorPoleStackable`, `Recipe_PipeSupportStackable`,
+`Recipe_HyperPoleStackable` — all resolve to the same generic classes,
+`AFGBuildablePoleStackable`/`AFGStackablePoleHologram` (inferred from
+the class names not being belt/pipe/hypertube-specific — NOT
+re-verified by binary-grep, unlike most of this session's other
+"shared class" findings), so one method covers all three tiers via
+`recipeClass`.
+
+Drives the real `AFGBuildableHologram` Zoop mechanic directly — the
+same `BHBS_PlacementAndRotation`→`BHBS_Zoop` two-step shape already
+proven for `world.constructBeam`, but between the two clicks calls the
+real, public `SetZoopAmount(FIntVector)` with the requested
+`stackCount` instead of simulating a mouse drag. **Inferred, not
+confirmed**: the vertical axis is the `FIntVector`'s Z component
+(matches `EHologramZoopDirections`' `HZD_Up`/`HZD_Down` naming, but not
+independently verified) — first thing to check live if a stack comes
+out wrong or sideways. Also flagged: `SetZoopFromHitresult()` runs
+every frame while zooping and may silently overwrite the explicit
+`SetZoopAmount()` call during the poll loop's disqualifier-refresh —
+mitigated by reasserting `SetZoopAmount()` every poll tick, but this
+specific interaction isn't confirmed live either. This is the first
+time this project has driven Zoop via `SetZoopAmount()` rather than an
+ordinary click flow — real confidence here is lower than most of
+today's other additions.
+
+`stackCount` is the number of ADDITIONAL instances beyond the base one
+(`0` = a single ordinary pole, same as not zooping). Not validated
+against the hologram's real max — let the engine's own disqualifiers
+be the authority. Because a Zoop placement can legitimately construct
+MULTIPLE separate buildable actors in one call, `result.buildableId`
+is only the FIRST one found — check `result.detail.foundCount` /
+`result.detail.requestedCount` / `result.detail.buildableIds` for the
+full picture of what actually got built.
+
 ### `world.setBeamLength` — `{"buildableId", "newLength"}`, **NOT YET LIVE-TESTED**
 ```json
 { "success": true, "result": { "detail": { "oldLength": 800.0, "newLength": 1600.0, "maxLength": 2400.0 } } }

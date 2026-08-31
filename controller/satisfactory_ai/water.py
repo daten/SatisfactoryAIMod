@@ -69,10 +69,15 @@ class WaterPumpRowPlan:
     (e.g. a Pipeline Junction) before continuing toward the main
     project or a higher-level trunk merge.
 
-    foundation_positions is empty unless foundation_size was given to
-    plan_water_pump_row/plan_water_pump_field - see those functions'
-    doc comments for the "rows of foundations at water level" pattern
-    this supports.
+    foundation_positions is empty unless foundation_offset/
+    foundation_size were given to plan_water_pump_row/
+    plan_water_pump_field - a walkway strip ALONGSIDE the row (not
+    underneath the pumps - a Water Pump sits in real water, a
+    foundation almost certainly can't share that spot), giving pipes
+    exiting each pump somewhere to route onto and letting power poles
+    be built on solid ground instead of floating. See
+    plan_water_pump_row's doc comment for the corrected 2026-08-31
+    semantics.
     """
 
     pump_positions: List[Position]
@@ -93,6 +98,7 @@ def plan_water_pump_row(
     pump_spacing: float,
     pump_count: int,
     junction_offset: Position,
+    foundation_offset: Optional[Position] = None,
     foundation_size: Optional[float] = None,
 ) -> WaterPumpRowPlan:
     """pump_count pump positions starting at row_start, each
@@ -102,25 +108,39 @@ def plan_water_pump_row(
     not computed - the caller decides which direction routes back
     toward the main project or the next merge level).
 
-    foundation_size (optional): if given, also returns one square
-    foundation CENTER position per pump (centered on that pump's own
-    x/y, z = row_start.z) - the "rows of foundations at water level"
-    pattern the user described, used to help route pipes/poles and
-    space pumps out evenly on a flat, buildable surface instead of
-    directly on uneven shoreline terrain. Pass the real foundation tile
-    size (e.g. 800.0 for a standard 8m foundation) - this function does
-    not assume one. Whether pump_spacing should equal foundation_size,
-    a multiple of it, or something independent is a real layout choice
-    left to the caller; this function does not couple the two.
+    foundation_offset/foundation_size (optional, BOTH required
+    together): a strip of square foundation tiles ALONGSIDE the pump
+    row, NOT underneath the pumps - corrected 2026-08-31 per explicit
+    user clarification: a Water Pump sits directly in/on a real
+    AFGWaterVolume, a foundation almost certainly can't be placed at
+    that same spot (and even where it could, that isn't the intent).
+    The real purpose is a walkway next to the row so pipes exiting each
+    pump have a surface to route onto, and power poles can be built on
+    solid ground above water instead of needing to float.
+
+    foundation_offset is the vector from row_start to the strip's own
+    start point - perpendicular to pump_direction is the natural
+    choice for a walkway running alongside the row, but this function
+    does not assume a direction; pass whatever offset actually clears
+    the water for your specific lake. Tiles are centered
+    foundation_size apart along pump_direction (same direction as the
+    pump row, so the strip runs parallel to it) and span enough length
+    to run the full length of the row, not just one tile per pump -
+    pass the real foundation tile size (e.g. 800.0 for a standard 8m
+    foundation); this function does not assume one.
 
     Raises ValueError if pump_count < 1, pump_spacing <= 0,
-    foundation_size is given and <= 0, or pump_direction is the zero
-    vector.
+    pump_direction is the zero vector, foundation_size is given and
+    <= 0, or exactly one of foundation_offset/foundation_size is given
+    (both or neither are required - a strip needs both a location and
+    a tile size to be a meaningful request).
     """
     if pump_count < 1:
         raise ValueError(f"pump_count must be at least 1, got {pump_count}")
     if pump_spacing <= 0:
         raise ValueError(f"pump_spacing must be positive, got {pump_spacing}")
+    if (foundation_offset is None) != (foundation_size is None):
+        raise ValueError("foundation_offset and foundation_size must both be given, or both omitted")
     if foundation_size is not None and foundation_size <= 0:
         raise ValueError(f"foundation_size must be positive if given, got {foundation_size}")
 
@@ -142,8 +162,25 @@ def plan_water_pump_row(
     )
 
     foundation_positions: List[Position] = []
-    if foundation_size is not None:
-        foundation_positions = [Position(x=p.x, y=p.y, z=row_start.z) for p in pump_positions]
+    if foundation_offset is not None and foundation_size is not None:
+        strip_start = Position(
+            x=row_start.x + foundation_offset.x,
+            y=row_start.y + foundation_offset.y,
+            z=row_start.z + foundation_offset.z,
+        )
+        # Span the same real length the pump row covers, tiled at
+        # foundation_size - not just one tile per pump, enough tiles to
+        # run the walkway the full length of the row.
+        row_length = pump_spacing * (pump_count - 1)
+        tile_count = max(1, math.ceil(row_length / foundation_size) + 1)
+        foundation_positions = [
+            Position(
+                x=strip_start.x + unit.x * foundation_size * i,
+                y=strip_start.y + unit.y * foundation_size * i,
+                z=strip_start.z + unit.z * foundation_size * i,
+            )
+            for i in range(tile_count)
+        ]
 
     return WaterPumpRowPlan(
         pump_positions=pump_positions,
@@ -162,6 +199,7 @@ def plan_water_pump_field(
     total_pump_count: int,
     row_pipe_tier: PipelineTier,
     per_pump_flow_rate: float,
+    foundation_offset: Optional[Position] = None,
     foundation_size: Optional[float] = None,
 ) -> List[WaterPumpRowPlan]:
     """Lays out total_pump_count pumps into as many ROWS as needed so
@@ -175,7 +213,8 @@ def plan_water_pump_field(
     invented for this module.
 
     Each row is plan_water_pump_row() (see its doc comment for
-    foundation_size/junction_offset), offset from the previous row by
+    foundation_offset/foundation_size/junction_offset), offset from the
+    previous row by
     row_offset_direction * row_spacing (row_offset_direction need not
     be pre-normalized). The LAST row may have fewer than pumps_per_row
     pumps if total_pump_count doesn't divide evenly.
@@ -237,6 +276,7 @@ def plan_water_pump_field(
                 pump_spacing=pump_spacing,
                 pump_count=this_row_count,
                 junction_offset=junction_offset,
+                foundation_offset=foundation_offset,
                 foundation_size=foundation_size,
             )
         )

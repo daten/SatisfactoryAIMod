@@ -2569,6 +2569,75 @@ public:
 	static void ConstructBeam(UObject* WorldContextObject, const FString& RecipeClassPath, float StartX, float StartY, float StartZ, float EndX, float EndY, float EndZ, bool bIgnoreGroundTrace, bool bFreeformMode, int32 RotationScrollSteps, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
+	 * world.constructStackableSupport (added 2026-08-31, explicit user
+	 * follow-up - "if we don't already support the stackables, we
+	 * should add that now because that provides a dense way to bring
+	 * back multiple pipes"). Real, confirmed recipes:
+	 * `Recipe_ConveyorPoleStackable`/`Recipe_PipeSupportStackable`/
+	 * `Recipe_HyperPoleStackable` (Content/FactoryGame/Recipes/Buildings/)
+	 * all resolve to the SAME real, generic classes -
+	 * `AFGBuildablePoleStackable`/`AFGStackablePoleHologram` (neither
+	 * name is belt/pipe/hypertube-specific, though unlike most of this
+	 * session's other "shared class" findings this one was NOT
+	 * re-verified by binary-grep - inferred from the class naming
+	 * itself) - so one function covers all three tiers generically via
+	 * `RecipeClassPath`, same "generic across recipe" posture as
+	 * `ConstructBuildingAtPosition`.
+	 *
+	 * Drives the real, confirmed `AFGBuildableHologram` Zoop mechanic
+	 * directly rather than simulating a mouse drag:
+	 * `EBuildableHologramBuildStep::BHBS_PlacementAndRotation` then
+	 * `BHBS_Zoop` (`FGBuildableHologram.h`) - the SAME two-step shape
+	 * already proven for `ConstructBeam`, driven the same way
+	 * (`UpdateHologramPlacement`+`TrySnapToActor`+`DoMultiStepPlacement(true)`
+	 * for the first click). Between the two clicks, calls the real,
+	 * public `SetZoopAmount(FIntVector)` directly with the requested
+	 * stack count - "how many instances to add in each local-space
+	 * direction" (own doc comment). **Inferred, NOT confirmed**: the
+	 * vertical axis is the `FIntVector`'s Z component - matches
+	 * `EHologramZoopDirections`' explicit `HZD_Up`/`HZD_Down` naming,
+	 * but the `FIntVector`-to-local-axis mapping itself isn't
+	 * independently confirmed from source - first thing to check live
+	 * if a requested stack count comes out wrong or sideways.
+	 *
+	 * **Real, flagged risk**: `SetZoopFromHitresult()`'s own doc comment
+	 * says it runs "ervery [sic] frame when zooping instead of the
+	 * usual positioning logic" - meaning a later `UpdateHologramPlacement()`
+	 * call (e.g. during the poll loop's disqualifier-refresh) may
+	 * internally re-derive the zoop amount from the hit result and
+	 * silently overwrite the explicit `SetZoopAmount()` call. Mitigated
+	 * by reasserting `SetZoopAmount()` again immediately after every
+	 * poll tick's `UpdateHologramPlacement()` call, same "reassert every
+	 * tick" posture this project already uses for deterministic look/
+	 * hit-result state - but this specific interaction is NOT confirmed
+	 * live.
+	 *
+	 * `StackCount` is the number of ADDITIONAL instances beyond the base
+	 * one (0 = a single ordinary instance, same as not zooping at all).
+	 * Not validated against `GetMaxZoopAmount()` - let the real engine's
+	 * own disqualifiers be the authority on the real per-tier limit,
+	 * same "don't guess at engine limits" posture as `ConstructBeam`'s
+	 * length.
+	 *
+	 * `ResultDetailJson` reports how many real buildables of the
+	 * resolved class were actually found near the target position
+	 * afterward (`foundCount`, plus the full `buildableIds` list) versus
+	 * requested (`requestedCount` = `StackCount + 1`) - since a Zoop
+	 * placement can legitimately construct MULTIPLE separate buildable
+	 * actors in one call, `ResultBuildableId` alone (the single-id
+	 * convention every other `Construct*` function here uses, set here
+	 * to just the first one found) can't represent the whole stack -
+	 * check `ResultDetailJson` for the full picture.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * This is the FIRST time this project has driven the Zoop mechanic
+	 * via `SetZoopAmount()` rather than the ordinary single-click/
+	 * two-click flow - real confidence here is lower than most of
+	 * today's other additions, flagged accordingly.
+	 */
+	static void ConstructStackableSupport(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, float Z, int32 StackCount, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
 	 * world.setBeamLength (added 2026-08-31, companion to
 	 * world.constructBeam - same user request about beam length
 	 * control). Unlike most of this project's "length" concerns (pipe

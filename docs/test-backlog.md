@@ -71,6 +71,18 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
   of both the placement RPCs AND the layout planner together, and the
   first opportunity to measure a real minimum pump spacing (currently
   an unconfirmed, caller-supplied value in the planner).
+- [ ] **`world.constructStackableSupport`** — construct one with
+  `stackCount: 0` first (should behave like an ordinary single pole)
+  and confirm it builds. Then try `stackCount: 2` or more and confirm
+  it actually produces a vertical stack, not a sideways row or a
+  single instance - this is the real, flagged unknown (whether the
+  `FIntVector`'s Z component really maps to "vertical" for this
+  hologram). Check `result.detail.foundCount` vs `requestedCount`
+  matches what's actually visible in-game. Try all three real recipes
+  (`Recipe_ConveyorPoleStackable`/`Recipe_PipeSupportStackable`/
+  `Recipe_HyperPoleStackable`) since the "one shared class covers all
+  three" claim was inferred from naming, not confirmed via binary-grep
+  like most other "shared class" findings this session.
 - [ ] **`world.priorityPowerSwitches` / `world.setPriorityPowerSwitchPriority`**
   — set a priority on a placed switch, cause a real power shortage
   (or check in-game), confirm it actually sheds before a lower-priority
