@@ -1024,11 +1024,18 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		// Optional, defaults to Mk1 (prior hardcoded behavior) - any
 		// extractor recipe now works (2026-08-27, per explicit user
 		// request to support Resource Well Pressurizers/Extractors):
-		// Recipe_MinerMk1..Mk3, Recipe_WaterPump, Recipe_OilPump,
-		// Recipe_FrackingSmasher, Recipe_FrackingExtractor - see
-		// ConstructExtractorOnNode's doc comment for the node-type
-		// gating (Pressurizer needs a Fracking Core node, Extractor
-		// needs an ACTIVATED Fracking Satellite node).
+		// Recipe_MinerMk1..Mk3, Recipe_OilPump, Recipe_FrackingSmasher,
+		// Recipe_FrackingExtractor - see ConstructExtractorOnNode's doc
+		// comment for the node-type gating (Pressurizer needs a Fracking
+		// Core node, Extractor needs an ACTIVATED Fracking Satellite
+		// node). CORRECTION (2026-08-31): Recipe_WaterPump was
+		// PREVIOUSLY (incorrectly) listed here as supported - it never
+		// was. ConstructExtractorOnNode only ever searches
+		// AFGResourceNodeBase, and a water body is an AFGWaterVolume
+		// (APhysicsVolume), not an AFGResourceNodeBase - there is no
+		// "node" for a water pump to target via this method at all. Use
+		// world.constructWaterPumpNearReference instead - see its doc
+		// comment for the real reason this needed a different mechanism.
 		FString RecipeClassPath;
 		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
 		{
@@ -1036,6 +1043,53 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		}
 
 		UAIModFunctionLibrary::ConstructExtractorOnNode(GetGameInstance(), NodeId, RecipeClassPath,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.constructWaterPumpNearReference - see
+	// ConstructWaterPumpNearReference's doc comment. Added 2026-08-31 per
+	// explicit user request ("if the player places a reference pump and
+	// then requests additional pumps next to it this should be easier").
+	if (Method == TEXT("world.constructWaterPumpNearReference"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ReferenceBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("referenceBuildableId"), ReferenceBuildableId) || ReferenceBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.referenceBuildableId must be a non-empty string")));
+			return true;
+		}
+
+		double OffsetX = 0.0, OffsetY = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("offsetX"), OffsetX) || !ParamsObject->TryGetNumberField(TEXT("offsetY"), OffsetY))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.offsetX and params.offsetY must both be numbers")));
+			return true;
+		}
+
+		// Optional, defaults to 0 - same height as the reference pump.
+		// See ConstructWaterPumpNearReference's doc comment on why this
+		// deliberately does NOT re-ground-trace.
+		double OffsetZ = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("offsetZ"), OffsetZ);
+
+		// Optional, defaults to Recipe_WaterPump (the only real tier).
+		FString RecipeClassPath;
+		ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath);
+
+		UAIModFunctionLibrary::ConstructWaterPumpNearReference(GetGameInstance(), ReferenceBuildableId,
+			static_cast<float>(OffsetX), static_cast<float>(OffsetY), static_cast<float>(OffsetZ), RecipeClassPath,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));
@@ -1908,6 +1962,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	if (Method == TEXT("world.resourceNodes"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogResourceNodesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.waterVolumes"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogWaterVolumesAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.buildables"))
 	{

@@ -52,6 +52,17 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
 
 ## Tier 2 — moderate setup, real correctness questions
 
+- [ ] **`world.waterVolumes` / `world.constructWaterPumpNearReference`**
+  — hand-place a reference Water Pump on a real lake, call
+  `world.waterVolumes` and confirm it reports that lake with sane
+  `bounds`. Then call `world.constructWaterPumpNearReference` with a
+  real offset and confirm a second pump actually gets built nearby (not
+  just "success" with nothing visible). Try an offset that lands on dry
+  land or too-shallow water and confirm it correctly fails
+  (`CANNOT_CONSTRUCT`) rather than silently building somewhere wrong.
+  This whole feature was built from source reasoning (a real,
+  previously-mis-documented gap — `world.placeExtractor` never actually
+  supported Water Pump) and never tried against an actual lake.
 - [ ] **`world.priorityPowerSwitches` / `world.setPriorityPowerSwitchPriority`**
   — set a priority on a placed switch, cause a real power shortage
   (or check in-game), confirm it actually sheds before a lower-priority

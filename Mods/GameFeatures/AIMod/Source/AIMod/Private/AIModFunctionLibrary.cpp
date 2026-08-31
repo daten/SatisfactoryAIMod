@@ -122,6 +122,8 @@
 #include "FGBuildingTagInterface.h"
 #include "Resources/FGWildCardDescriptor.h"
 #include "Buildables/FGBuildablePowerPole.h"
+#include "FGWaterVolume.h"
+#include "Buildables/FGBuildableWaterPump.h"
 
 namespace
 {
@@ -1160,6 +1162,78 @@ FString UAIModFunctionLibrary::LogResourceNodesAsJson(UObject* WorldContextObjec
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogResourceNodesAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+// See LogWaterVolumesAsJson's doc comment in the header for the real
+// AFGWaterVolume/IFGExtractableResourceInterface sourcing and why
+// world.resourceNodes could never see these.
+FString UAIModFunctionLibrary::LogWaterVolumesAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogWaterVolumesAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> VolumesJsonArray;
+	for (TActorIterator<AFGWaterVolume> It(World); It; ++It)
+	{
+		AFGWaterVolume* Volume = *It;
+		if (!IsValid(Volume))
+		{
+			continue;
+		}
+
+		const TSharedRef<FJsonObject> PositionObject = MakeShared<FJsonObject>();
+		const FVector Location = Volume->GetActorLocation();
+		PositionObject->SetNumberField(TEXT("x"), Location.X);
+		PositionObject->SetNumberField(TEXT("y"), Location.Y);
+		PositionObject->SetNumberField(TEXT("z"), Location.Z);
+
+		const FBox Bounds = Volume->GetComponentsBoundingBox(false);
+		const TSharedRef<FJsonObject> BoundsObject = MakeShared<FJsonObject>();
+		const TSharedRef<FJsonObject> BoundsMinObject = MakeShared<FJsonObject>();
+		BoundsMinObject->SetNumberField(TEXT("x"), Bounds.Min.X);
+		BoundsMinObject->SetNumberField(TEXT("y"), Bounds.Min.Y);
+		BoundsMinObject->SetNumberField(TEXT("z"), Bounds.Min.Z);
+		const TSharedRef<FJsonObject> BoundsMaxObject = MakeShared<FJsonObject>();
+		BoundsMaxObject->SetNumberField(TEXT("x"), Bounds.Max.X);
+		BoundsMaxObject->SetNumberField(TEXT("y"), Bounds.Max.Y);
+		BoundsMaxObject->SetNumberField(TEXT("z"), Bounds.Max.Z);
+		const FVector BoundsSize = Bounds.GetSize();
+		const TSharedRef<FJsonObject> BoundsSizeObject = MakeShared<FJsonObject>();
+		BoundsSizeObject->SetNumberField(TEXT("x"), BoundsSize.X);
+		BoundsSizeObject->SetNumberField(TEXT("y"), BoundsSize.Y);
+		BoundsSizeObject->SetNumberField(TEXT("z"), BoundsSize.Z);
+		BoundsObject->SetObjectField(TEXT("min"), BoundsMinObject);
+		BoundsObject->SetObjectField(TEXT("max"), BoundsMaxObject);
+		BoundsObject->SetObjectField(TEXT("size"), BoundsSizeObject);
+
+		const TSubclassOf<UFGResourceDescriptor> ResourceClass = Volume->GetResourceClass();
+
+		const TSharedRef<FJsonObject> VolumeObject = MakeShared<FJsonObject>();
+		VolumeObject->SetStringField(TEXT("id"), Volume->GetPathName());
+		VolumeObject->SetObjectField(TEXT("position"), PositionObject);
+		VolumeObject->SetObjectField(TEXT("bounds"), BoundsObject);
+		VolumeObject->SetBoolField(TEXT("isOccupied"), Volume->IsOccupied());
+		VolumeObject->SetBoolField(TEXT("canBecomeOccupied"), Volume->CanBecomeOccupied());
+		VolumeObject->SetBoolField(TEXT("canPlaceResourceExtractor"), Volume->CanPlaceResourceExtractor());
+		VolumeObject->SetBoolField(TEXT("hasAnyResources"), Volume->HasAnyResources());
+		VolumeObject->SetStringField(TEXT("resourceClass"), ResourceClass ? ResourceClass->GetPathName() : FString());
+
+		VolumesJsonArray.Add(MakeShared<FJsonValueObject>(VolumeObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("waterVolumes"), VolumesJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogWaterVolumesAsJson: %d water volume(s)"), VolumesJsonArray.Num());
 
 	return JsonString;
 }
@@ -4775,6 +4849,307 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 		PollState->OnComplete(ConstructedBuildableId.IsEmpty()
 			? FAIModOperationResult::Success()
 			: FAIModOperationResult::SuccessWithBuildableId(ConstructedBuildableId));
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// See ConstructWaterPumpNearReference's doc comment in the header for
+// the full "water pump was never reachable via ConstructExtractorOnNode"
+// finding. Deliberately mirrors ConstructExtractorOnNode's own synthetic-
+// hit/Distance-fix/TrySnapToActor/poll pattern almost exactly (same real
+// AFGResourceExtractorHologram lineage, same IFGExtractableResourceInterface
+// contract - AFGWaterVolume implements GetPlacementLocation/
+// GetPlacementRotation the SAME way AFGResourceNodeBase does) rather than
+// delegating to ConstructBuildingAtPosition's generic ground-trace flow -
+// this uses the real, purpose-built placement-snapping mechanism the
+// hologram itself relies on, not a guessed literal position.
+void UAIModFunctionLibrary::ConstructWaterPumpNearReference(UObject* WorldContextObject, const FString& ReferenceBuildableId, float OffsetX, float OffsetY, float OffsetZ, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	AFGBuildable* ReferenceBuildable = FindBuildableById(World, ReferenceBuildableId);
+	AFGBuildableWaterPump* ReferencePump = Cast<AFGBuildableWaterPump>(ReferenceBuildable);
+	if (!ReferencePump)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("WRONG_TYPE"),
+			FString::Printf(TEXT("'%s' did not resolve to an AFGBuildableWaterPump (%s)"), *ReferenceBuildableId,
+				ReferenceBuildable ? *ReferenceBuildable->GetClass()->GetName() : TEXT("not found"))));
+		return;
+	}
+
+	const FVector CandidatePosition = ReferencePump->GetActorLocation() + FVector(OffsetX, OffsetY, OffsetZ);
+
+	// AFGWaterVolume::EncompassesPoint (IInterface_PostProcessVolume) - a
+	// real, public containment check, not a distance guess. Falls back to
+	// nearest-by-distance only if no volume directly contains the
+	// candidate point (e.g. the offset landed just past a volume's real
+	// boundary), so a caller isn't forced to hit the boundary exactly.
+	AFGWaterVolume* TargetVolume = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+	for (TActorIterator<AFGWaterVolume> It(World); It; ++It)
+	{
+		AFGWaterVolume* Candidate = *It;
+		if (!IsValid(Candidate)) { continue; }
+		if (Candidate->EncompassesPoint(CandidatePosition))
+		{
+			TargetVolume = Candidate;
+			break;
+		}
+		const float DistSq = FVector::DistSquared(Candidate->GetActorLocation(), CandidatePosition);
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			TargetVolume = Candidate;
+		}
+	}
+	if (!TargetVolume)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_WATER_VOLUME_FOUND"),
+			FString::Printf(TEXT("No AFGWaterVolume found near (%.0f, %.0f, %.0f) - see world.waterVolumes for real, discoverable water bodies"),
+				CandidatePosition.X, CandidatePosition.Y, CandidatePosition.Z)));
+		return;
+	}
+
+	if (!TargetVolume->CanPlaceResourceExtractor())
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("WATER_VOLUME_CANNOT_PLACE_EXTRACTOR"),
+			FString::Printf(TEXT("'%s' reports CanPlaceResourceExtractor()=false"), *TargetVolume->GetPathName())));
+		return;
+	}
+
+	UClass* ResolvedRecipeClass = LoadObject<UClass>(nullptr, RecipeClassPath.IsEmpty() ? TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_WaterPump.Recipe_WaterPump_C") : *RecipeClassPath);
+	if (!ResolvedRecipeClass || !ResolvedRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedRecipeClass;
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	if (!Hologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"), TEXT("HotKeyRecipe did not result in a spawned hologram")));
+		return;
+	}
+
+	// Same real IFGExtractableResourceInterface contract
+	// ConstructExtractorOnNode uses for a resource node - "Used by
+	// holograms to get the correct location/rotation for snapping when
+	// placed on this extractable resource" (own doc comments).
+	const FVector PlacementLocation = TargetVolume->GetPlacementLocation(CandidatePosition);
+	const FRotator PlacementRotation = TargetVolume->GetPlacementRotation(CandidatePosition);
+
+	FHitResult SyntheticHit;
+	SyntheticHit.Location = PlacementLocation;
+	SyntheticHit.ImpactPoint = PlacementLocation;
+	SyntheticHit.Normal = PlacementRotation.RotateVector(FVector::UpVector);
+	SyntheticHit.ImpactNormal = SyntheticHit.Normal;
+	SyntheticHit.HitObjectHandle = FActorInstanceHandle(TargetVolume);
+	SyntheticHit.bBlockingHit = true;
+	if (UPrimitiveComponent* VolumePrimitive = Cast<UPrimitiveComponent>(TargetVolume->GetRootComponent()))
+	{
+		SyntheticHit.Component = VolumePrimitive;
+	}
+	// Distance fix - same real regression ConstructExtractorOnNode's own
+	// comment documents (a zero-distance synthetic hit was confirmed live
+	// to fail UFGCDNeedsResourceNode for a node target; applying the same
+	// fix preemptively here rather than waiting to rediscover it live for
+	// water specifically).
+	SyntheticHit.Distance = FVector::Dist(Character->GetActorLocation(), PlacementLocation);
+
+	BuildGun->GetHitResult() = SyntheticHit;
+
+	const FRotator DeterministicLook = (PlacementLocation - Character->GetActorLocation()).Rotation();
+	if (AController* Controller = Character->GetController())
+	{
+		Controller->SetControlRotation(DeterministicLook);
+	}
+
+	Hologram->UpdateHologramPlacement(SyntheticHit);
+	Hologram->TrySnapToActor(SyntheticHit);
+
+	struct FPollState
+	{
+		TWeakObjectPtr<AFGHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<AFGWaterVolume> TargetVolume;
+		TWeakObjectPtr<UWorld> World;
+		FString ReferenceBuildableId;
+		FHitResult SyntheticHit;
+		FRotator DeterministicLook;
+		TFunction<void(const FAIModOperationResult&)> OnComplete;
+		int32 AttemptsRemaining = 120;
+		int32 AttemptsTaken = 0;
+	};
+	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+	PollState->Hologram = Hologram;
+	PollState->Character = Character;
+	PollState->TargetVolume = TargetVolume;
+	PollState->World = World;
+	PollState->ReferenceBuildableId = ReferenceBuildableId;
+	PollState->SyntheticHit = SyntheticHit;
+	PollState->DeterministicLook = DeterministicLook;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructWaterPumpNearReference (deferred): hologram or world became invalid while polling (after %d tick(s)) - nothing built"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				PollController->SetControlRotation(PollState->DeterministicLook);
+			}
+		}
+
+		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
+		bool bCanConstruct = true;
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			{
+				bCanConstruct = false;
+			}
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		if (!bCanConstruct)
+		{
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructWaterPumpNearReference (deferred, resolved after %d real tick(s)): CanConstruct()=false, NOT constructing - reference=%s disqualifiers=[%s]"),
+				PollState->AttemptsTaken, *PollState->ReferenceBuildableId, *DisqualifierSummary);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogAIModAI, Error, TEXT("ConstructWaterPumpNearReference (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		const FVector ConstructLocation = PollHologram->GetActorLocation();
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		// Confirmation via proximity, NOT volume occupancy - real,
+		// flagged uncertainty (see this function's header doc comment):
+		// AFGWaterVolume's CanBecomeOccupied()/IsOccupied() may not
+		// behave like a solid node's exclusive occupancy at all (the
+		// interface's own doc comment: "Return false for resources that
+		// can hold many extractors" - plausible a whole lake is exactly
+		// that kind of resource), so unlike ConstructExtractorOnNode this
+		// does NOT gate success/failure on occupancy - only on finding a
+		// real, newly-constructed buildable near the intended location,
+		// same pattern ConstructBuildingAtPosition already uses.
+		FString ConstructedBuildableId;
+		if (BuildableSubsystem)
+		{
+			float BestMatchDistSq = TNumericLimits<float>::Max();
+			AFGBuildable* BestMatch = nullptr;
+			for (AFGBuildable* Candidate : BuildableSubsystem->GetAllBuildablesRef())
+			{
+				if (!IsValid(Candidate)) { continue; }
+				const float DistSq = FVector::DistSquared(Candidate->GetActorLocation(), ConstructLocation);
+				if (DistSq < BestMatchDistSq)
+				{
+					BestMatchDistSq = DistSq;
+					BestMatch = Candidate;
+				}
+			}
+			if (BestMatch && BestMatchDistSq < FMath::Square(200.0f))
+			{
+				ConstructedBuildableId = BestMatch->GetPathName();
+			}
+		}
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructWaterPumpNearReference (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - reference=%s id=%s"),
+			PollState->AttemptsTaken, *PollState->ReferenceBuildableId, *ConstructedBuildableId);
+
+		if (IsValid(PollCharacter))
+		{
+			PollCharacter->UnequipBuildGun();
+		}
+
+		if (ConstructedBuildableId.IsEmpty())
+		{
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CONSTRUCTION_UNCONFIRMED"), TEXT("InternalConstructHologram was called but no new buildable was found near the intended location afterward")));
+			return;
+		}
+
+		PollState->OnComplete(FAIModOperationResult::SuccessWithBuildableId(ConstructedBuildableId));
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));

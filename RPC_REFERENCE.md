@@ -1225,13 +1225,76 @@ the player has enabled the "Limit RPC Build Distance" mod setting).
 
 ### `world.placeExtractor` — asynchronous, `result.buildableId` on success
 `params: {"nodeId" (required), "recipeClass" (optional, default
-Recipe_MinerMk1)}`. Works for any extractor: Miner Mk1-3, Water Pump, Oil
+Recipe_MinerMk1)}`. Works for any *node-based* extractor: Miner Mk1-3, Oil
 Pump, Fracking Smasher (Pressurizer — needs a `FrackingCore` node),
 Fracking Extractor (needs an *activated* `FrackingSatellite` — poll
 `world.resourceNodes`' `satelliteState` until `"Active"` after powering its
 core). Errors: `NODE_NOT_FOUND`, `NODE_OCCUPIED`, `INVALID_RECIPE`,
 `CANNOT_CONSTRUCT`, `BUILD_DISTANCE_EXCEEDED` (same mod-setting gate as
 above).
+
+**Does NOT work for Water Pump — correction, 2026-08-31**: this method
+was previously (incorrectly) documented as supporting Water Pump. It
+never did — this method only ever searches `AFGResourceNodeBase`
+actors for `nodeId`, and a water body is an `AFGWaterVolume`
+(`APhysicsVolume`), not an `AFGResourceNodeBase` — there is no "node"
+for it to find. See `world.waterVolumes`/
+`world.constructWaterPumpNearReference` below for real water pump
+support.
+
+### `world.waterVolumes` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "waterVolumes": [ { "id": "...", "position": {"x":0,"y":0,"z":0}, "bounds": { "min": {"x":0,"y":0,"z":0}, "max": {"x":0,"y":0,"z":0}, "size": {"x":0,"y":0,"z":0} }, "isOccupied": false, "canBecomeOccupied": true, "canPlaceResourceExtractor": true, "hasAnyResources": true, "resourceClass": "...Desc_Water_C" } ] }
+```
+Added 2026-08-31 per explicit user request ("we previously identified
+that automated placement of floating water pumps is too difficult
+because bodies of water aren't easy to locate and identify"). Directly
+answers that: water bodies ARE real, discoverable actors —
+`AFGWaterVolume`, confirmed to implement
+`IFGExtractableResourceInterface`, the SAME interface a normal ore
+`AFGResourceNode` implements — just not an `AFGResourceNodeBase`
+subclass, which is exactly why `world.resourceNodes`/
+`world.placeExtractor` could never see or target water at all.
+`bounds` (`GetComponentsBoundingBox()`) lets a caller compute real
+candidate points inside a given volume without this project guessing
+at lake geometry. `isOccupied`/`canBecomeOccupied` — real, but
+unconfirmed whether a single lake's volume can hold multiple pumps
+simultaneously or is exclusive like a solid node (the interface's own
+doc comment: "Return false for resources that can hold many
+extractors" — plausible either way for water specifically).
+
+### `world.constructWaterPumpNearReference` — asynchronous, `result.buildableId` on success, **NOT YET LIVE-TESTED**
+`params: {"referenceBuildableId" (required), "offsetX"/"offsetY"
+(required numbers), "offsetZ" (optional, default 0), "recipeClass"
+(optional, default Recipe_WaterPump)}`
+
+Added 2026-08-31 per explicit user request ("if the player places a
+reference pump and then requests additional pumps next to it this
+should be easier... I don't know if there's even a code gap or just
+placement suggestions"). There was a real code gap, not just a missing
+suggestion — see the `world.placeExtractor` correction above.
+
+`referenceBuildableId` must be a real, already-placed Water Pump (fails
+`WRONG_TYPE` otherwise) — its position anchors a target point
+(`reference position + offset`, `offsetZ` defaulting to the same height
+as the reference rather than re-ground-tracing, since a real water
+pump's own height is already known-good water-surface elevation
+nearby). The target `AFGWaterVolume` is found by real containment check
+(`EncompassesPoint`, falling back to nearest-by-distance if the offset
+landed just past a volume's boundary) — fails `NO_WATER_VOLUME_FOUND`
+if none exists near the computed point (check `world.waterVolumes`
+first). Uses the SAME real `IFGExtractableResourceInterface::
+GetPlacementLocation()`/`GetPlacementRotation()` mechanism the game's
+own hologram relies on for snapping, mirroring `world.placeExtractor`'s
+own construction pattern — not a generic ground-trace placement.
+
+Confirms success by finding a real, newly-constructed buildable near
+the target location (same proximity check `world.placeBuilding` uses)
+rather than checking volume occupancy, since occupancy semantics for a
+shared water body are unconfirmed (see `world.waterVolumes` above).
+Real disqualifiers `UFGCDNeedsWaterVolume`/`UFGCDResourceIsTooShallow`
+are never bypassed — an offset landing on dry land or too-shallow water
+should still correctly fail via `CANNOT_CONSTRUCT`.
 
 ### `world.constructVehicle` — asynchronous, `result.buildableId` on success
 `params: {"recipeClass" (required), "droneStationId" (optional),

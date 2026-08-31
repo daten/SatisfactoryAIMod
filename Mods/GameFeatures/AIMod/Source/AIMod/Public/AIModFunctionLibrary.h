@@ -167,6 +167,39 @@ public:
 	static FString LogResourceNodesAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.waterVolumes (added 2026-08-31, explicit user request -
+	 * "we previously identified that automated placement of floating
+	 * water pumps is too difficult because bodies of water aren't easy
+	 * to locate and identify"). Directly answers that: water bodies ARE
+	 * real, discoverable actors - `AFGWaterVolume` (`FGWaterVolume.h`),
+	 * confirmed from source to implement `IFGExtractableResourceInterface`,
+	 * the SAME interface a normal ore `AFGResourceNode` implements for
+	 * extraction purposes - just not an `AFGResourceNodeBase` subclass
+	 * (it's an `APhysicsVolume`), which is exactly why
+	 * `world.resourceNodes`/`world.placeExtractor` (both scoped to
+	 * `AFGResourceNodeBase`) have never been able to see or target water
+	 * at all - a real, previously-mis-documented gap, not just "water is
+	 * hard to find" - see ConstructWaterPumpNearReference's doc comment
+	 * for the construction-side half of this finding.
+	 *
+	 * Lists every placed `AFGWaterVolume` with its real, public
+	 * `IsOccupied()`/`CanBecomeOccupied()`/`CanPlaceResourceExtractor()`/
+	 * `HasAnyResources()`/`GetResourceClass()`, plus `position` (actor
+	 * location) and `bounds` (`GetComponentsBoundingBox()` min/max/size)
+	 * so a caller can compute real candidate points inside a given
+	 * volume without this project guessing at lake geometry. `occupied`
+	 * reflects the volume's own occupancy tracking - unconfirmed whether
+	 * a single large lake's `AFGWaterVolume` can hold multiple pumps
+	 * simultaneously (occupancy might be a single bool for the whole
+	 * volume, or something finer-grained the stub-sourced `.cpp` doesn't
+	 * reveal) - a real, flagged unknown, not assumed either way.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogWaterVolumesAsJson(UObject* WorldContextObject);
+
+	/**
 	 * Enumerates all placed AFGBuildable actors (PLAN.md Phase 10,
 	 * "buildings"). Tries AFGBuildableSubsystem::GetAllBuildablesRef()
 	 * first (a real public getter exists, per
@@ -1094,6 +1127,68 @@ public:
 	 * than silently skipping that check.
 	 */
 	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructWaterPumpNearReference (added 2026-08-31, explicit
+	 * user request - "if the player places a reference pump and then
+	 * requests additional pumps next to it this should be easier... I
+	 * don't know if there's even a code gap or just placement
+	 * suggestions"). There WAS a real code gap, not just a missing
+	 * suggestion, and it's fixed here - see world.waterVolumes' doc
+	 * comment for the full finding.
+	 *
+	 * **Water Pump placement was NEVER actually reachable through
+	 * `world.placeExtractor`/`ConstructExtractorOnNode`**, despite
+	 * `RPC_REFERENCE.md` previously (incorrectly) listing it as
+	 * supported there - `ConstructExtractorOnNode` only ever searches
+	 * `TActorIterator<AFGResourceNodeBase>`, and a water body is an
+	 * `AFGWaterVolume` (`APhysicsVolume`), NOT an
+	 * `AFGResourceNodeBase` subclass - there was never a "node" for it
+	 * to find. Confirmed from source this is architecturally correct to
+	 * fix as a literal-position placement instead:
+	 * `AFGWaterPumpHologram : AFGResourceExtractorHologram :
+	 * AFGFactoryHologram` - the SAME simple single-click hologram
+	 * lineage `ConstructBuildingAtPosition` already drives for ordinary
+	 * buildings, NOT the multi-step `AFGSplineHologram` branch. Real,
+	 * dedicated construct disqualifiers confirmed to exist for exactly
+	 * this (`FGConstructDisqualifier.h`): `UFGCDNeedsWaterVolume`
+	 * ("RequiresDeepWater") and `UFGCDResourceIsTooShallow`
+	 * ("NotDeepEnough") - a raw-position/depth check, not a node-
+	 * occupancy check, confirming water pump validity is decided by
+	 * where you aim, not what you're snapped to.
+	 *
+	 * Given that, this function is a thin wrapper, NOT a new
+	 * hologram-driving implementation: resolves `ReferenceBuildableId`
+	 * (must be a real, already-placed `AFGBuildableWaterPump` -
+	 * deliberately requiring an existing, already-validated pump as the
+	 * anchor, per the user's own framing, rather than accepting any
+	 * buildable), computes a literal target position
+	 * (`ReferencePosition + (OffsetX, OffsetY, OffsetZ)` - `OffsetZ`
+	 * defaults to `0`, i.e. same height as the reference, since that's
+	 * already known-good water-surface height nearby, deliberately NOT
+	 * re-ground-tracing which could hit the lakebed under the water
+	 * rather than its surface), then delegates straight into the
+	 * existing, already-implemented `ConstructBuildingAtPosition` with
+	 * `bIgnoreGroundTrace=true` and `gridSnapSize=0` - reusing its real
+	 * disqualifier-handling/polling/construction logic wholesale rather
+	 * than duplicating a parallel driving loop, the same "don't
+	 * duplicate an existing generic mechanism" posture already proven
+	 * for conveyor attachments.
+	 *
+	 * `RecipeClassPath` defaults to `Recipe_WaterPump` (confirmed the
+	 * only real Water Pump recipe/tier that exists) if left empty.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * In particular, whether `ConstructBuildingAtPosition`'s generic
+	 * disqualifier-ignoring logic (built for ordinary buildings)
+	 * interacts correctly with `UFGCDNeedsWaterVolume`/
+	 * `UFGCDResourceIsTooShallow` specifically is unconfirmed - these
+	 * are real, hard disqualifiers this function does NOT attempt to
+	 * bypass, so a genuinely-too-shallow or out-of-water offset should
+	 * still correctly fail, but that path has never been exercised
+	 * before this change.
+	 */
+	static void ConstructWaterPumpNearReference(UObject* WorldContextObject, const FString& ReferenceBuildableId, float OffsetX, float OffsetY, float OffsetZ, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
 	 * world.constructVehicle (2026-08-29) - Drones and wheeled vehicles

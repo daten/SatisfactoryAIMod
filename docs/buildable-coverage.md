@@ -70,11 +70,11 @@ confirmed to cover every extractor type in the game:
 | Family | Status |
 |---|---|
 | Miner Mk1 / Mk2 / Mk3 | ✅ |
-| Water Pump | ✅ |
 | Oil Pump (Impure Oil Node) | ✅ |
 | Fracking Smasher (Pressurizer, on a `FrackingCore` node) | ✅ |
 | Fracking Extractor (on an *activated* `FrackingSatellite` node) | ✅ |
 | Portable Miner (handheld, on a node) | ✅ — separate RPC, `world.placePortableMiner`, different mechanism (equipment dispenser, not build-gun hologram) |
+| Water Pump (on an `AFGWaterVolume`, NOT a resource node) | ✅ — **correction 2026-08-31**: this row previously said `world.placeExtractor` covered it; that was never true (Water Pump has no `AFGResourceNodeBase` to target). Real support is `world.constructWaterPumpNearReference` (build one near an already-placed reference pump) + `world.waterVolumes` (real, discoverable water bodies — directly resolves the "water is hard to locate" problem this project had previously flagged as too difficult). Not live-tested |
 
 ## Vehicles — ✅ via `world.constructVehicle`
 
@@ -186,3 +186,11 @@ none can go through the generic single-click flow:
   Power Pole row, which previously listed "Power Tower" as if it were
   just another simple pole variant with no real distinction worth
   tracking.
+- **2026-08-31 (later still)**: User asked whether automated Water Pump
+  placement near a reference pump was a real code gap or just a
+  placement-suggestion problem — turned out to be a real gap: this
+  file's own Water Pump row was WRONG, `world.placeExtractor` never
+  actually supported it (no resource-node equivalent exists for water).
+  Fixed with a real, purpose-built mechanism
+  (`world.constructWaterPumpNearReference`/`world.waterVolumes`) rather
+  than just leaving it as a documented limitation.
