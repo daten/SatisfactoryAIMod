@@ -1420,13 +1420,23 @@ there aiming at the target when the RPC call fired. See
 full numbered list of hypotheses tried - five ruled out with real log
 evidence (rotation origin, connector type, absolute-vs-incremental hit
 updates, a real `Hit.Component` reference, genuinely elapsed real time
-up to 500ms), two more (#6: inject the hit into `AFGBuildGun`'s own
-cached trace; #7: a redundant explicit `TrySnapToActor()` call may be
-resetting a height `UpdateHologramPlacement()` already computed
-correctly) added 2026-08-31 from careful `FGHologram.h` doc-comment
-reading, compiled but **not yet live-tested**.
+up to 500ms), three more added 2026-08-31 from careful `FGHologram.h`
+doc-comment reading, compiled but **not yet live-tested**: #6 injects
+the hit into `AFGBuildGun`'s own cached trace; #7 and #8 both stem from
+`TrySnapToActor()`'s doc comment ("no further location and rotation
+will be updated this frame *by the build gun*") - #7 reads this as
+`UpdateHologramPlacement()` already calling the real placement logic
+internally (so this mod's own separate, explicit `TrySnapToActor()`
+call might be redundantly resetting a correct height); #8 is a
+stronger, more literal reading of the same sentence - since it names
+the BUILD GUN (not the hologram) as whatever normally makes that call,
+and this function bypasses the real build gun's per-frame tick
+entirely, NOTHING in this code path may have ever called
+`SetHologramLocationAndRotation()` at all, in any hypothesis tried so
+far. #8 now calls it explicitly and is probably the more likely
+explanation of the two.
 
-**Until #6/#7 are tested, the practical fallback remains**: chaining
+**Until #6/#7/#8 are tested, the practical fallback remains**: chaining
 lift segments each rising their own ~400 units works (each segment's
 real `Output`, read via `world.connections`, becomes the next segment's
 destination), or **design platform/miner-interface heights as multiples

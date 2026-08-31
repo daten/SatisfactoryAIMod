@@ -8017,11 +8017,35 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 //      - if that log ever shows a non-400 height that then reverts to
 //      400.0 by the very next log line, this is confirmed and the fix
 //      is simply deleting the redundant explicit TrySnapToActor() calls.
+//   8. CURRENTLY BEING TESTED (2026-08-31, not yet live-verified) - a
+//      STRONGER, more literal reading of the SAME doc comments that
+//      motivated #7, and probably the more likely of the two: "no
+//      further location and rotation will be updated this frame BY THE
+//      BUILD GUN" names the BUILD GUN, not the hologram itself, as the
+//      thing that calls SetHologramLocationAndRotation() when
+//      TrySnapToActor() fails - meaning that call may live inside
+//      UFGBuildGunStateBuild::TickState_Implementation() (part of the
+//      REAL per-frame build gun tick this function bypasses entirely by
+//      calling hologram functions directly), NOT inside
+//      UpdateHologramPlacement() itself as #7 assumed. If so,
+//      UpdateHologramPlacement() genuinely never calls
+//      SetHologramLocationAndRotation() on its own, TrySnapToActor()
+//      returning false is a dead end with nothing following up, and
+//      NOTHING in this function's code path has EVER called
+//      SetHologramLocationAndRotation() at all, in any of the five
+//      already-ruled-out hypotheses either - which would explain the
+//      100%-consistent stuck-at-400 result far more directly than #7's
+//      "redundant reset" theory does. Now calls
+//      LiftHologram->SetHologramLocationAndRotation(hit) explicitly,
+//      immediately after a failed TrySnapToActor(), matching the
+//      documented precondition exactly ("will only be called if we have
+//      a valid hit result and did not snap") - logs height right after,
+//      for both StartHit and EndHit.
 //
-// Standing recommendation until #6/#7 are confirmed either way: design
-// platform/miner-interface heights as multiples of the ~400-unit default
-// so no bridging is needed, per RPC_REFERENCE.md's world.connectConveyorLift
-// section.
+// Standing recommendation until #6/#7/#8 are confirmed either way:
+// design platform/miner-interface heights as multiples of the ~400-unit
+// default so no bridging is needed, per RPC_REFERENCE.md's
+// world.connectConveyorLift section.
 //
 // Still true regardless of the above: a lift travels straight up/down
 // only, X/Y locked to SourceConnection's real position - if the real
@@ -8187,6 +8211,22 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	// rather than from whatever's passed into UpdateHologramPlacement().
 	BuildGun->GetHitResult() = StartHit;
 	const bool bStartSnapped = LiftHologram->TrySnapToActor(StartHit);
+	// Hypothesis #8 (2026-08-31, NOT YET LIVE-TESTED) - see this
+	// function's doc comment. TrySnapToActor()'s doc comment names "the
+	// build gun" (not the hologram itself) as whatever calls
+	// SetHologramLocationAndRotation() when snapping fails - meaning
+	// UpdateHologramPlacement() may NOT call it internally after all
+	// (weakening #7's "redundant call" theory), and since this function
+	// bypasses the real build gun's TickState_Implementation entirely,
+	// NOTHING may ever call SetHologramLocationAndRotation() in this
+	// code path at all. Calling it explicitly here, matching the
+	// documented precondition exactly ("only be called if we have a
+	// valid hit result and did not snap").
+	if (bStartHitValid && !bStartSnapped)
+	{
+		LiftHologram->SetHologramLocationAndRotation(StartHit);
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height after explicit SetHologramLocationAndRotation(StartHit)=%.1f"), LiftHologram->GetHeight());
+	}
 	const bool bStartStepComplete = LiftHologram->DoMultiStepPlacement(true);
 
 	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after start click: hitValid=%s snapped=%s stepComplete=%s height=%.1f disqualifiers=[%s]"),
@@ -8209,6 +8249,13 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	// above.
 	BuildGun->GetHitResult() = EndHit;
 	const bool bEndSnapped = LiftHologram->TrySnapToActor(EndHit);
+	// Hypothesis #8 (2026-08-31, NOT YET LIVE-TESTED) - same as on
+	// StartHit above, see this function's doc comment.
+	if (bEndHitValid && !bEndSnapped)
+	{
+		LiftHologram->SetHologramLocationAndRotation(EndHit);
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height after explicit SetHologramLocationAndRotation(EndHit)=%.1f"), LiftHologram->GetHeight());
+	}
 
 	// FreeEndRotationSteps (2026-08-31): rotates the still-unconnected
 	// end in 90-degree increments via ScrollRotate() BEFORE the final

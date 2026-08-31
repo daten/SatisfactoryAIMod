@@ -938,9 +938,9 @@ identical failure either way), absolute-vs-incremental hit updates (a
 reference, and genuinely elapsed real time (61 real ticks, ~500ms,
 continuous reassertion - height stayed exactly flat).
 
-**Two new hypotheses added 2026-08-31, compiled but NOT YET LIVE-TESTED**
-(found via careful reading of `FGHologram.h`'s doc comments rather than
-further trial-and-error):
+**Three new hypotheses added 2026-08-31, compiled but NOT YET
+LIVE-TESTED** (found via careful reading of `FGHologram.h`'s doc
+comments rather than further trial-and-error):
 - **#6**: `AFGBuildGun` owns its own cached trace
   (`FHitResult& GetHitResult()`, a mutable reference getter) refreshed
   from the real camera every `AFGBuildGun::Tick()`. If height is read
@@ -950,21 +950,30 @@ further trial-and-error):
   `BuildGun->GetHitResult()` before each click and every poll tick.
 - **#7**: `TrySnapToActor()`'s doc comment says returning `true` means
   "no further location and rotation will be updated this frame by the
-  build gun" - implying `SetHologramLocationAndRotation()` (which likely
-  does the real height computation for lifts) is called AUTOMATICALLY
-  by `UpdateHologramPlacement()`'s own internal orchestration, only when
-  `TrySnapToActor()` returns false. This function calls
-  `UpdateHologramPlacement()` and then a SEPARATE, explicit
-  `TrySnapToActor()` (kept for its own return value) - if a failed
-  `TrySnapToActor()` resets height/transform state, that redundant
-  second call could be undoing a correct height the first call already
-  computed. Now logs `GetHeight()` immediately after
-  `UpdateHologramPlacement()`, before the explicit `TrySnapToActor()`
-  call, to check.
+  build gun" - a first read suggested `SetHologramLocationAndRotation()`
+  is called AUTOMATICALLY by `UpdateHologramPlacement()`'s own internal
+  orchestration, only when `TrySnapToActor()` returns false, making this
+  function's own separate, explicit `TrySnapToActor()` call redundant
+  and potentially resetting a correct height the internal call already
+  computed. Now logs `GetHeight()` right at that boundary to check.
+- **#8, a stronger and probably more likely reading of the SAME doc
+  comment**: it names "the build gun," not the hologram, as whatever
+  calls `SetHologramLocationAndRotation()` on a failed snap - meaning
+  that call may live inside `UFGBuildGunStateBuild::TickState_Implementation()`
+  (the real per-frame build gun tick this function bypasses entirely by
+  calling hologram functions directly), not inside
+  `UpdateHologramPlacement()` at all. If so, NOTHING in this function's
+  code path - in any of the eight hypotheses, including the five already
+  ruled out - has ever called `SetHologramLocationAndRotation()`, which
+  would explain the perfectly consistent stuck-at-400 result more
+  directly than #7's "redundant reset" theory. Now calls it explicitly,
+  immediately after a failed `TrySnapToActor()`, matching its documented
+  precondition exactly ("will only be called if we have a valid hit
+  result and did not snap").
 
-**If both come back negative**, revert to the previous posture: design
-platform heights as multiples of the ~400-unit default instead (see
-below) - but don't assume that's necessary until these two are actually
+**If all three come back negative**, revert to the previous posture:
+design platform heights as multiples of the ~400-unit default instead
+(see below) - but don't assume that's necessary until these are actually
 tested live.
 
 **Practical strategy instead of height-matching**: design raised
