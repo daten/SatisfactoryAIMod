@@ -138,6 +138,105 @@ picked a genuinely clear spot rather than that separate mechanism.
 { "protocolVersion": 1, "hour": 10, "minute": 30, "daySeconds": 37800.0, "isDay": true }
 ```
 
+### `world.mapMarkerIcons` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "icons": [ { "iconId": 0, "name": "...", "animated": false } ] }
+```
+Added 2026-08-31 per explicit user request ("the player has access to
+an ingame map which they can annotate by placing any one of a set of
+icons at specific coordinates... add support to place different
+icons"). Lists the real, current set of icons the in-game map UI
+itself offers for manually-placed markers —
+`AFGIconDatabaseSubsystem::GetAllIconDataForType(EIconType::
+ESIT_MapStamp, includeHidden=false, ...)`, the current, non-deprecated
+API (`FGIconLibrary.h`'s equivalent static functions are explicitly
+marked `DeprecatedFunction` pointing back to this subsystem).
+`ESIT_MapStamp` is a distinct `EIconType` with its own backing array
+(`UFGIconLibrary::mMapStampIconData`) — deliberately not the much
+larger "every icon in the game" catalog (building/part/equipment icons
+aren't meant for map stamps). Each `iconId` is the exact value to pass
+as `world.placeMapMarker`'s `iconId` — resolve it from here first,
+don't guess.
+
+**Real, specific risk, not yet confirmed**: `AFGIconDatabaseSubsystem`
+has an explicit async-initialization step (`IsInitialized()`/
+`mOnDatabaseAvailable`) — unconfirmed whether this has always finished
+by the time this call is likely to be made (well after a save has
+loaded).
+
+### `world.mapMarkers` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "markers": [ { "id": "...", "name": "...", "categoryName": "", "iconId": 0, "mapMarkerType": "RT_Default", "position": {"x":0,"y":0,"z":0}, "color": {"r":1,"g":1,"b":1}, "scale": 1.0, "compassViewDistance": "Off" } ] }
+```
+Companion read to `world.placeMapMarker` — lists every marker
+currently on the map, player-placed or otherwise. Direct pass-through
+of the real, public `AFGMapManager::GetMapMarkers()`. `mapMarkerType`
+is resolved via `StaticEnum<ERepresentationType>()->
+GetNameStringByValue()` rather than a hand-written switch — that enum
+has 22 real values (`FGActorRepresentation.h`), and transcribing all of
+them by hand is real transcription-error risk for no benefit over the
+engine's own reflection data.
+
+### `world.placeMapMarker` — `{ "x": float, "y": float, "iconId": int, "z"?: float, "ignoreGroundTrace"?: bool, "name"?: string, "colorR"?: float, "colorG"?: float, "colorB"?: float, "scale"?: float, "compassViewDistance"?: string }`, **NOT YET LIVE-TESTED**
+```json
+{ "success": true, "result": { "detail": { "markerId": "..." } } }
+```
+The actual write operation requested. Uses the real, public
+`AFGMapManager::AddNewMapMarker(const FMapMarker&, FMapMarker&
+out_NewMapMarker)` — "Creates a new map marker with the data provided
+in the existing marker. Will return the ID for the created marker"
+(its own doc comment). The input marker's `MarkerGUID` is left
+default/invalid so the manager assigns a fresh one, returned as
+`result.detail.markerId`. `iconId` should come from
+`world.mapMarkerIcons` — not validated against the catalog here (an
+out-of-range id likely just renders as a missing/blank icon rather
+than crashing, unconfirmed live). Fails `MAP_MARKER_LIMIT_REACHED` if
+`AFGMapManager::CanAddNewMapMarker()` returns false (the real marker
+cap, `GetMaxNumMapMarkers()` — 250 by default in source) and
+`MAP_MARKER_ADD_FAILED` if `AddNewMapMarker` itself returns false.
+
+`mapMarkerType` is hardcoded to `ERepresentationType::RT_Default` (not
+a param) — `FMapMarker`'s own default-constructor value, the shape a
+manually-placed player marker is presumed to take; `RT_MapMarker`/
+`RT_Stamp` exist as separate enum values but neither appeared anywhere
+in source outside the enum declaration itself (stub `.cpp` bodies
+strip the real assignment), so there was no evidence to prefer either
+over the struct's own literal default.
+
+**Color defaults to white `(1,1,1)`, an inference, NOT `FMapMarker`'s
+own literal default (`FLinearColor::Black`)** — a multiply-tint against
+white is the standard UE convention for "no color change," whereas
+black would zero out an icon's own color under that same convention.
+Flagged specifically because it deviates from the struct default —
+first thing to check if a live-placed marker's icon renders wrong.
+`scale` defaults to `1.0` and `compassViewDistance` defaults to
+`"Off"` (`"Off"`/`"Near"`/`"Mid"`/`"Far"`/`"Always"`), both matching
+`FMapMarker`'s own literal defaults exactly.
+
+Same ground-trace-or-literal-`z` convention as
+`ConstructVehicle`/`world.teleportPlayer` (`z` sentinel `-1000000`) —
+mainly useful for a caller that only knows `x`/`y`, so the marker still
+gets a sensible elevation for 3D compass-ping rendering (a map marker
+has no collision to avoid, unlike a teleport destination).
+
+### `world.removeMapMarker` — `{ "markerId": string }`, **NOT YET LIVE-TESTED**
+```json
+{ "success": true }
+```
+Companion write to `world.placeMapMarker` — undo/cleanup for
+iterative test placements. `markerId` is the GUID string
+`world.placeMapMarker` returned (or one read from `world.mapMarkers`).
+Looks the marker up via a fresh `GetMapMarkers()` call first (fails
+`TARGET_NOT_FOUND` if no marker has that GUID — verifies the target
+actually exists before invoking the operation, this project's usual
+convention) rather than constructing a bare-GUID `FMapMarker` and
+trusting `RemoveMapMarker`'s stub-sourced `operator==` to match
+correctly. Re-queries `GetMapMarkers()` again after removal and
+reports success based on the GUID actually being gone (`real GUID
+comparison via FGuid::operator==`, not the stub struct equality) —
+fails `MAP_MARKER_REMOVE_FAILED` if the marker is somehow still present
+after the call, rather than assuming the call worked.
+
 ### `world.resourceNodes` — no params
 ```json
 {

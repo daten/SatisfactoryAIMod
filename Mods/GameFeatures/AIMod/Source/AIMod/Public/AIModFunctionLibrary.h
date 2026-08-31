@@ -341,6 +341,125 @@ public:
 	static FAIModOperationResult TeleportPlayer(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees);
 
 	/**
+	 * world.mapMarkerIcons (added 2026-08-31, explicit user request - "the
+	 * player has access to an ingame map which they can annotate by
+	 * placing any one of a set of icons at specific coordinates... add
+	 * support to place different icons"). Lists the real, current set of
+	 * icons the in-game map UI itself offers for manually-placed markers
+	 * - `AFGIconDatabaseSubsystem::GetAllIconDataForType(EIconType::
+	 * ESIT_MapStamp, includeHidden=false, ...)`, confirmed from source as
+	 * the non-deprecated, current API (FGIconLibrary.h's equivalent
+	 * static functions are explicitly marked DeprecatedFunction pointing
+	 * back to this subsystem). `ESIT_MapStamp` is a real, distinct
+	 * `EIconType` value with its own backing array
+	 * (`UFGIconLibrary::mMapStampIconData`) - deliberately not the
+	 * broader "every icon in the game" set (building/part/equipment
+	 * icons etc are a different, much larger catalog not meant for map
+	 * stamps). Each returned `iconId` is the exact value to pass as
+	 * `world.placeMapMarker`'s `iconId` - do not guess an ID, always
+	 * resolve it from this call first (same "search, don't fabricate"
+	 * posture as every other catalog in this project).
+	 *
+	 * NOT YET LIVE-TESTED - `AFGIconDatabaseSubsystem::Get()` genuinely
+	 * requires the database to have finished initializing
+	 * (`IsInitialized()`/`mOnDatabaseAvailable`) - unconfirmed whether
+	 * that has already happened by the time this is likely to be called
+	 * (well after a save has loaded), flagged as a real, specific risk
+	 * rather than assumed safe.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMapMarkerIconsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.mapMarkers (added 2026-08-31, companion read to
+	 * world.placeMapMarker - lists every marker currently on the map,
+	 * player-placed or otherwise). Direct pass-through of the real,
+	 * public `AFGMapManager::GetMapMarkers()`. `mapMarkerType` is
+	 * resolved via `StaticEnum<ERepresentationType>()->
+	 * GetNameStringByValue()` rather than a hand-written switch (unlike
+	 * this file's usual small-enum convention, e.g.
+	 * FactoryConnectionDirectionToString) - `ERepresentationType` has 22
+	 * real values (FGActorRepresentation.h), transcribing all of them by
+	 * hand is real transcription-error risk for no benefit over the
+	 * engine's own reflection data.
+	 *
+	 * NOT YET LIVE-TESTED - same `AFGMapManager::Get()`-may-return-null-
+	 * before-world-fully-ready caveat as every other subsystem-`Get()`
+	 * call in this file.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMapMarkersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.placeMapMarker (added 2026-08-31, the actual write operation
+	 * requested - "add support to place different icons at specific
+	 * coordinates to assist the player upon request"). Uses the real,
+	 * public `AFGMapManager::AddNewMapMarker(const FMapMarker&, FMapMarker&
+	 * out_NewMapMarker)` - "Creates a new map marker with the data
+	 * provided in the existing marker. Will return the ID for the
+	 * created marker" (its own doc comment) - the input marker's
+	 * `MarkerGUID` is left default/invalid so the manager assigns a
+	 * fresh one, returned here as `ResultDetailJson: {"markerId":"..."}`.
+	 * `IconId` should come from `world.mapMarkerIcons` - not validated
+	 * against the catalog here (an out-of-range id likely just renders
+	 * as a missing/blank icon rather than crashing, per
+	 * `GetIconTextureFromIconID`'s bool-returning sibling suggesting a
+	 * graceful "not found" path exists - unconfirmed live).
+	 *
+	 * `MapMarkerType` is hardcoded to `ERepresentationType::RT_Default`
+	 * (not exposed as a param) - this is `FMapMarker`'s own default-
+	 * constructor value, the same shape a manually-placed player marker
+	 * is presumed to take; `RT_MapMarker`/`RT_Stamp` exist as separate
+	 * enum values but neither appeared anywhere outside the enum
+	 * declaration itself when searched (stub .cpp bodies strip the real
+	 * assignment), so there was no source evidence to prefer either over
+	 * the struct's own literal default.
+	 *
+	 * Color defaults to white `(1,1,1)`, NOT `FMapMarker`'s own literal
+	 * default (`FLinearColor::Black`) - inferred, not confirmed: a
+	 * multiply-tint against white is the standard, near-universal UE
+	 * convention for "no color change," whereas black would zero out an
+	 * icon's own color entirely under that same convention. Flagged as
+	 * an inference specifically because it deviates from the struct's
+	 * literal default - first thing to check if a live-placed marker's
+	 * icon renders wrong. `Scale` defaults to `1.0` and
+	 * `CompassViewDistance` defaults to `"Off"`, both matching
+	 * `FMapMarker`'s own literal defaults exactly (no deviation, so no
+	 * similar flag).
+	 *
+	 * Same ground-trace-or-literal-Z convention as
+	 * ConstructVehicle/TeleportPlayer, applied here mainly so a caller
+	 * that only knows X/Y (not a specific resource node/buildable's real
+	 * Z) still gets a sensible marker elevation for 3D compass-ping
+	 * rendering, not because a map marker has any collision to avoid.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult PlaceMapMarker(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, int32 IconId, const FString& Name, bool bHasColor, float ColorR, float ColorG, float ColorB, float Scale, const FString& CompassViewDistance);
+
+	/**
+	 * world.removeMapMarker (added 2026-08-31, companion write to
+	 * world.placeMapMarker - undo/cleanup for iterative test placements).
+	 * `MarkerId` is the GUID string `world.placeMapMarker` returned (or
+	 * one read from `world.mapMarkers`). Looks the marker up via a fresh
+	 * `GetMapMarkers()` call first (validates the target actually exists
+	 * - fails `TARGET_NOT_FOUND` otherwise, per this project's "verify
+	 * target identity before invoking the operation" convention) rather
+	 * than constructing a bare-GUID `FMapMarker` and trusting
+	 * `RemoveMapMarker`'s real, stub-sourced `operator==` to match
+	 * correctly on an otherwise-default-constructed struct. Re-queries
+	 * `GetMapMarkers()` again after removal and reports success based on
+	 * the GUID actually being gone, not merely on the call having been
+	 * made - same "report the ACTUAL result" posture as every write
+	 * operation in this project.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult RemoveMapMarker(UObject* WorldContextObject, const FString& MarkerId);
+
+	/**
 	 * Serializes the current in-game time of day to
 	 * {"protocolVersion":1,"hour":H,"minute":M,"daySeconds":S,"isDay":bool}
 	 * via AFGTimeOfDaySubsystem::Get()'s own GetHours()/GetMinutes()/

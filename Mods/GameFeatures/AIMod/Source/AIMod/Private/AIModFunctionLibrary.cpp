@@ -111,6 +111,8 @@
 #include "Buildables/FGBuildableDockingStation.h"
 #include "WheeledVehicles/FGWheeledVehicle.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "FGMapManager.h"
+#include "FGIconDatabaseSubsystem.h"
 
 namespace
 {
@@ -1665,6 +1667,243 @@ FAIModOperationResult UAIModFunctionLibrary::TeleportPlayer(UObject* WorldContex
 	}
 
 	UE_LOG(LogAIModAI, Display, TEXT("TeleportPlayer: moved to %s"), *DestLocation.ToString());
+
+	return FAIModOperationResult::Success();
+}
+
+namespace
+{
+	FString CompassViewDistanceToString(ECompassViewDistance Distance)
+	{
+		switch (Distance)
+		{
+		case ECompassViewDistance::CVD_Off: return TEXT("Off");
+		case ECompassViewDistance::CVD_Near: return TEXT("Near");
+		case ECompassViewDistance::CVD_Mid: return TEXT("Mid");
+		case ECompassViewDistance::CVD_Far: return TEXT("Far");
+		case ECompassViewDistance::CVD_Always: return TEXT("Always");
+		default: return TEXT("Off");
+		}
+	}
+
+	ECompassViewDistance ParseCompassViewDistance(const FString& Value)
+	{
+		if (Value.Equals(TEXT("Near"), ESearchCase::IgnoreCase)) { return ECompassViewDistance::CVD_Near; }
+		if (Value.Equals(TEXT("Mid"), ESearchCase::IgnoreCase)) { return ECompassViewDistance::CVD_Mid; }
+		if (Value.Equals(TEXT("Far"), ESearchCase::IgnoreCase)) { return ECompassViewDistance::CVD_Far; }
+		if (Value.Equals(TEXT("Always"), ESearchCase::IgnoreCase)) { return ECompassViewDistance::CVD_Always; }
+		return ECompassViewDistance::CVD_Off;
+	}
+}
+
+// See LogMapMarkerIconsAsJson's doc comment in the header for the real
+// AFGIconDatabaseSubsystem/ESIT_MapStamp sourcing behind this.
+FString UAIModFunctionLibrary::LogMapMarkerIconsAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGIconDatabaseSubsystem* IconDatabase = World ? AFGIconDatabaseSubsystem::Get(World) : nullptr;
+	if (!IconDatabase)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogMapMarkerIconsAsJson: no valid world context or AFGIconDatabaseSubsystem"));
+		return TEXT("{}");
+	}
+
+	TArray<FIconData> IconDataArray;
+	IconDatabase->GetAllIconDataForType(EIconType::ESIT_MapStamp, /*includeHidden=*/false, IconDataArray);
+
+	TArray<TSharedPtr<FJsonValue>> IconsJsonArray;
+	for (const FIconData& IconData : IconDataArray)
+	{
+		const TSharedRef<FJsonObject> IconObject = MakeShared<FJsonObject>();
+		IconObject->SetNumberField(TEXT("iconId"), IconData.ID);
+		IconObject->SetStringField(TEXT("name"), IconData.IconName.ToString());
+		IconObject->SetBoolField(TEXT("animated"), IconData.Animated);
+		IconsJsonArray.Add(MakeShared<FJsonValueObject>(IconObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("icons"), IconsJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogMapMarkerIconsAsJson: %d map stamp icon(s)"), IconsJsonArray.Num());
+
+	return JsonString;
+}
+
+// See LogMapMarkersAsJson's doc comment in the header for the
+// StaticEnum<ERepresentationType> reasoning.
+FString UAIModFunctionLibrary::LogMapMarkersAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGMapManager* MapManager = World ? AFGMapManager::Get(World) : nullptr;
+	if (!MapManager)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogMapMarkersAsJson: no valid world context or AFGMapManager"));
+		return TEXT("{}");
+	}
+
+	TArray<FMapMarker> Markers;
+	MapManager->GetMapMarkers(Markers);
+
+	const UEnum* RepresentationTypeEnum = StaticEnum<ERepresentationType>();
+
+	TArray<TSharedPtr<FJsonValue>> MarkersJsonArray;
+	for (const FMapMarker& Marker : Markers)
+	{
+		const TSharedRef<FJsonObject> MarkerObject = MakeShared<FJsonObject>();
+		MarkerObject->SetStringField(TEXT("id"), Marker.MarkerGUID.ToString());
+		MarkerObject->SetStringField(TEXT("name"), Marker.Name);
+		MarkerObject->SetStringField(TEXT("categoryName"), Marker.CategoryName);
+		MarkerObject->SetNumberField(TEXT("iconId"), Marker.IconID);
+		MarkerObject->SetStringField(TEXT("mapMarkerType"), RepresentationTypeEnum
+			? RepresentationTypeEnum->GetNameStringByValue(static_cast<int64>(Marker.MapMarkerType))
+			: FString());
+
+		const TSharedRef<FJsonObject> PositionObject = MakeShared<FJsonObject>();
+		PositionObject->SetNumberField(TEXT("x"), Marker.Location.X);
+		PositionObject->SetNumberField(TEXT("y"), Marker.Location.Y);
+		PositionObject->SetNumberField(TEXT("z"), Marker.Location.Z);
+		MarkerObject->SetObjectField(TEXT("position"), PositionObject);
+
+		const TSharedRef<FJsonObject> ColorObject = MakeShared<FJsonObject>();
+		ColorObject->SetNumberField(TEXT("r"), Marker.Color.R);
+		ColorObject->SetNumberField(TEXT("g"), Marker.Color.G);
+		ColorObject->SetNumberField(TEXT("b"), Marker.Color.B);
+		MarkerObject->SetObjectField(TEXT("color"), ColorObject);
+
+		MarkerObject->SetNumberField(TEXT("scale"), Marker.Scale);
+		MarkerObject->SetStringField(TEXT("compassViewDistance"), CompassViewDistanceToString(Marker.CompassViewDistance));
+
+		MarkersJsonArray.Add(MakeShared<FJsonValueObject>(MarkerObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("markers"), MarkersJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogMapMarkersAsJson: %d marker(s)"), MarkersJsonArray.Num());
+
+	return JsonString;
+}
+
+// See PlaceMapMarker's doc comment in the header for the real
+// AddNewMapMarker sourcing and the white-vs-black color default reasoning.
+FAIModOperationResult UAIModFunctionLibrary::PlaceMapMarker(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, int32 IconId, const FString& Name, bool bHasColor, float ColorR, float ColorG, float ColorB, float Scale, const FString& CompassViewDistance)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGMapManager* MapManager = AFGMapManager::Get(World);
+	if (!MapManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_MAP_MANAGER"), TEXT("AFGMapManager::Get() returned null"));
+	}
+
+	if (!MapManager->CanAddNewMapMarker())
+	{
+		return FAIModOperationResult::Failure(TEXT("MAP_MARKER_LIMIT_REACHED"),
+			FString::Printf(TEXT("AFGMapManager::CanAddNewMapMarker() returned false - at or near the %d marker limit"), MapManager->GetMaxNumMapMarkers()));
+	}
+
+	// Same ground-trace-or-literal-Z sentinel convention as
+	// ConstructVehicle/TeleportPlayer.
+	if (bIgnoreGroundTrace && Z <= -1000000.0f)
+	{
+		return FAIModOperationResult::Failure(TEXT("MISSING_REFERENCE_Z"),
+			TEXT("bIgnoreGroundTrace requires an explicit z - there is no ground trace to fall back to"));
+	}
+
+	FVector MarkerLocation;
+	if (bIgnoreGroundTrace)
+	{
+		MarkerLocation = FVector(X, Y, Z);
+	}
+	else
+	{
+		AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+		const float ZSearchCenter = (Z > -1000000.0f) ? Z : (Character ? Character->GetActorLocation().Z : 0.0f);
+		const FGroundTraceResult GroundTrace = FindGroundAtXY(World, X, Y, ZSearchCenter, Character);
+		MarkerLocation = GroundTrace.Hit.Location;
+	}
+
+	FMapMarker NewMarker;
+	NewMarker.Location = MarkerLocation;
+	NewMarker.Name = Name;
+	NewMarker.MapMarkerType = ERepresentationType::RT_Default;
+	NewMarker.IconID = IconId;
+	// White, NOT FMapMarker's own literal FLinearColor::Black default -
+	// see this function's header doc comment for why.
+	NewMarker.Color = bHasColor ? FLinearColor(ColorR, ColorG, ColorB, 1.0f) : FLinearColor::White;
+	NewMarker.Scale = Scale;
+	NewMarker.CompassViewDistance = ParseCompassViewDistance(CompassViewDistance);
+
+	FMapMarker CreatedMarker;
+	const bool bAdded = MapManager->AddNewMapMarker(NewMarker, CreatedMarker);
+	if (!bAdded)
+	{
+		return FAIModOperationResult::Failure(TEXT("MAP_MARKER_ADD_FAILED"), TEXT("AFGMapManager::AddNewMapMarker() returned false"));
+	}
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("markerId"), CreatedMarker.MarkerGUID.ToString());
+
+	UE_LOG(LogAIModAI, Display, TEXT("PlaceMapMarker: created '%s' (icon %d) at %s, guid=%s"),
+		*Name, IconId, *MarkerLocation.ToString(), *CreatedMarker.MarkerGUID.ToString());
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = WriteCondensedJson(DetailObject);
+	return Result;
+}
+
+// See RemoveMapMarker's doc comment in the header for why this looks the
+// marker up (and re-verifies removal) rather than trusting a bare-GUID
+// FMapMarker's stub-sourced operator== blindly.
+FAIModOperationResult UAIModFunctionLibrary::RemoveMapMarker(UObject* WorldContextObject, const FString& MarkerId)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGMapManager* MapManager = AFGMapManager::Get(World);
+	if (!MapManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_MAP_MANAGER"), TEXT("AFGMapManager::Get() returned null"));
+	}
+
+	FGuid TargetGuid;
+	if (!FGuid::Parse(MarkerId, TargetGuid))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_MARKER_ID"), FString::Printf(TEXT("'%s' is not a valid GUID"), *MarkerId));
+	}
+
+	TArray<FMapMarker> Markers;
+	MapManager->GetMapMarkers(Markers);
+	const FMapMarker* FoundMarker = Markers.FindByPredicate([&TargetGuid](const FMapMarker& Marker) { return Marker.MarkerGUID == TargetGuid; });
+	if (!FoundMarker)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No map marker with id '%s'"), *MarkerId));
+	}
+
+	MapManager->RemoveMapMarker(*FoundMarker);
+
+	TArray<FMapMarker> MarkersAfterRemoval;
+	MapManager->GetMapMarkers(MarkersAfterRemoval);
+	const bool bStillPresent = MarkersAfterRemoval.ContainsByPredicate([&TargetGuid](const FMapMarker& Marker) { return Marker.MarkerGUID == TargetGuid; });
+	if (bStillPresent)
+	{
+		return FAIModOperationResult::Failure(TEXT("MAP_MARKER_REMOVE_FAILED"), TEXT("Marker still present after AFGMapManager::RemoveMapMarker() - real removal not confirmed"));
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("RemoveMapMarker: removed %s"), *MarkerId);
 
 	return FAIModOperationResult::Success();
 }

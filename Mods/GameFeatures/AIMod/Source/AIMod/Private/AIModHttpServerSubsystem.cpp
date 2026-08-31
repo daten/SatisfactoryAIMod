@@ -631,6 +631,88 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Two "MethodResultJson"-style read entries for map markers
+	// (world.mapMarkerIcons/world.mapMarkers) live further down in this
+	// function, alongside world.player/world.timeOfDay etc. - the
+	// MethodResultJson local isn't declared until later in this same
+	// function, so a read-only query here would use it before
+	// declaration. The two write operations below don't need it (same
+	// explicit-params-then-return-true shape as world.teleportPlayer
+	// just above).
+	if (Method == TEXT("world.placeMapMarker"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0, Y = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		double IconId = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("iconId"), IconId))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.iconId must be a number - see world.mapMarkerIcons for real, valid values")));
+			return true;
+		}
+
+		// Same -1000000 "not provided" sentinel as world.placeBuilding's z.
+		double Z = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), Z);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		FString Name;
+		ParamsObject->TryGetStringField(TEXT("name"), Name);
+
+		double ColorR = 0.0, ColorG = 0.0, ColorB = 0.0;
+		const bool bHasColor = ParamsObject->TryGetNumberField(TEXT("colorR"), ColorR)
+			&& ParamsObject->TryGetNumberField(TEXT("colorG"), ColorG)
+			&& ParamsObject->TryGetNumberField(TEXT("colorB"), ColorB);
+
+		double Scale = 1.0;
+		ParamsObject->TryGetNumberField(TEXT("scale"), Scale);
+
+		FString CompassViewDistance = TEXT("Off");
+		ParamsObject->TryGetStringField(TEXT("compassViewDistance"), CompassViewDistance);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::PlaceMapMarker(GetGameInstance(),
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z), bIgnoreGroundTrace,
+			static_cast<int32>(IconId), Name, bHasColor, static_cast<float>(ColorR), static_cast<float>(ColorG), static_cast<float>(ColorB),
+			static_cast<float>(Scale), CompassViewDistance);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+	else if (Method == TEXT("world.removeMapMarker"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString MarkerId;
+		if (!ParamsObject->TryGetStringField(TEXT("markerId"), MarkerId) || MarkerId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.markerId must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::RemoveMapMarker(GetGameInstance(), MarkerId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous - direct AFGTimeOfDaySubsystem::SetDaySeconds() call, no
 	// build gun/hologram involved. Added 2026-08-27 per explicit user
 	// request so live testing/observation isn't blocked by the day/night
@@ -1798,6 +1880,14 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.timeOfDay"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogTimeOfDayAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.mapMarkerIcons"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMapMarkerIconsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.mapMarkers"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMapMarkersAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.chatHistory"))
 	{
