@@ -120,6 +120,7 @@
 #include "Buildables/FGBuildablePriorityPowerSwitch.h"
 #include "FGPriorityPowerSwitchInfo.h"
 #include "FGBuildingTagInterface.h"
+#include "Resources/FGWildCardDescriptor.h"
 
 namespace
 {
@@ -6992,6 +6993,134 @@ FString UAIModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(UObject* World
 	UE_LOG(LogAIModAI, Display, TEXT("LogConveyorAttachmentCatalogAsJson: %s"), *JsonString);
 
 	return JsonString;
+}
+
+// See LogSplitterSortRulesAsJson's doc comment in the header for the
+// real GetSortRules()/UFGWildCardDescriptor sourcing.
+FString UAIModFunctionLibrary::LogSplitterSortRulesAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogSplitterSortRulesAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> SplittersJsonArray;
+	for (TActorIterator<AFGBuildableSplitterSmart> It(World); It; ++It)
+	{
+		AFGBuildableSplitterSmart* Splitter = *It;
+		if (!IsValid(Splitter))
+		{
+			continue;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> RulesJsonArray;
+		for (const FSplitterSortRule& Rule : Splitter->GetSortRules())
+		{
+			const TSharedRef<FJsonObject> RuleObject = MakeShared<FJsonObject>();
+			RuleObject->SetNumberField(TEXT("outputIndex"), Rule.OutputIndex);
+			RuleObject->SetStringField(TEXT("itemClass"), Rule.ItemClass ? Rule.ItemClass->GetPathName() : FString());
+			RuleObject->SetStringField(TEXT("itemName"), Rule.ItemClass ? UFGItemDescriptor::GetItemName(Rule.ItemClass).ToString() : FString());
+			RuleObject->SetBoolField(TEXT("isWildcard"), Rule.ItemClass && Rule.ItemClass->IsChildOf(UFGWildCardDescriptor::StaticClass()));
+			RulesJsonArray.Add(MakeShared<FJsonValueObject>(RuleObject));
+		}
+
+		const TSharedRef<FJsonObject> SplitterObject = MakeShared<FJsonObject>();
+		SplitterObject->SetStringField(TEXT("id"), Splitter->GetPathName());
+		SplitterObject->SetStringField(TEXT("buildableClass"), Splitter->GetClass()->GetPathName());
+		SplitterObject->SetNumberField(TEXT("maxNumSortRules"), Splitter->GetMaxNumSortRules());
+		SplitterObject->SetArrayField(TEXT("sortRules"), RulesJsonArray);
+
+		SplittersJsonArray.Add(MakeShared<FJsonValueObject>(SplitterObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("splitters"), SplittersJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogSplitterSortRulesAsJson: %d splitter(s)"), SplittersJsonArray.Num());
+
+	return JsonString;
+}
+
+// See SetSplitterSortRules's doc comment in the header for the real
+// SetSortRules()/wildcard-sentinel sourcing.
+FAIModOperationResult UAIModFunctionLibrary::SetSplitterSortRules(UObject* WorldContextObject, const FString& BuildableId, const FString& RulesJson)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
+	if (!Buildable)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+	}
+
+	AFGBuildableSplitterSmart* Splitter = Cast<AFGBuildableSplitterSmart>(Buildable);
+	if (!Splitter)
+	{
+		return FAIModOperationResult::Failure(TEXT("WRONG_TYPE"), FString::Printf(TEXT("'%s' is a %s, not an AFGBuildableSplitterSmart (only Smart/Programmable splitters support sort rules)"), *BuildableId, *Buildable->GetClass()->GetName()));
+	}
+
+	TArray<TSharedPtr<FJsonValue>> RulesArray;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(RulesJson);
+	if (!FJsonSerializer::Deserialize(Reader, RulesArray))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("rules must be a JSON array"));
+	}
+
+	TArray<FSplitterSortRule> NewRules;
+	for (const TSharedPtr<FJsonValue>& RuleValue : RulesArray)
+	{
+		const TSharedPtr<FJsonObject> RuleObject = RuleValue.IsValid() ? RuleValue->AsObject() : nullptr;
+		if (!RuleObject.IsValid())
+		{
+			return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Each rule must be a JSON object"));
+		}
+
+		double OutputIndex = 0.0;
+		if (!RuleObject->TryGetNumberField(TEXT("outputIndex"), OutputIndex))
+		{
+			return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Each rule requires a numeric outputIndex"));
+		}
+
+		FString ItemClassPath;
+		RuleObject->TryGetStringField(TEXT("itemClass"), ItemClassPath);
+
+		TSubclassOf<UFGItemDescriptor> ItemClass;
+		if (ItemClassPath.IsEmpty() || ItemClassPath.Equals(TEXT("Wildcard"), ESearchCase::IgnoreCase))
+		{
+			ItemClass = UFGWildCardDescriptor::StaticClass();
+		}
+		else
+		{
+			UClass* ResolvedClass = LoadObject<UClass>(nullptr, *ItemClassPath);
+			if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGItemDescriptor::StaticClass()))
+			{
+				return FAIModOperationResult::Failure(TEXT("INVALID_ITEM_CLASS"), FString::Printf(TEXT("'%s' did not resolve to a UFGItemDescriptor subclass"), *ItemClassPath));
+			}
+			ItemClass = ResolvedClass;
+		}
+
+		NewRules.Add(FSplitterSortRule(ItemClass, static_cast<int32>(OutputIndex)));
+	}
+
+	Splitter->SetSortRules(NewRules);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("numRules"), Splitter->GetSortRules().Num());
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetSplitterSortRules: '%s' now has %d rule(s)"), *BuildableId, Splitter->GetSortRules().Num());
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = WriteCondensedJson(DetailObject);
+	return Result;
 }
 
 namespace

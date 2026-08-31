@@ -652,6 +652,45 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.setSplitterSortRules - see SetSplitterSortRules's doc
+	// comment. Added 2026-08-31 per explicit user request ("add support
+	// for configuring smart splitters and programmable splitters").
+	if (Method == TEXT("world.setSplitterSortRules"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		const TArray<TSharedPtr<FJsonValue>>* RulesArrayPtr = nullptr;
+		if (!ParamsObject->TryGetArrayField(TEXT("rules"), RulesArrayPtr) || !RulesArrayPtr)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.rules must be a JSON array")));
+			return true;
+		}
+
+		// Same re-serialize-the-array-to-a-string convention as
+		// world.setTrainTimetable's "stops" - see that dispatch entry's
+		// comment.
+		FString RulesJson;
+		const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> RulesWriter =
+			TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&RulesJson);
+		FJsonSerializer::Serialize(*RulesArrayPtr, RulesWriter);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetSplitterSortRules(GetGameInstance(), BuildableId, RulesJson);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous - direct AActor::TeleportTo() call, no build gun/hologram
 	// involved. Added 2026-08-31 per explicit user request ("move the
 	// player position... mostly for building-purposes, if specific
@@ -1968,6 +2007,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.conveyorAttachments"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.splitterSortRules"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogSplitterSortRulesAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.conveyorLiftTiers"))
 	{

@@ -1587,6 +1587,87 @@ public:
 	static FString LogConveyorAttachmentCatalogAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.splitterSortRules (added 2026-08-31, explicit user request -
+	 * "add support for configuring smart splitters and programmable
+	 * splitters"). Closes the exact gap
+	 * LogConveyorAttachmentCatalogAsJson's own doc comment already
+	 * flagged (2026-08-25): "per-output item-type routing... has no
+	 * write operation yet". Lists every placed
+	 * `AFGBuildableSplitterSmart` instance's current sort rules -
+	 * `GetSortRules()`, a real, public, plain (non-stub) getter over
+	 * `mSortRules`.
+	 *
+	 * **Smart Splitter and Programmable Splitter share this ONE native
+	 * class** - not re-verified by binary-grep this session (unlike most
+	 * other "these share a class" findings here), inherited from this
+	 * project's own 2026-08-25 research
+	 * (`docs/conveyor-attachment-research.md`) which already established
+	 * it with its own citation. Both recipe tiers differ only in
+	 * `mMaxNumSortRules` (`GetMaxNumSortRules()`, reported per-instance
+	 * here) and output count - the sort-rule data model
+	 * (`FSplitterSortRule`: `ItemClass` + `OutputIndex`) is identical
+	 * across both, so one function genuinely covers both tiers, not two
+	 * separate implementations pretending to.
+	 *
+	 * Each rule's `itemClass` may be `UFGWildCardDescriptor` - a real,
+	 * dedicated C++ class whose own doc comment says "Not a real
+	 * resource, used to indicate a wild card in sorting rules"
+	 * (`FGWildCardDescriptor.h`) - reported here as `"isWildcard": true`
+	 * plus the real class path, rather than only one or the other, since
+	 * a caller may want either the human "this output takes anything"
+	 * signal or the raw class identity. `FSplitterSortRule` only has
+	 * `ItemClass`/`OutputIndex` - no separate "Overflow"/"None" enum
+	 * field exists in source, so this project makes no claim about those
+	 * as distinct concepts beyond what the wildcard class + output index
+	 * pairing itself represents.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogSplitterSortRulesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setSplitterSortRules (added 2026-08-31, same explicit user
+	 * request as world.splitterSortRules - the actual write operation).
+	 * Calls the real, public
+	 * `AFGBuildableSplitterSmart::SetSortRules(TArray<FSplitterSortRule>)`
+	 * directly - a full, atomic replace of every rule on the target
+	 * splitter, not incremental Add/Remove/SetAt calls (the class also
+	 * has those, but a caller can already compute a full desired end
+	 * state from `world.splitterSortRules`'s current-state read, so a
+	 * single replace call is simpler and more predictable than
+	 * requiring the caller to diff against prior state).
+	 *
+	 * `RulesJson` is a raw JSON array string (same convention as
+	 * SetTrainTimetable's `StopsJson` - a reflected `TArray<CustomStruct>`
+	 * UFUNCTION param isn't needed when the dispatch layer already parses
+	 * JSON directly), each element `{"outputIndex": int, "itemClass":
+	 * string}`. `itemClass` is EITHER a real item recipe/descriptor class
+	 * path (see `world.itemCatalog`) OR the literal string `"Wildcard"`
+	 * (case-insensitive) / an empty string, both of which resolve to the
+	 * real `UFGWildCardDescriptor::StaticClass()` sentinel - exposed as a
+	 * friendly string specifically because `UFGWildCardDescriptor` is
+	 * "not a real resource" (own doc comment) and is NOT expected to
+	 * appear in `world.itemCatalog`'s normal item list, so a caller has
+	 * no other practical way to discover its real class path.
+	 *
+	 * Fails `INVALID_REQUEST` if `RulesJson` doesn't parse as a JSON
+	 * array of well-formed rule objects, and `INVALID_ITEM_CLASS` if a
+	 * non-wildcard `itemClass` doesn't resolve to a real
+	 * `UFGItemDescriptor` subclass. Does NOT independently validate
+	 * `outputIndex` against the splitter's real output count or
+	 * `rules.Num()` against `GetMaxNumSortRules()` - same "let the real
+	 * engine be the authority on its own limits" posture as
+	 * ConstructExtractorOnNode/ConstructBeam, rather than this project
+	 * guessing at exactly how `SetSortRules` handles an out-of-range
+	 * request.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetSplitterSortRules(UObject* WorldContextObject, const FString& BuildableId, const FString& RulesJson);
+
+	/**
 	 * world.recipeCatalog (2026-08-27, per explicit user request to
 	 * support pre-planning: "what recipes/alternates build each item,
 	 * what machines are needed, resource/power requirements, rates").

@@ -673,8 +673,56 @@ simulation this segment-level data feeds into, in
 { "protocolVersion": 1, "attachments": [ { "recipeClass": "...Recipe_ConveyorAttachmentSplitter_C", "buildableClass": "...", "inputCount": 1, "outputCount": 3, "supportsSortRules": false } ] }
 ```
 One row per real splitter/merger recipe. `supportsSortRules` is `true` only
-for Smart/Programmable Splitter — there is no RPC method yet to actually set
-sort rules on one.
+for Smart/Programmable Splitter — see `world.splitterSortRules`/
+`world.setSplitterSortRules` below, added 2026-08-31, for the actual
+read/write support that line used to say didn't exist yet.
+
+### `world.splitterSortRules` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "splitters": [ { "id": "...", "buildableClass": "...", "maxNumSortRules": 3, "sortRules": [ { "outputIndex": 0, "itemClass": "...Desc_IronPlate_C", "itemName": "Iron Plate", "isWildcard": false }, { "outputIndex": 1, "itemClass": "...UFGWildCardDescriptor", "itemName": "", "isWildcard": true } ] } ] }
+```
+Added 2026-08-31 per explicit user request ("add support for
+configuring smart splitters and programmable splitters") — closes the
+exact gap `world.conveyorAttachments`' `supportsSortRules` flag has
+been noting since 2026-08-25. Lists every placed
+`AFGBuildableSplitterSmart` instance's current sort rules via the real,
+public, plain (non-stub) `GetSortRules()`.
+
+**Smart Splitter and Programmable Splitter share this ONE native
+class** (established 2026-08-25, see
+`docs/conveyor-attachment-research.md`) — both tiers differ only in
+`maxNumSortRules` and output count, so this one call covers both, not
+two separate implementations. A rule's `itemClass` may be the real,
+dedicated `UFGWildCardDescriptor` class — its own doc comment: "Not a
+real resource, used to indicate a wild card in sorting rules" — flagged
+here as `isWildcard: true` alongside the raw class path, since a caller
+may want either signal. `FSplitterSortRule` only has `ItemClass`/
+`OutputIndex` in source — no separate "Overflow"/"None" concept exists
+in the data model beyond that pairing.
+
+### `world.setSplitterSortRules` — `{"buildableId", "rules": [{"outputIndex", "itemClass"}]}`, **NOT YET LIVE-TESTED**
+```json
+{ "success": true, "result": { "detail": { "numRules": 2 } } }
+```
+The actual write operation. Calls the real, public
+`AFGBuildableSplitterSmart::SetSortRules(TArray<FSplitterSortRule>)`
+directly — a full, atomic replace of every rule on the target splitter,
+not incremental add/remove (read current state via
+`world.splitterSortRules` first, compute the desired end state, then
+call this once). Fails `WRONG_TYPE` if the target isn't a Smart/
+Programmable Splitter.
+
+Each rule's `itemClass` is EITHER a real item class path (see
+`world.itemCatalog`) OR the literal string `"Wildcard"`
+(case-insensitive) / an empty string — both resolve to the real
+`UFGWildCardDescriptor` sentinel. This friendly string exists
+specifically because that class is "not a real resource" and won't
+appear in `world.itemCatalog`'s normal item list, so there's no other
+practical way for a caller to discover its class path. Does NOT
+independently validate `outputIndex` against the splitter's real output
+count, or the rule count against `maxNumSortRules` — same "let the real
+engine be the authority on its own limits" posture as
+`world.placeExtractor`/`world.constructBeam`.
 
 ### `world.recipeCatalog` — no params
 ```json

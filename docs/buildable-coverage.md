@@ -54,7 +54,7 @@ building. This covers the large majority of ordinary buildables:
 | Storage: containers Mk1/Mk2, Fluid Buffer, Industrial Fluid Buffer, Central Storage (Depot), personal Space Container | `Factory/{StorageContainerMk1,StorageContainerMk2,StorageTank,IndustrialFluidContainer,CentralStorage,StoragePlayer}` | ✅ |
 | Power poles (Mk1-3, wall, wall double), Power Tower, Power Storage, Power Switch | `Factory/{PowerPoleMk1,PowerPoleMk2,PowerPoleMk3,PowerPoleWall,PowerPoleWallDouble,PowerTower,PowerStorage,PowerSwitch}` | ✅ (the pole/switch itself; the wire between two poles is a separate connector RPC — see below). Plain Power Switch on/off: `world.setPowerSwitchOn` |
 | Priority Power Switch (there is no separate "Smart Power Switch" recipe — confirmed 2026-08-31, only `Recipe_PowerSwitch`/`Recipe_PriorityPowerSwitch` exist; the `SmartPowerSwitch/` content folder is source art only) | `Factory/{PriorityPowerSwitch,SmartPowerSwitch}` | ✅ Full config+control: `world.priorityPowerSwitches` (telemetry — priority, on/off, circuit group ids), `world.setPowerSwitchOn`, `world.setPriorityPowerSwitchPriority` |
-| Splitter/Merger and all Smart/Programmable/Priority/Lift variants | `Factory/CA_{Splitter,Merger,SplitterLift,SplitterLiftProgrammable,SplitterLiftSmart,SplitterProgrammable,SplitterSmart,MergerLift,MergerLiftPriority,MergerPriority}` | ✅ — confirmed generic (`AFGConveyorAttachmentHologram : AFGFactoryHologram`, same lineage), see `docs/conveyor-attachment-research.md` |
+| Splitter/Merger and all Smart/Programmable/Priority/Lift variants | `Factory/CA_{Splitter,Merger,SplitterLift,SplitterLiftProgrammable,SplitterLiftSmart,SplitterProgrammable,SplitterSmart,MergerLift,MergerLiftPriority,MergerPriority}` | ✅ placement — confirmed generic (`AFGConveyorAttachmentHologram : AFGFactoryHologram`, same lineage), see `docs/conveyor-attachment-research.md`. Smart/Programmable Splitter sort-rule config: `world.splitterSortRules`/`world.setSplitterSortRules` — ✅, not live-tested |
 | Structural: Foundation, Wall, Floor, Ramp, Stair, Roof, Pillars, Fence, Tarp Fence, Barrier, Catwalk, Walkway, Ladder, Doors, Vent, Corner Block, Decor, Stackable Shelf, Potty, conveyor/foundation holes+passthrough | `Building/{Foundation,Wall,Floor,Ramp,Stair,Roof,Pillars,Fence,TarpFence,Barrier,Catwalk,Walkway,Ladder,Doors,Vent,Potty}`, `Factory/{CornerBlock,ConveyorHole,ConveyorFloorHole,FoundationPassthrough}` | ✅ (many of these are "lightweight" instances at runtime — see `world.buildables`' `lightweight:` id scheme, `docs/lightweight-buildable-research.md`) |
 | Lighting: Ceiling Light, Floodlight, Street Light, Lights Control Panel | `Factory/{CeilingLight,Floodlight,StreetLight,LightsControlPanel}` | ✅ placement; ❌ no dedicated RPC to control panel-driven light grouping/scheduling |
 | Signs: Sign Pole, Digital Sign, Standalone Sign | `Factory/{SignPole,SignDigital,StandaloneSign}` | ✅ placement; ❌ no RPC to set sign text/icon content |
@@ -150,6 +150,7 @@ none can go through the generic single-click flow:
 | Train | `world.trains`, `world.setTrainSelfDriving`, `world.setTrainTimetable` | ✅ |
 | Power line limits | `world.powerLineLimits` | ⚠️ Telemetry only |
 | Priority Power Switch (priority, on/off, circuit topology) | `world.priorityPowerSwitches`, `world.setPowerSwitchOn`, `world.setPriorityPowerSwitchPriority` | ✅ — not live-tested |
+| Smart/Programmable Splitter (per-output item sort rules) | `world.splitterSortRules`, `world.setSplitterSortRules` | ✅ — not live-tested. Closes the gap `world.conveyorAttachments`' `supportsSortRules` flag had been noting since 2026-08-25 |
 | Conveyor/pipe connection topology | `world.connections`, `world.pipeConnections`, `world.pipeFluidBoxes` | ⚠️ Telemetry only |
 | Map markers | `world.mapMarkers`/`world.placeMapMarker`/`world.removeMapMarker`/`world.mapMarkerIcons` | ✅ — not a buildable, but the closest thing to "player-assist annotation," included for completeness |
 
@@ -169,3 +170,8 @@ none can go through the generic single-click flow:
   be two things; confirmed via a full Content-tree search that only
   `Recipe_PowerSwitch`/`Recipe_PriorityPowerSwitch` are real, corrected
   the row above.
+- **2026-08-31 (later still)**: Added Smart/Programmable Splitter
+  sort-rule config (`world.splitterSortRules`/
+  `world.setSplitterSortRules`) — the exact gap this file's Splitter row
+  and `world.conveyorAttachments`' `supportsSortRules` flag had both
+  been flagging since 2026-08-25.
