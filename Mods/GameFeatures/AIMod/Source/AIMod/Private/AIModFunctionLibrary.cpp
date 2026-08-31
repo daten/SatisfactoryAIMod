@@ -121,6 +121,7 @@
 #include "FGPriorityPowerSwitchInfo.h"
 #include "FGBuildingTagInterface.h"
 #include "Resources/FGWildCardDescriptor.h"
+#include "Buildables/FGBuildablePowerPole.h"
 
 namespace
 {
@@ -3827,21 +3828,84 @@ namespace
 		return nullptr;
 	}
 
-	// Same generic-discovery pattern CollectFactoryConnectionTelemetry
-	// uses for UFGFactoryConnectionComponent, mirrored here for power -
-	// see docs/conveyor-power-connection-research.md.
-	UFGPowerConnectionComponent* FindFreePowerConnection(AFGBuildable* Buildable)
+	// Fix (2026-08-31, real correctness bug found while investigating a
+	// user question about Power Tower support, not a regression - this
+	// was wrong from the day it was written): the OLD version of this
+	// helper picked the FIRST free UFGPowerConnectionComponent on a
+	// buildable, completely ignoring EPowerConnectionType
+	// (FGPowerConnectionComponent.h: "Power connections of different
+	// types are incompatible", real PCT_Default/PCT_PowerTower/PCT_Any
+	// enum). A Power Tower (AFGBuildablePowerPole with
+	// mPowerPoleType==PPT_TOWER - confirmed from source that
+	// AFGBuildablePowerTower, a separate near-empty class, is unused
+	// anywhere else in the header tree and is NOT the real buildable)
+	// genuinely has TWO power connectors: one PCT_PowerTower (the real,
+	// per-instance-configurable long-range link to another tower -
+	// AFGBuildablePowerPole::GetPowerTowerWireMaxLength(), distinct from
+	// AFGBuildableWire::mMaxPowerTowerLength on the wire recipe itself)
+	// and one PCT_Default (short range, for a nearby pole/machine, same
+	// type ordinary poles/machines use). Called independently per
+	// buildable, the old function had no way to know WHICH of a tower's
+	// two connectors the other side actually needed - it just returned
+	// whichever GetComponents<>() happened to enumerate first, which is
+	// not a meaningful/stable order. This could silently pick a tower's
+	// short-range connector for what should be a long-range tower-to-
+	// tower link (or vice versa), either failing outright (type
+	// mismatch) or succeeding against the wrong distance limit.
+	//
+	// Fixed by making connector selection a joint decision over BOTH
+	// buildables at once: pass 1 requires an EXACT GetPowerConnectionType()
+	// match on both sides (so two Power Towers pick their PCT_PowerTower
+	// connectors, and everything else - poles, machines, a tower's own
+	// short-range side - pairs PCT_Default to PCT_Default); pass 2 falls
+	// back to any pairing where at least one side is the real PCT_Any
+	// wildcard type, per the enum's own "incompatible" doc comment
+	// implying Any is the one documented exception. NOT YET LIVE-TESTED
+	// - no game running this session - but this is a real, source-
+	// grounded fix to logic that was never type-aware, not a guess.
+	bool FindPowerConnectionPair(AFGBuildable* BuildableA, AFGBuildable* BuildableB, UFGPowerConnectionComponent*& OutConnectionA, UFGPowerConnectionComponent*& OutConnectionB)
 	{
-		TArray<UFGPowerConnectionComponent*> PowerConnections;
-		Buildable->GetComponents<UFGPowerConnectionComponent>(PowerConnections);
-		for (UFGPowerConnectionComponent* Connection : PowerConnections)
+		OutConnectionA = nullptr;
+		OutConnectionB = nullptr;
+
+		TArray<UFGPowerConnectionComponent*> ConnectionsA;
+		BuildableA->GetComponents<UFGPowerConnectionComponent>(ConnectionsA);
+		TArray<UFGPowerConnectionComponent*> ConnectionsB;
+		BuildableB->GetComponents<UFGPowerConnectionComponent>(ConnectionsB);
+
+		auto IsFree = [](const UFGPowerConnectionComponent* Connection) { return IsValid(Connection) && Connection->GetNumFreeConnections() > 0; };
+
+		for (UFGPowerConnectionComponent* CandidateA : ConnectionsA)
 		{
-			if (IsValid(Connection) && Connection->GetNumFreeConnections() > 0)
+			if (!IsFree(CandidateA)) { continue; }
+			for (UFGPowerConnectionComponent* CandidateB : ConnectionsB)
 			{
-				return Connection;
+				if (!IsFree(CandidateB)) { continue; }
+				if (CandidateA->GetPowerConnectionType() == CandidateB->GetPowerConnectionType())
+				{
+					OutConnectionA = CandidateA;
+					OutConnectionB = CandidateB;
+					return true;
+				}
 			}
 		}
-		return nullptr;
+
+		for (UFGPowerConnectionComponent* CandidateA : ConnectionsA)
+		{
+			if (!IsFree(CandidateA)) { continue; }
+			for (UFGPowerConnectionComponent* CandidateB : ConnectionsB)
+			{
+				if (!IsFree(CandidateB)) { continue; }
+				if (CandidateA->GetPowerConnectionType() == EPowerConnectionType::PCT_Any || CandidateB->GetPowerConnectionType() == EPowerConnectionType::PCT_Any)
+				{
+					OutConnectionA = CandidateA;
+					OutConnectionB = CandidateB;
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	// Same pattern as FindFreePowerConnection, for the conveyor-belt
@@ -4244,15 +4308,16 @@ FAIModOperationResult UAIModFunctionLibrary::DebugCheckPowerConnection(UObject* 
 		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableIdB));
 	}
 
-	UFGPowerConnectionComponent* ConnectionA = FindFreePowerConnection(BuildableA);
-	if (!ConnectionA)
+	// FindPowerConnectionPair (2026-08-31 fix) - a joint, type-aware
+	// selection over both buildables at once, see its own comment for
+	// why a Power Tower's dual PCT_PowerTower/PCT_Default connectors
+	// need this instead of two independent single-buildable lookups.
+	UFGPowerConnectionComponent* ConnectionA = nullptr;
+	UFGPowerConnectionComponent* ConnectionB = nullptr;
+	if (!FindPowerConnectionPair(BuildableA, BuildableB, ConnectionA, ConnectionB))
 	{
-		return FAIModOperationResult::Failure(TEXT("NO_POWER_CONNECTION"), FString::Printf(TEXT("'%s' has no free power connection component"), *BuildableIdA));
-	}
-	UFGPowerConnectionComponent* ConnectionB = FindFreePowerConnection(BuildableB);
-	if (!ConnectionB)
-	{
-		return FAIModOperationResult::Failure(TEXT("NO_POWER_CONNECTION"), FString::Printf(TEXT("'%s' has no free power connection component"), *BuildableIdB));
+		return FAIModOperationResult::Failure(TEXT("NO_POWER_CONNECTION"),
+			FString::Printf(TEXT("No compatible free power connection pair between '%s' and '%s' - connection types (Default/PowerTower/Any) must match, or one side must be Any"), *BuildableIdA, *BuildableIdB));
 	}
 
 	// Verified to exist as a real asset in Content/FactoryGame/Recipes/Buildings/
@@ -5944,16 +6009,17 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 	// gameplay constraint - a NO_POWER_CONNECTION result here may
 	// correctly reflect that the save's progression hasn't unlocked
 	// direct machine-to-machine wiring yet, not a bug.
-	UFGPowerConnectionComponent* ConnectionA = FindFreePowerConnection(BuildableA);
-	if (!ConnectionA)
+	//
+	// FindPowerConnectionPair (2026-08-31 fix) - a joint, type-aware
+	// selection over both buildables at once, see its own comment for
+	// why a Power Tower's dual PCT_PowerTower/PCT_Default connectors
+	// need this instead of two independent single-buildable lookups.
+	UFGPowerConnectionComponent* ConnectionA = nullptr;
+	UFGPowerConnectionComponent* ConnectionB = nullptr;
+	if (!FindPowerConnectionPair(BuildableA, BuildableB, ConnectionA, ConnectionB))
 	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("NO_POWER_CONNECTION"), FString::Printf(TEXT("'%s' has no free power connection component"), *BuildableIdA)));
-		return;
-	}
-	UFGPowerConnectionComponent* ConnectionB = FindFreePowerConnection(BuildableB);
-	if (!ConnectionB)
-	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("NO_POWER_CONNECTION"), FString::Printf(TEXT("'%s' has no free power connection component"), *BuildableIdB)));
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_POWER_CONNECTION"),
+			FString::Printf(TEXT("No compatible free power connection pair between '%s' and '%s' - connection types (Default/PowerTower/Any) must match, or one side must be Any"), *BuildableIdA, *BuildableIdB)));
 		return;
 	}
 
@@ -6425,6 +6491,86 @@ FString UAIModFunctionLibrary::LogPowerLineLimitsAsJson(UObject* WorldContextObj
 	FJsonSerializer::Serialize(RootObject, Writer);
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogPowerLineLimitsAsJson: %s"), *JsonString);
+
+	return JsonString;
+}
+
+namespace
+{
+	FString PowerPoleTypeToString(EPowerPoleType Type)
+	{
+		switch (Type)
+		{
+		case EPowerPoleType::PPT_POLE: return TEXT("Pole");
+		case EPowerPoleType::PPT_WALL: return TEXT("WallPlug");
+		case EPowerPoleType::PPT_WALL_DOUBLE: return TEXT("WallPlugDouble");
+		case EPowerPoleType::PPT_TOWER: return TEXT("PowerTower");
+		default: return TEXT("Unknown");
+		}
+	}
+
+	FString PowerConnectionTypeToString(EPowerConnectionType Type)
+	{
+		switch (Type)
+		{
+		case EPowerConnectionType::PCT_Default: return TEXT("Default");
+		case EPowerConnectionType::PCT_PowerTower: return TEXT("PowerTower");
+		case EPowerConnectionType::PCT_Any: return TEXT("Any");
+		default: return TEXT("Unknown");
+		}
+	}
+}
+
+// See LogPowerPolesAsJson's doc comment in the header for the real
+// AFGBuildablePowerPole/EPowerPoleType/EPowerConnectionType sourcing and
+// how this connects to the FindPowerConnectionPair bugfix above.
+FString UAIModFunctionLibrary::LogPowerPolesAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogPowerPolesAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> PolesJsonArray;
+	for (TActorIterator<AFGBuildablePowerPole> It(World); It; ++It)
+	{
+		AFGBuildablePowerPole* Pole = *It;
+		if (!IsValid(Pole))
+		{
+			continue;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> ConnectionsJsonArray;
+		for (UFGPowerConnectionComponent* Connection : Pole->GetPowerConnections())
+		{
+			if (!IsValid(Connection)) { continue; }
+
+			const TSharedRef<FJsonObject> ConnectionObject = MakeShared<FJsonObject>();
+			ConnectionObject->SetStringField(TEXT("powerConnectionType"), PowerConnectionTypeToString(Connection->GetPowerConnectionType()));
+			ConnectionObject->SetNumberField(TEXT("numFreeConnections"), Connection->GetNumFreeConnections());
+			ConnectionsJsonArray.Add(MakeShared<FJsonValueObject>(ConnectionObject));
+		}
+
+		const TSharedRef<FJsonObject> PoleObject = MakeShared<FJsonObject>();
+		PoleObject->SetStringField(TEXT("id"), Pole->GetPathName());
+		PoleObject->SetStringField(TEXT("buildableClass"), Pole->GetClass()->GetPathName());
+		PoleObject->SetStringField(TEXT("powerPoleType"), PowerPoleTypeToString(Pole->GetPowerPoleType()));
+		PoleObject->SetBoolField(TEXT("hasPower"), Pole->HasPower());
+		PoleObject->SetNumberField(TEXT("powerTowerWireMaxLength"), Pole->GetPowerTowerWireMaxLength());
+		PoleObject->SetArrayField(TEXT("connections"), ConnectionsJsonArray);
+
+		PolesJsonArray.Add(MakeShared<FJsonValueObject>(PoleObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("powerPoles"), PolesJsonArray);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogPowerPolesAsJson: %d pole(s)"), PolesJsonArray.Num());
 
 	return JsonString;
 }

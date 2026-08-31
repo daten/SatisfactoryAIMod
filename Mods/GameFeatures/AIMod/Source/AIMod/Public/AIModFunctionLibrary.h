@@ -1899,6 +1899,48 @@ public:
 	static FString LogPowerLineLimitsAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.powerPoles (added 2026-08-31, explicit user request - "do we
+	 * have correct support for power towers versus power poles... towers
+	 * have longer distance connections to other towers, but they also
+	 * have short distance connections to poles or machines"). Answering
+	 * this honestly surfaced a REAL, previously-unnoticed correctness bug
+	 * in `world.connectPower`/`ConstructPowerConnection` - see
+	 * `FindPowerConnectionPair`'s own comment in the .cpp for the full
+	 * fix, fixed in this same pass, not left as a known issue.
+	 *
+	 * Lists every placed `AFGBuildablePowerPole` (the real base class for
+	 * ALL power poles - confirmed from source that the Power Tower is
+	 * `AFGBuildablePowerPole` with `mPowerPoleType ==
+	 * EPowerPoleType::PPT_TOWER`, NOT the separate, unused
+	 * `AFGBuildablePowerTower` class that only appears in its own header
+	 * anywhere in the tree). `powerPoleType` is `"Pole"`/`"WallPlug"`/
+	 * `"WallPlugDouble"`/`"PowerTower"`. `powerTowerWireMaxLength` is the
+	 * real, public, PER-INSTANCE `GetPowerTowerWireMaxLength()` - "When
+	 * connecting a wire from this power tower to another power tower,
+	 * this is the max length the wire is allowed to be" (own doc
+	 * comment) - a DIFFERENT, separate real limit from
+	 * `AFGBuildableWire::mMaxPowerTowerLength` already exposed by
+	 * `world.powerLineLimits` (that one is a property of the wire
+	 * recipe/tier; this one is a property of the specific pole
+	 * instance) - reported here as `0` for non-Tower poles, where it's
+	 * not meaningful.
+	 *
+	 * `connections` reports each of the pole's real
+	 * `UFGPowerConnectionComponent`s with its `powerConnectionType`
+	 * (`"Default"`/`"PowerTower"`/`"Any"` - `FGPowerConnectionComponent.h`'s
+	 * own doc comment: "Power connections of different types are
+	 * incompatible") and free-connection count - this is the field that
+	 * was completely invisible before this pass and is directly why the
+	 * connection-pairing bug existed undetected. A Power Tower is
+	 * expected to report TWO entries here (one `PowerTower`, one
+	 * `Default`); an ordinary Pole/Wall Plug is expected to report ONE.
+	 *
+	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPowerPolesAsJson(UObject* WorldContextObject);
+
+	/**
 	 * world.priorityPowerSwitches (added 2026-08-31, explicit user
 	 * request - "add support for configuring and controlling priority
 	 * power switches"). Lists every placed `AFGBuildablePriorityPowerSwitch`

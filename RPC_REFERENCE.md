@@ -372,6 +372,30 @@ Same shape as `conveyorBeltTiers`, for `Recipe_ConveyorLiftMk1`..`Mk6`.
 ```
 Flat object (only one power line tier exists), all lengths in cm.
 
+### `world.powerPoles` — no params, **NOT YET LIVE-TESTED**
+```json
+{ "protocolVersion": 1, "powerPoles": [ { "id": "...", "buildableClass": "...", "powerPoleType": "PowerTower", "hasPower": true, "powerTowerWireMaxLength": 30000.0, "connections": [ { "powerConnectionType": "PowerTower", "numFreeConnections": 1 }, { "powerConnectionType": "Default", "numFreeConnections": 1 } ] } ] }
+```
+Added 2026-08-31 per explicit user request ("do we have correct
+support for power towers versus power poles"). Lists every placed
+`AFGBuildablePowerPole` — the real base class for ALL power poles,
+including the Power Tower (`powerPoleType: "PowerTower"`, from real
+`mPowerPoleType == EPowerPoleType::PPT_TOWER`) — confirmed from source
+that a separate `AFGBuildablePowerTower` class exists but is unused
+anywhere else in the header tree, so it is NOT the real buildable.
+`powerPoleType` is one of `"Pole"`/`"WallPlug"`/`"WallPlugDouble"`/
+`"PowerTower"`.
+
+`connections` is the field that exposes exactly what
+`world.connectPower`'s fix (above) is about: each of the pole's real
+`UFGPowerConnectionComponent`s with its type (`"Default"`/
+`"PowerTower"`/`"Any"`) and free-connection count. **A Power Tower is
+expected to report TWO entries here** (one `PowerTower`, one
+`Default`) — an ordinary Pole/Wall Plug is expected to report ONE.
+`powerTowerWireMaxLength` is the real, per-instance
+`GetPowerTowerWireMaxLength()` — reported as `0` for non-Tower poles,
+where it isn't meaningful.
+
 ### `world.priorityPowerSwitches` — no params, **NOT YET LIVE-TESTED**
 ```json
 { "protocolVersion": 1, "prioritySwitches": [ { "id": "...", "buildableClass": "...", "priority": 0, "isSwitchOn": true, "isSwitchConnected": true, "hasBuildingTag": false, "buildingTag": "", "switchName": "", "circuitGroupID0": 3, "circuitGroupID1": 7 } ] }
@@ -1391,6 +1415,37 @@ real. `params: {"buildableIdA", "buildableIdB", "ignoreAimLocation"
 it fails and is not bypassable by either ignore flag (it's a real
 deterministic distance check); chain through an intermediate power pole
 instead.
+
+**Power Tower correctness fix (2026-08-31, real bug found — not a new
+feature)**: a Power Tower is `AFGBuildablePowerPole` with
+`powerPoleType == "PowerTower"` (see `world.powerPoles` below) and has
+TWO real power connectors — one type `PowerTower` (the long-range link
+to another tower) and one type `Default` (short range, for a nearby
+pole/machine); `EPowerConnectionType`'s own doc comment: "Power
+connections of different types are incompatible." The connector-
+selection logic used by this call previously picked whichever connector
+happened to be first on each buildable with no awareness of type — for
+an ordinary Pole/Wall Plug (exactly one connector) this was harmless,
+but for a Tower it could pick the wrong one of its two connectors,
+either failing a legitimate tower-to-tower link outright or silently
+checking the wrong distance limit. Fixed: connector selection is now a
+joint decision over both buildables — an exact `powerConnectionType`
+match is tried first (so two Towers in range of each other correctly
+pair their `PowerTower` connectors, and everything else pairs `Default`
+to `Default`), falling back to any pairing where at least one side is
+the real `Any` wildcard type. **Not yet live-tested** — the bug itself
+was found and fixed from source, not reproduced live first.
+
+**Two separate real length limits for a tower-to-tower connection**:
+`world.powerLineLimits`' `maxPowerTowerLength` (a property of the
+Recipe_PowerLine wire tier itself) AND each Tower's own
+`world.powerPoles`' `powerTowerWireMaxLength` (a real, per-instance
+value — "When connecting a wire from this power tower to another power
+tower, this is the max length the wire is allowed to be," own doc
+comment). Both are real, distinct, documented fields — this project
+doesn't have visibility into exactly how the engine combines them (that
+logic lives in stub-sourced `.cpp`), so check both before assuming a
+distance is within range.
 
 ### `world.testConveyorBelt` / `world.connectConveyor` — asynchronous
 `params: {"sourceBuildableId", "destBuildableId", "recipeClass" (optional,

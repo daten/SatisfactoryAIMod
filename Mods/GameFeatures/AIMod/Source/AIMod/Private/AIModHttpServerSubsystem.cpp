@@ -1976,6 +1976,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogPowerLineLimitsAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.powerPoles"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPowerPolesAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.priorityPowerSwitches"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogPriorityPowerSwitchesAsJson(GetGameInstance());

@@ -52,7 +52,8 @@ building. This covers the large majority of ordinary buildables:
 | Particle Accelerator, Quantum Encoder, Converter | `Factory/{HadronCollider,QuantumEncoder,Converter}` | ✅ |
 | Generators: Biomass, Coal, Fuel, Geothermal, Nuclear | `Factory/Generator{Biomass,Coal,Fuel,GeoThermal,Nuclear}` | ✅ |
 | Storage: containers Mk1/Mk2, Fluid Buffer, Industrial Fluid Buffer, Central Storage (Depot), personal Space Container | `Factory/{StorageContainerMk1,StorageContainerMk2,StorageTank,IndustrialFluidContainer,CentralStorage,StoragePlayer}` | ✅ |
-| Power poles (Mk1-3, wall, wall double), Power Tower, Power Storage, Power Switch | `Factory/{PowerPoleMk1,PowerPoleMk2,PowerPoleMk3,PowerPoleWall,PowerPoleWallDouble,PowerTower,PowerStorage,PowerSwitch}` | ✅ (the pole/switch itself; the wire between two poles is a separate connector RPC — see below). Plain Power Switch on/off: `world.setPowerSwitchOn` |
+| Power poles (Mk1-3, wall, wall double), Power Storage, Power Switch | `Factory/{PowerPoleMk1,PowerPoleMk2,PowerPoleMk3,PowerPoleWall,PowerPoleWallDouble,PowerStorage,PowerSwitch}` | ✅ (the pole/switch itself; the wire between two poles is a separate connector RPC — see below). Plain Power Switch on/off: `world.setPowerSwitchOn` |
+| Power Tower (real `AFGBuildablePowerPole` with `powerPoleType=="PowerTower"` — the separate `Factory/PowerTower/` content folder's `AFGBuildablePowerTower` C++ class is unused/vestigial, confirmed 2026-08-31) | `Factory/PowerTower` | ✅ placement (generic). Telemetry: `world.powerPoles` (reports both real connectors — `PowerTower` long-range + `Default` short-range — and the per-instance `powerTowerWireMaxLength`). **Real correctness bug found and fixed 2026-08-31**: `world.connectPower`'s connector selection previously had no awareness that a Tower has TWO connector types and could pick the wrong one — fixed to jointly select a compatible pair across both endpoints. Not live-tested |
 | Priority Power Switch (there is no separate "Smart Power Switch" recipe — confirmed 2026-08-31, only `Recipe_PowerSwitch`/`Recipe_PriorityPowerSwitch` exist; the `SmartPowerSwitch/` content folder is source art only) | `Factory/{PriorityPowerSwitch,SmartPowerSwitch}` | ✅ Full config+control: `world.priorityPowerSwitches` (telemetry — priority, on/off, circuit group ids), `world.setPowerSwitchOn`, `world.setPriorityPowerSwitchPriority` |
 | Splitter/Merger and all Smart/Programmable/Priority/Lift variants | `Factory/CA_{Splitter,Merger,SplitterLift,SplitterLiftProgrammable,SplitterLiftSmart,SplitterProgrammable,SplitterSmart,MergerLift,MergerLiftPriority,MergerPriority}` | ✅ placement — confirmed generic (`AFGConveyorAttachmentHologram : AFGFactoryHologram`, same lineage), see `docs/conveyor-attachment-research.md`. Smart/Programmable Splitter sort-rule config: `world.splitterSortRules`/`world.setSplitterSortRules` — ✅, not live-tested |
 | Structural: Foundation, Wall, Floor, Ramp, Stair, Roof, Pillars, Fence, Tarp Fence, Barrier, Catwalk, Walkway, Ladder, Doors, Vent, Corner Block, Decor, Stackable Shelf, Potty, conveyor/foundation holes+passthrough | `Building/{Foundation,Wall,Floor,Ramp,Stair,Roof,Pillars,Fence,TarpFence,Barrier,Catwalk,Walkway,Ladder,Doors,Vent,Potty}`, `Factory/{CornerBlock,ConveyorHole,ConveyorFloorHole,FoundationPassthrough}` | ✅ (many of these are "lightweight" instances at runtime — see `world.buildables`' `lightweight:` id scheme, `docs/lightweight-buildable-research.md`) |
@@ -175,3 +176,13 @@ none can go through the generic single-click flow:
   `world.setSplitterSortRules`) — the exact gap this file's Splitter row
   and `world.conveyorAttachments`' `supportsSortRules` flag had both
   been flagging since 2026-08-25.
+- **2026-08-31 (later still)**: User asked whether Power Tower support
+  was correct given its dual short/long-range connectors — answering
+  this honestly surfaced a REAL, previously-unnoticed correctness bug
+  in `world.connectPower` (connector selection had no awareness a Tower
+  has two connector types, could pick the wrong one). Fixed in the same
+  pass, plus added `world.powerPoles` telemetry to make the previously-
+  invisible per-connector-type state visible. Also corrected this file's
+  Power Pole row, which previously listed "Power Tower" as if it were
+  just another simple pole variant with no real distinction worth
+  tracking.
