@@ -9,7 +9,9 @@ moved on since this was written.
 
 If you *do* have the repo, `PLAYBOOK.md` covers how to phrase a request in
 plain language; this file covers how the interface actually works once a
-request has been decided.
+request has been decided. For "is building family X supported yet" at a
+glance, see `docs/buildable-coverage.md` instead of scanning this whole
+file.
 
 ---
 

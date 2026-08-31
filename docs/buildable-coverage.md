@@ -1,0 +1,161 @@
+# Buildable coverage tracker
+
+Started 2026-08-31 per explicit user request ("start a document that
+lists all of the buildable items in the game that we currently support
+and all of the buildable items that we do not yet support... to track
+coverage as we implement new features").
+
+**Scope**: construction (placing a new instance) and dedicated
+control/telemetry of buildables specifically — not the general item/
+recipe catalog (`world.recipeCatalog`/`world.itemCatalog` already
+enumerate every recipe/item in the game regardless of construction
+support; see `RPC_REFERENCE.md`).
+
+**How to keep this current**: whenever a new `Construct*`/`Set*`/
+`Log*AsJson` function is added to `AIModFunctionLibrary`, check whether
+it changes a row below (new family covered, a 🟡/❓ becomes ✅, etc.)
+and update this file in the same commit. The authoritative list of real
+buildable families is `Content/FactoryGame/Buildable/{Building,Factory,
+Vehicle}/` — re-derive from there if this file drifts, don't trust
+memory of what "should" be in the game.
+
+## Legend
+
+- ✅ **Supported** — a real RPC constructs and/or controls this family.
+- 🟡 **Partial** — construction/control exists but has known, real
+  limitations (see the note).
+- ❓ **Unconfirmed** — likely covered by an existing generic RPC based on
+  the buildable's real hologram class, but not specifically verified —
+  neither by source research nor live testing.
+- ❌ **Not supported** — no RPC exists for this yet; a real, open gap.
+- ⚠️ **Telemetry only** — read-only visibility exists; no construction
+  or control RPC.
+
+Everything in this file inherits the project's standing caveat: **NONE
+of this session's newer additions (2026-08-31: teleportPlayer, map
+markers, active events, beams) have been live-tested against a running
+game yet** — "✅ Supported" means "a real RPC exists and is believed
+correct from source research," not "confirmed working in practice."
+Check `RPC_REFERENCE.md` entries for individual "NOT YET LIVE-TESTED"
+flags.
+
+## Generic single-hologram buildables — ✅ via `world.placeBuilding`
+
+`world.placeBuilding` drives the simple, single-click
+`AFGBuildableHologram`/`AFGFactoryHologram` flow — confirmed generic
+across every recipe using that hologram lineage, not special-cased per
+building. This covers the large majority of ordinary buildables:
+
+| Family | Real content path | Status |
+|---|---|---|
+| Constructor, Assembler, Manufacturer, Refinery, Blender, Foundry, Smelter, Packager | `Factory/{ConstructorMk1,AssemblerMk1,ManufacturerMk1,OilRefinery,Blender,FoundryMk1,SmelterMk1,Packager}` | ✅ |
+| Particle Accelerator, Quantum Encoder, Converter | `Factory/{HadronCollider,QuantumEncoder,Converter}` | ✅ |
+| Generators: Biomass, Coal, Fuel, Geothermal, Nuclear | `Factory/Generator{Biomass,Coal,Fuel,GeoThermal,Nuclear}` | ✅ |
+| Storage: containers Mk1/Mk2, Fluid Buffer, Industrial Fluid Buffer, Central Storage (Depot), personal Space Container | `Factory/{StorageContainerMk1,StorageContainerMk2,StorageTank,IndustrialFluidContainer,CentralStorage,StoragePlayer}` | ✅ |
+| Power poles (Mk1-3, wall, wall double), Power Tower, Power Storage, Power Switch, Smart/Priority Power Switch | `Factory/{PowerPoleMk1,PowerPoleMk2,PowerPoleMk3,PowerPoleWall,PowerPoleWallDouble,PowerTower,PowerStorage,PowerSwitch,SmartPowerSwitch,PriorityPowerSwitch}` | ✅ (the pole/switch itself; the wire between two poles is a separate connector RPC — see below) |
+| Splitter/Merger and all Smart/Programmable/Priority/Lift variants | `Factory/CA_{Splitter,Merger,SplitterLift,SplitterLiftProgrammable,SplitterLiftSmart,SplitterProgrammable,SplitterSmart,MergerLift,MergerLiftPriority,MergerPriority}` | ✅ — confirmed generic (`AFGConveyorAttachmentHologram : AFGFactoryHologram`, same lineage), see `docs/conveyor-attachment-research.md` |
+| Structural: Foundation, Wall, Floor, Ramp, Stair, Roof, Pillars, Fence, Tarp Fence, Barrier, Catwalk, Walkway, Ladder, Doors, Vent, Corner Block, Decor, Stackable Shelf, Potty, conveyor/foundation holes+passthrough | `Building/{Foundation,Wall,Floor,Ramp,Stair,Roof,Pillars,Fence,TarpFence,Barrier,Catwalk,Walkway,Ladder,Doors,Vent,Potty}`, `Factory/{CornerBlock,ConveyorHole,ConveyorFloorHole,FoundationPassthrough}` | ✅ (many of these are "lightweight" instances at runtime — see `world.buildables`' `lightweight:` id scheme, `docs/lightweight-buildable-research.md`) |
+| Lighting: Ceiling Light, Floodlight, Street Light, Lights Control Panel | `Factory/{CeilingLight,Floodlight,StreetLight,LightsControlPanel}` | ✅ placement; ❌ no dedicated RPC to control panel-driven light grouping/scheduling |
+| Signs: Sign Pole, Digital Sign, Standalone Sign | `Factory/{SignPole,SignDigital,StandaloneSign}` | ✅ placement; ❌ no RPC to set sign text/icon content |
+| Hub Terminal, Trading Post, MAM, Workbench, Automated Work Bench, Workshop, Space Elevator, Radar Tower, Resource Sink, Resource Sink Shop, Lookout Tower, Jump Pad, Landing Pad, Large Fan, Drone Station | `Factory/{HubTerminal,TradingPost,Mam,WorkBench,AutomatedWorkBench,Workshop,SpaceElevator,RadarTower,ResourceSink,ResourceSinkShop,LookoutTower,JumpPad,LandingPad,LargeFan,DroneStation}` | ✅ placement (these are singleton/rare-placement structures in practice, not repeatedly built) |
+| Blueprint Designer, Blueprint-placed buildable wrapper | `Factory/{BlueprintDesigner,BlueprintBuildable}` | ❓ Unconfirmed — the Designer itself is likely generic placement, but placing a saved **Blueprint** (multi-building group) as a single paste operation is a materially different mechanism, not researched at all |
+
+## Extractors — ✅ via `world.placeExtractor`
+
+Single RPC, snaps to a real resource/well node id (`world.resourceNodes`),
+confirmed to cover every extractor type in the game:
+
+| Family | Status |
+|---|---|
+| Miner Mk1 / Mk2 / Mk3 | ✅ |
+| Water Pump | ✅ |
+| Oil Pump (Impure Oil Node) | ✅ |
+| Fracking Smasher (Pressurizer, on a `FrackingCore` node) | ✅ |
+| Fracking Extractor (on an *activated* `FrackingSatellite` node) | ✅ |
+| Portable Miner (handheld, on a node) | ✅ — separate RPC, `world.placePortableMiner`, different mechanism (equipment dispenser, not build-gun hologram) |
+
+## Vehicles — ✅ via `world.constructVehicle`
+
+| Family | Status |
+|---|---|
+| Truck, Tractor, Explorer, Cyber Wagon, Golf Cart | ✅ |
+| Drone (requires a placed, unoccupied Drone Station) | ✅ |
+| Locomotive, Freight Wagon (assembling into a **train consist** — coupling multiple vehicles together) | ❌ Not supported — `world.constructVehicle` places one vehicle; coupling logic is separate, unresearched |
+| Vehicle Path segments (the road network drones/trucks follow) | ✅ `world.constructVehiclePathSegment` — **not yet live-tested** |
+| Assigning a built vehicle's autopilot route over path segments | ❌ Not supported — real source API identified (`AFGWheeledVehicleIdentifier::SetVehicleRoute`/`AddWaypoint`/`SetAutopilotEnabled`) but needs its own path-node-GUID telemetry layer that doesn't exist yet |
+
+## Spline / multi-step / connector-driven construction
+
+Each of these needed (and got) its own dedicated `Construct*` function —
+none can go through the generic single-click flow:
+
+| Family | RPC | Status |
+|---|---|---|
+| Conveyor Belt Mk1–Mk6 | `world.connectConveyor` | ✅ |
+| Conveyor Lift Mk1–Mk6 | `world.connectConveyorLift` | 🟡 Real, long-standing gap: cannot reliably reproduce arbitrary custom lift heights a player can achieve by hand (regression, 3 hypotheses tried and not yet confirmed working); free-end rotation (`freeEndRotationSteps`) added but not live-tested |
+| Pipeline / Pipeline Mk2 | `world.connectPipe` | ✅ |
+| Hypertube tube segment | `world.connectHypertube` | ✅ |
+| Railroad track | `world.constructRailroadTrack` | ✅ — not yet live-tested |
+| Power line (the wire between two poles) | `world.connectPower` | ✅ |
+| Architecture Beam (all Beam/Beam_Support/Beam_Cross/Beam_H/etc variants) | `world.constructBeam` | ✅ — added 2026-08-31, not yet live-tested. Length control on an already-placed beam: `world.setBeamLength` |
+
+## Explicitly NOT yet supported — real, open gaps
+
+- **Pipeline Pump, Pipeline Junction (3-way/4-way), Valve, standalone
+  Fluid Buffer/Industrial Tank as their own placement step.** These are
+  ordinary `AFGBuildable`s (not spline-snapped), so `world.placeBuilding`
+  likely covers them the same as any other generic buildable — but this
+  was flagged in `docs/pipe-network-research.md` as genuinely unconfirmed
+  rather than assumed, since pipe attachments were never specifically
+  tried (unlike conveyor Splitters/Mergers, which WERE confirmed generic).
+  Move to the ✅ table above once actually tried.
+- **Valve flow-limit control** (`SetUserFlowLimit()`/`GetUserFlowLimit()`
+  are real, public setters/getters on `AFGBuildablePipelinePump` —
+  confirmed from source, just never wired to an RPC).
+- **Train Signal (Type 1/2), Train Switch, Railway End Stop placement.**
+  These likely snap onto an existing track segment similar to how a
+  conveyor attachment snaps onto a belt — genuinely unconfirmed whether
+  `world.placeBuilding`'s generic flow handles that snapping correctly,
+  since it was never tried against these specific families.
+- **Train Station platform / Truck Station construction.** Real
+  telemetry exists (`world.trainCargoPlatforms`, `world.trainStations`,
+  `world.truckStations`), but placing a NEW one was never specifically
+  tested — same generic-placement-probably-works-but-unconfirmed
+  situation as pipe attachments.
+- **Sign content** (text/icon on Sign Pole / Digital Sign / Standalone
+  Sign) — placement is presumably generic, but there's no RPC to set
+  what a sign actually displays.
+- **Portal** (`Factory/Portal`, `Factory/PortalPotty`) — very recent
+  content, not researched at all yet.
+- **Project Assembly** (`Factory/ProjectAssembly`) — likely a fixed,
+  singleton story structure rather than something normally constructed;
+  not researched.
+- **Blueprint paste** (placing a saved multi-building Blueprint as one
+  operation) — materially different from placing a single buildable;
+  not researched at all.
+- **Cheat-only buildables** (`Factory/CheatFluidPump`,
+  `Factory/CheatPowerSource`) — deliberately out of scope, dev-only
+  content not meant to be player-constructible.
+
+## Control/telemetry RPCs, by family (beyond construction)
+
+| Family | Control/telemetry | Status |
+|---|---|---|
+| Manufacturer/Extractor/Generator | `world.setRecipe`, `world.setClockSpeed`, `world.installPowerShard`, `world.targetedManufacturer` | ✅ |
+| Any buildable (rotation, color, dismantle) | `world.setBuildableRotation` (🟡 confirmed broken on already-built Conveyor Lifts specifically — real free-end rotation only works during hologram placement), `world.setBuildableColor` (not live-tested), `world.deleteBuilding` | ✅/🟡 |
+| Architecture Beam | `world.setBeamLength` | ✅ — not live-tested, real uncertainty flagged about whether it persists correctly for lightweight-instanced beams |
+| Central Storage (Depot) | `world.centralStorage`, `world.withdrawFromCentralStorage` | ✅ |
+| Drone Station | `world.droneStations`, `world.pairDroneStations` | ✅ |
+| Train | `world.trains`, `world.setTrainSelfDriving`, `world.setTrainTimetable` | ✅ |
+| Power line limits | `world.powerLineLimits` | ⚠️ Telemetry only |
+| Conveyor/pipe connection topology | `world.connections`, `world.pipeConnections`, `world.pipeFluidBoxes` | ⚠️ Telemetry only |
+| Map markers | `world.mapMarkers`/`world.placeMapMarker`/`world.removeMapMarker`/`world.mapMarkerIcons` | ✅ — not a buildable, but the closest thing to "player-assist annotation," included for completeness |
+
+## Session log
+
+- **2026-08-31**: Document created. Baseline snapshot reflects the state
+  after `world.constructBeam`/`world.setBeamLength` were added (this
+  session's most recent additions). Everything added 2026-08-31
+  specifically (teleportPlayer, map markers, active events, beams) is
+  real but **not yet live-tested** — see `project_satisfactory_ai_interface.md`
+  memory for the full backlog.
