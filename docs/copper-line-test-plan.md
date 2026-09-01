@@ -408,12 +408,16 @@ mysteries**:
    concluding) failed identically because attachment-class buildables
    carry their traceable collision in the AbstractInstanceManager's
    instanced meshes, untouchable from actor-level calls and cleaned up
-   on the deferred destruction a frame later. v3 stops fighting the
-   engine's cleanup order entirely: world.deleteBuilding's HTTP
-   response is deferred two real ticks, so the caller's next request
-   always lands after cleanup. v3 is in source awaiting redeploy + one
-   final retest; until then keep a ~500ms settle between deleting and
-   placing at the same spot. **Also standing build preference from
+   on the deferred destruction a frame later. v3 (two-tick deferred
+   response) ALSO failed - the cleanup window was then MEASURED with
+   post-delete probes (dirty at ~250ms, clean at 400ms+). v4 holds the
+   world.deleteBuilding response on a real-time 0.75s timer - and is
+   **CONFIRMED FIXED, live-retested with two delete-then-INSTANT-place
+   cycles: zero stacking, both landings at exact floor height.** The
+   ~500ms manual settle rule is retired. Residual note: trace-based
+   placement can spuriously fail "Surface is too uneven!" even with no
+   delete involved (confirmed on a fresh session) - retry once, same
+   class as the tile-seam flake. **Also standing build preference from
    this session (user request): default to 1m foundations
    (`Recipe_Foundation_8x1_01`) for future builds - the copper
    factory's 4m (8x4) slabs work but are space-inefficient; use

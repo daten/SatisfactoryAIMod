@@ -1077,16 +1077,20 @@ calls can't touch and whose cleanup rides the deferred destruction.
 instanced-collision cleanup was then MEASURED live with
 delete-then-place probes at increasing delays: a probe ~250ms after
 the deferred response still stacked on the corpse; ~400ms and up
-landed clean at floor height. In the intermediate window the corpse
-can also corrupt the ground trace into a spurious `"Surface is too
-uneven!"` failure instead of a stack. **v4 (in source, NOT yet
-live-retested): the response is held on a real-time 0.75s timer**
-(measured threshold plus jitter margin) — a caller's next request
-then always runs after the corpse, actor AND instanced collision, is
-genuinely gone. `world.deleteBuilding` responding ~0.75s slower than
-it used to is this fix working, not lag. Until v4 is confirmed, keep
-a manual ~500ms+ settle between deleting and placing at/near the same
-spot and verify the new object's z. Deleting a pipe also cleans up its flow-fill
+landed clean at floor height. **v4 — CONFIRMED FIXED, live-retested 2026-09-01: the response is
+held on a real-time 0.75s timer** (measured threshold plus jitter
+margin) — a caller's next request then always runs after the corpse,
+actor AND instanced collision, is genuinely gone. Verified with two
+full delete-then-INSTANT-place cycles at the same coordinates: zero
+stacking, both landings at exact floor height (deployment confirmed
+via the ~756ms delete round-trip). `world.deleteBuilding` responding
+~0.75s slower than it used to is this fix working, not lag. One
+residual, separate behavior: trace-based placement can occasionally
+fail a spurious `"Surface is too uneven!"` regardless of any delete
+(observed on a freshly-relaunched session with no corpse anywhere
+near) — it clears on an immediate retry; treat it as the same
+retryable placement flakiness class as the tile-seam issue, not as
+delete-related. Deleting a pipe also cleans up its flow-fill
 indicator widget; deleting a Pipeline Junction does **not** delete pipes
 still attached to it (they're left dangling, and the extractor/machine
 at their other end stays "occupied" until you delete those too).
