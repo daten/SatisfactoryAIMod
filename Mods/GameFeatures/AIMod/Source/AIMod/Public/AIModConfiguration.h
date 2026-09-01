@@ -62,5 +62,14 @@ class AIMOD_API UAIModConfiguration : public UModConfiguration
 	GENERATED_BODY()
 
 public:
-	UAIModConfiguration();
+	// Takes an explicit FObjectInitializer so the config PROPERTIES can be
+	// created as subobjects of the RootSection (not of this configuration
+	// object). That parenting is load-bearing for persistence: SML's
+	// UConfigProperty::MarkDirty() walks a changed property's Outer chain
+	// for the nearest IConfigValueDirtyHandlerInterface (the section /
+	// URootConfigValueHolder) to trigger a save - if the properties are
+	// subobjects of the configuration object instead, that walk never
+	// reaches a handler and edits are silently never written to disk
+	// (the 2026-09-01 "config changes don't persist across sessions" bug).
+	UAIModConfiguration(const FObjectInitializer& ObjectInitializer);
 };

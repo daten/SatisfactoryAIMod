@@ -6,7 +6,8 @@
 #include "UObject/ConstructorHelpers.h"
 #include "Configuration/Properties/WidgetExtension/CP_Section.h"
 
-UAIModConfiguration::UAIModConfiguration()
+UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
 	ConfigId.ModReference = TEXT("AIMod");
 	ConfigId.ConfigCategory = TEXT("");
@@ -52,7 +53,14 @@ UAIModConfiguration::UAIModConfiguration()
 		FloatClass = FloatFinder.Class;
 	}
 
-	UConfigPropertySection* Section = CastChecked<UConfigPropertySection>(CreateDefaultSubobject(TEXT("RootSection"), UConfigPropertySection::StaticClass(), SectionClass, true, false));
+	// The Section is a subobject of THIS configuration; each property below
+	// is created as a subobject of the SECTION (via ObjectInitializer's
+	// explicit-Outer overload) rather than of this configuration. See the
+	// header's constructor doc comment for why that parenting is required
+	// for config persistence to work at all - previously these used the
+	// plain CreateDefaultSubobject (Outer = this configuration), which is
+	// exactly what broke save-on-change.
+	UConfigPropertySection* Section = CastChecked<UConfigPropertySection>(ObjectInitializer.CreateDefaultSubobject(this, TEXT("RootSection"), UConfigPropertySection::StaticClass(), SectionClass, true, false));
 	RootSection = Section;
 
 	// BP_ConfigPropertySection derives from UCP_Section (CP_Section.h),
@@ -66,7 +74,7 @@ UAIModConfiguration::UAIModConfiguration()
 		SectionExtended->WidgetType = ECP_SectionWidgetType::CPS_Vertical;
 	}
 
-	UConfigPropertyBool* AllowRemoteConnections = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("AllowRemoteConnections"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
+	UConfigPropertyBool* AllowRemoteConnections = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("AllowRemoteConnections"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	AllowRemoteConnections->DisplayName = FText::FromString(TEXT("Allow Remote Connections"));
 	AllowRemoteConnections->Tooltip = FText::FromString(TEXT(
 		"SECURITY RISK. By default the AIMod RPC server only accepts connections from this machine (loopback). "
@@ -76,7 +84,7 @@ UAIModConfiguration::UAIModConfiguration()
 	AllowRemoteConnections->Value = false;
 	Section->SectionProperties.Add(TEXT("AllowRemoteConnections"), AllowRemoteConnections);
 
-	UConfigPropertyBool* UnlimitedResources = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("UnlimitedResources"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
+	UConfigPropertyBool* UnlimitedResources = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("UnlimitedResources"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	UnlimitedResources->DisplayName = FText::FromString(TEXT("Unlimited Resources for RPC Builds"));
 	UnlimitedResources->Tooltip = FText::FromString(TEXT(
 		"By default, RPC-driven construction requires real materials in your inventory, exactly like placing it "
@@ -86,7 +94,7 @@ UAIModConfiguration::UAIModConfiguration()
 	UnlimitedResources->Value = false;
 	Section->SectionProperties.Add(TEXT("UnlimitedResources"), UnlimitedResources);
 
-	UConfigPropertyBool* LimitBuildDistance = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("LimitBuildDistance"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
+	UConfigPropertyBool* LimitBuildDistance = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("LimitBuildDistance"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	LimitBuildDistance->DisplayName = FText::FromString(TEXT("Limit RPC Build Distance From Player"));
 	LimitBuildDistance->Tooltip = FText::FromString(TEXT(
 		"By default, RPC-driven construction has no distance limit at all - it can build anywhere on the map, "
@@ -99,7 +107,7 @@ UAIModConfiguration::UAIModConfiguration()
 	// Default 8000 units ~= 10 standard 8m foundation tiles (800 units
 	// each), per the user's own "10 foundations away" framing when this
 	// setting was requested.
-	UConfigPropertyFloat* MaxBuildDistance = CastChecked<UConfigPropertyFloat>(CreateDefaultSubobject(TEXT("MaxBuildDistance"), UConfigPropertyFloat::StaticClass(), FloatClass, true, false));
+	UConfigPropertyFloat* MaxBuildDistance = CastChecked<UConfigPropertyFloat>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("MaxBuildDistance"), UConfigPropertyFloat::StaticClass(), FloatClass, true, false));
 	MaxBuildDistance->DisplayName = FText::FromString(TEXT("Max Build Distance (cm)"));
 	MaxBuildDistance->Tooltip = FText::FromString(TEXT(
 		"Only used when Limit RPC Build Distance From Player is on. Maximum distance, in centimeters, RPC-driven "
@@ -113,7 +121,7 @@ UAIModConfiguration::UAIModConfiguration()
 	// nicety, not a security or gameplay-balance trade-off, and is the
 	// literal feature being requested when this was added. See
 	// UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded.
-	UConfigPropertyBool* AutoAcknowledgeChatMessages = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("AutoAcknowledgeChatMessages"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
+	UConfigPropertyBool* AutoAcknowledgeChatMessages = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("AutoAcknowledgeChatMessages"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	AutoAcknowledgeChatMessages->DisplayName = FText::FromString(TEXT("Auto-Acknowledge Chat Messages"));
 	AutoAcknowledgeChatMessages->Tooltip = FText::FromString(TEXT(
 		"When you type a message in chat, AIMod immediately posts a brief \"seen\" reply - independent of "
@@ -129,7 +137,7 @@ UAIModConfiguration::UAIModConfiguration()
 	// this is treated the same as bUnlimitedResources: a capability an
 	// external AI controller can never enable itself, only the player
 	// from this settings menu. See UAIModFunctionLibrary::SpawnCreatureNearPlayer.
-	UConfigPropertyBool* AllowCreatureSpawning = CastChecked<UConfigPropertyBool>(CreateDefaultSubobject(TEXT("AllowCreatureSpawning"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
+	UConfigPropertyBool* AllowCreatureSpawning = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("AllowCreatureSpawning"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	AllowCreatureSpawning->DisplayName = FText::FromString(TEXT("Allow Creature Spawning"));
 	AllowCreatureSpawning->Tooltip = FText::FromString(TEXT(
 		"Off by default. When enabled, an external AI controller can spawn real creatures near you on request "
