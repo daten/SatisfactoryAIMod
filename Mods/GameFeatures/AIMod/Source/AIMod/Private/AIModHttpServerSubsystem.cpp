@@ -523,42 +523,42 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 
 		const FAIModOperationResult Result = UAIModFunctionLibrary::DismantleBuildable(GetGameInstance(), BuildableId);
 
-		// Deferred response, v3 of the delete read-after-write fix
-		// (2026-09-01). v1 and v2 both tried to force the dying actor
-		// inert (collision off/hidden) right after Execute_Dismantle and
-		// BOTH failed their live retests - a new attachment placed
-		// immediately after a delete still stacked on the corpse at
-		// +300 z, even with the pending-kill-safe v2 guard. Root cause
-		// (by elimination, v2 confirmed deployed via file timestamps):
-		// splitter/merger-class buildables carry their collision in
-		// FactoryGame's instanced-mesh system (AbstractInstanceManager),
-		// which actor-level SetActorEnableCollision() cannot touch, and
-		// that instance cleanup rides the engine's deferred destruction
-		// a frame later. Instead of fighting the engine's cleanup order,
-		// hold the HTTP response for TWO real ticks - the caller's next
-		// request can then only ever run after the corpse (actor AND
-		// instanced collision) is genuinely gone. Failures respond
-		// immediately (nothing was dismantled, nothing to wait for).
+		// Deferred response, v4 of the delete read-after-write fix
+		// (2026-09-01). Full history, each step live-retested:
+		// - v1/v2 forced the dying actor inert (collision off/hidden)
+		//   right after Execute_Dismantle - BOTH failed: a new attachment
+		//   placed immediately after a delete still stacked on the corpse
+		//   at +300 z (v1 additionally had an IsValid()-on-pending-kill
+		//   guard bug). Root cause: splitter/merger-class buildables
+		//   carry their traceable collision in FactoryGame's
+		//   instanced-mesh system (AbstractInstanceManager), which
+		//   actor-level calls cannot touch.
+		// - v3 deferred this response by TWO ticks - ALSO failed: the
+		//   instanced-collision cleanup is far slower than actor
+		//   destruction. Measured live with delete-then-place probes at
+		//   increasing delays: a probe at ~250ms after the (deferred)
+		//   response still STACKED on the corpse; ~400ms and up landed
+		//   clean at floor height every time. During the intermediate
+		//   window the corpse can also corrupt the ground trace into a
+		//   spurious "Surface is too uneven!" failure instead of a stack.
+		// v4: hold the response on a real-time 0.75s timer (measured
+		// threshold ~250-400ms, plus margin for cleanup-queue jitter) -
+		// the caller's next request can then only run after the corpse,
+		// actor AND instanced collision, is genuinely gone. The slower
+		// world.deleteBuilding response is this fix working as intended.
+		// Failures respond immediately (nothing was dismantled, nothing
+		// to wait for).
 		UWorld* DeleteWorld = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
 		if (!Result.bSuccess || !DeleteWorld)
 		{
 			OnComplete(MakeOperationResponse(Result, RequestId));
 			return true;
 		}
-		TWeakObjectPtr<UWorld> WeakDeleteWorld = DeleteWorld;
-		DeleteWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([WeakDeleteWorld, OnComplete, Result, RequestId]()
+		FTimerHandle DeleteResponseTimerHandle;
+		DeleteWorld->GetTimerManager().SetTimer(DeleteResponseTimerHandle, FTimerDelegate::CreateLambda([OnComplete, Result, RequestId]()
 		{
-			UWorld* SecondTickWorld = WeakDeleteWorld.Get();
-			if (!SecondTickWorld)
-			{
-				OnComplete(MakeOperationResponse(Result, RequestId));
-				return;
-			}
-			SecondTickWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([OnComplete, Result, RequestId]()
-			{
-				OnComplete(MakeOperationResponse(Result, RequestId));
-			}));
-		}));
+			OnComplete(MakeOperationResponse(Result, RequestId));
+		}), 0.75f, false);
 		return true;
 	}
 

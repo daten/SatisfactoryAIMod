@@ -1073,14 +1073,20 @@ deployment verified via file timestamps) because splitter/merger-class
 buildables carry their traceable collision in FactoryGame's
 instanced-mesh system (AbstractInstanceManager), which actor-level
 calls can't touch and whose cleanup rides the deferred destruction.
-**v3 (in source, NOT yet live-retested): the RPC's HTTP response is
-now deferred TWO real ticks after a successful dismantle** — a
-caller's next request therefore always runs after the engine's own
-cleanup. Until v3 is confirmed: allow a real settle (~500ms+) between
-deleting something and placing at/near the same spot, and verify the
-new object's z afterwards. This also means `world.deleteBuilding`
-takes ~2 frames longer to respond than it used to — that is the fix
-working, not lag. Deleting a pipe also cleans up its flow-fill
+**v3 (two-tick deferred response) ALSO failed its retest** — the
+instanced-collision cleanup was then MEASURED live with
+delete-then-place probes at increasing delays: a probe ~250ms after
+the deferred response still stacked on the corpse; ~400ms and up
+landed clean at floor height. In the intermediate window the corpse
+can also corrupt the ground trace into a spurious `"Surface is too
+uneven!"` failure instead of a stack. **v4 (in source, NOT yet
+live-retested): the response is held on a real-time 0.75s timer**
+(measured threshold plus jitter margin) — a caller's next request
+then always runs after the corpse, actor AND instanced collision, is
+genuinely gone. `world.deleteBuilding` responding ~0.75s slower than
+it used to is this fix working, not lag. Until v4 is confirmed, keep
+a manual ~500ms+ settle between deleting and placing at/near the same
+spot and verify the new object's z. Deleting a pipe also cleans up its flow-fill
 indicator widget; deleting a Pipeline Junction does **not** delete pipes
 still attached to it (they're left dangling, and the extractor/machine
 at their other end stays "occupied" until you delete those too).
