@@ -302,6 +302,62 @@ that stage should be revisited with fresh confidence once the manifold
 distance question (#6) is resolved or the scope is deliberately kept
 to what a single platform level can reach.
 
+## FOLLOW-UP DIAGNOSTIC (same day, 2026-09-01): finding #6 is NOT distance or hop-count - it's a real, reproducible SESSION-STATE degradation
+
+Per explicit user request, built an isolated diagnostic: 5 fresh
+splitters in a straight line, no machine taps, at a separate nearby
+site, specifically to isolate whether #5/#6 above were really about
+geometry/hop-count. Result: **every single splitter-to-splitter
+connection failed** with `"Conveyor Belt is too long!"` - not just
+hop 4+, but hop 1, at THREE different fresh locations tried (one
+accidentally buried in un-surveyed terrain - a real mistake, found and
+ruled out by re-surveying with `world.terrainHeightGrid` before
+retrying; two others on confirmed-clear ground). Systematically ruled
+out, each with a dedicated clean test:
+- **Not a connector-picking bug** - explicit `sourceConnectorPosition`/
+  `destConnectorPosition` pinning (the finding #4 fix) made no
+  difference; every mode (`Straight`/`Curve`/`Auto`) was tried on every
+  attempt.
+- **Not terrain burial** - re-surveyed and rebuilt on confirmed-clear
+  ground (`world.terrainHeightGrid` showing "not found" well above the
+  platform), same failure.
+- **Not real distance** - failed identically at 3200 units, 800 units,
+  AND a deliberately tiny ~200-unit gap between two splitters placed
+  seconds apart.
+- **Not stale/batched placement** - failed even for two splitters
+  placed immediately before the single connection attempt, mirroring
+  the exact call shape that worked in the original copper-factory
+  build earlier in the SAME session.
+- **Not a real material shortage** - `world.playerInventory` confirmed
+  253 Iron Plate on hand (belts cost 1, splitters cost 2) when a
+  `"Missing materials!"` disqualifier appeared alongside `"too long"`
+  on one attempt - a red herring, not the real blocker.
+
+**The only variable identified**: this exact class of connection
+(`world.connectConveyor` between two Conveyor Splitters, via
+`instigatorStrategy: "RealCharacter"`) worked reliably EARLIER in this
+same live session (the original copper-factory build: miner→center→
++800→+1600, 3 clean hops, all verified via `world.connections`) and
+then stopped working entirely for the rest of the session, regardless
+of location, distance, or geometry. The copper factory's own machines
+(verified separately) are unaffected and still running/producing -
+this is specific to NEW belt CONSTRUCTION via this exact RPC path, not
+a general game-state problem. Leading hypothesis, not confirmed:
+`"RealCharacter"` drives the REAL player's `AFGBuildGun`/controller
+state directly (see the camera-hijack section above) - after enough
+real construction calls in one long session, something in that shared,
+long-lived state (the build gun's own internal step/hologram tracking,
+the deterministic-look controller override, or something else
+entirely) may degrade in a way a fresh game session wouldn't exhibit.
+Not proven - flagged as the most likely lead for `task_422f5883` rather
+than guessed at further live. **Practical implication for future
+sessions**: if `world.connectConveyor` starts failing `"too long"`
+across every geometry/location tried after a long session of many
+belt-construction calls, suspect session-length degradation rather
+than the specific connection's own geometry - a fresh game
+relaunch is the most likely fix, worth trying before further live
+diagnosis.
+
 ## Suggested execution order
 
 1. `world.terrainHeightGrid` survey near a real Copper Ore node candidate
