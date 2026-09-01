@@ -1678,18 +1678,20 @@ splitter-to-splitter belt built cleanly with the player ~9,700 units
 away (previously a guaranteed "too long" failure), both ends verified
 `connected=true`.
 
-**INCLINE routing still had a residual player-distance dependence
-(HMF build, finding #3): an INCLINED belt could fail "Conveyor Belt is
-too steep!"/"too long!" only because the player stood far away, and
-succeed after nothing but a `teleportPlayer` near.** Root cause:
-`AFGBuildGun::TraceForBuilding()` clamps its trace to `mBuildDistanceMax`,
-so any internal read of `BuildGun->GetHitResult()` by the belt's spline
-routing returned a point short of the real destination when the player
-was far — over-inclining the spline. **Additional fix 2026-09-01 (NOT
-YET LIVE-TESTED): the belt path now writes its synthetic hit into
-`BuildGun->GetHitResult()` at both clicks and every poll tick** (the
-conveyor lift already did this; the belt never did). Until confirmed,
-keep teleporting within ~1-2k of belt connections as the reliable
+**A residual player-DISTANCE ceiling remained (HMF finding #3, then
+isolated precisely 2026-09-01): belts fail "Conveyor Belt is too
+long!" once the player is beyond ~10-13k units — and it is purely
+DISTANCE, not incline (a controlled test failed both a horizontal AND
+an inclined belt at ~13.4k, while 9.7k still worked).** Two fixes were
+tried: (1) writing the synthetic hit into `BuildGun->GetHitResult()`
+every tick (like the lift) — live-tested, did NOT lift the ceiling;
+(2) **temporarily raising the build gun's own `mBuildDistanceMax`
+clamp to 1,000,000 for the duration of the build** (restored at every
+exit) so any internal re-trace reaches the target no matter how far
+the player stands — this is the real fix, since the ceiling is the
+trace clamp itself. Fix (2) is **compiled but NOT yet redeployed/
+live-tested** as of this writing. Until confirmed, keep teleporting
+within a few thousand units of belt connections as the reliable
 fallback. Also live-confirmed
 the same session: the `"A player is in the way!"`
 (UFGCDEncroachingPlayer) hard disqualifier is now IGNORED by all
@@ -1726,11 +1728,22 @@ uses instead of "first free". Added after the HMF build found that a
 vertical lift between two stacked splitters/mergers kept picking
 non-coaxial SIDE connectors and building a lift whose top landed
 nowhere near the dest; pin both to connectors whose X/Y line up for a
-clean vertical column. **Known residual (not yet fixed): even with
-coaxial connectors the Mk4 lift top can land ~29 units above the dest
-connector and not auto-snap** — bridge that small gap with a short belt
-or chain lift segments; still under investigation. New:
-`freeEndRotationSteps` (optional,
+clean vertical column. **CONFIRMED WORKING end-to-end 2026-09-01**:
+with pinned coaxial connectors and the correct free-end rotation, a
+vertical lift connects both ends cleanly — and the earlier "~29-unit
+overshoot" turned out to be an artifact of a MISALIGNED test, not a
+real residual: with correct geometry the lift top lands exactly on the
+dest connector. **Recipe for a clean vertical riser** (a source
+attachment below, a dest attachment above): the lift column sits at
+`sourceOutput + 300·(output normal)`, so place the dest attachment so
+its chosen input connector lands on that column (e.g. source merger's
+east output at x=X → column at x=X+300 → put the dest splitter so its
+west input is at x=X+300); pin `sourceConnectorPosition`/
+`destConnectorPosition` to those two connectors; and set
+`freeEndRotationSteps` so the lift's free (output) end faces INTO the
+dest input (opposite normals) — a straight-up column between a
+merger-output and a splitter-input facing the same way needs
+`freeEndRotationSteps: 2` (180°). New: `freeEndRotationSteps` (optional,
 default 0, integer) - number of 90-degree steps to rotate the lift's
 still-unconnected end before finishing construction (positive/negative
 = opposite directions, magnitude = step count). **Partially live-tested

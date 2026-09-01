@@ -4159,6 +4159,43 @@ namespace
 		const float TraceLength = static_cast<float>(FVector::Dist(Hit.TraceStart, Hit.TraceEnd));
 		Hit.Time = TraceLength > KINDA_SMALL_NUMBER ? Hit.Distance / TraceLength : 0.0f;
 	}
+
+	// Build-gun trace-range override (2026-09-01, HMF finding #3 follow-up).
+	// The belt/spline construction fails "Conveyor Belt is too long!" purely
+	// because the real player stands far from the connectors: the belt's
+	// internal routing re-traces from the real build gun, whose
+	// mBuildDistanceMax clamps the trace to a point short of the true
+	// destination when the player is beyond it (~10k units), making the
+	// generated spline stretch past mMaxSplineLength. Populating the
+	// synthetic hit's trace ray got horizontal belts to ~9.7k but not
+	// beyond; the reliable fix is to temporarily raise the build gun's own
+	// clamp so any internal re-trace reaches the target regardless of player
+	// distance. mBuildDistanceMax is a protected float UPROPERTY - accessed
+	// by reflection, the same pattern this file already uses for other
+	// protected properties. SetBuildGunTraceRange returns the previous value
+	// so the caller can restore it (a real player's build reach must not be
+	// left altered); a sentinel < 0 means the property wasn't found and there
+	// is nothing to restore.
+	float SetBuildGunTraceRange(AFGBuildGun* BuildGun, float NewRange)
+	{
+		if (!BuildGun) { return -1.0f; }
+		if (FFloatProperty* Prop = FindFProperty<FFloatProperty>(BuildGun->GetClass(), TEXT("mBuildDistanceMax")))
+		{
+			const float Previous = Prop->GetPropertyValue_InContainer(BuildGun);
+			Prop->SetPropertyValue_InContainer(BuildGun, NewRange);
+			return Previous;
+		}
+		return -1.0f;
+	}
+
+	void RestoreBuildGunTraceRange(AFGBuildGun* BuildGun, float SavedRange)
+	{
+		if (!BuildGun || SavedRange < 0.0f) { return; }
+		if (FFloatProperty* Prop = FindFProperty<FFloatProperty>(BuildGun->GetClass(), TEXT("mBuildDistanceMax")))
+		{
+			Prop->SetPropertyValue_InContainer(BuildGun, SavedRange);
+		}
+	}
 }
 
 FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId)
@@ -8687,6 +8724,14 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		BeltController->SetControlRotation(BeltDeterministicLook);
 	}
 
+	// Extend the build gun's trace range for the whole build (restored at
+	// every exit below, including each poll terminal) - see
+	// SetBuildGunTraceRange's doc comment. This is the fix for the belt
+	// "too long" failures at player distances beyond ~10k (isolated live
+	// 2026-09-01: both horizontal AND inclined belts fail purely on
+	// distance, so it is the trace clamp, not incline).
+	const float SavedBuildGunRange = SetBuildGunTraceRange(BuildGun, 1000000.0f);
+
 	// Build-gun cached-trace injection for belts (2026-09-01) - the fix
 	// for the player-distance-dependent "Conveyor Belt is too steep!"/
 	// "too long!" failures found during the HMF build (see
@@ -8717,6 +8762,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 
 	if (bStartStepComplete)
 	{
+		RestoreBuildGunTraceRange(BuildGun, SavedBuildGunRange);
 		Character->UnequipBuildGun();
 		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
 		return;
@@ -8735,6 +8781,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 
 	if (!bEndStepComplete)
 	{
+		RestoreBuildGunTraceRange(BuildGun, SavedBuildGunRange);
 		Character->UnequipBuildGun();
 		OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"),
 			FString::Printf(TEXT("DoMultiStepPlacement() did not report complete after the end click - step=%d connectedCount=%d, may need a third step"), static_cast<int32>(StepAfterEnd), ConnectedBuildables.Num())));
@@ -8752,6 +8799,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		bool bDryRun = true;
 		FRotator DeterministicLook;
 		FHitResult EndHit; // re-asserted every poll tick, see below
+		float SavedBuildGunRange = -1.0f; // restored at every poll terminal
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -8766,6 +8814,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 	PollState->bDryRun = bDryRun;
 	PollState->DeterministicLook = BeltDeterministicLook;
 	PollState->EndHit = EndHit;
+	PollState->SavedBuildGunRange = SavedBuildGunRange;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -8779,6 +8828,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		if (!IsValid(PollHologram) || !PollWorld)
 		{
 			UE_LOG(LogAIModAI, Warning, TEXT("ConstructConveyorBelt (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+			RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
 			return;
@@ -8864,6 +8914,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 
 		if (!bCanConstruct)
 		{
+			RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
 			return;
@@ -8871,6 +8922,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 
 		if (PollState->bDryRun)
 		{
+			RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Success());
 			return;
@@ -8884,6 +8936,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		if (!PollBuildState)
 		{
 			UE_LOG(LogAIModAI, Error, TEXT("ConstructConveyorBelt (deferred): lost the build state before constructing - aborting, nothing built"));
+			RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
 			return;
@@ -8894,6 +8947,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorBelt (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
 			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
 
+		RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
 		if (IsValid(PollCharacter))
 		{
 			PollCharacter->UnequipBuildGun();
