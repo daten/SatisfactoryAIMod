@@ -6,13 +6,23 @@ the next session"). This is a checklist, not a reference — for what a
 call actually does, see `RPC_REFERENCE.md`; for what's supported at
 all, see `docs/buildable-coverage.md`.
 
-**Last confirmed live test session: 2026-08-30** (the Splitter-to-
-Splitter Conveyor Control Test, 48/48 live-verified, plus the circular
-foundation/platform work — see `project_satisfactory_ai_interface.md`
-memory). Everything below was written, compiled, and committed during
-the offline research day that followed (the user was away, no game
-running) and this current session — **none of it has touched a real
-running game yet.**
+**Last confirmed live test session: 2026-08-31** (this one — the water
+pump / stackable support / Power Tower / map marker / power switch /
+telemetry sweep documented below). Previous session: 2026-08-30 (the
+Splitter-to-Splitter Conveyor Control Test, 48/48 live-verified, plus
+the circular foundation/platform work — see
+`project_satisfactory_ai_interface.md` memory).
+
+**2026-08-31 session found two real bugs, both fixed, BOTH STILL
+PENDING REDEPLOY** (Alpakit + relaunch — a manual Editor-UI step, not
+something driven from this session): (1) `world.constructWaterPumpAtPosition`
+CRASHED THE GAME on an on-land negative-path test — see
+`docs/placement-lessons.md`'s dedicated writeup. (2)
+`world.constructStackableSupportOnTop` failed every call
+(`GetStackHeight()` read back as 0) — non-crashing, but always wrong.
+Everything marked PASS below was confirmed against the build that was
+actually running at the time (i.e. BEFORE either fix) — re-confirm the
+two fixed items specifically after the next redeploy.
 
 **How to use this**: work top to bottom within each priority tier —
 they're ordered roughly easiest/highest-value first. Check a box, add
@@ -27,28 +37,46 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
 
 ## Tier 1 — quick, high-value, test these first
 
-- [ ] **`world.teleportPlayer`** — teleport to a known coordinate,
-  confirm the player actually moves and doesn't fall through terrain
-  or get stuck. Try both ground-snapped and `ignoreGroundTrace` modes.
-- [ ] **`world.powerPoles`** — call with at least one placed Power
-  Tower nearby. Confirm a Tower reports TWO `connections` entries
-  (`PowerTower` + `Default`) and an ordinary pole reports ONE. This is
-  the telemetry half of the Power Tower bugfix below — start here.
-- [ ] **Power Tower connection fix (`world.connectPower`)** — the
-  actual bug verification. Place two Power Towers farther apart than
-  `world.powerLineLimits`' plain `maxLength` but within a Tower's own
-  `powerTowerWireMaxLength` (from `world.powerPoles`), then call
-  `world.connectPower` between them. Should now succeed — confirm it
-  picks each Tower's `PowerTower`-type connector, not the short-range
-  one. Also try Tower→ordinary-pole (short range) to confirm the fix
-  didn't break the common case.
-- [ ] **`world.mapMarkers` / `world.placeMapMarker`** — place a marker
-  with a real `iconId` from `world.mapMarkerIcons`, then open the
-  in-game map and confirm it's actually visible with the right icon
-  and color. Then `world.removeMapMarker` and confirm it's gone.
-- [ ] **`world.setPowerSwitchOn`** — toggle an existing Power Switch or
-  Priority Power Switch off/on, confirm the circuit actually
-  loses/regains power.
+- [x] **`world.teleportPlayer`** — **DONE 2026-08-31.** Ground-trace
+  mode (no `z`) twice returned `TELEPORT_BLOCKED`/"no clear
+  destination" near the water-pump test site (possibly the water
+  itself, or clutter from the newly-built pumps - not root-caused,
+  low priority since `ignoreGroundTrace` is the reliable mode for this
+  project's own use anyway). `ignoreGroundTrace: true` with a literal
+  z above a real foundation's surface: PASS, landed at the exact
+  requested position, verified via `world.player`.
+- [x] **`world.powerPoles`** — **DONE 2026-08-31, PASS.** A real Power
+  Tower reported exactly TWO `connections` entries (`Default` +
+  `PowerTower`); an ordinary `PowerPoleMk1` reported exactly ONE
+  (`Default`). Matches the bugfix's own claim exactly.
+- [x] **Power Tower connection fix (`world.connectPower`)** — **DONE
+  2026-08-31, PASS.** Found two real Power Towers 26894 units apart
+  (beyond `world.powerLineLimits`' plain `maxLength` of 10000, within
+  `maxPowerTowerLength` of 30000) with free `PowerTower`-type
+  connectors. First attempt failed `CANNOT_CONSTRUCT`/"Invalid aim
+  location!" (same known camera/aim flakiness this project already
+  documents elsewhere) - retried with `ignoreAimLocation: true,
+  ignoreWireSnap: true` and it succeeded. Verified via `world.buildables`:
+  a real new `Build_PowerLine_C` actor appeared at Tower A's position
+  pointing toward Tower B. **Not yet tried**: Tower→ordinary-pole
+  (short range) to confirm the fix didn't break the common case.
+- [x] **`world.mapMarkers` / `world.placeMapMarker`** — **DONE
+  2026-08-31, PASS (full round trip).** Placed with a real `iconId`
+  from `world.mapMarkerIcons`; the marker appeared in `world.mapMarkers`
+  at the exact requested position with the correct `iconId`.
+  `world.removeMapMarker` (using the `markerId` from the place
+  response's `result.detail`) removed it - confirmed gone on
+  re-query. Note: `placeMapMarker` has no `label`/`name` param (the
+  marker's `name` field always comes back empty) - not a bug, just an
+  unsupported param, don't pass one.
+- [x] **`world.setPowerSwitchOn`** — **DONE 2026-08-31, PASS.** Toggled
+  a real Priority Power Switch ("Copper Factory") off then back on via
+  `world.priorityPowerSwitches` before/after checks - `isSwitchOn`
+  flipped both ways correctly. Bonus finding: `circuitGroupID0` changed
+  from `0` (single connected circuit) to a distinct nonzero value while
+  OFF (the switch splitting the network into two groups), confirming
+  the `circuitGroupID0`/`circuitGroupID1` topology semantics flagged as
+  unconfirmed in Tier 2 below - closing that gap too.
 
 ## Tier 2 — moderate setup, real correctness questions
 
@@ -74,45 +102,43 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
   `controller/satisfactory_ai/water.py`'s `plan_water_pump_field()` and
   constructing the resulting row of pumps - the first real test of the
   placement RPCs AND the layout planner together (still not done).
-- [ ] **`world.constructStackableSupport`** — construct one with
-  `stackCount: 0` first (should behave like an ordinary single pole)
-  and confirm it builds. Then try `stackCount: 2` or more and confirm
-  it actually produces a vertical stack, not a sideways row or a
-  single instance - this is the real, flagged unknown (whether the
-  `FIntVector`'s Z component really maps to "vertical" for this
-  hologram). Check `result.detail.foundCount` vs `requestedCount`
-  matches what's actually visible in-game. Try all three real recipes
-  (`Recipe_ConveyorPoleStackable`/`Recipe_PipeSupportStackable`/
-  `Recipe_HyperPoleStackable`) since the "one shared class covers all
-  three" claim was inferred from naming, not confirmed via binary-grep
-  like most other "shared class" findings this session.
-- [ ] **`world.constructStackableSupportOnTop`** — the corrected
-  PRIMARY mechanism (per user: real stacking is "usually as multiple
-  separate attachments, not in one instantaneous placement"). Place
-  one base support with `world.constructStackableSupport`
-  (`stackCount: 0`), then call `world.constructStackableSupportOnTop`
-  with its `buildableId` as `referenceBuildableId` and a DIFFERENT
-  recipe (e.g. base = `Recipe_PipeSupportStackable`, on-top =
-  `Recipe_ConveyorPoleStackable`) — confirm the new instance actually
-  snaps onto the real top (position = reference's `GetStackHeight()`
-  above it, not overlapping or floating) and that the mix is visually
-  and functionally correct (a pipe attachment point at one level, a
-  belt attachment point at the next). Then chain a third call on top
-  of THAT result to confirm an arbitrarily tall mixed column works,
-  not just two levels. Also try passing a `referenceBuildableId` that
-  ISN'T a stackable support (e.g. an ordinary pole or wall) and
-  confirm it correctly fails `WRONG_TYPE` rather than doing something
-  undefined.
-- [ ] **`world.priorityPowerSwitches` / `world.setPriorityPowerSwitchPriority`**
-  — set a priority on a placed switch, cause a real power shortage
-  (or check in-game), confirm it actually sheds before a lower-priority
-  switch. Also confirm `circuitGroupID0`/`circuitGroupID1` match what
-  `world.connections`-style topology would suggest.
+- [x] **`world.constructStackableSupport`** — **DONE 2026-08-31,
+  PASS.** `stackCount: 0` built a single ordinary `PipeSupportStackable`,
+  verified via `world.buildables`. Same-recipe multi-level stacking via
+  REPEATED calls (not `stackCount`) also confirmed: 5 sequential calls
+  near the same column all succeeded, each snapping to a new real slot
+  above the last via the hologram's own `TrySnapToActor` logic - the
+  literal Z passed didn't need to be precise (dz=50 through dz=400 all
+  landed correctly), confirming the real engine snap is robust. Not
+  independently tried: `stackCount: 2+` in a single Zoop call (the
+  repeated-call path was what mattered for the user's actual use case,
+  and got proven instead), nor `Recipe_HyperPoleStackable` specifically.
+- [x] **`world.constructStackableSupportOnTop`** — **DONE 2026-08-31,
+  FOUND A REAL BUG, FIXED (not yet redeployed).** Built a base
+  `PipeSupportStackable`, then called this RPC with a DIFFERENT recipe
+  (`ConveyorPoleStackable`) as reference - failed `CANNOT_CONSTRUCT`/
+  "An identical buildable is already built there!" every time.
+  Root-caused: `GetStackHeight()` read back as `0` for this class, so
+  the computed candidate position was literally the reference's own
+  location (self-overlap) - reproduced directly by constructing a
+  second pole at the exact same Z as a placed reference via the
+  literal-position RPC, same error. Fixed: floor the height at a sane
+  minimum (100.0) instead of trusting `GetStackHeight()` outright - see
+  `RPC_REFERENCE.md`. Compiled clean, **NOT yet redeployed/re-verified** -
+  re-run this exact test after the next redeploy.
+- [x] **`world.priorityPowerSwitches` / `world.setPowerSwitchOn`** —
+  **DONE 2026-08-31, PASS** (via the Tier 1 `setPowerSwitchOn` test
+  above) - `circuitGroupID0`/`circuitGroupID1` confirmed to reflect
+  real circuit topology (changes when the switch splits the network).
+  **Still not tried**: `world.setPriorityPowerSwitchPriority` itself
+  (only the on/off toggle was exercised), and an actual power-shortage
+  shedding scenario.
 - [ ] **`world.splitterSortRules` / `world.setSplitterSortRules`** —
-  place a Smart or Programmable Splitter, set a rule routing a specific
-  item to a specific output, confirm it actually routes there. Then
-  test the `"Wildcard"` sentinel on another output and confirm
-  everything else falls through to it.
+  only the READ side (`world.splitterSortRules`, 7 splitters found) was
+  confirmed this session. Still need: place a Smart or Programmable
+  Splitter, set a rule routing a specific item to a specific output,
+  confirm it actually routes there. Then test the `"Wildcard"` sentinel
+  on another output and confirm everything else falls through to it.
 - [ ] **`world.constructBeam`** — construct a beam between two literal
   points with `ignoreGroundTrace: true`, both `freeformMode: false` and
   `true`, and a non-zero `rotationScrollSteps`. This is a genuinely new
@@ -124,11 +150,12 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
   `world.buildables` re-query? (Flagged as a real, unconfirmed
   lightweight-instance persistence question in the code's own doc
   comments.)
-- [ ] **`world.activeEvents`** — call it and confirm it returns all 4
-  events with sane `isActive` values (should mostly be `false` unless
-  an event happens to be running). Then check `world.recipeCatalog`'s
-  `isAvailable`/`relevantEvents` fields on a normal (non-seasonal)
-  recipe — should be `isAvailable: true`, `relevantEvents: []`.
+- [x] **`world.activeEvents`** — **DONE 2026-08-31, PASS.** Returned
+  all 4 events (`Christmas`/`Anniversary`/`CSSBirthday`/`FirstOfApril`),
+  all `isActive: false` (none currently running - correct for today's
+  date). `world.recipeCatalog`'s `Recipe_IronPlate` (a normal, non-
+  seasonal recipe) correctly reported `isAvailable: true`,
+  `relevantEvents: []`.
 
 ## Tier 3 — the long-standing lift problem (harder, most complex)
 
@@ -155,26 +182,30 @@ Lower risk — these are read-only telemetry additions, most likely to
 "just work" if they compile, but genuinely never queried against a
 real save:
 
-- [ ] `world.pipelinePumpTiers` (now includes Valve) — check real
-  `maxHeadLift`/`designHeadLift`/`defaultFlowLimit` numbers look
-  sane for a placed Pump vs a placed Valve.
-- [ ] `world.pipeReservoirTiers` — check real numbers for both Fluid
-  Buffer and Industrial Fluid Buffer.
+- [x] `world.pipelinePumpTiers` (now includes Valve) — **DONE
+  2026-08-31, PASS.** Real numbers: Pump `maxHeadLift=22`/
+  `designHeadLift=20`, Mk2 `55`/`50`, Valve `0`/`0` (correct - a Valve
+  doesn't pump), all `defaultFlowLimit=10`. All sane.
+- [x] `world.pipeReservoirTiers` — **DONE 2026-08-31, PASS.** Storage
+  Tank `maxContentM3=400`, Industrial Tank `maxContentM3=2400` - matches
+  known real game values exactly.
 - [ ] `world.pipeFluidBoxes` — call while a pipe network is actively
   filling (right after connecting a pump to an empty pipe run) and
   watch whether `fillPct`/`flowFill`/`flowDrain` behave the way
   `docs/pipe-network-research.md` predicts (sequential segment fill,
-  possible sloshing).
-- [ ] `world.trainCargoPlatforms` — check `outflowRate`/`inflowRate`
-  read as nonzero on a real Liquid Freight Platform actively
-  loading/unloading.
-- [ ] `world.truckStations` — check `resourceForm` correctly reports
-  `"Liquid"` for a real placed Fluid Truck Station (this is the
-  single least-confirmed inference in that whole feature — flagged in
-  its own doc comment as the first thing to verify).
+  possible sloshing). Not attempted this session.
+- [x] `world.trainCargoPlatforms` — **PARTIALLY DONE 2026-08-31**: read
+  succeeded (22 platforms found), but `outflowRate`/`inflowRate` on an
+  actively-loading platform not specifically checked.
+- [x] `world.truckStations` — **PARTIALLY DONE 2026-08-31**: read
+  succeeded (4 stations found), all real ones nearby report
+  `resourceForm: "Solid"` correctly. **Still unconfirmed**: the
+  `"Liquid"` case specifically - no Fluid Truck Station was found
+  nearby this session to test against.
 - [ ] `world.setBuildableColor` — set a color on a placed buildable,
   confirm it visually changes (and check whether white-vs-black
-  defaults matter the way the beam color code assumed).
+  defaults matter the way the beam color code assumed). Not attempted
+  this session.
 
 ---
 

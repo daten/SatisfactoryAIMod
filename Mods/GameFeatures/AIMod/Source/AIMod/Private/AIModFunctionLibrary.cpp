@@ -11903,13 +11903,23 @@ void UAIModFunctionLibrary::ConstructStackableSupportOnTop(UObject* WorldContext
 		return;
 	}
 
-	// GetStackHeight() is real, public, per-instance (FGBuildablePoleStackable.h)
-	// - the exact vertical increment a stack of THIS tier uses. Feeding
-	// this candidate position through TrySnapToActor (inside the shared
-	// helper) below should let the real engine's own snap logic correct
-	// any small error here, same "let the real engine decide" posture as
-	// every other Construct* function in this file.
-	const FVector CandidatePosition = ReferencePole->GetActorLocation() + FVector(0.0f, 0.0f, ReferencePole->GetStackHeight());
+	// GetStackHeight() is real, public (FGBuildablePoleStackable.h), but
+	// CONFIRMED LIVE (2026-08-31) to read back as 0 for at least
+	// Recipe_PipeSupportStackable's buildable class - reproduced directly
+	// by constructing a second pole at literally the same Z as a real
+	// placed reference (dz=0), which fails with the exact same
+	// "An identical buildable is already built there!" this function hit
+	// live before this fix. A modest literal offset (empirically
+	// confirmed live: dz=50 through dz=400 all land correctly in the same
+	// real column) is all TrySnapToActor (inside the shared helper below)
+	// needs to find the true next slot - the real engine's own snap logic
+	// resolves the exact final position regardless of small input error,
+	// same "let the real engine decide" posture as every other Construct*
+	// function in this file. Floor GetStackHeight() at a sane minimum
+	// rather than trusting it outright, so a same-shaped 0 (or
+	// near-zero) reading for any other stackable tier can't reproduce
+	// this same self-collision.
+	const FVector CandidatePosition = ReferencePole->GetActorLocation() + FVector(0.0f, 0.0f, FMath::Max(ReferencePole->GetStackHeight(), 100.0f));
 
 	ConstructStackableSupportAtCandidatePosition(World, Character, CandidatePosition, RecipeClassPath, 0, ReferenceBuildableId, MoveTemp(OnComplete));
 }

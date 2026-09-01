@@ -1899,7 +1899,7 @@ conveyor pole at the next) in a single column. See
 mechanism — prefer it over `stackCount` unless every level in the
 column is genuinely the same recipe.
 
-### `world.constructStackableSupportOnTop` — asynchronous, `result.buildableId` on success, **NOT YET LIVE-TESTED**
+### `world.constructStackableSupportOnTop` — asynchronous, `result.buildableId` on success, **CONFIRMED LIVE BUG, FIXED 2026-08-31 — fix not yet redeployed**
 `params: {"referenceBuildableId" (required string), "recipeClass" (required string)}`
 
 Added 2026-08-31 in direct response to the user's correction on
@@ -1934,6 +1934,24 @@ apply where relevant, though this path always uses `stackCount=0`
 here comes from repeated CALLS, not one Zoop. Call this once per
 level, feeding each result's `buildableId` back in as the next call's
 `referenceBuildableId`, to build an arbitrarily tall mixed column.
+
+**Live-tested 2026-08-31, found a real bug**: `GetStackHeight()` read
+back as `0` for a real `Recipe_PipeSupportStackable` reference,
+reproduced directly (constructing a second pole at literally the same
+Z as a placed reference fails with the exact same error this hit) —
+`CANNOT_CONSTRUCT` / "An identical buildable is already built there!".
+Separately confirmed empirically that `TrySnapToActor` (inside the
+shared helper) resolves the true correct next-slot position given ANY
+modest positive literal Z offset near the reference (dz=50 through
+dz=400 all landed correctly in the same real column via direct
+`world.constructStackableSupport` calls) — the exact value doesn't
+need to be precise, just nonzero. **Fixed**: the candidate Z now uses
+`FMath::Max(ReferencePole->GetStackHeight(), 100.0f)` instead of
+trusting `GetStackHeight()` outright. Compiled clean on both targets,
+but **NOT yet redeployed/re-verified live** — the currently-running
+game still has the pre-fix code, so a fresh `constructStackableSupportOnTop`
+call against it will still hit the same clean (non-crashing)
+`CANNOT_CONSTRUCT` failure until redeploy.
 
 ### `world.setBeamLength` — `{"buildableId", "newLength"}`, **NOT YET LIVE-TESTED**
 ```json
