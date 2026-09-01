@@ -86,6 +86,73 @@ the rest of the water-pump/stackable-support test backlog can
 continue). Positive-path results (steps 1-3 above) stand as
 CONFIRMED LIVE WORKING.
 
+**UPDATE, same day, after redeploy**: user redeployed and placed a
+fresh reference pump/foundations on a different shoreline. Re-ran the
+EXACT on-land call that crashed the game before — now correctly
+returns `CANNOT_CONSTRUCT`/"Must be placed on deep water!" instead of
+crashing. **Fix confirmed live.** Also found a new real fact while
+re-confirming the positive path: this shoreline needed pumps ~5000+
+units offshore before water was deep enough (3000 failed "Must be
+placed on deep water!", matching disqualifiers `EncompassesPoint()`
+now correctly surfaces instead of the old wrong-fallback silently
+letting a bad point through) — a real, per-shoreline depth constraint
+distinct from the pump-to-pump clearance spacing found earlier; the
+first test site happened to succeed at 3000.
+
+## LESSON: never assume a foundation's pivot-to-top offset — different foundation TYPES have wildly different thickness (found live 2026-08-31)
+
+While re-testing `world.constructStackableSupportOnTop` after the
+crash fix above, built a 3-level stackable-support column at a literal
+Z computed from a nearby `Build_Foundation_8x1_01`'s pivot position
+(`z=-1650`) plus an assumed 400-unit thickness (the value this project
+had previously confirmed for a DIFFERENT foundation type,
+`Foundation_8x4_01` - see the "Multi-story stacked builds" section
+below). User caught it live: "your test stackables are floating above
+the foundation." Real `world.groundHeight` at a clean (unbuilt-on)
+tile of the SAME foundation row: `z=-1600` — only 50 units above the
+pivot, not 400. `Foundation_8x1_01` is evidently a much thinner piece
+than `Foundation_8x4_01` despite both being "a foundation" - the
+naming (`8x1` vs `8x4`) does encode a real, different thickness, not
+just footprint. **Standing lesson, sharpened**: a pivot-to-top offset
+confirmed for ONE foundation recipe/class does NOT transfer to a
+different foundation class, even one that looks superficially similar.
+Always re-verify with `world.groundHeight` at a clean tile of the
+SPECIFIC foundation type in play, every time, rather than reusing a
+number from a previous session or a different recipe.
+
+## LESSON: `world.constructStackableSupportOnTop` calls are occasionally flaky on the first attempt, and `result.buildableId` can be stale in a dense column (found live 2026-08-31, after the `GetStackHeight()` fix)
+
+Re-testing the fixed `world.constructStackableSupportOnTop` (see the
+water-pump crash entry above for the redeploy context) surfaced two
+real, practical findings, neither a residual correctness bug:
+
+1. **Retry-once flakiness, same class already documented elsewhere in
+   this file** ("Surface is too uneven!" on other buildables): roughly
+   half of the on-top calls in this session failed on the FIRST
+   attempt with `CANNOT_CONSTRUCT`/"An identical buildable is already
+   built there!" and then succeeded on an IMMEDIATE retry with no
+   other change (same reference, same recipe, same everything). Budget
+   for this specifically on `constructStackableSupportOnTop` - retry
+   once before treating a failure here as real.
+2. **`result.buildableId` can report the WRONG buildable** - observed
+   it returning the REFERENCE pole's own id (not a newly-constructed
+   one) immediately after a delete+rebuild at the same X/Y, even though
+   `result.detail.foundCount`/`buildableIds` correctly showed 2 real
+   nearby matches. Root cause: the proximity-based "what did we just
+   build" confirmation (shared with `world.constructStackableSupport`)
+   picks whichever real buildable is CLOSEST to the intended construct
+   location - normally fine, but stackable supports genuinely dock
+   with real vertical overlap between segments (confirmed by the user:
+   "stacking supports dock with about 50% vertical overlap of each
+   other"), so a pre-existing neighbor can legitimately be closer than
+   the actual new instance, especially right after a delete that
+   hasn't fully settled. **Always cross-check
+   `result.detail.buildableIds` (or a before/after `world.buildables`
+   diff)** rather than trusting `buildableId` alone for this RPC family
+   in a dense column - the same caution `world.constructStackableSupport`'s
+   own docs already give for a single Zoop call, now confirmed to also
+   apply across SEPARATE calls in a tight column.
+
 ## ONGOING: camera-hijack during construction, and the `instigatorStrategy` multi-fix build (2026-08-30)
 
 Real, user-reported: `world.connectConveyor` (and separately,

@@ -1306,7 +1306,7 @@ spacing** (previously an unconfirmed value the Python planner left as
 a required caller input): somewhere in `(2000, 3000]`, not yet
 narrowed further.
 
-### `world.constructWaterPumpAtPosition` — asynchronous, `result.buildableId` on success, **CONFIRMED LIVE WORKING for genuine in-water positions (2026-08-31); see crash note below**
+### `world.constructWaterPumpAtPosition` — asynchronous, `result.buildableId` on success, **CONFIRMED LIVE WORKING, crash fixed AND re-verified after redeploy (2026-08-31)**
 `params: {"x"/"y"/"z" (required numbers), "recipeClass" (optional, default Recipe_WaterPump)}`
 
 Added 2026-08-31, the from-scratch counterpart to
@@ -1348,12 +1348,18 @@ extractor recipes (see below) — a THIRD confirmed instance of "never
 trust `GetConstructDisqualifiers()` alone to catch a missing mandatory
 hologram reference." **Fixed**: `EncompassesPoint()` is now a hard
 requirement, no distance-based fallback as an actual target — see
-`docs/placement-lessons.md`'s dedicated writeup for full detail. The
-fix compiles clean on both `FactoryEditor` and `FactoryGameSteam`
-Shipping, but **has NOT yet been redeployed/re-verified live** (the
-crash killed the running game process) — only the positive,
-genuine-in-water path above is confirmed against the currently
-running build.
+`docs/placement-lessons.md`'s dedicated writeup for full detail.
+
+**Redeployed and re-verified live (2026-08-31)**: re-ran the EXACT
+on-land call that crashed the game before, against a fresh reference
+pump on a different shoreline — now correctly returns
+`CANNOT_CONSTRUCT`/"Must be placed on deep water!" instead of
+crashing. Also found a new real fact about depth requirements: a
+3000-unit offshore offset from a fresh reference pump still failed
+"Must be placed on deep water!"; 5000+ succeeded — shallow water near
+shore is a real, distinct constraint separate from the pump-to-pump
+clearance spacing noted above, and varies by shoreline (the earlier
+test site succeeded at 3000).
 
 ### `world.constructVehicle` — asynchronous, `result.buildableId` on success
 `params: {"recipeClass" (required), "droneStationId" (optional),
@@ -1899,7 +1905,7 @@ conveyor pole at the next) in a single column. See
 mechanism — prefer it over `stackCount` unless every level in the
 column is genuinely the same recipe.
 
-### `world.constructStackableSupportOnTop` — asynchronous, `result.buildableId` on success, **CONFIRMED LIVE BUG, FIXED 2026-08-31 — fix not yet redeployed**
+### `world.constructStackableSupportOnTop` — asynchronous, `result.buildableId` on success, **CONFIRMED LIVE BUG, FIXED AND RE-VERIFIED after redeploy (2026-08-31)**
 `params: {"referenceBuildableId" (required string), "recipeClass" (required string)}`
 
 Added 2026-08-31 in direct response to the user's correction on
@@ -1947,11 +1953,24 @@ dz=400 all landed correctly in the same real column via direct
 `world.constructStackableSupport` calls) — the exact value doesn't
 need to be precise, just nonzero. **Fixed**: the candidate Z now uses
 `FMath::Max(ReferencePole->GetStackHeight(), 100.0f)` instead of
-trusting `GetStackHeight()` outright. Compiled clean on both targets,
-but **NOT yet redeployed/re-verified live** — the currently-running
-game still has the pre-fix code, so a fresh `constructStackableSupportOnTop`
-call against it will still hit the same clean (non-crashing)
-`CANNOT_CONSTRUCT` failure until redeploy.
+trusting `GetStackHeight()` outright.
+
+**Redeployed and re-verified live (2026-08-31)**: built a full 3-level
+mixed column — `Recipe_PipeSupportStackable` → `Recipe_ConveyorPoleStackable`
+→ `Recipe_HyperPoleStackable` — all three levels succeeded, each
+landing a consistent 201 units above the last (verified via
+`world.buildables`), resting correctly on a real foundation. **Two
+practical findings from re-testing**: (1) roughly half these calls
+failed on the FIRST attempt with the same "already built there" error
+and succeeded on an immediate retry with no other change — matches
+this project's established transient-disqualifier-flakiness pattern
+(not a residual bug; retry once before treating a `CANNOT_CONSTRUCT`
+here as real). (2) `result.buildableId` can report a STALE or
+neighboring buildable's id rather than the one just constructed when
+several stackable poles sit close together (especially right after a
+delete+rebuild at the same spot) — cross-check
+`result.detail.buildableIds` or a before/after `world.buildables` diff
+rather than trusting `buildableId` alone in a dense column.
 
 ### `world.setBeamLength` — `{"buildableId", "newLength"}`, **NOT YET LIVE-TESTED**
 ```json

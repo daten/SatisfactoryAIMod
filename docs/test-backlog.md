@@ -13,16 +13,29 @@ Splitter-to-Splitter Conveyor Control Test, 48/48 live-verified, plus
 the circular foundation/platform work — see
 `project_satisfactory_ai_interface.md` memory).
 
-**2026-08-31 session found two real bugs, both fixed, BOTH STILL
-PENDING REDEPLOY** (Alpakit + relaunch — a manual Editor-UI step, not
-something driven from this session): (1) `world.constructWaterPumpAtPosition`
-CRASHED THE GAME on an on-land negative-path test — see
-`docs/placement-lessons.md`'s dedicated writeup. (2)
-`world.constructStackableSupportOnTop` failed every call
-(`GetStackHeight()` read back as 0) — non-crashing, but always wrong.
-Everything marked PASS below was confirmed against the build that was
-actually running at the time (i.e. BEFORE either fix) — re-confirm the
-two fixed items specifically after the next redeploy.
+**2026-08-31 session found two real bugs, both fixed, BOTH NOW
+REDEPLOYED AND RE-CONFIRMED LIVE**: (1) `world.constructWaterPumpAtPosition`
+CRASHED THE GAME on an on-land negative-path test — re-tested against
+the fixed build with the EXACT same call that crashed it before: now
+correctly returns a clean `CANNOT_CONSTRUCT`/"Must be placed on deep
+water!" instead of crashing. Positive path (a real in-water position)
+also re-confirmed. See `docs/placement-lessons.md`'s dedicated
+writeup. (2) `world.constructStackableSupportOnTop` failed every call
+(`GetStackHeight()` read back as 0) — fixed, re-tested with a full
+3-level mixed column (Pipe → Belt → Hyper), all three levels
+succeeded, landing a consistent 201 units apart. **Real, recurring
+finding while re-testing**: roughly half of these on-top calls failed
+on the FIRST attempt with `CANNOT_CONSTRUCT`/"An identical buildable
+is already built there!" and then succeeded on an immediate retry with
+no other change — matches this project's already-documented
+transient-disqualifier-flakiness pattern ("Surface is too uneven!" on
+other buildables, retry-once). Budget for a retry on this RPC
+specifically. Also found: `result.buildableId` can report a STALE or
+neighboring buildable's id (not the one just constructed) when several
+stackable poles sit close together, especially right after a
+delete+rebuild at the same spot — always cross-check
+`result.detail.buildableIds` (or a before/after `world.buildables`
+diff) rather than trusting `buildableId` alone in a dense column.
 
 **How to use this**: work top to bottom within each priority tier —
 they're ordered roughly easiest/highest-value first. Check a box, add
@@ -81,27 +94,30 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
 ## Tier 2 — moderate setup, real correctness questions
 
 - [x] **`world.waterVolumes` / `world.constructWaterPumpAtPosition` /
-  `world.constructWaterPumpNearReference`** — **PARTIALLY DONE
-  2026-08-31, real crash found and fixed along the way, redeploy still
-  needed.** `world.waterVolumes` near the player's real ocean reported
-  sane bounds. `world.constructWaterPumpNearReference` from a real
-  reference pump: PASS — 2000-unit offset correctly failed
-  `CANNOT_CONSTRUCT`, 3000/4000/5000-unit offsets all succeeded and
-  verified via `world.buildables` at the exact expected positions
-  (**real minimum pump spacing is somewhere in (2000, 3000]**, closing
-  the "unconfirmed value" gap noted below). `world.constructWaterPumpAtPosition`
+  `world.constructWaterPumpNearReference`** — **DONE 2026-08-31, real
+  crash found, fixed, redeployed, and re-confirmed fixed.**
+  `world.waterVolumes` near the player's real ocean reported sane
+  bounds. `world.constructWaterPumpNearReference` from a real reference
+  pump: PASS — 2000-unit offset correctly failed `CANNOT_CONSTRUCT`,
+  3000/4000/5000-unit offsets all succeeded and verified via
+  `world.buildables` at the exact expected positions (**real minimum
+  pump spacing is somewhere in (2000, 3000]**). `world.constructWaterPumpAtPosition`
   for a genuine in-water position: PASS, verified via
-  `world.buildables`. **Then the negative-path test (a literal on-land
-  position) CRASHED THE GAME** — real bug, root-caused and fixed same
-  session (see `docs/placement-lessons.md`'s dedicated writeup), both
-  targets compiled clean. **Still needed**: redeploy (Alpakit +
-  relaunch) and re-test the on-land case now returns a clean
-  `NO_WATER_VOLUME_FOUND`/`CANNOT_CONSTRUCT` instead of crashing, plus
-  a too-shallow-water case (not yet tried). Once the crash fix is
-  confirmed, also try feeding a real lake's bounds into
-  `controller/satisfactory_ai/water.py`'s `plan_water_pump_field()` and
-  constructing the resulting row of pumps - the first real test of the
-  placement RPCs AND the layout planner together (still not done).
+  `world.buildables`. The negative-path test (a literal on-land
+  position) CRASHED THE GAME the first time — root-caused and fixed
+  (see `docs/placement-lessons.md`'s dedicated writeup). **After
+  redeploy, re-ran the EXACT same on-land call**: now correctly returns
+  `CANNOT_CONSTRUCT`/"Must be placed on deep water!" instead of
+  crashing — confirmed fixed. Also re-confirmed the positive path on a
+  fresh reference pump at a different shoreline, and found a new real
+  fact: this shoreline needs pumps ~5000+ units offshore before water
+  is deep enough (3000 failed "Must be placed on deep water!", 5000+
+  succeeded) — a distinct, real depth constraint separate from the
+  pump-to-pump clearance spacing above. **Still not done**: feeding a
+  real lake's bounds into `controller/satisfactory_ai/water.py`'s
+  `plan_water_pump_field()` and constructing the resulting row of
+  pumps — the first real test of the placement RPCs AND the layout
+  planner together.
 - [x] **`world.constructStackableSupport`** — **DONE 2026-08-31,
   PASS.** `stackCount: 0` built a single ordinary `PipeSupportStackable`,
   verified via `world.buildables`. Same-recipe multi-level stacking via
@@ -114,18 +130,27 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
   repeated-call path was what mattered for the user's actual use case,
   and got proven instead), nor `Recipe_HyperPoleStackable` specifically.
 - [x] **`world.constructStackableSupportOnTop`** — **DONE 2026-08-31,
-  FOUND A REAL BUG, FIXED (not yet redeployed).** Built a base
-  `PipeSupportStackable`, then called this RPC with a DIFFERENT recipe
-  (`ConveyorPoleStackable`) as reference - failed `CANNOT_CONSTRUCT`/
-  "An identical buildable is already built there!" every time.
-  Root-caused: `GetStackHeight()` read back as `0` for this class, so
-  the computed candidate position was literally the reference's own
-  location (self-overlap) - reproduced directly by constructing a
-  second pole at the exact same Z as a placed reference via the
-  literal-position RPC, same error. Fixed: floor the height at a sane
-  minimum (100.0) instead of trusting `GetStackHeight()` outright - see
-  `RPC_REFERENCE.md`. Compiled clean, **NOT yet redeployed/re-verified** -
-  re-run this exact test after the next redeploy.
+  FOUND A REAL BUG, FIXED, RE-CONFIRMED LIVE AFTER REDEPLOY.** Built a
+  base `PipeSupportStackable`, then called this RPC with a DIFFERENT
+  recipe (`ConveyorPoleStackable`) as reference - failed
+  `CANNOT_CONSTRUCT`/"An identical buildable is already built there!"
+  every time. Root-caused: `GetStackHeight()` read back as `0` for this
+  class, so the computed candidate position was literally the
+  reference's own location (self-overlap) - reproduced directly by
+  constructing a second pole at the exact same Z as a placed reference
+  via the literal-position RPC, same error. Fixed: floor the height at
+  a sane minimum (100.0) instead of trusting `GetStackHeight()`
+  outright. **Redeployed and re-tested**: a full 3-level mixed column
+  (`Recipe_PipeSupportStackable` → `Recipe_ConveyorPoleStackable` →
+  `Recipe_HyperPoleStackable`) succeeded end to end, each level landing
+  a consistent 201 units above the last, verified via `world.buildables`.
+  **New finding while re-testing**: roughly half these calls failed on
+  the first attempt with the same "already built there" error and then
+  succeeded on an immediate retry - matches this project's known
+  transient-disqualifier-flakiness pattern, not a residual bug (the
+  clean, deterministic failure was gone; only occasional first-attempt
+  flakiness remained). Retry once on `CANNOT_CONSTRUCT` before treating
+  it as real.
 - [x] **`world.priorityPowerSwitches` / `world.setPowerSwitchOn`** —
   **DONE 2026-08-31, PASS** (via the Tier 1 `setPowerSwitchOn` test
   above) - `circuitGroupID0`/`circuitGroupID1` confirmed to reflect
