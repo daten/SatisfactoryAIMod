@@ -9547,14 +9547,17 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 // regardless of real attachment state - not a bug, don't use it to judge
 // whether a wall/pole slot is free.
 //
-// HEIGHT: an open, actively-investigated gap - a single call always
-// lands at the hologram's ~400-unit default regardless of the real
-// target's distance, where a real player can build an arbitrary height
-// in one piece by wherever their camera is aimed when they click (no
-// scroll wheel - scroll only rotates the destination end's Input/Output,
-// per the user). SIX hypotheses tried, all with real log evidence, five
-// ruled out (findings from 2026-08-30, kept here since each cost a full
-// live-test cycle and re-deriving any of them would waste another):
+// HEIGHT: STILL BROKEN - an open, actively-investigated gap - a single
+// call always lands at a FIXED default offset from the source (real
+// connector data, 2026-08-31/09-01: +300 local-Y, +400 Z) regardless of
+// the real target's distance (confirmed identical whether the real
+// target was 400 or 851 units away), where a real player can build an
+// arbitrary height in one piece by wherever their camera is aimed when
+// they click (no scroll wheel - scroll only rotates the destination
+// end's Input/Output, per the user). EIGHT hypotheses tried, all with
+// real log evidence, ALL EIGHT NOW RULED OUT (findings from 2026-08-30
+// and 2026-08-31/09-01, kept here since each cost a full live-test
+// cycle and re-deriving any of them would waste another):
 //   1. Rotation origin point (source connector position vs the player's
 //      real actor location, as the vector origin for the deterministic
 //      look rotation) - no effect either way. Refined further
@@ -9585,8 +9588,9 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 //      reasserted every tick, height logged every 10 ticks - stayed at
 //      EXACTLY 400.0 the entire time. Retested hands-off (a possible
 //      mouse bump was flagged on the first run) - identical result.
-//   6. CURRENTLY BEING TESTED (2026-08-31, not yet live-verified): all
-//      five hypotheses above modified the FHitResult passed directly
+//   6. RULED OUT (live-tested 2026-08-31/09-01 - no effect, same fixed
+//      offset as every other hypothesis): all five hypotheses above
+//      modified the FHitResult passed directly
 //      into LiftHologram->UpdateHologramPlacement()/TrySnapToActor() -
 //      but AFGBuildGun owns its OWN separate cached trace
 //      (FHitResult& GetHitResult(), a MUTABLE reference getter - a
@@ -9604,8 +9608,9 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 //      EXPLICIT PARAMETER, not silently reading a BuildGun member - but
 //      kept and tested anyway since it's cheap and something else in the
 //      per-frame orchestration might still read it.
-//   7. CURRENTLY BEING TESTED (2026-08-31, not yet live-verified, found
-//      via FGHologram.h's doc comments rather than trial-and-error):
+//   7. RULED OUT (live-tested 2026-08-31/09-01 - no effect, same fixed
+//      offset as every other hypothesis). Found via FGHologram.h's doc
+//      comments rather than trial-and-error:
 //      TrySnapToActor()'s doc comment says returning true means "no
 //      further location and rotation will be updated this frame by the
 //      build gun" - implying SetHologramLocationAndRotation() (which
@@ -9626,8 +9631,9 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 //      - if that log ever shows a non-400 height that then reverts to
 //      400.0 by the very next log line, this is confirmed and the fix
 //      is simply deleting the redundant explicit TrySnapToActor() calls.
-//   8. CURRENTLY BEING TESTED (2026-08-31, not yet live-verified) - a
-//      STRONGER, more literal reading of the SAME doc comments that
+//   8. RULED OUT (live-tested 2026-08-31/09-01 - no effect, same fixed
+//      offset as every other hypothesis) - a STRONGER, more literal
+//      reading of the SAME doc comments that
 //      motivated #7, and probably the more likely of the two: "no
 //      further location and rotation will be updated this frame BY THE
 //      BUILD GUN" names the BUILD GUN, not the hologram itself, as the
@@ -9651,7 +9657,8 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 //      a valid hit result and did not snap") - logs height right after,
 //      for both StartHit and EndHit.
 //
-// Standing recommendation until #6/#7/#8 are confirmed either way:
+// Standing recommendation, now durable (#6/#7/#8 all ruled out live,
+// no ninth hypothesis derivable from source reasoning at this point):
 // design platform/miner-interface heights as multiples of the ~400-unit
 // default so no bridging is needed, per RPC_REFERENCE.md's
 // world.connectConveyorLift section.
@@ -9661,6 +9668,15 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 // destination isn't directly above/below the source, a separate
 // ConstructConveyorBelt call is still needed to bridge the horizontal
 // gap.
+//
+// NEW, SEPARATE, UNEXPLAINED (found 2026-08-31/09-01 during the #6/#7/#8
+// retest, NOT root-caused): a duplicate Storage Container (identical
+// class, identical position to the real source) appeared in
+// world.buildables after a connectConveyorLift call, stable across
+// repeated queries, never explicitly constructed by anything in that
+// test session. Might be this function's own snap/connector logic,
+// might be unrelated - genuinely unknown. Flagged for dedicated
+// follow-up investigation, not fixed here.
 void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -9803,7 +9819,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
 	const bool bStartHitValid = LiftHologram->IsValidHitResult(StartHit);
 	LiftHologram->UpdateHologramPlacement(StartHit);
-	// Hypothesis #7 (2026-08-31, NOT YET LIVE-TESTED) - see this
+	// Hypothesis #7 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
 	// function's doc comment. UpdateHologramPlacement() is documented to
 	// already call TrySnapToActor()/SetHologramLocationAndRotation()
 	// internally with whatever hit it's given - the explicit, SEPARATE
@@ -9814,13 +9830,13 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	// correct height UpdateHologramPlacement() just computed internally.
 	// Logging height BEFORE the explicit call to check.
 	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height immediately after UpdateHologramPlacement(StartHit), before explicit TrySnapToActor=%.1f"), LiftHologram->GetHeight());
-	// Hypothesis #6 (2026-08-31, NOT YET LIVE-TESTED) - see this
+	// Hypothesis #6 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
 	// function's doc comment. Injects the same hit directly into the
 	// build gun's own cached trace, in case height is read from there
 	// rather than from whatever's passed into UpdateHologramPlacement().
 	BuildGun->GetHitResult() = StartHit;
 	const bool bStartSnapped = LiftHologram->TrySnapToActor(StartHit);
-	// Hypothesis #8 (2026-08-31, NOT YET LIVE-TESTED) - see this
+	// Hypothesis #8 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
 	// function's doc comment. TrySnapToActor()'s doc comment names "the
 	// build gun" (not the hologram itself) as whatever calls
 	// SetHologramLocationAndRotation() when snapping fails - meaning
@@ -9853,12 +9869,12 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	LiftHologram->UpdateHologramPlacement(EndHit);
 	// Hypothesis #7 (2026-08-31) - same check as on StartHit above.
 	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height immediately after UpdateHologramPlacement(EndHit), before explicit TrySnapToActor=%.1f"), LiftHologram->GetHeight());
-	// Hypothesis #6 (2026-08-31, NOT YET LIVE-TESTED) - see this
+	// Hypothesis #6 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
 	// function's doc comment and the identical injection on StartHit
 	// above.
 	BuildGun->GetHitResult() = EndHit;
 	const bool bEndSnapped = LiftHologram->TrySnapToActor(EndHit);
-	// Hypothesis #8 (2026-08-31, NOT YET LIVE-TESTED) - same as on
+	// Hypothesis #8 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - same as on
 	// StartHit above, see this function's doc comment.
 	if (bEndHitValid && !bEndSnapped)
 	{
@@ -9972,7 +9988,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		// TickState_Implementation live-camera-trace rationale).
 		PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
-		// Hypothesis #6 (2026-08-31, NOT YET LIVE-TESTED) - see this
+		// Hypothesis #6 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
 		// function's doc comment. Reasserted every tick alongside the
 		// above, same rationale.
 		if (AFGBuildGun* PollBuildGun = PollState->BuildGun.Get())

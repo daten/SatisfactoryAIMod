@@ -1567,22 +1567,44 @@ full numbered list of hypotheses tried - five ruled out with real log
 evidence (rotation origin, connector type, absolute-vs-incremental hit
 updates, a real `Hit.Component` reference, genuinely elapsed real time
 up to 500ms), three more added 2026-08-31 from careful `FGHologram.h`
-doc-comment reading, compiled but **not yet live-tested**: #6 injects
-the hit into `AFGBuildGun`'s own cached trace; #7 and #8 both stem from
-`TrySnapToActor()`'s doc comment ("no further location and rotation
-will be updated this frame *by the build gun*") - #7 reads this as
-`UpdateHologramPlacement()` already calling the real placement logic
-internally (so this mod's own separate, explicit `TrySnapToActor()`
-call might be redundantly resetting a correct height); #8 is a
-stronger, more literal reading of the same sentence - since it names
-the BUILD GUN (not the hologram) as whatever normally makes that call,
-and this function bypasses the real build gun's per-frame tick
-entirely, NOTHING in this code path may have ever called
-`SetHologramLocationAndRotation()` at all, in any hypothesis tried so
-far. #8 now calls it explicitly and is probably the more likely
-explanation of the two.
+doc-comment reading: #6 injects the hit into `AFGBuildGun`'s own cached
+trace; #7 and #8 both stem from `TrySnapToActor()`'s doc comment ("no
+further location and rotation will be updated this frame *by the build
+gun*") - #7 reads this as `UpdateHologramPlacement()` already calling
+the real placement logic internally (so this mod's own separate,
+explicit `TrySnapToActor()` call might be redundantly resetting a
+correct height); #8 is a stronger, more literal reading of the same
+sentence - since it names the BUILD GUN (not the hologram) as whatever
+normally makes that call, and this function bypasses the real build
+gun's per-frame tick entirely, NOTHING in this code path may have ever
+called `SetHologramLocationAndRotation()` at all, in any hypothesis
+tried so far. #8 calls it explicitly.
 
-**Until #6/#7/#8 are tested, the practical fallback remains**: chaining
+**#6/#7/#8 live-tested 2026-08-31/09-01, CONFIRMED STILL BROKEN** -
+none of the three fixed it. Cleanly isolated this time (the first
+attempt used two Storage Containers 1400/400 units apart in X/Y, a
+real setup mistake caught live by the user - "the containers you built
+are not vertically aligned... when doing these types of test it's
+worth validating placements" - redone with both containers at matching
+X/Y, 851 units apart in Z only). Real connector data via
+`world.connections`, same result both times: the lift's `Input`
+genuinely attaches to the source, but its `Output` lands at a FIXED
+default offset from the source (`+300` local-Y, `+400` Z) completely
+independent of the real destination position - not "close but short,"
+literally the same offset regardless of whether the real target was
+400 units away or 851. `success:true` on the RPC call the whole time.
+This rules out #6/#7/#8 as fixes for the free-end-tracking problem -
+whatever the real mechanism is, it isn't any of the three theories
+tried so far. **A new, separate, unexplained finding from the same
+retest**: after the second attempt, a duplicate Storage Container
+(identical class, identical position to the real source) appeared in
+`world.buildables` - stable, not transient, never explicitly built by
+anything in that session. Not root-caused; flagged as its own
+background investigation (background task `task_6f0276ff`) - possibly
+related to `ConstructConveyorLift`'s snap/connector logic, possibly
+unrelated, genuinely unknown.
+
+**The practical fallback remains, now on firmer footing**: chaining
 lift segments each rising their own ~400 units works (each segment's
 real `Output`, read via `world.connections`, becomes the next segment's
 destination), or **design platform/miner-interface heights as multiples
@@ -1590,7 +1612,10 @@ of the ~400-unit default** so a single lift call reaches the target with
 no bridging or chaining needed at all. If a platform's height can't land
 on that offset, the residual gap needs a belt with enough horizontal run
 to incline to it (see belts' real max-incline limit,
-`world.conveyorBeltTiers`) rather than a steep short bridge.
+`world.conveyorBeltTiers`) rather than a steep short bridge. Treat this
+as the durable approach, not a stopgap - #1 through #8 covers every
+hypothesis this project has been able to derive from source reasoning,
+all now ruled out live.
 
 **Existing-connection direction inheritance (2026-08-30, user-reported,
 not yet independently verified in this codebase)**: if either end of a
