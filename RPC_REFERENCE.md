@@ -1301,10 +1301,23 @@ should still correctly fail via `CANNOT_CONSTRUCT`.
 pump: an offset of 2000 units correctly failed `CANNOT_CONSTRUCT` /
 "Encroaching another object's clearance!"; offsets of 3000/4000/5000
 units all succeeded and were verified via `world.buildables` at the
-exact expected positions. **First real data point on minimum pump
-spacing** (previously an unconfirmed value the Python planner left as
-a required caller input): somewhere in `(2000, 3000]`, not yet
-narrowed further.
+exact expected positions. **Real minimum pump spacing, precisely
+confirmed**: the true minimum is exactly `2000` units center-to-center
+(side by side, same orientation) — matches the Water Pump's own
+`clearance[0].size.x` from `world.buildableCatalog` exactly (`min.x:
+-1000, max.x: 1000`), i.e. two pumps' clearance boxes touching edge-
+to-edge with zero gap. Confirmed via the user manually placing a
+second pump snapped directly against a reference pump in-game (the
+real snap system, no collision) and measuring the result via
+`world.buildables`: exactly `2000.0000` units apart. This RPC's own
+literal-offset path (no snap-assist) rejects an offset of EXACTLY
+`2000` with `CANNOT_CONSTRUCT`/"Encroaching another object's
+clearance!" — floating-point precision landing just inside the
+boundary, not a real spacing requirement. Confirmed the margin needed
+is tiny: an offset of exactly `2001` succeeded immediately (verified
+via `world.buildables` landing at exactly `2001.0000` units from the
+reference) — callers driving this RPC should use `2001`+ rather than
+the exact theoretical minimum of `2000`.
 
 ### `world.constructWaterPumpAtPosition` — asynchronous, `result.buildableId` on success, **CONFIRMED LIVE WORKING, crash fixed AND re-verified after redeploy (2026-08-31)**
 `params: {"x"/"y"/"z" (required numbers), "recipeClass" (optional, default Recipe_WaterPump)}`

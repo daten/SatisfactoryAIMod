@@ -28,15 +28,21 @@ not a spline/multi-step hologram, so there's no routing/pathing
 complexity in the CONSTRUCTION step itself - only in deciding WHERE
 each pump goes, which is what this module is for.
 
-**Real, unresolved unknown - flagged, not guessed**: no confirmed
-minimum spacing distance between two Water Pumps exists anywhere in
-this project's source research. Every spacing parameter below is a
-REQUIRED, explicit input (no hidden default) for exactly this reason -
-pass a conservative value and confirm with a live construction attempt
-(or a sequence of them) before trusting a tight layout. The first real
-water-pump-field live test should specifically try to find this real
-minimum, since every function here currently takes the caller's word
-for it.
+**Real minimum spacing, confirmed live 2026-08-31**: exactly `2000`
+units center-to-center (matches the Water Pump's own
+`world.buildableCatalog` clearance box exactly - `clearance[0].size.x
+== 2000`, i.e. two pumps' clearance boxes touching edge-to-edge).
+Verified two ways: the user manually snap-placed a second pump
+directly against a reference pump in-game (zero collision, measured at
+exactly 2000.0000 units via `world.buildables`), and
+`world.constructWaterPumpNearReference` itself succeeds at an offset of
+`2001` (a `2000`-exact offset through that RPC hits a floating-point
+precision rejection, not a real spacing requirement - see
+`RPC_REFERENCE.md`). Every spacing parameter below is still a
+REQUIRED, explicit input (no hidden default - this module doesn't
+decide layout policy, see the toolkit-not-solver posture above), but a
+caller can now safely pass `2001`+ instead of guessing conservatively
+high.
 
 Per-pump flow rate is also a required, explicit input, not looked up
 here - derive it from a live world.recipeCatalog query of
