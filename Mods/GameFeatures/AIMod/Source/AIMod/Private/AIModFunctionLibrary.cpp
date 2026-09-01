@@ -4299,15 +4299,26 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	// immediately-following world.connections read, and worse, a
 	// placeBuilding ground trace moments later STACKED a new attachment
 	// on top of the not-yet-destroyed actor (its collision was still
-	// live). If the engine deferred the destruction, force the dying
-	// actor inert RIGHT NOW so nothing can trace onto it during its
-	// final frame. The one-frame staleness in listing RPCs
-	// (world.connections/world.buildables) can still occur - callers
+	// live). Force the dying actor inert RIGHT NOW so nothing can trace
+	// onto it during its final frame. The one-frame staleness in listing
+	// RPCs (world.connections/world.buildables) can still occur - callers
 	// should allow a tick before treating dependent reads as
 	// authoritative (documented in RPC_REFERENCE.md) - but the
 	// physically-dangerous half (stacking new construction on a deleted
 	// object) is closed here.
-	if (IsValid(DismantleTarget))
+	//
+	// v2 (2026-09-01, same day - v1 FAILED its live retest, cleanly
+	// reproduced: a merger placed immediately after deleting a splitter
+	// at the same spot still stacked on the corpse at +300 z): v1
+	// guarded this with IsValid(), which returns FALSE for a
+	// pending-kill actor - exactly the state Execute_Dismantle leaves
+	// the actor in when destruction is deferred - so the guard skipped
+	// the one case it existed for while the corpse's collision stayed
+	// live until end of frame. A plain null check is correct here: a
+	// pending-kill actor's memory stays alive until GC, and
+	// SetActorEnableCollision/SetActorHiddenInGame are safe to call on
+	// it - making it un-traceable is the whole point.
+	if (DismantleTarget)
 	{
 		DismantleTarget->SetActorEnableCollision(false);
 		DismantleTarget->SetActorHiddenInGame(true);

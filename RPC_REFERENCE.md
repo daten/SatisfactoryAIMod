@@ -1065,12 +1065,16 @@ cleanup) — not a cheat despawn. Works on both normal and lightweight
 the actual actor destruction by up to a frame — found live when a
 just-deleted merger still appeared in an immediate `world.connections`
 read and a `world.placeBuilding` ground trace moments later STACKED a
-new attachment on top of it. Since then the mod forces the dying actor
-inert immediately (collision off, hidden), which closes the dangerous
-stacking half — but listing RPCs (`world.buildables`/
-`world.connections`) can still show the object for ~1 more tick, so
-allow a short settle (a few hundred ms) before treating dependent
-reads as authoritative after a delete. Deleting a pipe also cleans up its flow-fill
+new attachment on top of it. A fix that forces the dying actor inert
+(collision off, hidden) exists in source — **v1 of it FAILED its live
+retest** (it guarded on `IsValid()`, which is false for exactly the
+pending-kill state it needed to handle; a delete-then-place retest
+stacked a merger on the corpse at +300 z anyway); **v2 (plain null
+check) is compiled but NOT yet live-retested.** Until v2 is confirmed:
+allow a real settle (~500ms+) between deleting something and placing
+at/near the same spot, and verify the new object's z afterwards.
+Listing RPCs (`world.buildables`/`world.connections`) can always lag
+~1 tick regardless. Deleting a pipe also cleans up its flow-fill
 indicator widget; deleting a Pipeline Junction does **not** delete pipes
 still attached to it (they're left dangling, and the extractor/machine
 at their other end stays "occupied" until you delete those too).
@@ -1643,16 +1647,20 @@ closer — reproduced in controlled A/B pairs during the copper factory
 build; the threshold is consistent with the belt's own
 `maxSplineLength` (5600, `world.conveyorBeltTiers`). This explains the
 2026-09-01 "session-length degradation" mystery completely (the player
-had been left far from every attempted site). **Standing rule:
-teleport the player within ~2-3000 units of any belt connection
-first.** A candidate code fix (synthetic camera-ray fields on the
-hits, `PopulateSyntheticTraceRay` — the same mechanism that fixed the
-lift's height) is compiled in as of 2026-09-01 but NOT yet live-tested
-— keep teleporting until it's confirmed. Also since 2026-09-01, the
-`"A player is in the way!"` (UFGCDEncroachingPlayer) hard disqualifier
-is IGNORED by all connect/construct RPC polls, same
-player-independence doctrine as the existing aim-location ignore (the
-build may intersect the idle player's capsule — accepted risk).
+had been left far from every attempted site). **FIXED, LIVE-CONFIRMED 2026-09-01 (same day)**: the code fix
+(synthetic camera-ray fields on the hits, `PopulateSyntheticTraceRay`
+— the same mechanism that fixed the lift's height) was live-retested
+after redeploy: a splitter-to-splitter belt built cleanly with the
+player ~9,700 units away (previously a guaranteed "too long" failure),
+both ends verified `connected=true`. Teleporting the player near belt
+work is no longer required — keep `world.teleportPlayer` in mind only
+as a fallback if a stubborn geometry still fails. Also live-confirmed
+the same session: the `"A player is in the way!"`
+(UFGCDEncroachingPlayer) hard disqualifier is now IGNORED by all
+connect/construct RPC polls (a belt built cleanly straight through
+the spot the player was standing on), same player-independence
+doctrine as the existing aim-location ignore (the build may intersect
+the idle player's capsule — accepted risk).
 
 `"RealCharacter"` drives the actual player's real BuildGun —
 proven reliable, but visibly hijacks the camera during construction

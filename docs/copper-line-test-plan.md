@@ -392,8 +392,26 @@ mysteries**:
    the working threshold consistent with the belt's own
    `maxSplineLength` (5600.1, `world.conveyorBeltTiers`). Last night's
    "worked early then never again" = the player character had been left
-   far from every attempted site. **Standing rule: teleport the player
-   within ~2-3000 units of any belt connection before calling it.**
+   far from every attempted site. **FIXED AND LIVE-CONFIRMED later the
+   same day** (`PopulateSyntheticTraceRay`, the lift-fix mechanism
+   generalized to all synthetic connect hits): after redeploy, a
+   splitter-to-splitter belt built cleanly with the player ~9,700
+   units away (previously a guaranteed failure), both ends verified
+   `connected=true` - and a second retest built a belt straight
+   through the player's own standing position (the new
+   `UFGCDEncroachingPlayer` ignore, also confirmed). Teleporting near
+   belt work is now a fallback, not a requirement. From the same
+   retest session: the delete-then-place inert-forcing fix v1 FAILED
+   its retest (IsValid() is false for pending-kill actors, so the
+   guard skipped exactly its own use case; a merger stacked on a
+   just-deleted splitter's corpse at +300 z, cleanly reproduced); v2
+   (plain null check) is in source awaiting the next redeploy +
+   retest. Until then keep a ~500ms settle between deleting and
+   placing at the same spot. **Also standing build preference from
+   this session (user request): default to 1m foundations
+   (`Recipe_Foundation_8x1_01`) for future builds - the copper
+   factory's 4m (8x4) slabs work but are space-inefficient; use
+   thicker foundations only when a specific need justifies them.**
 2. **CORRECTED 2026-09-01 (same day, on code review + a live
    re-count): the "failed placement actually constructed" claim was
    WRONG.** The failure path in `ConstructBuildingAtPosition` provably
