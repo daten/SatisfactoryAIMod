@@ -8726,11 +8726,36 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 
 	// Extend the build gun's trace range for the whole build (restored at
 	// every exit below, including each poll terminal) - see
-	// SetBuildGunTraceRange's doc comment. This is the fix for the belt
-	// "too long" failures at player distances beyond ~10k (isolated live
-	// 2026-09-01: both horizontal AND inclined belts fail purely on
-	// distance, so it is the trace clamp, not incline).
+	// SetBuildGunTraceRange's doc comment. Kept as a cheap belt-and-braces
+	// measure, but note it is NOT sufficient on its own: raising the clamp
+	// was live-tested 2026-09-01 and a far belt still failed "too long".
 	const float SavedBuildGunRange = SetBuildGunTraceRange(BuildGun, 1000000.0f);
+
+	// Auto-teleport the real player next to the connection (2026-09-01,
+	// THE reliable fix for the belt "too long" failures at distance).
+	// The RealCharacter strategy fundamentally relies on the real build
+	// gun's real camera trace, which cannot reach the connectors when the
+	// player stands far away: from ~14k units a connector-sized target is
+	// on no camera ray, and neither raising mBuildDistanceMax nor pinning
+	// GetHitResult() fixed it live (both were tried and failed). What
+	// worked every time - in the copper and HMF builds and in isolated
+	// A/B tests - was standing the player next to the work. So do that
+	// automatically: teleport to the connection midpoint (a bit above it),
+	// build, and restore the player's real position at every exit so an
+	// interactive player is left where they were. Only moves the player
+	// when they are actually far (>2000 units), so a near player - and the
+	// interactive case - is untouched.
+	const FVector ConnMidpoint = (SourceConnection->GetConnectorLocation() + DestConnection->GetConnectorLocation()) * 0.5;
+	const FVector SavedPlayerLocation = Character->GetActorLocation();
+	const bool bTeleportedPlayer = FVector::Dist(SavedPlayerLocation, ConnMidpoint) > 2000.0;
+	if (bTeleportedPlayer)
+	{
+		Character->TeleportTo(ConnMidpoint + FVector(0.0, 0.0, 500.0), Character->GetActorRotation(), false, true);
+		if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
+		{
+			Movement->StopMovementImmediately(); // don't carry fall velocity into the work site
+		}
+	}
 
 	// Build-gun cached-trace injection for belts (2026-09-01) - the fix
 	// for the player-distance-dependent "Conveyor Belt is too steep!"/
@@ -8763,6 +8788,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 	if (bStartStepComplete)
 	{
 		RestoreBuildGunTraceRange(BuildGun, SavedBuildGunRange);
+		if (bTeleportedPlayer) { Character->TeleportTo(SavedPlayerLocation, Character->GetActorRotation(), false, true); }
 		Character->UnequipBuildGun();
 		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
 		return;
@@ -8782,6 +8808,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 	if (!bEndStepComplete)
 	{
 		RestoreBuildGunTraceRange(BuildGun, SavedBuildGunRange);
+		if (bTeleportedPlayer) { Character->TeleportTo(SavedPlayerLocation, Character->GetActorRotation(), false, true); }
 		Character->UnequipBuildGun();
 		OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"),
 			FString::Printf(TEXT("DoMultiStepPlacement() did not report complete after the end click - step=%d connectedCount=%d, may need a third step"), static_cast<int32>(StepAfterEnd), ConnectedBuildables.Num())));
@@ -8800,6 +8827,8 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		FRotator DeterministicLook;
 		FHitResult EndHit; // re-asserted every poll tick, see below
 		float SavedBuildGunRange = -1.0f; // restored at every poll terminal
+		FVector SavedPlayerLocation = FVector::ZeroVector; // restored at every terminal
+		bool bTeleportedPlayer = false;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -8815,6 +8844,8 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 	PollState->DeterministicLook = BeltDeterministicLook;
 	PollState->EndHit = EndHit;
 	PollState->SavedBuildGunRange = SavedBuildGunRange;
+	PollState->SavedPlayerLocation = SavedPlayerLocation;
+	PollState->bTeleportedPlayer = bTeleportedPlayer;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -8829,6 +8860,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		{
 			UE_LOG(LogAIModAI, Warning, TEXT("ConstructConveyorBelt (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
 			RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
+			if (PollState->bTeleportedPlayer && IsValid(PollCharacter)) { PollCharacter->TeleportTo(PollState->SavedPlayerLocation, PollCharacter->GetActorRotation(), false, true); }
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
 			return;
@@ -8915,6 +8947,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		if (!bCanConstruct)
 		{
 			RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
+			if (PollState->bTeleportedPlayer && IsValid(PollCharacter)) { PollCharacter->TeleportTo(PollState->SavedPlayerLocation, PollCharacter->GetActorRotation(), false, true); }
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
 			return;
@@ -8923,6 +8956,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		if (PollState->bDryRun)
 		{
 			RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
+			if (PollState->bTeleportedPlayer && IsValid(PollCharacter)) { PollCharacter->TeleportTo(PollState->SavedPlayerLocation, PollCharacter->GetActorRotation(), false, true); }
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Success());
 			return;
@@ -8937,6 +8971,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		{
 			UE_LOG(LogAIModAI, Error, TEXT("ConstructConveyorBelt (deferred): lost the build state before constructing - aborting, nothing built"));
 			RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
+			if (PollState->bTeleportedPlayer && IsValid(PollCharacter)) { PollCharacter->TeleportTo(PollState->SavedPlayerLocation, PollCharacter->GetActorRotation(), false, true); }
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
 			return;
@@ -8948,6 +8983,9 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
 
 		RestoreBuildGunTraceRange(PollState->BuildGun.Get(), PollState->SavedBuildGunRange);
+		// Restore the player's real position AFTER construction (the build
+		// needed them near; now put them back where they were).
+		if (PollState->bTeleportedPlayer && IsValid(PollCharacter)) { PollCharacter->TeleportTo(PollState->SavedPlayerLocation, PollCharacter->GetActorRotation(), false, true); }
 		if (IsValid(PollCharacter))
 		{
 			PollCharacter->UnequipBuildGun();

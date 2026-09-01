@@ -1678,21 +1678,26 @@ splitter-to-splitter belt built cleanly with the player ~9,700 units
 away (previously a guaranteed "too long" failure), both ends verified
 `connected=true`.
 
-**A residual player-DISTANCE ceiling remained (HMF finding #3, then
-isolated precisely 2026-09-01): belts fail "Conveyor Belt is too
-long!" once the player is beyond ~10-13k units — and it is purely
-DISTANCE, not incline (a controlled test failed both a horizontal AND
-an inclined belt at ~13.4k, while 9.7k still worked).** Two fixes were
-tried: (1) writing the synthetic hit into `BuildGun->GetHitResult()`
-every tick (like the lift) — live-tested, did NOT lift the ceiling;
-(2) **temporarily raising the build gun's own `mBuildDistanceMax`
-clamp to 1,000,000 for the duration of the build** (restored at every
-exit) so any internal re-trace reaches the target no matter how far
-the player stands — this is the real fix, since the ceiling is the
-trace clamp itself. Fix (2) is **compiled but NOT yet redeployed/
-live-tested** as of this writing. Until confirmed, keep teleporting
-within a few thousand units of belt connections as the reliable
-fallback. Also live-confirmed
+**A player-DISTANCE ceiling remained (HMF finding #3): belts fail
+"Conveyor Belt is too long!" once the player is beyond ~10-13k units —
+purely DISTANCE, not incline (a controlled test failed both a
+horizontal AND an inclined belt at ~13.4k while 9.7k still worked).**
+Three fixes were tried and the first two live-tested as INSUFFICIENT:
+(1) writing the synthetic hit into `BuildGun->GetHitResult()` every
+tick; (2) temporarily raising the build gun's `mBuildDistanceMax`
+clamp. Both failed a clean far retest — because the real limit is not
+the clamp but the AIM: the RealCharacter strategy depends on the real
+build gun's real camera trace, and from ~14k a connector-sized target
+is on no camera ray in any aim direction. **The reliable fix
+(2026-09-01, compiled, NOT yet redeployed): the belt RPC now
+auto-teleports the real player to the connection midpoint for the
+duration of the build and restores their exact position at every exit.**
+This is exactly what every successful manual build did (stand next to
+the work). It only moves the player when they are actually far (>2000
+units), so a near or interactive player is untouched, and their
+position is put back afterward. Fixes (1)/(2) are kept as harmless
+belt-and-braces. Until the redeploy confirms it, keep teleporting near
+belt connections manually as the fallback. Also live-confirmed
 the same session: the `"A player is in the way!"`
 (UFGCDEncroachingPlayer) hard disqualifier is now IGNORED by all
 connect/construct RPC polls (a belt built cleanly straight through
