@@ -358,6 +358,97 @@ than the specific connection's own geometry - a fresh game
 relaunch is the most likely fix, worth trying before further live
 diagnosis.
 
+## SECOND LIVE BUILD (2026-09-01, after game restart): THE FULL PLAN IS BUILT AND RUNNING
+
+Same site as the LIVE BUILD RESULT above, extended from the 3-Smelter/
+1-Constructor partial to the plan's full shape, entirely via existing
+RPCs, no recompile. **Final, verified state**: Mk3 Miner (Pure copper
+node, underclocked to 78.125% per the plan table) → Mk4 trunk manifold
+→ **5 Smelters @250%** (3 shards each) → 5-merger chain → **conveyor
+lift #1 (Mk4, 1201-unit rise in ONE call** - the hypothesis #9 lift fix
+in real production use) → Level-2 platform (31 floating foundations) →
+10-splitter manifold → **10 Constructors @250% making Wire** (2:1 ratio
+per the plan's optimization) → 10-merger chain → **lift #2 (Mk4, 1200
+rise)** → Level-3 platform → **real Dimensional Depot Uploader**. All 15
+machines verified `ProducingWithCrystal` at `clockSpeedPercent=250`,
+`world.installPowerShard` live-confirmed for the first time
+(3 slots, +50%/shard, `newMaxPotentialPercent=250` - the plan's
+assumed values are now real). End-to-end flow PROVEN by withdrawing
+Wire from central storage and watching the depot re-upload it: 450
+wire re-uploaded in <60s (measurement capped by the store limit below).
+Saves: `pre-copper-factory-fable` (before), `copper-factory-complete`
+(after).
+
+**Real findings from this build, most of them root-causes of earlier
+mysteries**:
+
+1. **The belt-connect "session degradation" (task_422f5883) is ROOT-
+   CAUSED: it's PLAYER DISTANCE, not session state.** The identical
+   `world.connectConveyor` call fails `"Conveyor Belt is too long!"`
+   (all routeModes) when the real player stands too far from the
+   connection and succeeds after nothing but a `world.teleportPlayer`
+   closer - reproduced in controlled A/B pairs at ~4900 units (fail) →
+   ~1000 (success), and again at ~6100 (fail) → near (success), with
+   the working threshold consistent with the belt's own
+   `maxSplineLength` (5600.1, `world.conveyorBeltTiers`). Last night's
+   "worked early then never again" = the player character had been left
+   far from every attempted site. **Standing rule: teleport the player
+   within ~2-3000 units of any belt connection before calling it.**
+2. **A "failed" placement can have actually constructed (REAL BUG,
+   very likely the duplicate-buildable root cause, task_6f0276ff)**: a
+   foundation `world.placeBuilding` returned `CANNOT_CONSTRUCT ("A
+   player is in the way!")` yet the foundation WAS built - discovered
+   when the retry said "An identical buildable is already built
+   there!" and the site dump showed exactly one. A caller that retries
+   on failure can therefore create duplicates - exactly the pattern of
+   the unexplained duplicate Storage Container from the lift testing.
+3. **`world.placeBuilding` can report the WRONG `buildableId`**: one
+   successful foundation placement returned a nearby MERGER's id as
+   `result.buildableId` (the real new slab showed up separately in
+   `world.buildables`). Don't trust the returned id blindly for
+   anything destructive - re-verify via a position query.
+4. **Deletion is not instantly visible**: after `world.deleteBuilding`
+   reported OK, the deleted merger still appeared in an immediate
+   `world.connections` read, and a same-batch placement at that spot
+   STACKED a new merger on top of the not-yet-gone one (z +300). A
+   ~500ms settle delay before dependent reads/placements avoids it.
+5. **Placement bypass flags are load-bearing for autonomous builds**:
+   `"Invalid aim location!"` (the real camera's aim cone) and `"A
+   player is in the way!"` (a generous encroachment radius) block
+   remote placements unpredictably - `ignoreAimLocation` +
+   `ignorePlayerEncroachment` on every `placeBuilding` call fixed all
+   of it. Belt connects have no such flags - player positioning is the
+   only tool there (see finding 1).
+6. **Ground-trace placement pitfalls**: a machine traced onto a
+   missing-floor spot sinks to the terrain below the platform
+   (a merger landed 111 low through a foundation gap); a machine traced
+   onto an occupied spot stacks on top of what's there. Verify real
+   z via `world.buildables` after placing on elevated platforms.
+7. **Attachments snap to the 100-unit grid** even when given off-grid
+   coordinates (384014 → 384000): the site's original machines sit on
+   an off-by-14 grid, so every splitter/merger is 14 off its smelter
+   axis - belts absorb it (usually `Curve` mode).
+8. **Dimensional Depot Uploader realities**: it has NO power connector
+   at all (`connectPower` correctly refuses; it uploads anyway -
+   unpowered building); its input connector is 390 units from actor
+   center (off the 100-grid - use `gridSnapSize: 10` to fine-position
+   it for a lift dock); and **central storage caps each item at 2500**
+   - a full item stalls uploads and backpressures the whole line (Wire
+   was already at cap in this save; the line only runs while below
+   cap). For a permanently-running demo, consume the wire or add an
+   AWESOME Sink downstream.
+9. **`world.teleportPlayer` is now live-tested and essential** (both
+   success and the real `TELEPORT_BLOCKED` failure observed). It's the
+   workaround for findings 1 and 5, and turns the "RealCharacter
+   strategy needs the player nearby" constraint into a non-issue.
+10. **Power on a busy site**: the Power Tower's standard slots were
+    full - `world.testPowerConnection` sweeps found free connectors on
+    3 of 5 smelters + the miner instead; a 6-pole chain (4 wires per
+    Mk1 pole, planned exactly) powers all 10 constructors. Belt-tier
+    data for this save reports speeds 120/240/540/960/1560/2400 -
+    trunk lines were rebuilt Mk4 accordingly (Mk1's 120 would have
+    capped the plan's 375 ore/min trunk).
+
 ## Suggested execution order
 
 1. `world.terrainHeightGrid` survey near a real Copper Ore node candidate
