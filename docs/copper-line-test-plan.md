@@ -179,6 +179,129 @@ retrying resolved the transient `"too long"`/clearance flakiness cases,
 but never resolved a wrong-direction case; only picking the correct
 cardinal did.
 
+## LIVE BUILD RESULT (2026-09-01): real, working copper factory achieved autonomously - Ore → Ingot → Wire, no recompile
+
+User request: attempt this build independently, entirely via already-
+deployed RPCs (no rebuild/relaunch possible for hours), get as creative
+as needed to route around anything that couldn't be solved directly.
+Full new site (not the 2026-08-30 partial build above, which was at a
+different node/location and not reused).
+
+**Real result**: a genuinely complete, currently-running production
+line - real Copper Ore flows from a Mk3 Miner (Pure node) through 3
+real Smelters (Copper Ingot) into a Constructor (Wire), verified via
+`world.manufacturers` showing growing real output counts over time
+(`productionStatus: "Producing"`, Copper Ingot/Wire counts increasing
+across repeated queries) - not just `success:true` on construction
+calls. Scoped down from the original 5-Smelter/10-Constructor plan to
+3 Smelters/1 Constructor after hitting a real, only partly-understood
+belt-routing limit (see below) - a real, working smaller line beats an
+ambitious one left half-wired.
+
+**Real blockers hit and worked around, in order**:
+
+1. **No Portable Miner in player inventory** - placing a stationary
+   Miner needs one as a real construction ingredient (see the
+   `world.placeExtractor` CRITICAL note above), and there's no RPC to
+   craft one from scratch. Fix: `world.centralStorage` had 16 stockpiled
+   - `world.withdrawFromCentralStorage` pulled 2 into the player's
+   carried inventory, `world.placeExtractor` then worked normally. Also
+   used the same withdraw path for extra Cable (only 59 on hand, needed
+   more for the Constructor row - 1000 available in storage).
+2. **`world.connectConveyor`'s default `instigatorStrategy` is
+   `"PlayerController"`** - the one already documented (see the
+   camera-hijack section above) to get permanently stuck on
+   `UFGCDInitializing`. Every belt call in this build explicitly passed
+   `"instigatorStrategy": "RealCharacter"` - without it, nothing
+   connects, ever, regardless of geometry.
+3. **`routeMode` isn't universally interchangeable** - some real belt
+   connections only succeeded with `"Straight"`, others only with
+   `"Curve"`, for what looked like very similar geometry (a short, well-
+   aligned hop). No pattern found for which one a given connection
+   needs - just try `"Straight"` then `"Curve"` then `"Auto"` and use
+   whichever succeeds, don't assume the first failure means the
+   connection is impossible.
+4. **A REAL, significant finding: unpinned multi-output splitter
+   connections can silently grab the WRONG connector.** A Conveyor
+   Splitter has 3 outputs (one THROUGH + two SIDE) - calling
+   `world.connectConveyor` without `sourceConnectorPosition` lets the
+   engine pick "the first free output," which in every case observed
+   here picked the THROUGH connector even when a SIDE connector was the
+   intended one (e.g. a splitter meant to tap one output down to a
+   Smelter while keeping THROUGH free to continue a manifold chain -
+   the smelter tap kept consuming THROUGH instead, silently breaking
+   the chain continuation with a confusing, unrelated-looking
+   `"Conveyor Belt is too long!"` on the NEXT connection attempt rather
+   than any error on the tap itself). **Fix, and now the standing rule
+   for any multi-output buildable (splitter, merger) in this project**:
+   always pass explicit `sourceConnectorPosition`/`destConnectorPosition`
+   computed from the buildable's own real placed position plus its
+   known local connector offsets (±100 units along the facing axis,
+   confirmed via a `world.connections` read on one placed instance
+   first) - never rely on default "first free connector" selection when
+   more than one output exists.
+5. **Belt connections heading in the -X (west) direction failed
+   consistently** (`"Conveyor Belt is too long!"`/`"Invalid Conveyor
+   Belt shape!"`) even for short, cleanly-aligned, pinned-connector
+   hops that were geometrically identical (just mirrored) to +X (east)
+   connections that worked immediately. All three `routeMode`s failed
+   the same way. Not root-caused - possibly related to the
+   already-documented `AutoRouteSpline`-reads-camera-rotation quirk
+   (see the camera-hijack section above), possibly something else.
+   **Workaround used**: abandoned the symmetric hub-and-spoke layout
+   (planned: arms both east AND west of the miner) and extended the
+   manifold east-only instead. Real, unresolved - worth investigating
+   directly if a future build needs to route west.
+6. **A genuine, still-unexplained distance/hop limit on chained
+   splitter manifolds.** Even after fixing finding #4 (correct
+   connector pinning) and confirming the fix worked cleanly for 3
+   consecutive hops (miner→center→+800→+1600, all verified via
+   `world.connections`), the 4th hop (+1600→+2400) and beyond
+   consistently failed `"Conveyor Belt is too long!"` on freshly-
+   verified, unconsumed, correctly-oriented connectors - not a
+   connector-picking bug this time. Not root-caused (candidates: real
+   cumulative-network distance from the source, a hop-count limit, or
+   something specific to that stretch of the map) - flagged as a real,
+   open question for future investigation rather than guessed at
+   further under time pressure. This is why the build stopped at 3
+   Smelters instead of the full 5.
+7. **No RPC exists to insert items into any buildable's inventory**
+   (fuel a generator, stock a storage container with a starting
+   supply) - confirmed by reading the full `RPC_REFERENCE.md` method
+   list, not assumed. This ruled out a Biomass Burner (would need
+   manually-inserted Biofuel) as the power source. **Real, creative
+   fix**: `world.powerPoles` found a real, already-powered Power Tower
+   20,940 units from the build site - well within the `maxPowerTowerLength`
+   (~30000) confirmed working in the 2026-08-31 Power Tower connectPower
+   fix testing. Placed a new Power Tower at the site,
+   `world.connectPower` (with `ignoreAimLocation`/`ignoreWireSnap`)
+   bridged the two directly - real, substantial validation that last
+   night's Power Tower fix holds up for genuinely long-range,
+   practical use, not just the original test distance.
+8. **Placing a building doesn't configure what it produces** -
+   `world.manufacturers` showed `recipe: ""`/`productionStatus: "Error"`
+   on freshly-placed, freshly-powered Smelters/Constructor until
+   `world.setRecipe` was called explicitly (Copper Ingot / Wire) - an
+   obvious-in-hindsight but real separate step, not a construction
+   parameter.
+
+**Real numbers from a running build tonight** (Pure Copper Ore node,
+100% clock, no Power Shards installed): 3 Smelters converging into 1
+Constructor, verified via repeated `world.manufacturers` queries
+showing real, growing Copper Ingot/Wire counts over elapsed real time -
+confirmed genuinely running, not just placed.
+
+**Left in place, not chased further given the findings above**: 2 more
+Smelter+Splitter pairs (`+2400`, `+3200` offsets) are built and
+correctly oriented but not connected to the manifold (the finding #6
+hop limit). A second Constructor row, vertical lifts, and a
+Dimensional Depot uploader (the original plan's remaining stages)
+were not attempted this pass - the lift height-matching fix from
+2026-09-01 is confirmed working elsewhere in this project by now, so
+that stage should be revisited with fresh confidence once the manifold
+distance question (#6) is resolved or the scope is deliberately kept
+to what a single platform level can reach.
+
 ## Suggested execution order
 
 1. `world.terrainHeightGrid` survey near a real Copper Ore node candidate
