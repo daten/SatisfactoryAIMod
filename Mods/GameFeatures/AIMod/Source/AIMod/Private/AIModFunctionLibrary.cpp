@@ -3812,17 +3812,35 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 
 		// Identify the newly-constructed buildable by proximity to where
 		// we just built - InternalConstructHologram is void and there's
-		// no direct return value, but nothing else should legitimately
-		// exist within a couple hundred units of a spot CanConstruct()
-		// just validated as clear a moment ago.
+		// no direct return value.
+		//
+		// CLASS FILTER (2026-09-01, real bug found live during the copper
+		// factory build): "nearest buildable of ANY class within 200
+		// units" is wrong on a dense site - a foundation placed directly
+		// under an existing merger returned the MERGER's id as
+		// result.buildableId (the merger's actor origin was ~15 units
+		// from the foundation's center; the foundation's own origin was
+		// farther). Filter candidates to the recipe's own resolved
+		// buildable class, exactly like the lightweight branch below
+		// already does - "nothing else should exist nearby" was never
+		// true for attachments/machines stacked on the thing being
+		// placed. Falls back to the unfiltered search only when the
+		// class can't be resolved at all (better a possibly-wrong id
+		// plus a warning than none).
 		FString ConstructedBuildableId;
+		const TSubclassOf<AFGBuildable> ConstructedBuildableClass = ResolveBuildableClassForRecipe(PollState->RecipeClassPath);
 		if (BuildableSubsystem)
 		{
+			if (!ConstructedBuildableClass)
+			{
+				UE_LOG(LogAIModAI, Warning, TEXT("ConstructBuildingAtPosition (deferred): could not resolve a buildable class for recipe %s - the returned buildableId is a best-effort nearest-of-any-class match"), *PollState->RecipeClassPath);
+			}
 			float BestDistSq = TNumericLimits<float>::Max();
 			AFGBuildable* BestMatch = nullptr;
 			for (AFGBuildable* Candidate : BuildableSubsystem->GetAllBuildablesRef())
 			{
 				if (!IsValid(Candidate)) { continue; }
+				if (ConstructedBuildableClass && !Candidate->IsA(ConstructedBuildableClass)) { continue; }
 				const float DistSq = FVector::DistSquared(Candidate->GetActorLocation(), ConstructLocation);
 				if (DistSq < BestDistSq)
 				{
@@ -4082,6 +4100,41 @@ namespace
 		}
 		return Best ? Best : SnapOnlyBest;
 	}
+
+	// Hypothesis #9a, generalized (2026-09-01): populate the camera-ray
+	// fields (TraceStart/TraceEnd/Distance/Time) a real build-gun trace
+	// ALWAYS carries and every synthetic hit in this file historically
+	// left at zero-vectors. Proven load-bearing for the conveyor lift's
+	// free-end height (see ConstructConveyorLift's doc comment, hypothesis
+	// #9 - live-verified fixed 2026-09-01), and the prime suspect for the
+	// belt-path player-distance failures root-caused the same day: the
+	// identical world.connectConveyor call fails "Conveyor Belt is too
+	// long!" when the real player stands beyond ~5000 units from the
+	// connection and succeeds after nothing but a teleport closer
+	// (threshold consistent with the belt's own maxSplineLength, 5600) -
+	// i.e. some part of the spline routing falls back to the REAL
+	// camera/trace when the synthetic hit carries no ray. The synthetic
+	// ray here mimics a player standing a short distance back from the
+	// connector, slightly above it, aiming at it - fully determined by
+	// the connector itself, independent of where the real player is.
+	// NOT YET LIVE-TESTED whether this alone removes the player-distance
+	// dependence - until confirmed, keep teleporting the player near belt
+	// connections (see RPC_REFERENCE.md).
+	void PopulateSyntheticTraceRay(FHitResult& Hit)
+	{
+		FVector BackDir = Hit.Normal;
+		BackDir.Z = 0.0;
+		if (!BackDir.Normalize())
+		{
+			BackDir = FVector::ForwardVector;
+		}
+		Hit.TraceStart = Hit.Location + BackDir * 1200.0 + FVector(0.0, 0.0, 400.0);
+		const FVector RayDir = (Hit.Location - Hit.TraceStart).GetSafeNormal();
+		Hit.TraceEnd = Hit.Location + RayDir * 600.0;
+		Hit.Distance = static_cast<float>(FVector::Dist(Hit.TraceStart, Hit.Location));
+		const float TraceLength = static_cast<float>(FVector::Dist(Hit.TraceStart, Hit.TraceEnd));
+		Hit.Time = TraceLength > KINDA_SMALL_NUMBER ? Hit.Distance / TraceLength : 0.0f;
+	}
 }
 
 FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId)
@@ -4239,6 +4292,26 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	// emptying, subsystem deregistration, and network-replicated actor
 	// destruction; this is not AActor::Destroy().
 	IFGDismantleInterface::Execute_Dismantle(DismantleTarget);
+
+	// Read-after-write consistency (2026-09-01, found live during the
+	// copper factory build): the actual actor destruction can lag this
+	// call by up to a frame - a merger deleted here still appeared in an
+	// immediately-following world.connections read, and worse, a
+	// placeBuilding ground trace moments later STACKED a new attachment
+	// on top of the not-yet-destroyed actor (its collision was still
+	// live). If the engine deferred the destruction, force the dying
+	// actor inert RIGHT NOW so nothing can trace onto it during its
+	// final frame. The one-frame staleness in listing RPCs
+	// (world.connections/world.buildables) can still occur - callers
+	// should allow a tick before treating dependent reads as
+	// authoritative (documented in RPC_REFERENCE.md) - but the
+	// physically-dangerous half (stacking new construction on a deleted
+	// object) is closed here.
+	if (IsValid(DismantleTarget))
+	{
+		DismantleTarget->SetActorEnableCollision(false);
+		DismantleTarget->SetActorHiddenInGame(true);
+	}
 
 	int32 RefundedStackCount = 0;
 	if (RefundStacks.Num() > 0)
@@ -4770,7 +4843,16 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -4821,6 +4903,11 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 			for (AFGBuildable* Candidate : BuildableSubsystem->GetAllBuildablesRef())
 			{
 				if (!IsValid(Candidate)) { continue; }
+				// Class filter (2026-09-01) - same wrong-nearest-id bug fixed
+				// in ConstructBuildingAtPosition the same day: only an
+				// extractor can be what this function just constructed, so
+				// never report a nearby belt/pole/attachment id instead.
+				if (!Candidate->IsA(AFGBuildableResourceExtractorBase::StaticClass())) { continue; }
 				const float DistSq = FVector::DistSquared(Candidate->GetActorLocation(), ConstructLocation);
 				if (DistSq < BestDistSq)
 				{
@@ -5085,7 +5172,16 @@ namespace
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -5456,7 +5552,16 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -8503,6 +8608,10 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
+		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
+		// doc comment (proven for the lift's height; suspected fix for
+		// the belt player-distance "too long" failures).
+		PopulateSyntheticTraceRay(Hit);
 		return Hit;
 	};
 
@@ -8647,7 +8756,16 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -9093,6 +9211,10 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
+		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
+		// doc comment (proven for the lift's height; suspected fix for
+		// the belt player-distance "too long" failures).
+		PopulateSyntheticTraceRay(Hit);
 		return Hit;
 	};
 
@@ -9304,6 +9426,7 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass()) // see the identical 2026-09-01 addition in the RealCharacter strategy
 				|| (DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -10205,6 +10328,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 			for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 			{
 				const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+					|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass()) // see the identical 2026-09-01 addition in ConstructConveyorBelt's RealCharacter strategy
 					|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 				const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 				if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -10381,6 +10505,10 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
+		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
+		// doc comment (proven for the lift's height; suspected fix for
+		// the belt player-distance "too long" failures).
+		PopulateSyntheticTraceRay(Hit);
 		return Hit;
 	};
 
@@ -10529,7 +10657,16 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -10698,6 +10835,10 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
+		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
+		// doc comment (proven for the lift's height; suspected fix for
+		// the belt player-distance "too long" failures).
+		PopulateSyntheticTraceRay(Hit);
 		return Hit;
 	};
 
@@ -10834,7 +10975,16 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -10995,6 +11145,10 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
+		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
+		// doc comment (proven for the lift's height; suspected fix for
+		// the belt player-distance "too long" failures).
+		PopulateSyntheticTraceRay(Hit);
 		return Hit;
 	};
 
@@ -11130,7 +11284,16 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -11402,7 +11565,16 @@ void UAIModFunctionLibrary::ConstructVehiclePathSegment(UObject* WorldContextObj
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -11696,7 +11868,16 @@ void UAIModFunctionLibrary::ConstructBeam(UObject* WorldContextObject, const FSt
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -11938,7 +12119,16 @@ namespace
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
+			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// way!" is exactly as player-dependent as aim location for an
+			// autonomous RPC build - the idle real character standing
+			// somewhere near a remote build site blocked real placements
+			// during the copper factory build (found live, worked around
+			// with world.teleportPlayer at the time). Same accepted risk
+			// as ignoring aim location: the build may intersect the
+			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass())
 				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)

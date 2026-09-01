@@ -1059,7 +1059,18 @@ own caution).
 ### `world.deleteBuilding`
 `params: {"buildableId"}`. Real dismantle (proper connection/save
 cleanup) — not a cheat despawn. Works on both normal and lightweight
-(foundation-style) ids. Deleting a pipe also cleans up its flow-fill
+(foundation-style) ids.
+
+**Read-after-write consistency (2026-09-01)**: the engine can defer
+the actual actor destruction by up to a frame — found live when a
+just-deleted merger still appeared in an immediate `world.connections`
+read and a `world.placeBuilding` ground trace moments later STACKED a
+new attachment on top of it. Since then the mod forces the dying actor
+inert immediately (collision off, hidden), which closes the dangerous
+stacking half — but listing RPCs (`world.buildables`/
+`world.connections`) can still show the object for ~1 more tick, so
+allow a short settle (a few hundred ms) before treating dependent
+reads as authoritative after a delete. Deleting a pipe also cleans up its flow-fill
 indicator widget; deleting a Pipeline Junction does **not** delete pipes
 still attached to it (they're left dangling, and the extractor/machine
 at their other end stays "occupied" until you delete those too).
@@ -1170,6 +1181,17 @@ normally afterward (a one-shot jump, not a pause).
 Posts into the player's in-game chat as a `"CustomMessage"`.
 
 ### `world.placeBuilding` — asynchronous, `result.buildableId` on success
+
+**`result.buildableId` reliability fix (2026-09-01)**: the id used to be
+resolved as "nearest buildable of ANY class within 200 units of the
+construct location" — found live to return a neighboring MERGER's id
+for a foundation placed under it on a dense site. Now filtered to the
+recipe's own resolved buildable class (matching the lightweight-
+buildable branch, which always did this); an unresolvable class falls
+back to the old any-class behavior with a warning in the log. The same
+fix applies to `world.placeExtractor` (extractor-class filter). Fixed
+in source, NOT yet live-tested.
+
 `params`:
 - `recipeClass` (required) — a real building recipe path.
 - `x`, `y` (required, numbers).
@@ -1613,7 +1635,26 @@ never silently substitutes a different connector. See
 `docs/splitter-port-control-test.md`.
 
 **`instigatorStrategy`** (added 2026-08-30, real known issue, still being
-worked): `"RealCharacter"` drives the actual player's real BuildGun —
+worked): **Player-distance dependence (ROOT-CAUSED 2026-09-01)**: this call
+fails `"Conveyor Belt is too long!"` (all routeModes, any geometry)
+whenever the REAL player character stands more than ~5000 units from
+the connection, and succeeds after nothing but a `world.teleportPlayer`
+closer — reproduced in controlled A/B pairs during the copper factory
+build; the threshold is consistent with the belt's own
+`maxSplineLength` (5600, `world.conveyorBeltTiers`). This explains the
+2026-09-01 "session-length degradation" mystery completely (the player
+had been left far from every attempted site). **Standing rule:
+teleport the player within ~2-3000 units of any belt connection
+first.** A candidate code fix (synthetic camera-ray fields on the
+hits, `PopulateSyntheticTraceRay` — the same mechanism that fixed the
+lift's height) is compiled in as of 2026-09-01 but NOT yet live-tested
+— keep teleporting until it's confirmed. Also since 2026-09-01, the
+`"A player is in the way!"` (UFGCDEncroachingPlayer) hard disqualifier
+is IGNORED by all connect/construct RPC polls, same
+player-independence doctrine as the existing aim-location ignore (the
+build may intersect the idle player's capsule — accepted risk).
+
+`"RealCharacter"` drives the actual player's real BuildGun —
 proven reliable, but visibly hijacks the camera during construction
 (confirmed live: rotates the player's view every poll tick for the
 duration of each call). `"AIController"`/`"PlayerController"` spawn a

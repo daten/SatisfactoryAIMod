@@ -394,14 +394,23 @@ mysteries**:
    "worked early then never again" = the player character had been left
    far from every attempted site. **Standing rule: teleport the player
    within ~2-3000 units of any belt connection before calling it.**
-2. **A "failed" placement can have actually constructed (REAL BUG,
-   very likely the duplicate-buildable root cause, task_6f0276ff)**: a
-   foundation `world.placeBuilding` returned `CANNOT_CONSTRUCT ("A
-   player is in the way!")` yet the foundation WAS built - discovered
-   when the retry said "An identical buildable is already built
-   there!" and the site dump showed exactly one. A caller that retries
-   on failure can therefore create duplicates - exactly the pattern of
-   the unexplained duplicate Storage Container from the lift testing.
+2. **CORRECTED 2026-09-01 (same day, on code review + a live
+   re-count): the "failed placement actually constructed" claim was
+   WRONG.** The failure path in `ConstructBuildingAtPosition` provably
+   never reaches `InternalConstructHologram`, and a careful re-query
+   found exactly ONE foundation at the spot in question - no phantom
+   build ever happened. What actually happened: the retry's "An
+   identical buildable is already built there!" hard disqualifier came
+   from the foundation HOLOGRAM snapping onto a NEIGHBORING, occupied
+   grid cell (foundations snap to each other; the two adjacent slabs
+   had just been placed), not from a hidden duplicate at the requested
+   spot - a third attempt at the same coordinates then succeeded and
+   produced the one real slab. Lesson recorded instead: a
+   plausible-sounding two-datapoint inference ("failure then
+   identical-exists = phantom construction") needs a direct occupancy
+   re-count before being called a bug. The duplicate-container mystery
+   (task_6f0276ff) therefore remains UNEXPLAINED - this mechanism is
+   no longer a supported explanation for it.
 3. **`world.placeBuilding` can report the WRONG `buildableId`**: one
    successful foundation placement returned a nearby MERGER's id as
    `result.buildableId` (the real new slab showed up separately in
