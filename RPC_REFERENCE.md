@@ -1061,20 +1061,26 @@ own caution).
 cleanup) — not a cheat despawn. Works on both normal and lightweight
 (foundation-style) ids.
 
-**Read-after-write consistency (2026-09-01)**: the engine can defer
-the actual actor destruction by up to a frame — found live when a
-just-deleted merger still appeared in an immediate `world.connections`
-read and a `world.placeBuilding` ground trace moments later STACKED a
-new attachment on top of it. A fix that forces the dying actor inert
-(collision off, hidden) exists in source — **v1 of it FAILED its live
-retest** (it guarded on `IsValid()`, which is false for exactly the
-pending-kill state it needed to handle; a delete-then-place retest
-stacked a merger on the corpse at +300 z anyway); **v2 (plain null
-check) is compiled but NOT yet live-retested.** Until v2 is confirmed:
-allow a real settle (~500ms+) between deleting something and placing
-at/near the same spot, and verify the new object's z afterwards.
-Listing RPCs (`world.buildables`/`world.connections`) can always lag
-~1 tick regardless. Deleting a pipe also cleans up its flow-fill
+**Read-after-write consistency (2026-09-01, three fix iterations)**:
+the engine defers the corpse's cleanup past the dismantle call — found
+live when a just-deleted merger still appeared in an immediate
+`world.connections` read and a `world.placeBuilding` ground trace
+moments later STACKED a new attachment on top of it (+300 z). Two
+actor-side fixes (force collision off/hidden after dismantle) BOTH
+failed clean live retests — v1 for guarding on `IsValid()` (false on a
+pending-kill actor, skipping its own use case), v2 (null check,
+deployment verified via file timestamps) because splitter/merger-class
+buildables carry their traceable collision in FactoryGame's
+instanced-mesh system (AbstractInstanceManager), which actor-level
+calls can't touch and whose cleanup rides the deferred destruction.
+**v3 (in source, NOT yet live-retested): the RPC's HTTP response is
+now deferred TWO real ticks after a successful dismantle** — a
+caller's next request therefore always runs after the engine's own
+cleanup. Until v3 is confirmed: allow a real settle (~500ms+) between
+deleting something and placing at/near the same spot, and verify the
+new object's z afterwards. This also means `world.deleteBuilding`
+takes ~2 frames longer to respond than it used to — that is the fix
+working, not lag. Deleting a pipe also cleans up its flow-fill
 indicator widget; deleting a Pipeline Junction does **not** delete pipes
 still attached to it (they're left dangling, and the extractor/machine
 at their other end stays "occupied" until you delete those too).

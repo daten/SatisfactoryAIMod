@@ -4318,6 +4318,20 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	// pending-kill actor's memory stays alive until GC, and
 	// SetActorEnableCollision/SetActorHiddenInGame are safe to call on
 	// it - making it un-traceable is the whole point.
+	//
+	// v2 ALSO FAILED its live retest (2026-09-01, deployment verified
+	// by file timestamps before concluding): identical +300 z stacking.
+	// By elimination the corpse's traceable collision isn't on the
+	// actor's own components at all - splitter/merger-class buildables
+	// live in FactoryGame's instanced-mesh system
+	// (AbstractInstanceManager), whose collision actor-level calls
+	// can't touch and whose cleanup rides the deferred destruction.
+	// This block is KEPT as harmless belt-and-braces for plain-actor
+	// buildables, but the REAL fix is v3 in AIModHttpServerSubsystem's
+	// world.deleteBuilding handler: the HTTP response is deferred two
+	// real ticks, so a caller's next request always runs after the
+	// engine's own cleanup has finished. Do not rely on this block
+	// alone for same-frame delete-then-place consistency.
 	if (DismantleTarget)
 	{
 		DismantleTarget->SetActorEnableCollision(false);

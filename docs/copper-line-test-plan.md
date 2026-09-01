@@ -401,12 +401,18 @@ mysteries**:
    through the player's own standing position (the new
    `UFGCDEncroachingPlayer` ignore, also confirmed). Teleporting near
    belt work is now a fallback, not a requirement. From the same
-   retest session: the delete-then-place inert-forcing fix v1 FAILED
-   its retest (IsValid() is false for pending-kill actors, so the
-   guard skipped exactly its own use case; a merger stacked on a
-   just-deleted splitter's corpse at +300 z, cleanly reproduced); v2
-   (plain null check) is in source awaiting the next redeploy +
-   retest. Until then keep a ~500ms settle between deleting and
+   retest sessions: the delete-then-place stacking hazard took THREE
+   fix iterations - v1 (inert-forcing guarded by IsValid()) failed
+   because IsValid() is false for pending-kill actors, and v2 (plain
+   null check, deployment verified via file timestamps before
+   concluding) failed identically because attachment-class buildables
+   carry their traceable collision in the AbstractInstanceManager's
+   instanced meshes, untouchable from actor-level calls and cleaned up
+   on the deferred destruction a frame later. v3 stops fighting the
+   engine's cleanup order entirely: world.deleteBuilding's HTTP
+   response is deferred two real ticks, so the caller's next request
+   always lands after cleanup. v3 is in source awaiting redeploy + one
+   final retest; until then keep a ~500ms settle between deleting and
    placing at the same spot. **Also standing build preference from
    this session (user request): default to 1m foundations
    (`Recipe_Foundation_8x1_01`) for future builds - the copper
