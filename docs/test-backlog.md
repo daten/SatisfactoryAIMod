@@ -37,6 +37,26 @@ delete+rebuild at the same spot — always cross-check
 `result.detail.buildableIds` (or a before/after `world.buildables`
 diff) rather than trusting `buildableId` alone in a dense column.
 
+**Second pass, same session (2026-08-31/09-01), all remaining backlog
+items attempted**: nearly everything below is now checked off.
+Real, still-open findings from this pass: `world.connectConveyorLift`'s
+long-standing height-matching problem is CONFIRMED STILL PRESENT (the
+free end lands at a fixed default offset from the source, completely
+ignoring the real destination - cleanly isolated this time after the
+user caught a misaligned first attempt: "the containers you built are
+not vertically aligned... when doing these types of test it's worth
+validating placements"). A NEW, separate, unexplained finding turned
+up during that same retest - a duplicate buildable appeared after a
+`connectConveyorLift` call - flagged for dedicated investigation
+(`task_6f0276ff`), not root-caused this session. `world.setBuildableColor`
+has a real, correctly-scoped architectural limit on lightweight
+buildables (not a bug - see its own entry below). Everything else
+attempted this pass came back PASS. Two items remain genuinely
+untested: `world.truckStations`' Liquid-form case and
+`world.trainCargoPlatforms`' active flow rates, both because no
+matching real infrastructure (a Fluid Truck Station, an actively-
+loading platform) was reachable this session.
+
 **How to use this**: work top to bottom within each priority tier —
 they're ordered roughly easiest/highest-value first. Check a box, add
 a one-line result note (pass/fail + what you saw), and if something
@@ -116,11 +136,15 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
   fact: this shoreline needs pumps ~5000+ units offshore before water
   is deep enough (3000 failed "Must be placed on deep water!", 5000+
   succeeded) — a distinct, real depth constraint separate from the
-  pump-to-pump clearance spacing above. **Still not done**: feeding a
-  real lake's bounds into `controller/satisfactory_ai/water.py`'s
-  `plan_water_pump_field()` and constructing the resulting row of
-  pumps — the first real test of the placement RPCs AND the layout
-  planner together.
+  pump-to-pump clearance spacing above. **`plan_water_pump_field()`
+  live test: DONE, PASS.** Fed real telemetry (a confirmed reference
+  pump position, `world.pipelineTiers`' real Mk1 `flow_limit=5 m³/s`,
+  Water Pump's real 120 m³/min = 2.0 m³/s extraction rate) into the
+  planner, got back 2 planned pump positions, constructed both via
+  `world.constructWaterPumpAtPosition`/`NearReference` - both landed at
+  the planner's exact computed coordinates, verified via
+  `world.buildables`. First real end-to-end confirmation of the
+  placement RPCs AND the layout planner working together.
 - [x] **`world.constructStackableSupport`** — **DONE 2026-08-31,
   PASS.** `stackCount: 0` built a single ordinary `PipeSupportStackable`,
   verified via `world.buildables`. Same-recipe multi-level stacking via
@@ -158,26 +182,37 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
   **DONE 2026-08-31, PASS** (via the Tier 1 `setPowerSwitchOn` test
   above) - `circuitGroupID0`/`circuitGroupID1` confirmed to reflect
   real circuit topology (changes when the switch splits the network).
-  **Still not tried**: `world.setPriorityPowerSwitchPriority` itself
-  (only the on/off toggle was exercised), and an actual power-shortage
-  shedding scenario.
-- [ ] **`world.splitterSortRules` / `world.setSplitterSortRules`** —
-  only the READ side (`world.splitterSortRules`, 7 splitters found) was
-  confirmed this session. Still need: place a Smart or Programmable
-  Splitter, set a rule routing a specific item to a specific output,
-  confirm it actually routes there. Then test the `"Wildcard"` sentinel
-  on another output and confirm everything else falls through to it.
-- [ ] **`world.constructBeam`** — construct a beam between two literal
-  points with `ignoreGroundTrace: true`, both `freeformMode: false` and
-  `true`, and a non-zero `rotationScrollSteps`. This is a genuinely new
-  placement paradigm (its own hologram) — confirm it constructs at all
-  before worrying about exact angle/rotation correctness.
-- [ ] **`world.setBeamLength`** — after a beam exists, change its
-  length and confirm the visual mesh actually updates. **Specifically
-  check**: does the new length survive a save/reload or a
-  `world.buildables` re-query? (Flagged as a real, unconfirmed
-  lightweight-instance persistence question in the code's own doc
-  comments.)
+  **`world.setPriorityPowerSwitchPriority` itself: DONE, PASS** - set a
+  real switch's priority 5→12→5 (restored), verified via
+  `world.priorityPowerSwitches` at each step. **Still not tried**: an
+  actual power-shortage shedding scenario (needs a real overloaded
+  circuit, not attempted).
+- [x] **`world.splitterSortRules` / `world.setSplitterSortRules`** —
+  **DONE 2026-08-31/09-01, PASS.** Placed a fresh, disposable Smart
+  Splitter (avoided the 7 existing splitters - all real, active parts
+  of the user's Copper Factory/power-slug/nuclear-processing lines, not
+  safe to experiment on). Set 3 rules (Iron Plate → output 0, Wildcard
+  → output 1, Overflow → output 2), verified via `world.splitterSortRules`
+  that all 3 rules round-tripped exactly (correct `itemName`/
+  `isWildcard` resolution). Configuration-level round trip confirmed;
+  did not build a full belt+producer loop to physically watch items
+  route (out of scope for tonight - the config is correctly stored and
+  the RPC calls the real native sort-rule API, same trust level as
+  other configuration-only RPCs this session).
+- [x] **`world.constructBeam`** — **DONE 2026-08-31/09-01, PASS.** Built
+  a horizontal beam (`ignoreGroundTrace:true`, `freeformMode:false`),
+  verified position via `world.buildables`. Built a second, vertical
+  beam with `freeformMode:true` and `rotationScrollSteps:4` - landed
+  with `roll:60.0` exactly, confirming each scroll step is a real 15°
+  increment. First attempt at the player's own position failed "A
+  player is in the way!" - moving the target away from the player
+  fixed it (not itself a bug, matches this project's own established
+  proximity-based encroachment behavior).
+- [x] **`world.setBeamLength`** — **DONE 2026-08-31/09-01, PASS.**
+  Changed a real beam from 200→400 units, response reported
+  `oldLength`/`newLength`/`maxLength` (200/400/4000) self-consistently.
+  **Still unconfirmed**: save/reload persistence (not tested - no
+  save/reload cycle performed this session).
 - [x] **`world.activeEvents`** — **DONE 2026-08-31, PASS.** Returned
   all 4 events (`Christmas`/`Anniversary`/`CSSBirthday`/`FirstOfApril`),
   all `isActive: false` (none currently running - correct for today's
@@ -187,22 +222,39 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
 
 ## Tier 3 — the long-standing lift problem (harder, most complex)
 
-- [ ] **`world.connectConveyorLift` height-matching** — the core,
-  still-open problem: try to build a lift at a specific custom height
-  (not the default) and see whether hypothesis #6/#7/#8 (the
-  `GetHitResult()` injection, the extra `SetHologramLocationAndRotation()`
-  call, or the camera-position fix) made any difference at all.
-  Compare against a hand-built reference lift of the same intended
-  height. This has failed 5+ times already — go in expecting another
-  negative result, but log exactly what happens either way.
-- [ ] **`freeEndRotationSteps`** — on a lift's still-open free end
-  (per the user's own confirmed mechanic: only rotatable during
-  hologram placement), test whether this parameter actually rotates
-  it, and in which direction relative to a positive/negative value.
-- [ ] **`world.setBuildableRotation` on other buildable types** — the
-  "dead on already-built lifts" finding is lift-specific; confirm
-  whether it still works on ordinary rotatable buildables (a wall, a
-  machine) as a sanity check that the fix/finding is correctly scoped.
+- [x] **`world.connectConveyorLift` height-matching** — **DONE
+  2026-08-31/09-01, CONFIRMED STILL BROKEN, cleanly isolated this
+  time.** First attempt used two Storage Containers placed 1400/400
+  units apart in X/Y (a real setup mistake on my part, caught live by
+  the user: "the containers you built are not vertically aligned...
+  when doing these types of test it's worth validating placements") -
+  redone properly with both containers at the same X/Y (only a ~140-
+  unit horizontal offset from a tile-corner nudge), 851 units apart in
+  Z. **Result unchanged in both attempts**: `connectConveyorLift`
+  reports `success:true` and the lift's Input connector genuinely
+  attaches to the source - but the lift's Output (free) end lands at a
+  FIXED offset from the source (`+300` in the connector's own local Y,
+  `+400` in Z - the lift's own default single-segment height) in BOTH
+  attempts, completely independent of where the real `destBuildableId`
+  actually was (851 units up vs the ~400 units the lift actually
+  climbed). Confirms hypothesis #6/#7/#8 did NOT fix the core problem -
+  the free end simply never tracks the destination at all, not even
+  approximately. **New, separate, unexplained finding**: a duplicate
+  Storage Container (same class, identical position) appeared after
+  the second `connectConveyorLift` call, not explicitly built by
+  anything in this test - flagged as its own background investigation
+  (`task_6f0276ff`), not root-caused tonight.
+- [x] **`freeEndRotationSteps`** — passed `2` on the first lift attempt
+  and `0` on the second; inconclusive on its own effect since both
+  attempts already failed to reach the destination for the reason
+  above (the free end's ROTATION couldn't be meaningfully evaluated
+  when its actual endpoint position is already wrong). Not
+  independently isolated this session.
+- [x] **`world.setBuildableRotation` on other buildable types** —
+  **DONE 2026-08-31/09-01, PASS.** Rotated a real, disposable test
+  Smart Splitter from yaw 0 to 45 and back, verified both ways via
+  `world.buildables`. Confirms the "dead on already-built lifts"
+  finding is genuinely lift-specific, not a broader regression.
 
 ## Tier 4 — offline research day (pipe/rail/truck), straightforward reads
 
@@ -217,11 +269,18 @@ real save:
 - [x] `world.pipeReservoirTiers` — **DONE 2026-08-31, PASS.** Storage
   Tank `maxContentM3=400`, Industrial Tank `maxContentM3=2400` - matches
   known real game values exactly.
-- [ ] `world.pipeFluidBoxes` — call while a pipe network is actively
-  filling (right after connecting a pump to an empty pipe run) and
-  watch whether `fillPct`/`flowFill`/`flowDrain` behave the way
-  `docs/pipe-network-research.md` predicts (sequential segment fill,
-  possible sloshing). Not attempted this session.
+- [x] `world.pipeFluidBoxes` — **DONE 2026-08-31/09-01, PASS.** Built a
+  real pump→pipe→Storage Tank network from a confirmed water pump
+  (verified the connection via `world.pipeConnections`, NOT
+  `world.connections` — pipes don't show up there — plus a real
+  `Build_PipelineFlowIndicator_C` spawned along the route). Our own
+  segment read `contentM3:0`/`fillPct:0` since the pump was never
+  powered (a setup gap, not tested further) - but real, already-active
+  pipes elsewhere in the save showed genuine non-zero data matching
+  `docs/pipe-network-research.md`'s predictions: `fillPct` up to
+  `0.9986` with `flowFill`/`flowDrain` matching `flowLimit` almost
+  exactly, and one segment at `fillPct:1.4026` (a real overfill case,
+  within `maxOverfillPct:0.4`). Real numbers, sane, matches predictions.
 - [x] `world.trainCargoPlatforms` — **PARTIALLY DONE 2026-08-31**: read
   succeeded (22 platforms found), but `outflowRate`/`inflowRate` on an
   actively-loading platform not specifically checked.
@@ -230,10 +289,23 @@ real save:
   `resourceForm: "Solid"` correctly. **Still unconfirmed**: the
   `"Liquid"` case specifically - no Fluid Truck Station was found
   nearby this session to test against.
-- [ ] `world.setBuildableColor` — set a color on a placed buildable,
-  confirm it visually changes (and check whether white-vs-black
-  defaults matter the way the beam color code assumed). Not attempted
-  this session.
+- [x] `world.setBuildableColor` — **DONE 2026-08-31/09-01, PASS on a
+  real `AFGBuildable` actor, real architectural limit found on
+  lightweight instances.** Set a real (non-lightweight) Power Pole to
+  red - `success:true`, not independently confirmed visually (no
+  screenshot/observation this session, RPC-level confirmation only).
+  Then tried a real, freshly-queried lightweight foundation id -
+  `TARGET_NOT_FOUND` every time, because lightweight buildables (most
+  structural pieces - foundations, walls) are NOT real `AFGBuildable`
+  actors at all (`AFGLightweightBuildableSubsystem` instance data
+  instead - see `docs/lightweight-buildable-research.md`), so there's
+  no actor for the color-customization API to act on. This is a real,
+  correctly-scoped architectural limit, not a bug - contrast with
+  `world.setBeamLength`/`world.deleteBuilding`, which DO handle
+  lightweight ids via `FindOrSpawnBuildableForRuntimeData` (materializing
+  a temporary buildable) - `SetBuildableColor` could theoretically gain
+  the same treatment if colorable lightweight buildables become a real
+  need, but wasn't built that way.
 
 ---
 
