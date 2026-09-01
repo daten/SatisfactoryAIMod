@@ -4160,34 +4160,15 @@ namespace
 		Hit.Time = TraceLength > KINDA_SMALL_NUMBER ? Hit.Distance / TraceLength : 0.0f;
 	}
 
-	// Build-gun trace-range override (2026-09-01, HMF finding #3 follow-up).
-	// The belt/spline construction fails "Conveyor Belt is too long!" purely
-	// because the real player stands far from the connectors: the belt's
-	// internal routing re-traces from the real build gun, whose
-	// mBuildDistanceMax clamps the trace to a point short of the true
-	// destination when the player is beyond it (~10k units), making the
-	// generated spline stretch past mMaxSplineLength. Populating the
-	// synthetic hit's trace ray got horizontal belts to ~9.7k but not
-	// beyond; the reliable fix is to temporarily raise the build gun's own
-	// clamp so any internal re-trace reaches the target regardless of player
-	// distance. mBuildDistanceMax is a protected float UPROPERTY - accessed
-	// by reflection, the same pattern this file already uses for other
-	// protected properties. SetBuildGunTraceRange returns the previous value
-	// so the caller can restore it (a real player's build reach must not be
-	// left altered); a sentinel < 0 means the property wasn't found and there
-	// is nothing to restore.
-	float SetBuildGunTraceRange(AFGBuildGun* BuildGun, float NewRange)
-	{
-		if (!BuildGun) { return -1.0f; }
-		if (FFloatProperty* Prop = FindFProperty<FFloatProperty>(BuildGun->GetClass(), TEXT("mBuildDistanceMax")))
-		{
-			const float Previous = Prop->GetPropertyValue_InContainer(BuildGun);
-			Prop->SetPropertyValue_InContainer(BuildGun, NewRange);
-			return Previous;
-		}
-		return -1.0f;
-	}
-
+	// Restores a previously-saved build gun mBuildDistanceMax (protected
+	// float UPROPERTY, accessed by reflection). A sentinel SavedRange < 0
+	// means "nothing to restore" and this is a no-op. Its former companion
+	// setter was removed 2026-09-01: raising the clamp to fix far belts
+	// did NOT work (the real limit is the camera AIM, addressed by the
+	// auto-teleport in ConstructConveyorBelt_RealCharacterStrategy) and
+	// actively REGRESSED near belts - an effectively-unlimited trace made
+	// AutoRouteSpline route absurdly long splines. The restore is kept as
+	// a harmless no-op so the existing belt call sites stay valid.
 	void RestoreBuildGunTraceRange(AFGBuildGun* BuildGun, float SavedRange)
 	{
 		if (!BuildGun || SavedRange < 0.0f) { return; }
@@ -8724,12 +8705,18 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		BeltController->SetControlRotation(BeltDeterministicLook);
 	}
 
-	// Extend the build gun's trace range for the whole build (restored at
-	// every exit below, including each poll terminal) - see
-	// SetBuildGunTraceRange's doc comment. Kept as a cheap belt-and-braces
-	// measure, but note it is NOT sufficient on its own: raising the clamp
-	// was live-tested 2026-09-01 and a far belt still failed "too long".
-	const float SavedBuildGunRange = SetBuildGunTraceRange(BuildGun, 1000000.0f);
+	// NOTE (2026-09-01): a previous attempt raised the build gun's
+	// mBuildDistanceMax to 1,000,000 here to fix far belts. It did NOT
+	// fix them (the real limit is the camera AIM, not the clamp - see the
+	// auto-teleport below) and it REGRESSED near belts: with an
+	// effectively-unlimited trace range, the belt's AutoRouteSpline traces
+	// far past the target along the aim and routes an absurdly long spline,
+	// so even a 500-unit level belt failed "too long"/"Missing materials"
+	// unless the player stood almost exactly on it (confirmed live). The
+	// raise is removed; the helper is kept only so the restore calls below
+	// stay valid no-ops (SavedBuildGunRange = -1 makes every
+	// RestoreBuildGunTraceRange a no-op).
+	const float SavedBuildGunRange = -1.0f;
 
 	// Auto-teleport the real player next to the connection (2026-09-01,
 	// THE reliable fix for the belt "too long" failures at distance).
