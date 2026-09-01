@@ -100,8 +100,11 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
   bounds. `world.constructWaterPumpNearReference` from a real reference
   pump: PASS — 2000-unit offset correctly failed `CANNOT_CONSTRUCT`,
   3000/4000/5000-unit offsets all succeeded and verified via
-  `world.buildables` at the exact expected positions (**real minimum
-  pump spacing is somewhere in (2000, 3000]**). `world.constructWaterPumpAtPosition`
+  `world.buildables` at the exact expected positions. **Real minimum
+  pump spacing later precisely confirmed as exactly `2000` units**
+  (matches the Water Pump's own clearance box width exactly; the RPC
+  path needs `2001`+ due to floating-point precision — see
+  `RPC_REFERENCE.md`). `world.constructWaterPumpAtPosition`
   for a genuine in-water position: PASS, verified via
   `world.buildables`. The negative-path test (a literal on-land
   position) CRASHED THE GAME the first time — root-caused and fixed
