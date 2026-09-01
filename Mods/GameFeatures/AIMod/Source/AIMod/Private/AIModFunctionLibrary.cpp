@@ -3665,6 +3665,7 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		bool bIgnoreInvalidFloor = false;
 		bool bHasTargetYaw = false;
 		float TargetYawDegrees = 0.0f;
+		bool bIgnoreGroundTrace = false; // pin literal position, see below
 	};
 	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
 	PollState->Hologram = Hologram;
@@ -3678,6 +3679,7 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 	PollState->bIgnoreInvalidFloor = bIgnoreInvalidFloor;
 	PollState->bHasTargetYaw = bHasTargetYaw;
 	PollState->TargetYawDegrees = TargetYawDegrees;
+	PollState->bIgnoreGroundTrace = bIgnoreGroundTrace;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -3719,6 +3721,28 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		}
 
 		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
+
+		// Pin the literal requested position when the caller asked for
+		// ignoreGroundTrace (2026-09-01, real user-visible bug: machines
+		// and foundations embedding into each other on a supposedly-flat
+		// platform). ignoreGroundTrace promises a literal (x, y, z)
+		// placement, but UpdateHologramPlacement() STILL runs the
+		// hologram's snap logic - and foundations snap-STACK vertically
+		// onto adjacent foundations, so a whole row requested at one z
+		// landed at a mix of z=151 and z=301 (a 150-unit foundation-height
+		// snap), and machines then snapped onto whichever height was
+		// under them. Forcing the actor's location back to the synthetic
+		// hit every tick (after UpdateHologramPlacement re-snapped it, so
+		// the disqualifier check below and the eventual construct both see
+		// the pinned transform) defeats the snap-stack and makes
+		// ignoreGroundTrace genuinely literal on all three axes. Only
+		// applied under ignoreGroundTrace - the normal ground-trace path
+		// still snaps as before, which is what a caller passing real
+		// coordinates-to-resolve wants.
+		if (PollState->bIgnoreGroundTrace)
+		{
+			PollHologram->SetActorLocation(PollState->SyntheticHit.Location);
+		}
 
 		// Re-assert the exact target yaw every tick too, for the same
 		// reason the camera look direction is re-asserted above -
@@ -8663,7 +8687,26 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		BeltController->SetControlRotation(BeltDeterministicLook);
 	}
 
+	// Build-gun cached-trace injection for belts (2026-09-01) - the fix
+	// for the player-distance-dependent "Conveyor Belt is too steep!"/
+	// "too long!" failures found during the HMF build (see
+	// docs/hmf-factory-plan.md finding #3). PopulateSyntheticTraceRay
+	// (added earlier) fixed pure horizontal "too long" by giving the hit
+	// a real camera ray, but INCLINED belts still failed based only on
+	// how far the real player stood: AFGBuildGun::TraceForBuilding()
+	// clamps its trace to mBuildDistanceMax, so when the player is far,
+	// any internal read of BuildGun->GetHitResult() (which the belt's
+	// spline routing/incline validation can consult, not just the
+	// hitResult we pass to UpdateHologramPlacement) returns a point
+	// short of the real destination along the aim - producing a spline
+	// whose middle over-inclines. The conveyor LIFT path already writes
+	// its synthetic hit into GetHitResult() for exactly this reason; the
+	// belt path never did. Writing the real target here (and re-asserted
+	// every poll tick below) makes any such internal read see the true
+	// destination regardless of player distance. NOT YET LIVE-TESTED -
+	// keep teleporting near belt connections until confirmed.
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	BuildGun->GetHitResult() = StartHit;
 	BeltHologram->UpdateHologramPlacement(StartHit);
 	BeltHologram->TrySnapToActor(StartHit);
 	const bool bStartStepComplete = BeltHologram->DoMultiStepPlacement(true);
@@ -8680,6 +8723,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 	}
 
 	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
+	BuildGun->GetHitResult() = EndHit; // see the StartHit injection comment above
 	BeltHologram->UpdateHologramPlacement(EndHit);
 	BeltHologram->TrySnapToActor(EndHit);
 	const bool bEndStepComplete = BeltHologram->DoMultiStepPlacement(true);
@@ -8701,6 +8745,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 	{
 		TWeakObjectPtr<AFGConveyorBeltHologram> Hologram;
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<AFGBuildGun> BuildGun; // hit-result re-assertion, see below
 		TWeakObjectPtr<UWorld> World;
 		FString SourceBuildableId;
 		FString DestBuildableId;
@@ -8714,6 +8759,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
 	PollState->Hologram = BeltHologram;
 	PollState->Character = Character;
+	PollState->BuildGun = BuildGun;
 	PollState->World = World;
 	PollState->SourceBuildableId = SourceBuildableId;
 	PollState->DestBuildableId = DestBuildableId;
@@ -8744,6 +8790,15 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 			{
 				PollController->SetControlRotation(PollState->DeterministicLook);
 			}
+		}
+
+		// Re-assert the build gun's cached trace every tick (2026-09-01) -
+		// see the StartHit injection comment in the synchronous section
+		// above. Keeps any internal spline/incline read pinned to the real
+		// destination instead of the player's distance-clamped live trace.
+		if (AFGBuildGun* PollBuildGunForHit = PollState->BuildGun.Get())
+		{
+			PollBuildGunForHit->GetHitResult() = PollState->EndHit;
 		}
 
 		// Re-assert the end hit every poll tick (2026-08-30) - matching
@@ -9881,7 +9936,7 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 // test session. Might be this function's own snap/connector logic,
 // might be unrelated - genuinely unknown. Flagged for dedicated
 // follow-up investigation, not fixed here.
-void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
+void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -9910,16 +9965,35 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		return;
 	}
 
-	UFGFactoryConnectionComponent* SourceConnection = FindFreeFactoryConnection(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT);
+	// Connector pinning (2026-09-01, refinement from the HMF build's
+	// finding #6): connectConveyorLift used to always pick "first free
+	// output/input", which on a stacked splitter/merger riser repeatedly
+	// chose non-coaxial SIDE connectors and built a lift whose top landed
+	// nowhere near the dest. Belts already accept
+	// sourceConnectorPosition/destConnectorPosition for exactly this;
+	// lifts now do too, so a caller can force the specific connectors
+	// whose X/Y line up for a clean vertical column. Falls back to the
+	// old first-free behavior when no position is supplied.
+	UFGFactoryConnectionComponent* SourceConnection = SourceConnectorPosition.IsSet()
+		? FindFreeFactoryConnectionNear(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT, SourceConnectorPosition.GetValue())
+		: FindFreeFactoryConnection(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT);
 	if (!SourceConnection)
 	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"), FString::Printf(TEXT("'%s' has no free Output factory connection component"), *SourceBuildableId)));
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"),
+			SourceConnectorPosition.IsSet()
+				? FString::Printf(TEXT("'%s' has no free Output factory connection within tolerance of the requested position %s"), *SourceBuildableId, *SourceConnectorPosition.GetValue().ToString())
+				: FString::Printf(TEXT("'%s' has no free Output factory connection component"), *SourceBuildableId)));
 		return;
 	}
-	UFGFactoryConnectionComponent* DestConnection = FindFreeFactoryConnection(DestBuildable, EFactoryConnectionDirection::FCD_INPUT);
+	UFGFactoryConnectionComponent* DestConnection = DestConnectorPosition.IsSet()
+		? FindFreeFactoryConnectionNear(DestBuildable, EFactoryConnectionDirection::FCD_INPUT, DestConnectorPosition.GetValue())
+		: FindFreeFactoryConnection(DestBuildable, EFactoryConnectionDirection::FCD_INPUT);
 	if (!DestConnection)
 	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"), FString::Printf(TEXT("'%s' has no free Input factory connection component"), *DestBuildableId)));
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FACTORY_CONNECTION"),
+			DestConnectorPosition.IsSet()
+				? FString::Printf(TEXT("'%s' has no free Input factory connection within tolerance of the requested position %s"), *DestBuildableId, *DestConnectorPosition.GetValue().ToString())
+				: FString::Printf(TEXT("'%s' has no free Input factory connection component"), *DestBuildableId)));
 		return;
 	}
 

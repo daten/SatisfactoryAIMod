@@ -1694,7 +1694,7 @@ public:
 	 * hologram itself would resolve it - NOT YET LIVE-TESTED, including
 	 * whether this actually affects the free end at all.
 	 */
-	static void ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+	static void ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
 	 * Telemetry. KEY FINDING (see docs/conveyor-attachment-research.md):

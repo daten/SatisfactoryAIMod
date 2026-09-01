@@ -1237,7 +1237,15 @@ in source, NOT yet live-tested.
 - `ignoreGroundTrace` (optional bool, default `false`) — skips the ground
   trace entirely and places at the literal `(x, y, z)` given, instead of
   letting a line trace resolve the real Z. **Requires `z` to be provided**
-  (fails `MISSING_REFERENCE_Z` otherwise). The ground trace is unreliable
+  (fails `MISSING_REFERENCE_Z` otherwise). **Now pins the literal
+  position on all three axes (fix 2026-09-01)**: previously the
+  hologram's own snap logic still ran and foundations snap-STACKED
+  vertically onto adjacent foundations — a whole row requested at one z
+  landed at a mix of heights (e.g. 151 and 301), and machines then
+  embedded into whichever foundation height was under them (user-visible
+  "machines embedded inside foundations"). Under `ignoreGroundTrace` the
+  hologram is now forced back to the exact `(x,y,z)` every tick, so a
+  flat platform built at a single z really is flat. NOT YET LIVE-TESTED. The ground trace is unreliable
   in two confirmed ways this exists to route around: at an exact
   foundation-tile edge it can non-deterministically find either the real
   top surface or unrelated lower terrain, and above open interior space
@@ -1663,14 +1671,26 @@ closer — reproduced in controlled A/B pairs during the copper factory
 build; the threshold is consistent with the belt's own
 `maxSplineLength` (5600, `world.conveyorBeltTiers`). This explains the
 2026-09-01 "session-length degradation" mystery completely (the player
-had been left far from every attempted site). **FIXED, LIVE-CONFIRMED 2026-09-01 (same day)**: the code fix
-(synthetic camera-ray fields on the hits, `PopulateSyntheticTraceRay`
-— the same mechanism that fixed the lift's height) was live-retested
-after redeploy: a splitter-to-splitter belt built cleanly with the
-player ~9,700 units away (previously a guaranteed "too long" failure),
-both ends verified `connected=true`. Teleporting the player near belt
-work is no longer required — keep `world.teleportPlayer` in mind only
-as a fallback if a stubborn geometry still fails. Also live-confirmed
+had been left far from every attempted site). **FIXED for pure horizontal "too long", LIVE-CONFIRMED 2026-09-01**: the
+code fix (synthetic camera-ray fields on the hits,
+`PopulateSyntheticTraceRay`) was live-retested after redeploy: a
+splitter-to-splitter belt built cleanly with the player ~9,700 units
+away (previously a guaranteed "too long" failure), both ends verified
+`connected=true`.
+
+**INCLINE routing still had a residual player-distance dependence
+(HMF build, finding #3): an INCLINED belt could fail "Conveyor Belt is
+too steep!"/"too long!" only because the player stood far away, and
+succeed after nothing but a `teleportPlayer` near.** Root cause:
+`AFGBuildGun::TraceForBuilding()` clamps its trace to `mBuildDistanceMax`,
+so any internal read of `BuildGun->GetHitResult()` by the belt's spline
+routing returned a point short of the real destination when the player
+was far — over-inclining the spline. **Additional fix 2026-09-01 (NOT
+YET LIVE-TESTED): the belt path now writes its synthetic hit into
+`BuildGun->GetHitResult()` at both clicks and every poll tick** (the
+conveyor lift already did this; the belt never did). Until confirmed,
+keep teleporting within ~1-2k of belt connections as the reliable
+fallback. Also live-confirmed
 the same session: the `"A player is in the way!"`
 (UFGCDEncroachingPlayer) hard disqualifier is now IGNORED by all
 connect/construct RPC polls (a belt built cleanly straight through
@@ -1699,7 +1719,18 @@ remains the only strategy that reliably finishes a real belt.
 
 ### `world.testConveyorLift` / `world.connectConveyorLift` — asynchronous
 Same params shape as belts, `recipeClass` default Recipe_ConveyorLiftMk1
-(any Mk1-6). No `routeMode`. New: `freeEndRotationSteps` (optional,
+(any Mk1-6). No `routeMode`. **`sourceConnectorPosition`/
+`destConnectorPosition`** (optional `{x,y,z}`, added 2026-09-01, same
+meaning as belts') — pins the exact output/input connector the lift
+uses instead of "first free". Added after the HMF build found that a
+vertical lift between two stacked splitters/mergers kept picking
+non-coaxial SIDE connectors and building a lift whose top landed
+nowhere near the dest; pin both to connectors whose X/Y line up for a
+clean vertical column. **Known residual (not yet fixed): even with
+coaxial connectors the Mk4 lift top can land ~29 units above the dest
+connector and not auto-snap** — bridge that small gap with a short belt
+or chain lift segments; still under investigation. New:
+`freeEndRotationSteps` (optional,
 default 0, integer) - number of 90-degree steps to rotate the lift's
 still-unconnected end before finishing construction (positive/negative
 = opposite directions, magnitude = step count). **Partially live-tested

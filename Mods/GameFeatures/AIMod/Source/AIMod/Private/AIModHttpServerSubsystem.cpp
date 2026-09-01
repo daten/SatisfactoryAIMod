@@ -1772,8 +1772,29 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 			FreeEndRotationSteps = static_cast<int32>(FreeEndRotationStepsRaw);
 		}
 
+		// Optional connector pinning (2026-09-01), same shape and purpose
+		// as world.connectConveyor's - forces the specific output/input
+		// connectors so a stacked-attachment riser gets a clean vertical
+		// lift instead of "first free" picking non-coaxial side connectors.
+		auto ParseOptionalVector = [](const TSharedPtr<FJsonObject>& Params, const TCHAR* FieldName) -> TOptional<FVector>
+		{
+			const TSharedPtr<FJsonObject>* VectorObjectPtr = nullptr;
+			if (!Params->TryGetObjectField(FieldName, VectorObjectPtr) || !VectorObjectPtr || !VectorObjectPtr->IsValid())
+			{
+				return TOptional<FVector>();
+			}
+			double X = 0.0, Y = 0.0, Z = 0.0;
+			if (!(*VectorObjectPtr)->TryGetNumberField(TEXT("x"), X) || !(*VectorObjectPtr)->TryGetNumberField(TEXT("y"), Y) || !(*VectorObjectPtr)->TryGetNumberField(TEXT("z"), Z))
+			{
+				return TOptional<FVector>();
+			}
+			return FVector(X, Y, Z);
+		};
+		const TOptional<FVector> SourceConnectorPosition = ParseOptionalVector(ParamsObject, TEXT("sourceConnectorPosition"));
+		const TOptional<FVector> DestConnectorPosition = ParseOptionalVector(ParamsObject, TEXT("destConnectorPosition"));
+
 		const bool bDryRun = Method == TEXT("world.testConveyorLift");
-		UAIModFunctionLibrary::ConstructConveyorLift(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, FreeEndRotationSteps, bDryRun,
+		UAIModFunctionLibrary::ConstructConveyorLift(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, FreeEndRotationSteps, SourceConnectorPosition, DestConnectorPosition, bDryRun,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));
