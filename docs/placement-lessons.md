@@ -1604,9 +1604,14 @@ background investigation (background task `task_6f0276ff`) - possibly
 related to `ConstructConveyorLift`'s snap/connector logic, possibly
 unrelated, genuinely unknown.
 
-**Hypothesis #9, QUEUED 2026-09-01 (code written + compiled, awaiting
-redeploy - NOT yet live-tested)**: a fresh review of the ruled-out
-evidence (rather than a ninth variant of the same hit-data idea) found
+**Hypothesis #9 - CONFIRMED FIXED, LIVE-VERIFIED 2026-09-01 after
+redeploy** (dry run + real build on the splitter rig below: end-click
+height went 400.0 → 1000.0 = expectedHeight on the FIRST end-click
+update, real lift `2147465568` built with both ends `connected=true`,
+byte-identical geometry to the hand-verified reference lift it
+replaced, no duplicate buildable this time). The analysis that found
+it: a fresh review of the ruled-out evidence (rather than a ninth
+variant of the same hit-data idea) found
 the decisive detail in the 2026-08-31/09-01 logs: on the END click,
 `hitValid=true snapped=false` every time - so #8's explicit
 `SetHologramLocationAndRotation(EndHit)` genuinely RAN and still left
@@ -1622,14 +1627,18 @@ hit ever passed (degenerate ray → clamped to the 400 minimum, 100%
 consistently); (b) the **live camera POV** read directly - the
 PlayerCameraManager consumes `SetControlRotation()` during its own
 per-frame update, and both clicks used to fire synchronously in ONE
-frame, so any POV read was always stale. The queued fix does both:
+frame, so any POV read was always stale. The fix does both:
 **#9a** populates `TraceStart`/`TraceEnd`/`Distance`/`Time` on both
 hits (the end click gets a horizontal ray at exactly the dest
 connector's Z, through the connector toward the lift column, so every
 plausible ray-based height computation agrees on the dest height);
 **#9b** defers the end click one real tick with the deterministic look
-re-asserted first. The existing height log lines will discriminate
-which one mattered.
+re-asserted first. Attribution between the two couldn't be separated
+in the verifying run (the first end-click update now happens inside
+the deferred tick with the trace fields already populated, and height
+was already correct right there) - if a future cleanup wants the
+minimal fix, remove #9b first and retest; #9a's trace-ray fields are
+the theoretically-load-bearing half.
 
 **Also found 2026-09-01, re-checking the "aligned" container test's
 geometry**: that rig was geometrically unsatisfiable for FULL DOCKING
@@ -1646,14 +1655,14 @@ verification target is the user's splitter rig near the player
 (2026-09-01): source splitter `2147463102` output at z=-599, dest
 splitter `2147462741` input at z=+401, connectors facing each other
 across the column at (407800, -201200) - a real lift (`2147461808`)
-already bridges them at exactly 1000 units rise, with its free end
-rotated 180° from its input. Post-redeploy verification: dismantle that
-lift (user-approved), call `world.connectConveyorLift`
-source=`2147463102` dest=`2147462741` `freeEndRotationSteps=2`, expect
-height 1000.0 in the logs and both lift connectors `connected=true` via
-`world.connections` at the same positions the reference lift occupied.
+already bridged them at exactly 1000 units rise, with its free end
+rotated 180° from its input. The verification ran exactly as planned
+2026-09-01 (checkpoint save `pre-lift-hypothesis9-test`, dismantle
+reference lift, dryRun, real build) and PASSED - see the confirmed
+result at the top of the #9 entry above.
 
-**The practical fallback remains until #9 is live-verified**: chaining
+**The chaining fallback is no longer needed** (kept for reference -
+still valid if #9 ever regresses): chaining
 lift segments each rising their own ~400 units works (each segment's
 real `Output`, read via `world.connections`, becomes the next segment's
 destination), or **design platform/miner-interface heights as multiples

@@ -9547,17 +9547,21 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 // regardless of real attachment state - not a bug, don't use it to judge
 // whether a wall/pole slot is free.
 //
-// HEIGHT: STILL BROKEN - an open, actively-investigated gap - a single
-// call always lands at a FIXED default offset from the source (real
-// connector data, 2026-08-31/09-01: +300 local-Y, +400 Z) regardless of
-// the real target's distance (confirmed identical whether the real
-// target was 400 or 851 units away), where a real player can build an
-// arbitrary height in one piece by wherever their camera is aimed when
-// they click (no scroll wheel - scroll only rotates the destination
-// end's Input/Output, per the user). EIGHT hypotheses tried, all with
-// real log evidence, ALL EIGHT NOW RULED OUT (findings from 2026-08-30
-// and 2026-08-31/09-01, kept here since each cost a full live-test
-// cycle and re-deriving any of them would waste another):
+// HEIGHT: FIXED - hypothesis #9 below, LIVE-VERIFIED 2026-09-01 (dry
+// run + real build on the user's splitter rig: end-click height went
+// 400.0 -> 1000.0 = expectedHeight on the FIRST end-click update, real
+// lift built with both ends connected, geometry byte-identical to the
+// hand-verified reference lift it replaced). The problem it fixed: a
+// single call always landed at a FIXED default offset from the source
+// (real connector data, 2026-08-31/09-01: +300 local-Y, +400 Z)
+// regardless of the real target's distance, where a real player can
+// build an arbitrary height in one piece by wherever their camera is
+// aimed when they click (no scroll wheel - scroll only rotates the
+// destination end's Input/Output, per the user). EIGHT prior
+// hypotheses tried, all with real log evidence, ALL EIGHT RULED OUT
+// (findings from 2026-08-30 and 2026-08-31/09-01, kept here since each
+// cost a full live-test cycle and re-deriving any of them would waste
+// another):
 //   1. Rotation origin point (source connector position vs the player's
 //      real actor location, as the vector origin for the deterministic
 //      look rotation) - no effect either way. Refined further
@@ -9657,7 +9661,7 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 //      a valid hit result and did not snap") - logs height right after,
 //      for both StartHit and EndHit.
 //
-//   9. QUEUED 2026-09-01, NOT YET LIVE-TESTED (needs recompile+redeploy)
+//   9. CONFIRMED - THE FIX (live-verified 2026-09-01 after redeploy)
 //      - two coordinated changes derived from re-reading the ruled-out
 //      evidence rather than the hit/rotation data flow itself. The
 //      decisive observation from the 2026-08-31/09-01 logs: on the END
@@ -9684,10 +9688,14 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 //      point, ray-vs-plane intersection, blocking-hit location) agrees
 //      on the dest height. #9b defers the end click ONE REAL TICK and
 //      re-asserts the deterministic look first, so the live POV has
-//      genuinely consumed it by click time. The height log lines
-//      discriminate on the next live test: if height is already correct
-//      immediately after UpdateHologramPlacement(EndHit), #9a (or both)
-//      did it; if it only corrects after the deferred tick, #9b alone.
+//      genuinely consumed it by click time. VERIFIED RESULT 2026-09-01:
+//      height was already correct (1000.0) immediately after
+//      UpdateHologramPlacement(EndHit) - but since that update now runs
+//      inside the deferred tick with trace fields already populated,
+//      #9a-vs-#9b attribution can't be separated from this run. If a
+//      future cleanup wants the minimal fix, remove #9b first and
+//      retest; #9a's trace-ray fields are the theoretically-load-
+//      bearing half.
 //
 // ALSO FOUND 2026-09-01, re-checking the 2026-08-31/09-01 "aligned"
 // container test's geometry: that rig was geometrically unsatisfiable
@@ -9707,10 +9715,9 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 // them at exactly 1000 units rise) is the first known-satisfiable test
 // target.
 //
-// Standing recommendation until #9 is live-verified: design platform/
-// miner-interface heights as multiples of the ~400-unit default so no
-// bridging is needed, per RPC_REFERENCE.md's world.connectConveyorLift
-// section.
+// The old design-heights-as-multiples-of-400 workaround is no longer
+// required now that #9 is verified; RPC_REFERENCE.md keeps it
+// documented in case of regression.
 //
 // Still true regardless of the above: a lift travels straight up/down
 // only, X/Y locked to SourceConnection's real position - if the real

@@ -1637,7 +1637,12 @@ Same params shape as belts, `recipeClass` default Recipe_ConveyorLiftMk1
 (any Mk1-6). No `routeMode`. New: `freeEndRotationSteps` (optional,
 default 0, integer) - number of 90-degree steps to rotate the lift's
 still-unconnected end before finishing construction (positive/negative
-= opposite directions, magnitude = step count). **NOT YET LIVE-TESTED.**
+= opposite directions, magnitude = step count). **Partially live-tested
+2026-09-01**: with `freeEndRotationSteps=2` the built lift's output end
+landed correctly at 180° from its input - but that end also docked to a
+real destination connector (which forces orientation), so the param's
+independent effect on a genuinely free, non-docking end is still
+unproven.
 Added 2026-08-31 because a lift's free end lands facing an unpredictable
 direction and - per the user, confirmed by a live failure of
 `world.setBuildableRotation` on an already-built lift - can only be
@@ -1674,16 +1679,18 @@ fall back to a free `SnapOnly` connector when no exact-direction match
 exists; ordinary machines (which never expose SnapOnly connectors) are
 unaffected.
 
-**Height control — open, actively being re-investigated 2026-08-31 (new
-evidence surfaced, two untested hypotheses pending a live-test cycle).**
-A real player can build a single lift spanning an arbitrary height
-(live-confirmed twice: 1200 units on 2026-08-30, 1600 units on a
-2026-08-27 save the user later loaded, both driven by where their camera
-is aimed when they click - no scroll wheel involved, scroll is used only
-for the destination end's Input/Output *rotation*, not height). This RPC
-cannot reproduce that: every synthetic-hit attempt lands at the
-hologram's ~400-unit default regardless of the real destination's
-distance.
+**Height control — FIXED, LIVE-VERIFIED 2026-09-01 (hypothesis #9
+below).** A single call now builds a lift spanning the real
+source→destination height (verified live: a 1000-unit rise on the
+splitter rig, end-click log height exactly matching expectedHeight,
+both ends `connected=true`, geometry byte-identical to a hand-verified
+reference lift). History of the problem kept below since it cost many
+live-test cycles: a real player could always build a single lift
+spanning an arbitrary height (1200 units on 2026-08-30, 1600 units on
+a 2026-08-27 save, both driven by where their camera is aimed when
+they click - scroll is used only for the destination end's rotation,
+not height), but this RPC landed at the hologram's ~400-unit default
+regardless of the real destination's distance.
 
 **Root cause identified, not yet fixed**: this is a real regression, not
 an inherent limitation. `git log` traces it to commit `524f4f951e`
@@ -1740,8 +1747,10 @@ comments rather than further trial-and-error):
 **#6/#7/#8 all came back negative (live-tested 2026-08-31/09-01)** -
 same fixed +400 offset every time.
 
-**Hypothesis #9, QUEUED 2026-09-01 (written + compiled, awaiting
-redeploy)**: the logs from the #6/#7/#8 test showed `hitValid=true
+**Hypothesis #9 — CONFIRMED, THE FIX (live-verified 2026-09-01 after
+redeploy; dry run then real build, splitter rig, height 400.0 →
+1000.0 = expectedHeight on the first end-click update, no duplicate
+buildable)**: the logs from the #6/#7/#8 test showed `hitValid=true
 snapped=false` on the end click every time - so #8's explicit
 `SetHologramLocationAndRotation(EndHit)` genuinely ran and still
 ignored the hit's Location, while the bottom click consumes the same
@@ -1755,19 +1764,18 @@ same-frame two-click flow, since the camera manager consumes
 the trace-ray fields (end click: a horizontal ray at exactly the dest
 connector's Z, through the connector toward the lift column); **#9b**
 defers the end click one real tick with the look re-asserted first.
-Post-redeploy verification plan: `docs/test-backlog.md` Tier 3 (uses
-the user's splitter rig - note the old container test rig was
-geometrically unsatisfiable anyway: its dest connector FACED AWAY from
-the lift column; a lift arm docks 300 units along its facing normal,
-so always target a connector whose normal points back toward the
-column).
+#9a-vs-#9b attribution couldn't be separated (the first end-click
+update now runs inside the deferred tick with trace fields already
+populated, and height was already correct there); if minimizing, drop
+#9b first - the trace-ray fields are the theoretically-load-bearing
+half. Verified run details: `docs/test-backlog.md` Tier 3. Note the
+old container test rig was geometrically unsatisfiable anyway: its
+dest connector FACED AWAY from the lift column; a lift arm docks 300
+units along its facing normal, so always target a connector whose
+normal points back toward the column.
 
-**If #9 also comes back negative**, revert to the previous posture:
-design platform heights as multiples of the ~400-unit default instead
-(see below) - but don't assume that's necessary until it is actually
-tested live.
-
-**Practical strategy instead of height-matching**: design raised
+**Practical strategy from before the fix (no longer required, kept in
+case of regression)**: design raised
 platforms/miner interfaces so the platform's height offset from its
 source is a multiple of the RPC lift's natural ~400-unit rise per call,
 so no bridging or incline is needed at all. If a platform's height can't
