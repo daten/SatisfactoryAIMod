@@ -243,7 +243,37 @@ empty, not accumulate forever like `docs/buildable-coverage.md` does.
   Storage Container (same class, identical position) appeared after
   the second `connectConveyorLift` call, not explicitly built by
   anything in this test - flagged as its own background investigation
-  (`task_6f0276ff`), not root-caused tonight.
+  (`task_6f0276ff`), not root-caused tonight. **Related clue found
+  2026-09-01**: `world.connections` shows the broken test lift's Input
+  is connected to the DUPLICATE container (`2147427541`), not the
+  original source (`2147428306`) that was passed as `sourceBuildableId`
+  - worth feeding into the duplicate investigation.
+- [ ] **Hypothesis #9 for the height problem — QUEUED 2026-09-01,
+  needs redeploy before it can be tested.** Root-cause analysis (see
+  `docs/placement-lessons.md` "Vertical conveyor lifts" and
+  `ConstructConveyorLift`'s doc comment, hypothesis #9): the top step
+  very likely reads the camera ray (`FHitResult::TraceStart/TraceEnd`,
+  never populated by any synthetic hit through #1-#8) and/or the live
+  camera POV (stale in the old same-frame two-click flow). Fix written
+  and compiled: #9a populates trace-ray fields on both hits; #9b defers
+  the end click one real tick. **Post-redeploy verification (use the
+  user's splitter rig, the first geometrically-satisfiable target —
+  the old container rig's dest connector faced AWAY from the lift
+  column and could never fully dock)**:
+  1. Save the game first.
+  2. Dismantle reference lift `Build_ConveyorLiftMk1_C_2147461808`
+     (user-approved for this purpose).
+  3. `world.connectConveyorLift` with
+     source=`...Build_ConveyorAttachmentSplitter_C_2147463102`
+     dest=`...Build_ConveyorAttachmentSplitter_C_2147462741`,
+     `freeEndRotationSteps=2`, dryRun first, then real.
+  4. Expect: log heights go from 400.0 → 1000.0 (the log line that
+     first shows 1000 discriminates #9a vs #9b), and
+     `world.connections` shows the new lift's Input at
+     (407800,-201200,-599) and Output at (407800,-201200,401), BOTH
+     `connected=true` to the two splitters - identical to the
+     reference lift it replaced. Also re-check for duplicate
+     buildables afterwards (`task_6f0276ff`).
 - [x] **`freeEndRotationSteps`** — passed `2` on the first lift attempt
   and `0` on the second; inconclusive on its own effect since both
   attempts already failed to reach the destination for the reason

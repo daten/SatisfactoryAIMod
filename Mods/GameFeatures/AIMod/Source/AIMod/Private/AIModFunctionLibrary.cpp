@@ -9657,11 +9657,60 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 //      a valid hit result and did not snap") - logs height right after,
 //      for both StartHit and EndHit.
 //
-// Standing recommendation, now durable (#6/#7/#8 all ruled out live,
-// no ninth hypothesis derivable from source reasoning at this point):
-// design platform/miner-interface heights as multiples of the ~400-unit
-// default so no bridging is needed, per RPC_REFERENCE.md's
-// world.connectConveyorLift section.
+//   9. QUEUED 2026-09-01, NOT YET LIVE-TESTED (needs recompile+redeploy)
+//      - two coordinated changes derived from re-reading the ruled-out
+//      evidence rather than the hit/rotation data flow itself. The
+//      decisive observation from the 2026-08-31/09-01 logs: on the END
+//      click, hitValid=true snapped=false EVERY time, so the explicit
+//      SetHologramLocationAndRotation(EndHit) from #8 genuinely RAN and
+//      still left height at exactly 400.0 - while the BOTTOM click's
+//      SetHologramLocationAndRotation consumed the same synthetic-hit
+//      shape fine (the input connector really attaches). So the top step
+//      ignores Hit.Location specifically - which matches real gameplay:
+//      you place the bottom by pointing AT a thing, but you set the
+//      height by aiming INTO THE AIR, where there is often no blocking
+//      hit at all. Only two data channels can drive height in that case:
+//      (a) the trace ray itself - FHitResult::TraceStart/TraceEnd, which
+//      a real build-gun trace ALWAYS populates and which every synthetic
+//      hit through hypotheses #1-#8 left at zero-vectors (a degenerate
+//      ray -> clamped to the 400 minimum, 100% consistently); or (b) the
+//      LIVE camera POV read directly (PlayerCameraManager lags
+//      SetControlRotation by a frame, and both clicks used to fire
+//      synchronously in ONE frame, so the POV was always stale). #9a
+//      populates TraceStart/TraceEnd/Distance/Time on both hits - the
+//      end click gets a HORIZONTAL ray at exactly the dest connector's
+//      Z through the connector toward the lift column, chosen so every
+//      plausible ray-based height computation (ray-vs-axis closest
+//      point, ray-vs-plane intersection, blocking-hit location) agrees
+//      on the dest height. #9b defers the end click ONE REAL TICK and
+//      re-asserts the deterministic look first, so the live POV has
+//      genuinely consumed it by click time. The height log lines
+//      discriminate on the next live test: if height is already correct
+//      immediately after UpdateHologramPlacement(EndHit), #9a (or both)
+//      did it; if it only corrects after the deferred tick, #9b alone.
+//
+// ALSO FOUND 2026-09-01, re-checking the 2026-08-31/09-01 "aligned"
+// container test's geometry: that rig was geometrically unsatisfiable
+// for FULL DOCKING regardless of height logic - the dest container's
+// free Input connector (y=-201900, normal -Y) faced AWAY from the lift
+// column (y=-200900), and a lift arm docks 300 units along its facing
+// normal (verified from the working reference lift's real connector
+// data: column at destConnectorLoc + 300 * destNormal, opposite-facing
+// normals, exactly 300 apart). Height-tracking to ~850 SHOULD still
+// have happened (players raise lifts aiming at nothing), so the stuck-
+// at-400 bug is real either way - but "validate test placements"
+// extends to connector FACING, not just position: the post-fix
+// verification must target a connector whose normal points back toward
+// the lift column. The splitter rig near the player (built by the user,
+// 2026-09-01: source splitter output z=-599, dest splitter input z=+401,
+// facing each other across the column - a real lift already bridges
+// them at exactly 1000 units rise) is the first known-satisfiable test
+// target.
+//
+// Standing recommendation until #9 is live-verified: design platform/
+// miner-interface heights as multiples of the ~400-unit default so no
+// bridging is needed, per RPC_REFERENCE.md's world.connectConveyorLift
+// section.
 //
 // Still true regardless of the above: a lift travels straight up/down
 // only, X/Y locked to SourceConnection's real position - if the real
@@ -9759,7 +9808,17 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	// Sets Hit.Component to a real UPrimitiveComponent (hypothesis #4 in
 	// this function's doc comment - ruled out, kept since it's harmless
 	// and matches what a real trace would populate anyway).
-	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection) -> FHitResult
+	//
+	// Hypothesis #9a (2026-09-01): also populates TraceStart/TraceEnd/
+	// Distance/Time - the camera ray fields a real build-gun trace ALWAYS
+	// carries and that every synthetic hit before this change left at
+	// zero-vectors. See the doc comment's #9 entry for why the free end's
+	// height is very likely computed from this ray (a real player raises
+	// the top by aiming INTO THE AIR, where there is no blocking hit at
+	// all - the view ray is the only geometric data that can drive height
+	// in that case), which would explain the 100%-consistent stuck-at-400
+	// result across hypotheses #1-#8, none of which ever set these fields.
+	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection, const FVector& TraceStart, const FVector& TraceEnd) -> FHitResult
 	{
 		FHitResult Hit;
 		Hit.Location = Connection->GetConnectorLocation();
@@ -9772,6 +9831,11 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		{
 			Hit.Component = RealPrimitive;
 		}
+		Hit.TraceStart = TraceStart;
+		Hit.TraceEnd = TraceEnd;
+		Hit.Distance = static_cast<float>(FVector::Dist(TraceStart, Hit.Location));
+		const float TraceLength = static_cast<float>(FVector::Dist(TraceStart, TraceEnd));
+		Hit.Time = TraceLength > KINDA_SMALL_NUMBER ? Hit.Distance / TraceLength : 0.0f;
 		return Hit;
 	};
 
@@ -9816,7 +9880,14 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		LiftController->SetControlRotation(LiftDeterministicLook);
 	}
 
-	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	// Hypothesis #9a: the start click gets a realistic camera->connector
+	// ray (the bottom placement already worked from Hit.Location alone,
+	// so this is completeness, not the fix itself - the fix targets the
+	// END click below).
+	const FVector StartConnectorLoc = SourceConnection->GetConnectorLocation();
+	const FVector StartTraceStart = Character->GetCameraComponentWorldLocation();
+	const FVector StartTraceEnd = StartConnectorLoc + (StartConnectorLoc - StartTraceStart).GetSafeNormal() * 1000.0f;
+	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection, StartTraceStart, StartTraceEnd);
 	const bool bStartHitValid = LiftHologram->IsValidHitResult(StartHit);
 	LiftHologram->UpdateHologramPlacement(StartHit);
 	// Hypothesis #7 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
@@ -9864,222 +9935,329 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		return;
 	}
 
-	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
-	const bool bEndHitValid = LiftHologram->IsValidHitResult(EndHit);
-	LiftHologram->UpdateHologramPlacement(EndHit);
-	// Hypothesis #7 (2026-08-31) - same check as on StartHit above.
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height immediately after UpdateHologramPlacement(EndHit), before explicit TrySnapToActor=%.1f"), LiftHologram->GetHeight());
-	// Hypothesis #6 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
-	// function's doc comment and the identical injection on StartHit
-	// above.
-	BuildGun->GetHitResult() = EndHit;
-	const bool bEndSnapped = LiftHologram->TrySnapToActor(EndHit);
-	// Hypothesis #8 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - same as on
-	// StartHit above, see this function's doc comment.
-	if (bEndHitValid && !bEndSnapped)
-	{
-		LiftHologram->SetHologramLocationAndRotation(EndHit);
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height after explicit SetHologramLocationAndRotation(EndHit)=%.1f"), LiftHologram->GetHeight());
-	}
-
-	// FreeEndRotationSteps (2026-08-31): rotates the still-unconnected
-	// end in 90-degree increments via ScrollRotate() BEFORE the final
-	// click, mirroring ConstructBuildingAtPosition's established
-	// Scroll()-called-N-times-per-notch pattern (see its comment) - a
-	// real player can only do this while the hologram is still being
-	// placed, per the user, matching why world.setBuildableRotation
-	// failed silently on an already-built lift.
-	//
-	// Explicit zero-reset FIRST, unconditionally (2026-08-31, per the
-	// user's own description: a fresh lift's free-end orientation "may
-	// default to the orientation of the last-placed lift" - if
-	// mScrollRotation is a value that persists/carries forward across
-	// hologram instances rather than resetting per-spawn, ScrollRotate()
-	// calls here would land on top of an unpredictable inherited
-	// baseline, not a clean zero - defeating the whole point of exposing
-	// this as a deterministic RPC param. SetScrollRotateValue(0) forces a
-	// known starting point every call, whether or not rotation was
-	// requested, so the NO-rotation-requested default also becomes
-	// deterministic instead of inheriting whatever a previous build left
-	// behind. NOT YET LIVE-TESTED - including whether 0 is really the
-	// hologram's own "natural"/unrotated baseline value.
-	LiftHologram->SetScrollRotateValue(0);
-	if (FreeEndRotationSteps != 0)
-	{
-		const int32 ScrollRotateStep = FreeEndRotationSteps > 0 ? 1 : -1;
-		for (int32 i = 0; i < FMath::Abs(FreeEndRotationSteps); ++i)
-		{
-			LiftHologram->ScrollRotate(ScrollRotateStep, 90);
-		}
-	}
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: freeEndRotationSteps=%d scrollRotateValue after reset+rotate=%d"),
-		FreeEndRotationSteps, LiftHologram->GetScrollRotateValue());
-
-	const bool bEndStepComplete = LiftHologram->DoMultiStepPlacement(true);
-
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after end click: hitValid=%s snapped=%s stepComplete=%s height=%.1f expectedHeight=%.1f disqualifiers=[%s]"),
-		*SourceBuildableId, *DestBuildableId, bEndHitValid ? TEXT("true") : TEXT("false"), bEndSnapped ? TEXT("true") : TEXT("false"), bEndStepComplete ? TEXT("true") : TEXT("false"), LiftHologram->GetHeight(),
-		DestConnection->GetConnectorLocation().Z - SourceConnection->GetConnectorLocation().Z, *SummarizeDisqualifiers(LiftHologram));
-
-	if (!bEndStepComplete)
-	{
-		Character->UnequipBuildGun();
-		OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"), TEXT("DoMultiStepPlacement() did not report complete after the end click")));
-		return;
-	}
-
-	struct FPollState
+	// Hypothesis #9b (2026-09-01, NOT YET LIVE-TESTED): the end click is
+	// deferred ONE REAL TICK instead of firing synchronously in the same
+	// frame as the start click. Two reasons: (1) if the lift's top-step
+	// height reads the LIVE camera POV (PlayerCameraManager) rather than
+	// the hit, the POV only consumes SetControlRotation() during its own
+	// per-frame update - a same-frame synchronous click would read the
+	// STALE aim (wherever the player actually looks - typically level ->
+	// minimum height), which fits the stuck-at-400 evidence exactly as
+	// well as #9a does; (2) it matches the real click cadence (a player's
+	// two clicks are always frames apart), removing a whole class of
+	// same-frame-state doubts at once. The deterministic look set in
+	// phase 1 above is re-asserted inside the deferred phase before the
+	// click.
+	struct FLiftEndClickState
 	{
 		TWeakObjectPtr<AFGConveyorLiftHologram> Hologram;
 		TWeakObjectPtr<AFGCharacterPlayer> Character;
-		TWeakObjectPtr<AFGBuildGun> BuildGun; // hypothesis #6, see below
+		TWeakObjectPtr<AFGBuildGun> BuildGun;
 		TWeakObjectPtr<UWorld> World;
+		TWeakObjectPtr<AFGBuildable> DestBuildable;
+		TWeakObjectPtr<UFGFactoryConnectionComponent> SourceConnection;
+		TWeakObjectPtr<UFGFactoryConnectionComponent> DestConnection;
 		FString SourceBuildableId;
 		FString DestBuildableId;
+		int32 FreeEndRotationSteps = 0;
 		bool bDryRun = true;
 		FRotator DeterministicLook;
-		FHitResult EndHit; // re-asserted every poll tick, see below
-		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
-		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
 	};
-	const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
-	PollState->Hologram = LiftHologram;
-	PollState->Character = Character;
-	PollState->BuildGun = BuildGun;
-	PollState->World = World;
-	PollState->SourceBuildableId = SourceBuildableId;
-	PollState->DestBuildableId = DestBuildableId;
-	PollState->bDryRun = bDryRun;
-	PollState->DeterministicLook = LiftDeterministicLook;
-	PollState->EndHit = EndHit;
-	PollState->OnComplete = MoveTemp(OnComplete);
+	const TSharedRef<FLiftEndClickState> EndClickState = MakeShared<FLiftEndClickState>();
+	EndClickState->Hologram = LiftHologram;
+	EndClickState->Character = Character;
+	EndClickState->BuildGun = BuildGun;
+	EndClickState->World = World;
+	EndClickState->DestBuildable = DestBuildable;
+	EndClickState->SourceConnection = SourceConnection;
+	EndClickState->DestConnection = DestConnection;
+	EndClickState->SourceBuildableId = SourceBuildableId;
+	EndClickState->DestBuildableId = DestBuildableId;
+	EndClickState->FreeEndRotationSteps = FreeEndRotationSteps;
+	EndClickState->bDryRun = bDryRun;
+	EndClickState->DeterministicLook = LiftDeterministicLook;
+	EndClickState->OnComplete = MoveTemp(OnComplete);
 
-	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
-	*PollFn = [PollState, PollFn]()
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([EndClickState, MakeHitAt, SummarizeDisqualifiers]()
 	{
-		++PollState->AttemptsTaken;
+		AFGConveyorLiftHologram* LiftHologram = EndClickState->Hologram.Get();
+		UWorld* World = EndClickState->World.Get();
+		AFGCharacterPlayer* Character = EndClickState->Character.Get();
+		AFGBuildGun* BuildGun = EndClickState->BuildGun.Get();
+		AFGBuildable* DestBuildable = EndClickState->DestBuildable.Get();
+		UFGFactoryConnectionComponent* SourceConnection = EndClickState->SourceConnection.Get();
+		UFGFactoryConnectionComponent* DestConnection = EndClickState->DestConnection.Get();
+		const FString& SourceBuildableId = EndClickState->SourceBuildableId;
+		const FString& DestBuildableId = EndClickState->DestBuildableId;
+		const int32 FreeEndRotationSteps = EndClickState->FreeEndRotationSteps;
+		const bool bDryRun = EndClickState->bDryRun;
+		const FRotator LiftDeterministicLook = EndClickState->DeterministicLook;
+		TFunction<void(const FAIModOperationResult&)> OnComplete = EndClickState->OnComplete;
 
-		AFGConveyorLiftHologram* PollHologram = PollState->Hologram.Get();
-		UWorld* PollWorld = PollState->World.Get();
-		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
-		if (!IsValid(PollHologram) || !PollWorld)
+		if (!IsValid(LiftHologram) || !World || !IsValid(Character) || !IsValid(BuildGun) || !IsValid(DestBuildable) || !IsValid(SourceConnection) || !IsValid(DestConnection))
 		{
-			UE_LOG(LogAIModAI, Warning, TEXT("ConstructConveyorLift (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
-			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
-			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructConveyorLift (end click, deferred one tick): hologram/world/target became invalid between clicks - aborting, nothing built"));
+			if (IsValid(Character)) { Character->UnequipBuildGun(); }
+			OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or targets became invalid between the start and end clicks")));
 			return;
 		}
 
-		// Re-assert every tick - see ConstructConveyorBelt's identical block
-		// for the full rationale (player camera movement between ticks can
-		// still drag the resolved path off a one-time value).
-		if (IsValid(PollCharacter))
+		// Re-assert the deterministic look now that a real tick has
+		// elapsed - the camera manager has had its per-frame update since
+		// phase 1 set it, so by this point the LIVE camera POV genuinely
+		// points at the destination too (hypothesis #9b's whole purpose).
+		if (AController* LiftController = Character->GetController())
 		{
-			if (AController* PollController = PollCharacter->GetController())
-			{
-				PollController->SetControlRotation(PollState->DeterministicLook);
-			}
+			LiftController->SetControlRotation(LiftDeterministicLook);
 		}
 
-		// Re-assert the end hit every poll tick (2026-08-30) - same fix
-		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
-		// for the same reason (see that function's comment for the full
-		// TickState_Implementation live-camera-trace rationale).
-		PollHologram->UpdateHologramPlacement(PollState->EndHit);
+		// Hypothesis #9a end-click ray (2026-09-01, NOT YET LIVE-TESTED):
+		// a HORIZONTAL synthetic camera ray at EXACTLY the destination
+		// connector's Z, passing through the connector and continuing
+		// toward/past the lift column. Direction: the dest connector's
+		// horizontal normal - a lift's arm connector always docks 300
+		// units along its facing normal (verified from real connector
+		// data: lift column sits at destConnectorLoc + 300 * destNormal),
+		// so +normal points from the connector toward where the column
+		// will be. Chosen so that EVERY plausible ray-based height
+		// computation agrees on the answer: ray-vs-vertical-axis closest
+		// point Z = destZ, ray-vs-vertical-plane intersection Z = destZ,
+		// and the blocking-hit Location itself is the dest connector.
+		// Falls back to the dest->source horizontal direction (then a
+		// fixed axis) if the dest normal is vertical.
+		const FVector DestConnectorLoc = DestConnection->GetConnectorLocation();
+		FVector EndRayDir = DestConnection->GetConnectorNormal();
+		EndRayDir.Z = 0.0;
+		if (!EndRayDir.Normalize())
+		{
+			EndRayDir = SourceConnection->GetConnectorLocation() - DestConnectorLoc;
+			EndRayDir.Z = 0.0;
+			if (!EndRayDir.Normalize())
+			{
+				EndRayDir = FVector::ForwardVector;
+			}
+		}
+		const FVector EndTraceStart = DestConnectorLoc - EndRayDir * 1500.0;
+		const FVector EndTraceEnd = DestConnectorLoc + EndRayDir * 1500.0;
 
+		const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection, EndTraceStart, EndTraceEnd);
+		const bool bEndHitValid = LiftHologram->IsValidHitResult(EndHit);
+		LiftHologram->UpdateHologramPlacement(EndHit);
+		// Hypothesis #7 (2026-08-31) - same check as on StartHit above.
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height immediately after UpdateHologramPlacement(EndHit), before explicit TrySnapToActor=%.1f"), LiftHologram->GetHeight());
 		// Hypothesis #6 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
-		// function's doc comment. Reasserted every tick alongside the
-		// above, same rationale.
-		if (AFGBuildGun* PollBuildGun = PollState->BuildGun.Get())
+		// function's doc comment and the identical injection on StartHit
+		// above.
+		BuildGun->GetHitResult() = EndHit;
+		const bool bEndSnapped = LiftHologram->TrySnapToActor(EndHit);
+		// Hypothesis #8 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - same as on
+		// StartHit above, see this function's doc comment.
+		if (bEndHitValid && !bEndSnapped)
 		{
-			PollBuildGun->GetHitResult() = PollState->EndHit;
+			LiftHologram->SetHologramLocationAndRotation(EndHit);
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height after explicit SetHologramLocationAndRotation(EndHit)=%.1f"), LiftHologram->GetHeight());
 		}
 
-		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
-		PollHologram->GetConstructDisqualifiers(Disqualifiers);
-		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
-
-		--PollState->AttemptsRemaining;
-		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		// FreeEndRotationSteps (2026-08-31): rotates the still-unconnected
+		// end in 90-degree increments via ScrollRotate() BEFORE the final
+		// click, mirroring ConstructBuildingAtPosition's established
+		// Scroll()-called-N-times-per-notch pattern (see its comment) - a
+		// real player can only do this while the hologram is still being
+		// placed, per the user, matching why world.setBuildableRotation
+		// failed silently on an already-built lift.
+		//
+		// Explicit zero-reset FIRST, unconditionally (2026-08-31, per the
+		// user's own description: a fresh lift's free-end orientation "may
+		// default to the orientation of the last-placed lift" - if
+		// mScrollRotation is a value that persists/carries forward across
+		// hologram instances rather than resetting per-spawn, ScrollRotate()
+		// calls here would land on top of an unpredictable inherited
+		// baseline, not a clean zero - defeating the whole point of exposing
+		// this as a deterministic RPC param. SetScrollRotateValue(0) forces a
+		// known starting point every call, whether or not rotation was
+		// requested, so the NO-rotation-requested default also becomes
+		// deterministic instead of inheriting whatever a previous build left
+		// behind. NOT YET LIVE-TESTED - including whether 0 is really the
+		// hologram's own "natural"/unrotated baseline value.
+		LiftHologram->SetScrollRotateValue(0);
+		if (FreeEndRotationSteps != 0)
 		{
-			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
-			return;
-		}
-
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (initializing cleared): height=%.1f"), PollHologram->GetHeight());
-
-		// Player-independence fix - same rationale as ConstructConveyorBelt's
-		// identical block above.
-		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
-		// comment on this being a player-controlled mod setting, not a
-		// per-call flag.
-		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
-
-		bool bCanConstruct = true;
-		TArray<FString> DisqualifierTexts;
-		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
-		{
-			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
-				|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
-			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
-			if (!bIgnoredForPlayerIndependence && !bIsSoft)
+			const int32 ScrollRotateStep = FreeEndRotationSteps > 0 ? 1 : -1;
+			for (int32 i = 0; i < FMath::Abs(FreeEndRotationSteps); ++i)
 			{
-				bCanConstruct = false;
+				LiftHologram->ScrollRotate(ScrollRotateStep, 90);
 			}
-			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
-				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
-				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
 		}
-		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: freeEndRotationSteps=%d scrollRotateValue after reset+rotate=%d"),
+			FreeEndRotationSteps, LiftHologram->GetScrollRotateValue());
 
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (deferred, resolved after %d real tick(s)): source=%s dest=%s dryRun=%s canConstruct=%s disqualifiers=[%s]"),
-			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId, PollState->bDryRun ? TEXT("true") : TEXT("false"),
-			bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+		const bool bEndStepComplete = LiftHologram->DoMultiStepPlacement(true);
 
-		if (!bCanConstruct)
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: source=%s dest=%s after end click: hitValid=%s snapped=%s stepComplete=%s height=%.1f expectedHeight=%.1f disqualifiers=[%s]"),
+			*SourceBuildableId, *DestBuildableId, bEndHitValid ? TEXT("true") : TEXT("false"), bEndSnapped ? TEXT("true") : TEXT("false"), bEndStepComplete ? TEXT("true") : TEXT("false"), LiftHologram->GetHeight(),
+			DestConnection->GetConnectorLocation().Z - SourceConnection->GetConnectorLocation().Z, *SummarizeDisqualifiers(LiftHologram));
+
+		if (!bEndStepComplete)
 		{
-			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
-			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+			Character->UnequipBuildGun();
+			OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"), TEXT("DoMultiStepPlacement() did not report complete after the end click")));
 			return;
 		}
 
-		if (PollState->bDryRun)
+		struct FPollState
 		{
-			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			TWeakObjectPtr<AFGConveyorLiftHologram> Hologram;
+			TWeakObjectPtr<AFGCharacterPlayer> Character;
+			TWeakObjectPtr<AFGBuildGun> BuildGun; // hypothesis #6, see below
+			TWeakObjectPtr<UWorld> World;
+			FString SourceBuildableId;
+			FString DestBuildableId;
+			bool bDryRun = true;
+			FRotator DeterministicLook;
+			FHitResult EndHit; // re-asserted every poll tick, see below
+			int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
+			int32 AttemptsTaken = 0;
+			TFunction<void(const FAIModOperationResult&)> OnComplete;
+		};
+		const TSharedRef<FPollState> PollState = MakeShared<FPollState>();
+		PollState->Hologram = LiftHologram;
+		PollState->Character = Character;
+		PollState->BuildGun = BuildGun;
+		PollState->World = World;
+		PollState->SourceBuildableId = SourceBuildableId;
+		PollState->DestBuildableId = DestBuildableId;
+		PollState->bDryRun = bDryRun;
+		PollState->DeterministicLook = LiftDeterministicLook;
+		PollState->EndHit = EndHit;
+		PollState->OnComplete = MoveTemp(OnComplete);
+
+		const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+		*PollFn = [PollState, PollFn]()
+		{
+			++PollState->AttemptsTaken;
+
+			AFGConveyorLiftHologram* PollHologram = PollState->Hologram.Get();
+			UWorld* PollWorld = PollState->World.Get();
+			AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+			if (!IsValid(PollHologram) || !PollWorld)
+			{
+				UE_LOG(LogAIModAI, Warning, TEXT("ConstructConveyorLift (deferred): hologram or world became invalid while polling (after %d tick(s))"), PollState->AttemptsTaken);
+				if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+				PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+				return;
+			}
+
+			// Re-assert every tick - see ConstructConveyorBelt's identical block
+			// for the full rationale (player camera movement between ticks can
+			// still drag the resolved path off a one-time value).
+			if (IsValid(PollCharacter))
+			{
+				if (AController* PollController = PollCharacter->GetController())
+				{
+					PollController->SetControlRotation(PollState->DeterministicLook);
+				}
+			}
+
+			// Re-assert the end hit every poll tick (2026-08-30) - same fix
+			// as ConstructConveyorBelt_RealCharacterStrategy, applied here
+			// for the same reason (see that function's comment for the full
+			// TickState_Implementation live-camera-trace rationale).
+			PollHologram->UpdateHologramPlacement(PollState->EndHit);
+
+			// Hypothesis #6 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
+			// function's doc comment. Reasserted every tick alongside the
+			// above, same rationale.
+			if (AFGBuildGun* PollBuildGun = PollState->BuildGun.Get())
+			{
+				PollBuildGun->GetHitResult() = PollState->EndHit;
+			}
+
+			TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+			PollHologram->GetConstructDisqualifiers(Disqualifiers);
+			const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+			--PollState->AttemptsRemaining;
+			if (bStillInitializing && PollState->AttemptsRemaining > 0)
+			{
+				PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+				return;
+			}
+
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (initializing cleared): height=%.1f"), PollHologram->GetHeight());
+
+			// Player-independence fix - same rationale as ConstructConveyorBelt's
+			// identical block above.
+			// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+			// comment on this being a player-controlled mod setting, not a
+			// per-call flag.
+			const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+
+			bool bCanConstruct = true;
+			TArray<FString> DisqualifierTexts;
+			for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+			{
+				const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
+					|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
+				const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+				if (!bIgnoredForPlayerIndependence && !bIsSoft)
+				{
+					bCanConstruct = false;
+				}
+				DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+					*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+					bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredForPlayerIndependence ? TEXT(", ignored") : TEXT("")));
+			}
+			const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (deferred, resolved after %d real tick(s)): source=%s dest=%s dryRun=%s canConstruct=%s disqualifiers=[%s]"),
+				PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId, PollState->bDryRun ? TEXT("true") : TEXT("false"),
+				bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+			if (!bCanConstruct)
+			{
+				if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+				PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"), DisqualifierSummary));
+				return;
+			}
+
+			if (PollState->bDryRun)
+			{
+				if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+				PollState->OnComplete(FAIModOperationResult::Success());
+				return;
+			}
+
+			AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+			const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+			AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+			UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+			if (!PollBuildState)
+			{
+				UE_LOG(LogAIModAI, Error, TEXT("ConstructConveyorLift (deferred): lost the build state before constructing - aborting, nothing built"));
+				if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+				PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+				return;
+			}
+
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (deferred): height right before InternalConstructHologram=%.1f"), PollHologram->GetHeight());
+
+			PollBuildState->InternalConstructHologram(ConstructionID);
+
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
+				PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
+
+			if (IsValid(PollCharacter))
+			{
+				PollCharacter->UnequipBuildGun();
+			}
+
 			PollState->OnComplete(FAIModOperationResult::Success());
-			return;
-		}
+		};
 
-		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
-		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
-
-		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
-		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
-		if (!PollBuildState)
-		{
-			UE_LOG(LogAIModAI, Error, TEXT("ConstructConveyorLift (deferred): lost the build state before constructing - aborting, nothing built"));
-			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
-			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
-			return;
-		}
-
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (deferred): height right before InternalConstructHologram=%.1f"), PollHologram->GetHeight());
-
-		PollBuildState->InternalConstructHologram(ConstructionID);
-
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
-			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
-
-		if (IsValid(PollCharacter))
-		{
-			PollCharacter->UnequipBuildGun();
-		}
-
-		PollState->OnComplete(FAIModOperationResult::Success());
-	};
-
-	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+		World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+	}));
 }
 
 // ConstructPipe (2026-08-25 pipe groundwork) - deliberate near-exact

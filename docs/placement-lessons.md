@@ -1604,7 +1604,56 @@ background investigation (background task `task_6f0276ff`) - possibly
 related to `ConstructConveyorLift`'s snap/connector logic, possibly
 unrelated, genuinely unknown.
 
-**The practical fallback remains, now on firmer footing**: chaining
+**Hypothesis #9, QUEUED 2026-09-01 (code written + compiled, awaiting
+redeploy - NOT yet live-tested)**: a fresh review of the ruled-out
+evidence (rather than a ninth variant of the same hit-data idea) found
+the decisive detail in the 2026-08-31/09-01 logs: on the END click,
+`hitValid=true snapped=false` every time - so #8's explicit
+`SetHologramLocationAndRotation(EndHit)` genuinely RAN and still left
+height at exactly 400.0, while the BOTTOM click's identical synthetic
+hit is consumed fine (the input really attaches). The top step ignores
+`Hit.Location` specifically - which matches real gameplay: the bottom
+is placed by pointing AT a thing, but height is set by aiming INTO THE
+AIR, where there is often no blocking hit at all. Only two channels can
+drive height in that case, and hypotheses #1-#8 never touched either:
+(a) **`FHitResult::TraceStart`/`TraceEnd`** - the camera ray a real
+build-gun trace always carries, left at zero-vectors by every synthetic
+hit ever passed (degenerate ray → clamped to the 400 minimum, 100%
+consistently); (b) the **live camera POV** read directly - the
+PlayerCameraManager consumes `SetControlRotation()` during its own
+per-frame update, and both clicks used to fire synchronously in ONE
+frame, so any POV read was always stale. The queued fix does both:
+**#9a** populates `TraceStart`/`TraceEnd`/`Distance`/`Time` on both
+hits (the end click gets a horizontal ray at exactly the dest
+connector's Z, through the connector toward the lift column, so every
+plausible ray-based height computation agrees on the dest height);
+**#9b** defers the end click one real tick with the deterministic look
+re-asserted first. The existing height log lines will discriminate
+which one mattered.
+
+**Also found 2026-09-01, re-checking the "aligned" container test's
+geometry**: that rig was geometrically unsatisfiable for FULL DOCKING
+regardless of height logic. A lift arm connector docks 300 units along
+its facing normal with normals opposed (verified from the working
+reference lift's real connector data: column at
+`destConnectorLoc + 300 * destNormal`) - and the test dest container's
+free Input connector (y=-201900, normal -Y) faced AWAY from the lift
+column (y=-200900), 1000 units of unreachable horizontal separation.
+Height-tracking to ~850 should still have happened, so stuck-at-400 is
+a real bug either way - but **"validate test placements" extends to
+connector FACING, not just position**. The first known-satisfiable
+verification target is the user's splitter rig near the player
+(2026-09-01): source splitter `2147463102` output at z=-599, dest
+splitter `2147462741` input at z=+401, connectors facing each other
+across the column at (407800, -201200) - a real lift (`2147461808`)
+already bridges them at exactly 1000 units rise, with its free end
+rotated 180° from its input. Post-redeploy verification: dismantle that
+lift (user-approved), call `world.connectConveyorLift`
+source=`2147463102` dest=`2147462741` `freeEndRotationSteps=2`, expect
+height 1000.0 in the logs and both lift connectors `connected=true` via
+`world.connections` at the same positions the reference lift occupied.
+
+**The practical fallback remains until #9 is live-verified**: chaining
 lift segments each rising their own ~400 units works (each segment's
 real `Output`, read via `world.connections`, becomes the next segment's
 destination), or **design platform/miner-interface heights as multiples
@@ -1612,10 +1661,7 @@ of the ~400-unit default** so a single lift call reaches the target with
 no bridging or chaining needed at all. If a platform's height can't land
 on that offset, the residual gap needs a belt with enough horizontal run
 to incline to it (see belts' real max-incline limit,
-`world.conveyorBeltTiers`) rather than a steep short bridge. Treat this
-as the durable approach, not a stopgap - #1 through #8 covers every
-hypothesis this project has been able to derive from source reasoning,
-all now ruled out live.
+`world.conveyorBeltTiers`) rather than a steep short bridge.
 
 **Existing-connection direction inheritance (2026-08-30, user-reported,
 not yet independently verified in this codebase)**: if either end of a

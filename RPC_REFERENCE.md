@@ -1737,9 +1737,34 @@ comments rather than further trial-and-error):
   precondition exactly ("will only be called if we have a valid hit
   result and did not snap").
 
-**If all three come back negative**, revert to the previous posture:
+**#6/#7/#8 all came back negative (live-tested 2026-08-31/09-01)** -
+same fixed +400 offset every time.
+
+**Hypothesis #9, QUEUED 2026-09-01 (written + compiled, awaiting
+redeploy)**: the logs from the #6/#7/#8 test showed `hitValid=true
+snapped=false` on the end click every time - so #8's explicit
+`SetHologramLocationAndRotation(EndHit)` genuinely ran and still
+ignored the hit's Location, while the bottom click consumes the same
+synthetic-hit shape fine. The top step matches how a real player sets
+height: aiming INTO THE AIR, often with no blocking hit at all - the
+only data that can drive height then is the camera ray
+(`FHitResult::TraceStart`/`TraceEnd`, zero-vectors in every synthetic
+hit through #1-#8) and/or the live camera POV (always stale in the old
+same-frame two-click flow, since the camera manager consumes
+`SetControlRotation()` a frame later). Fix does both: **#9a** populates
+the trace-ray fields (end click: a horizontal ray at exactly the dest
+connector's Z, through the connector toward the lift column); **#9b**
+defers the end click one real tick with the look re-asserted first.
+Post-redeploy verification plan: `docs/test-backlog.md` Tier 3 (uses
+the user's splitter rig - note the old container test rig was
+geometrically unsatisfiable anyway: its dest connector FACED AWAY from
+the lift column; a lift arm docks 300 units along its facing normal,
+so always target a connector whose normal points back toward the
+column).
+
+**If #9 also comes back negative**, revert to the previous posture:
 design platform heights as multiples of the ~400-unit default instead
-(see below) - but don't assume that's necessary until these are actually
+(see below) - but don't assume that's necessary until it is actually
 tested live.
 
 **Practical strategy instead of height-matching**: design raised
