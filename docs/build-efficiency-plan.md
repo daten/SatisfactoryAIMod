@@ -174,6 +174,24 @@ power graph for subtree severing before deleting anything wired.
   router calibrated against world.testConveyorBelt on real free
   connector pairs (11/14 agreement; remaining gaps are deliberate
   conservatism), executor.validate_plan() dry-run gate proven end-to-end.
+- **Phase 2a/2c LIVE-VERIFIED after redeploy (2026-09-02)**: ids filter
+  returned exactly the requested rows; bounding box cut 24456 rows to
+  118; world.connectorLayout MATCHED the live-verified DB seeds for
+  constructor, splitter, merger AND foundry (all SCS-sourced, composed
+  correctly) - the DB can now self-feed from the mod. Multiplayer chat
+  fields present (single-player smoke only; a real second-player test
+  still pending).
+- **First live composite build DONE (2026-09-02)**: machine_row +
+  merger manifold + routed trunk into a container, standing at
+  (12400-14200, 279300-280400, z651) as evidence (delete on request).
+  The manifold's 5 ops went in first-try with zero yaw/geometry rework.
+  Findings fixed same-session: executor hover-teleports are now
+  best-effort (a TELEPORT_BLOCKED previously crashed the run), and
+  verify_connections CAUGHT a real dangling belt (the known
+  success-but-unattached class) in one filtered query - repaired by the
+  documented delete-and-rebuild pattern. Roadmap add: an executor
+  auto-repair pass (post-execution verify -> delete dangling -> rebuild)
+  so that recovery is automatic too.
 - Typical agent flow with the new tools:
   ```python
   from satisfactory_ai.connector_db import ConnectorDb, CONSTRUCTOR

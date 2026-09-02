@@ -269,7 +269,12 @@ class Executor:
             "ignoreAimLocation": True,
         }
         if near is not None:
-            self.client.teleport(near.x, near.y, near.z + TELEPORT_HOVER_Z)
+            # Best-effort, like _hover_near - a blocked teleport must not
+            # kill the wire attempt.
+            try:
+                self.client.teleport(near.x, near.y, near.z + TELEPORT_HOVER_Z)
+            except RpcError:
+                pass
             time.sleep(self.settle_seconds)
         last_error = ""
         for attempt in (1, 2, 3):
@@ -289,10 +294,22 @@ class Executor:
         """Teleport above the midpoint of a connect - never AT a deep z
         (feedback_no_deep_teleport): hover at the HIGHER endpoint's z
         plus a margin, which live testing proved keeps the player in
-        range of deep work while it descends toward it."""
+        range of deep work while it descends toward it.
+
+        BEST-EFFORT: TeleportTo needs a clear destination and can refuse
+        (TELEPORT_BLOCKED) over open air near new structures - found on
+        the first live composite run, where it crashed the whole
+        execution. A hover failure must never kill the plan: try a
+        higher hover, then proceed from wherever the player is (the
+        connect's own retries/error handling take it from there)."""
         mx, my = (a.x + b.x) / 2.0, (a.y + b.y) / 2.0
         mz = max(a.z, b.z, 200.0) + TELEPORT_HOVER_Z
-        self.client.teleport(mx, my, mz)
+        for attempt_z in (mz, mz + 500.0):
+            try:
+                self.client.teleport(mx, my, attempt_z)
+                break
+            except RpcError:
+                continue
         time.sleep(self.settle_seconds)
 
     def _reset_wire_state(self, near: Optional[Position]) -> None:
