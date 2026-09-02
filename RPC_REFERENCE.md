@@ -939,7 +939,7 @@ extractor-recipe refusal above) and it isn't worth the risk for a read-only
 query on a category that realistically has no meaningful swatch cost
 anyway.
 
-### `world.batch` — `{"ops": [{"method", "params"?}...], "haltOnError"?: true}` (2026-09-02, compiled NOT yet redeployed/live-tested)
+### `world.batch` — `{"ops": [{"method", "params"?}...], "haltOnError"?: true}` (2026-09-02, **LIVE-VERIFIED same day**: reads, mutations w/ per-op buildableIds, haltOnError, nested rejection all confirmed)
 ```json
 { "protocolVersion": 1, "success": true, "result": {
   "results": [ { "index": 0, "method": "world.setRecipe", "success": true, "result": {...} } ],
@@ -1683,8 +1683,7 @@ it fails and is not bypassable by either ignore flag (it's a real
 deterministic distance check); chain through an intermediate power pole
 instead.
 
-**Hardening (2026-09-02, compiled NOT yet redeployed/live-tested —
-docs/build-efficiency-plan.md 2d)**: (1) optional `connectorPositionA`/
+**Hardening (2026-09-02, LIVE-VERIFIED same day — docs/build-efficiency-plan.md 2d)**: (1) optional `connectorPositionA`/
 `connectorPositionB` `{"x","y","z"}` pins — when set, only a free power
 connection within 150 units of the pin is eligible on that side, giving
 deterministic per-port selection on multi-connector buildables (a Power

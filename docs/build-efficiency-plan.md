@@ -209,6 +209,18 @@ power graph for subtree severing before deleting anything wired.
   live verification of 2b/2d after the next redeploy, the delete-refund
   chip (task_10e59175), and the possible batch id-substitution
   follow-up.
+- **2b AND 2d LIVE-VERIFIED after redeploy (2026-09-02)**: world.batch -
+  read batches, mutation batches (per-op buildableIds came back),
+  haltOnError (1/2 completed then halted on UNKNOWN_METHOD), nested
+  rejection - all confirmed. connectPower: the poison sequence
+  (CANNOT_CONSTRUCT failure -> immediate valid connect) now SUCCEEDS
+  where it used to fail "Must be hooked up to a connection!" - stuck-
+  state fix CONFIRMED; connector pins confirmed both ways (accepted at
+  the real connector position - a Pole Mk1's connector is placement
+  +700z - and cleanly rejected at a wrong position). The executor's
+  dummy-pole ResetWireState fallback is retained as harmless
+  defense-in-depth but should no longer fire. THE PLAN IS COMPLETE;
+  only the optional follow-ups remain.
 - **First live composite build DONE (2026-09-02)**: machine_row +
   merger manifold + routed trunk into a container, standing at
   (12400-14200, 279300-280400, z651) as evidence (delete on request).
