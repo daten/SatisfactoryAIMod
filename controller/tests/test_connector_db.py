@@ -155,6 +155,45 @@ class YawSelection(unittest.TestCase):
             self.db.find_connector(SPLITTER, P(0, 0, 0), 0.0, "Output")  # three outputs
 
 
+class ConveyorSupports(unittest.TestCase):
+    def setUp(self):
+        self.db = ConnectorDb()
+
+    def test_pole_snap_connector_geometry(self):
+        from satisfactory_ai.connector_db import CONVEYOR_POLE
+
+        # Ground pole at (13000,276400,701) yaw90 -> SnapOnly connector
+        # at (13000,276400,801) facing +y (live-verified 2026-09-02).
+        pos = P(13000, 276400, 701)
+        got = [
+            (round(wp.x), round(wp.y), round(wp.z), round(wn.x, 1), round(wn.y, 1))
+            for prof, wp, wn in self.db.predict(CONVEYOR_POLE, pos, 90.0)
+            if prof.direction == "SnapOnly"
+        ]
+        self.assertEqual(got, [(13000, 276400, 801, 0.0, 1.0)])
+
+    def test_stackable_connector_height(self):
+        from satisfactory_ai.connector_db import CONVEYOR_POLE_STACKABLE
+
+        pos = P(13000, 276400, 701)
+        z = [
+            round(wp.z)
+            for prof, wp, wn in self.db.predict(CONVEYOR_POLE_STACKABLE, pos, 90.0)
+        ]
+        self.assertEqual(z, [1001])  # +300, live-verified
+
+    def test_support_yaw_for_travel(self):
+        from satisfactory_ai.connector_db import support_yaw_for_travel
+
+        # Travel south (-y): connector must face +y (upstream) -> yaw90.
+        self.assertEqual(support_yaw_for_travel(P(0, -1)), 90.0)
+        self.assertEqual(support_yaw_for_travel(P(0, 1)), 270.0)
+        self.assertEqual(support_yaw_for_travel(P(1, 0)), 180.0)
+        self.assertEqual(support_yaw_for_travel(P(-1, 0)), 0.0)
+        # A diagonal snaps to the dominant axis.
+        self.assertEqual(support_yaw_for_travel(P(-600, -200)), 0.0)
+
+
 class LearningAndPersistence(unittest.TestCase):
     def test_unknown_class_is_loud(self):
         with self.assertRaises(UnknownBuildableClass):

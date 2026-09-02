@@ -53,6 +53,21 @@ MINER_MK3 = "Build_MinerMk3_C"
 SPLITTER = "Build_ConveyorAttachmentSplitter_C"
 MERGER = "Build_ConveyorAttachmentMerger_C"
 CONTAINER_MK2 = "Build_StorageContainerMk2_C"
+# Conveyor SUPPORTS - belt relays via a single SnapOnly connector (live-
+# proven 2026-09-02: two belts snapped to one support connector chain
+# directly belt-to-belt and items flow, cheaper than a splitter relay).
+CONVEYOR_POLE = "Build_ConveyorPole_C"
+CONVEYOR_POLE_STACKABLE = "Build_ConveyorPoleStackable_C"
+CONVEYOR_POLE_WALL = "Build_ConveyorPoleWall_C"
+CONVEYOR_CEILING = "Build_ConveyorCeilingAttachment_C"
+
+#: Recipe class paths for the supports (for placeBuilding).
+SUPPORT_RECIPES = {
+    CONVEYOR_POLE: "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorPole.Recipe_ConveyorPole_C",
+    CONVEYOR_POLE_STACKABLE: "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorPoleStackable.Recipe_ConveyorPoleStackable_C",
+    CONVEYOR_POLE_WALL: "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorPoleWall.Recipe_ConveyorPoleWall_C",
+    CONVEYOR_CEILING: "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorCeilingAttachment.Recipe_ConveyorCeilingAttachment_C",
+}
 
 #: Machine classes whose connectors sit +100 above placement z.
 #: Attachments (splitter/merger) are omitted deliberately: their
@@ -158,6 +173,34 @@ SEED_PROFILES: Dict[str, List[ConnectorProfile]] = {
         ConnectorProfile("Output", _p(0.0, 400.0, 100.0), _p(0.0, 1.0)),
         ConnectorProfile("Output", _p(0.0, 400.0, 500.0), _p(0.0, 1.0)),
     ],
+    # Conveyor SUPPORTS: ONE SnapOnly connector, at yaw0 facing +x. The
+    # connector sits above the placement z by a HEIGHT that depends on the
+    # support (and, for the ground pole, its runtime auto-height) - so the
+    # z here is the DEFAULT-placement offset only; relay_through_support()
+    # reads the real connector position live rather than trusting it.
+    # A SnapOnly connector never reports IsConnected (engine design), so
+    # ONE connector anchors BOTH the incoming and outgoing belt - the two
+    # belts bind belt-to-belt through it. Orientation rule (live-verified):
+    # the connector must face the belt's UPSTREAM direction (opposite to
+    # travel) for both belts to snap - see support_yaw_for_travel().
+    # Ground pole: connector +100 above placement (live: placed z701 ->
+    # connector z801). yaw90 -> +y confirmed.
+    CONVEYOR_POLE: [
+        ConnectorProfile("SnapOnly", _p(0.0, 0.0, 100.0), _p(1.0, 0.0)),
+    ],
+    # Stackable pole: fixed 3m, connector +300 (live: z701 -> z1001).
+    CONVEYOR_POLE_STACKABLE: [
+        ConnectorProfile("SnapOnly", _p(0.0, 0.0, 300.0), _p(1.0, 0.0)),
+    ],
+    # Wall mount: SCS connector at local (200,0,0) facing -y at yaw0 -
+    # protrudes from a wall face. UNVERIFIED live (needs a wall to attach
+    # to); geometry from world.connectorLayout's SCS read.
+    CONVEYOR_POLE_WALL: [
+        ConnectorProfile("SnapOnly", _p(200.0, 0.0, 0.0), _p(0.0, -1.0)),
+    ],
+    # Ceiling mount: UNVERIFIED - class path/geometry not yet confirmed
+    # live (connectorLayout returned CLASS_NOT_FOUND for the guessed path).
+    # Left out until confirmed; add via learn_and_store() from a placed one.
 }
 
 
@@ -317,6 +360,23 @@ class ConnectorDb:
                 )
                 for e in entries
             ]
+
+
+def support_yaw_for_travel(travel: Position) -> float:
+    """The yaw to place a conveyor SUPPORT so its single SnapOnly
+    connector faces the belt's UPSTREAM direction (opposite to travel) -
+    the live-verified requirement for both the incoming and outgoing belt
+    to snap to it (2026-09-02). Support SnapOnly faces +x at yaw0;
+    yaw0->+x, 90->+y, 180->-x, 270->-y. To face -travel:
+      travel +y(N) -> face -y -> yaw270
+      travel -y(S) -> face +y -> yaw90
+      travel +x(E) -> face -x -> yaw180
+      travel -x(W) -> face +x -> yaw0
+    travel is snapped to its dominant cardinal axis.
+    """
+    if abs(travel.x) >= abs(travel.y):
+        return 180.0 if travel.x > 0 else 0.0
+    return 270.0 if travel.y > 0 else 90.0
 
 
 def _class_key_of(buildable_id: str) -> str:

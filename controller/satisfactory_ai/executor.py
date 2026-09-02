@@ -399,6 +399,75 @@ class Executor:
                 results.append(OpResult(op=op, success=False, error=str(exc)))
         return results
 
+    def relay_through_support(
+        self,
+        support_recipe: str,
+        x: float,
+        y: float,
+        z: float,
+        upstream_ref: str,
+        upstream_pin: Position,
+        downstream_ref: str,
+        downstream_pin: Position,
+        travel: Optional[Position] = None,
+    ) -> "ExecutionReport":
+        """Insert a conveyor SUPPORT (pole/stackable/wall) as a belt relay
+        and wire belt-in + belt-out through it - the cheaper, physically-
+        supported alternative to a splitter relay (live-proven 2026-09-02:
+        the two belts chain belt-to-belt through the support's single
+        SnapOnly connector and items flow).
+
+        Places the support at (x,y,z) oriented so its connector faces the
+        belt's upstream direction (support_yaw_for_travel), then READS the
+        support's real connector position from world.connections (its
+        height varies by support type and runtime auto-height, so a live
+        read beats trusting the seed offset), and connects
+        upstream->support and support->downstream to that real position.
+        """
+        from .connector_db import support_yaw_for_travel
+
+        report = ExecutionReport()
+        if travel is None:
+            travel = Position(x=downstream_pin.x - upstream_pin.x,
+                              y=downstream_pin.y - upstream_pin.y, z=0.0)
+        yaw = support_yaw_for_travel(travel)
+
+        place = RouteOp(kind="place", recipe_class=support_recipe,
+                        position=Position(x=x, y=y, z=z), yaw=yaw, note="support relay")
+        place_res = self._place(place)
+        report.results.append(place_res)
+        if not place_res.success or not place_res.buildable_id:
+            report.halted = True
+            return report
+        support_id = place_res.buildable_id
+
+        # Read the real SnapOnly connector position.
+        short = support_id.rsplit("_", 1)[-1]
+        try:
+            rows = self.client.call("world.connections", {"ids": [short]}, timeout_seconds=60)["connections"]
+        except RpcError as exc:
+            report.results.append(OpResult(op=place, success=False, error=f"connector read failed: {exc}"))
+            report.halted = True
+            return report
+        snap = next((c for c in rows if c["direction"] == "SnapOnly"), rows[0] if rows else None)
+        if snap is None:
+            report.results.append(OpResult(op=place, success=False, error="support exposed no connector"))
+            report.halted = True
+            return report
+        cpin = Position(x=snap["position"]["x"], y=snap["position"]["y"], z=snap["position"]["z"])
+
+        belt_in = RouteOp(kind="belt", source_ref=upstream_ref, dest_ref=support_id,
+                          source_pin=upstream_pin, dest_pin=cpin, note="belt into support")
+        belt_out = RouteOp(kind="belt", source_ref=support_id, dest_ref=downstream_ref,
+                           source_pin=cpin, dest_pin=downstream_pin, note="belt out of support")
+        for op in (belt_in, belt_out):
+            res = self._belt(op, {})
+            report.results.append(res)
+            if not res.success and self.halt_on_error:
+                report.halted = True
+                break
+        return report
+
     # -- power (used by composites, not RouteOps yet) -------------------
 
     def connect_power(self, id_a: str, id_b: str, near: Optional[Position] = None) -> OpResult:

@@ -105,6 +105,46 @@ above. See memory `project_hmf_factory.md` for the full build.
    that needs the world to tick (hologram spawn, physics/teleport apply)
    silently no-ops.
 
+## Conveyor SUPPORTS work as belt relays - cheaper than splitters (live-verified 2026-09-02)
+
+The HMF builds used 1-in-1-out splitters/mergers as belt junctions
+(to chain segments, turn corners, cross seams). That works but a
+splitter costs real materials and is semantically a fan-out. Conveyor
+SUPPORTS - Conveyor Pole, Stackable Conveyor Pole, Wall Mount, Ceiling
+Mount - are the cheaper, physically-correct relay, and the RPC already
+supports them (FindFreeFactoryConnection's SnapOnly fallback). Proven
+live:
+
+- A support exposes exactly ONE connector, `direction=SnapOnly` (not
+  Input/Output). A SnapOnly connector NEVER reports `connected:true`
+  (engine design), so ONE connector anchors BOTH the incoming and the
+  outgoing belt. The two belts then bind **belt-to-belt** through it
+  (confirmed in world.connections: belt1.Output -> belt2, belt2.Input ->
+  belt1, both at the support's connector position) and items flow. The
+  support is just the physical anchor/support.
+- **Orientation is load-bearing**: the support's SnapOnly connector must
+  face the belt's UPSTREAM direction (opposite to travel) for BOTH belts
+  to snap. A perpendicular approach fails ("Invalid Conveyor Belt
+  shape!" / a dangling belt that reports OK but attaches nothing).
+  Support SnapOnly faces +x at yaw0; yaw0->+x, 90->+y, 180->-x, 270->-y.
+  For a belt travelling south (-y), the connector must face +y -> yaw90.
+  (`connector_db.support_yaw_for_travel()` encodes this.)
+- **Connector height varies and is NOT reliably in the class CDO**: the
+  ground pole auto-sizes its height, so world.connectorLayout reports
+  the base connector at local z0, but a placed pole's connector is at
+  placement z +100 (default height); the Stackable pole is a fixed 3m
+  with the connector at placement z +300. Always READ the real connector
+  from world.connections after placing rather than trusting an offset -
+  `Executor.relay_through_support()` does exactly this: place (oriented)
+  -> read SnapOnly connector -> belt-in + belt-out.
+- Wall/Ceiling mounts need a wall/ceiling to attach to (situational) and
+  were NOT live-verified this pass; the ground pole and stackable were.
+
+Practical upshot: for a pure pass-through waypoint (relay a single belt
+stream for length/corner/z-lane reasons), prefer
+`relay_through_support()` with a Conveyor Pole over a splitter. Keep
+splitters/mergers for genuine fan-out/fan-in.
+
 ## CRITICAL: `world.constructWaterPumpAtPosition` on a genuinely dry-land position CRASHED THE GAME (fixed 2026-08-31, found live)
 
 First live test of the water-pump RPCs (added the day before, never
