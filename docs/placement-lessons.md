@@ -7,6 +7,64 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## HMF factory build (2026-09-01) — four reusable lessons, all found live
+
+Building a complete Heavy Modular Frame factory end-to-end via RPC (steel
+line + a deep limestone→concrete→lift branch + EIB assembler + manufacturer,
+confirmed producing) surfaced four practical rules not already captured
+above. See memory `project_hmf_factory.md` for the full build.
+
+1. **Long belts hugging a foundation top fail `"Conveyor Belt is too
+   steep!"`/`"Overlapping another object's clearance"` even when the two
+   endpoints are at the SAME Z (flat).** A ~600-unit belt run at z301
+   sitting directly over 8x1 foundations (tops ~z200, only ~100 below the
+   belt) failed every routeMode, in isolation, with nothing else nearby —
+   the router lifts the belt to clear the foundation clearance and reports
+   it as too steep. Short taps (≤200 units) over a SINGLE foundation at the
+   same z301 connect fine; the failure is the long run hugging the foundation
+   surface and/or crossing the seam BETWEEN two foundation tiles. **Fix that
+   worked: don't run a long belt along a foundation top. Split the run with
+   a relay splitter placed ON the seam and keep each resulting belt short
+   and over a single tile.** (Raising the belt to clear the foundation also
+   works but forces the down-taps into >35° inclines — the relay is cleaner.)
+
+2. **Safe way to build deep/far work without a dangerous deep teleport:
+   teleport the player to normal platform height (z~298) DIRECTLY ABOVE the
+   deep target, in open air — never to the deep Z itself.** `placeBuilding`
+   has no distance limit (build the deep machines from anywhere), but belts
+   and lifts need the player within ~5000 units of the connection point.
+   Teleporting straight down onto a deep target is what caused a void death
+   earlier (see `feedback_no_deep_teleport` in memory) and is often
+   `TELEPORT_BLOCKED` anyway (cave/rock). Instead teleport to (targetX,
+   targetY, ~298) with `ignoreGroundTrace:true`: the player floats in open
+   air ~4000 units above the deep work — within belt range — and if they
+   start to fall they fall TOWARD the target (staying in range), worst case
+   a recoverable fall, never the void death. Re-teleport before each deep
+   belt call since they drift between calls. This built a whole deep
+   concrete branch + a 4070-unit lift with zero deep-Z teleports.
+
+3. **A single long power line (within the ~10000-unit cap documented below)
+   energises an entire dead remote grid, and you can bridge power THROUGH a
+   machine's power node.** One `world.connectPower` (with
+   `ignoreAimLocation:true`) from a platform pole to a deep unpowered
+   constructor powered both it AND the miner it was already power-linked to.
+   When a Power Pole Mk1 is full (4/4, reports `NO_POWER_CONNECTION`/"no
+   compatible free connection pair"), connect the next machine to an
+   ALREADY-POWERED MACHINE instead of the pole — a machine's power
+   connection node accepts multiple lines and passes power through.
+
+4. **Frozen production + no-op teleport + `HOLOGRAM_SPAWN_FAILED` = the game
+   is PAUSED, not a build-gun bug.** After a save reload the game briefly
+   ticked then re-paused. Symptom set: `world.manufacturers` progress
+   byte-identical across seconds, `teleportPlayer` returns success but the
+   player doesn't move, and placement fails `HOLOGRAM_SPAWN_FAILED` instantly
+   — while plain reads still work. Don't diagnose this as a mod/build-gun
+   fault: confirm by sampling a producing machine's `productionProgress`
+   twice a few seconds apart (identical = paused), and ask the user to
+   unpause. Reads work while paused because they only read state; anything
+   that needs the world to tick (hologram spawn, physics/teleport apply)
+   silently no-ops.
+
 ## CRITICAL: `world.constructWaterPumpAtPosition` on a genuinely dry-land position CRASHED THE GAME (fixed 2026-08-31, found live)
 
 First live test of the water-pump RPCs (added the day before, never
