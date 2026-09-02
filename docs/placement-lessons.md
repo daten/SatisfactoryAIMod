@@ -7,6 +7,46 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+## Item-granting RPCs must never destroy overflow (2026-09-02) — found live
+
+A **full player inventory** silently destroyed items in two RPCs that
+credit items to the player. `AddStack(allowPartialAdd=true)` adds only
+what fits and returns the count added — the caller must account for the
+remainder, or it's gone. General rule for any RPC that grants items:
+**decide where overflow goes before you remove it from its source.**
+
+- **`world.deleteBuilding` (DismantleBuildable) refund overflow** was
+  logged-then-destroyed. Fixed to mirror vanilla dismantle: credit what
+  fits to the player, then drop the genuine overflow (or the entire refund
+  when there's no local player) as the vanilla dismantle crate at the
+  buildable's location via
+  `FDismantleHelpers::DropRefundOnGroundNoActor(World, location, ignoreActor, overflowStacks, character)`.
+  That entry point is `FACTORYGAME_API` and **links cleanly** (verified in
+  the build, 2026-09-02) — it is the same one the player-driven dismantle
+  uses, not a stub. Capture the drop location BEFORE `Execute_Dismantle`
+  (the target is pending-kill afterwards) and pass the dying target only as
+  the `ignoreActor` for crate placement. **Not yet live-verified that a
+  crate visibly spawns** — confirm on the next session by dismantling with
+  a deliberately full inventory and checking a dismantle crate appears; the
+  `Display` log prints `credited to inventory` vs `dropped as a dismantle
+  crate` stack counts. If it ever regresses, the safe fallback is to refuse
+  the dismantle when the refund won't fit.
+
+- **`world.withdrawFromCentralStorage` overflow** was truly lost — it
+  removed from the Dimensional Depot first, then partial-added to the
+  player, and the Depot has **no** programmatic re-deposit API. Fixed by
+  reversing the order: clamp to what the Depot holds, add only what fits to
+  the player, then remove from the Depot **exactly** what landed in the
+  inventory. The un-withdrawn remainder stays safely in the Depot; the
+  `INVENTORY_FULL` result is now just a "you didn't get it all" signal, not
+  a loss.
+
+- **Already-safe siblings** (left unchanged — the correct pattern to copy):
+  `RetrievePortableMinerInventory` (add-partial, then remove only
+  `NumAdded` from the miner), power-shard install and the ARMS-slot move
+  (remove-then-add with restore-the-excess), and the `PayOffMilestone`
+  restore-on-reject path.
+
 ## HMF factory build (2026-09-01) — four reusable lessons, all found live
 
 Building a complete Heavy Modular Frame factory end-to-end via RPC (steel

@@ -4549,19 +4549,26 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	// Plates across this session's repeated platform rebuilds before
 	// being caught.
 	//
-	// Computed BEFORE dismantling (the target must still be valid), then
-	// applied directly to the player's carried inventory via AddStack -
-	// same direct-inventory-manipulation pattern already proven reliable
-	// elsewhere in this file (SimulatedCraft, MovePortableMinerToInventory),
-	// deliberately NOT relying on FDismantleHelpers::DropRefundOnGround
-	// (an uncertain, stub-bodied ground-spawn path - direct inventory
-	// credit is simpler and more predictable for an autonomous caller
-	// with no camera/aim location to drop a crate near anyway).
+	// Computed BEFORE dismantling (the target must still be valid). The
+	// refund is credited to the player's carried inventory via AddStack, and
+	// anything that DOESN'T fit is dropped as the vanilla dismantle crate at
+	// the buildable's location - never silently destroyed (confirmed live
+	// 2026-09-02: with a full player inventory, AddStack's partial add
+	// silently discarded every refund item that needed a NEW inventory slot,
+	// logging the loss but destroying the items - real Iron Plates etc. gone.
+	// Vanilla's own dismantle path (UFGBuildGunStateDismantle) spawns a
+	// ground crate for exactly this overflow via FDismantleHelpers, so we do
+	// the same here instead of relying on partial-add-and-hope).
+	//
+	// Capture the drop location NOW, while DismantleTarget is still valid -
+	// after Execute_Dismantle it is pending-kill and GetActorLocation is no
+	// longer trustworthy.
 	TArray<FInventoryStack> RefundStacks;
 	if (DismantleTarget->Implements<UFGDismantleInterface>())
 	{
 		IFGDismantleInterface::Execute_GetDismantleRefund(DismantleTarget, RefundStacks, /*noBuildCostEnabled=*/false);
 	}
+	const FVector RefundDropLocation = DismantleTarget->GetActorLocation();
 
 	// Real, safe dismantle - see this function's header doc comment.
 	// AFGBuildable::Dismantle_Implementation()/AFGVehicle's own
@@ -4616,33 +4623,61 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	}
 
 	int32 RefundedStackCount = 0;
+	int32 CratedStackCount = 0;
 	if (RefundStacks.Num() > 0)
 	{
-		if (AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0)))
+		AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+		UFGInventoryComponent* PlayerInventory = Character ? Character->GetInventory() : nullptr;
+
+		// Credit what fits to the player's carried inventory; collect the
+		// genuine overflow (the part that needs slots the inventory doesn't
+		// have) and, only if there is any, drop it as the vanilla dismantle
+		// crate. If it all fits, no crate is spawned - identical to the old
+		// happy path, just without the silent loss when it doesn't.
+		//
+		// If there is no local player/inventory at all, the entire refund is
+		// overflow and goes straight into a crate (previously it was logged
+		// as "lost" and destroyed).
+		TArray<FInventoryStack> OverflowStacks;
+		for (const FInventoryStack& Stack : RefundStacks)
 		{
-			if (UFGInventoryComponent* PlayerInventory = Character->GetInventory())
+			if (!Stack.HasItems())
 			{
-				for (const FInventoryStack& Stack : RefundStacks)
+				continue;
+			}
+
+			int32 Added = 0;
+			if (PlayerInventory)
+			{
+				Added = PlayerInventory->AddStack(Stack, /*allowPartialAdd=*/true);
+				if (Added > 0)
 				{
-					if (Stack.HasItems())
-					{
-						PlayerInventory->AddStack(Stack, /*allowPartialAdd=*/true);
-						++RefundedStackCount;
-					}
+					++RefundedStackCount;
 				}
 			}
-			else
+
+			if (Added < Stack.NumItems)
 			{
-				UE_LOG(LogAIModAI, Warning, TEXT("DismantleBuildable: %s had a real refund (%d stack(s)) but no player inventory was found to credit it to - refund lost"), *BuildableId, RefundStacks.Num());
+				OverflowStacks.Add(FInventoryStack(Stack.NumItems - Added, Stack.Item.GetItemClass()));
 			}
 		}
-		else
+
+		if (OverflowStacks.Num() > 0)
 		{
-			UE_LOG(LogAIModAI, Warning, TEXT("DismantleBuildable: %s had a real refund (%d stack(s)) but no local player was found to credit it to - refund lost"), *BuildableId, RefundStacks.Num());
+			// NoActor variant: DismantleTarget is already pending-kill from
+			// Execute_Dismantle above, so it is passed only as the actor to
+			// ignore when tracing for a crate placement spot, never as a live
+			// reference. RefundDropLocation was captured while it was valid.
+			// This is the same FACTORYGAME_API entry point vanilla dismantle
+			// uses for overflow, so if it ever fails to link the build will
+			// say so and this must fall back to refusing the dismantle when
+			// the refund won't fit (see docs/placement-lessons.md).
+			FDismantleHelpers::DropRefundOnGroundNoActor(World, RefundDropLocation, DismantleTarget, OverflowStacks, Character);
+			CratedStackCount = OverflowStacks.Num();
 		}
 	}
 
-	UE_LOG(LogAIModAI, Display, TEXT("DismantleBuildable: %s (%d child actor(s) dismantled, %d refund stack(s) credited)"), *BuildableId, ChildDismantleActors.Num(), RefundedStackCount);
+	UE_LOG(LogAIModAI, Display, TEXT("DismantleBuildable: %s (%d child actor(s) dismantled, %d refund stack(s) credited to inventory, %d overflow stack(s) dropped as a dismantle crate)"), *BuildableId, ChildDismantleActors.Num(), RefundedStackCount, CratedStackCount);
 
 	return FAIModOperationResult::Success();
 }
@@ -6744,32 +6779,51 @@ FAIModOperationResult UAIModFunctionLibrary::WithdrawFromCentralStorage(UObject*
 	}
 	const TSubclassOf<UFGItemDescriptor> ItemClass = ResolvedClass;
 
-	// TryRemoveItemsFromCentralStorage itself clamps to what's actually
-	// available - a request for more than the Depot holds is not an
-	// error, it just withdraws whatever it can (own doc comment: "If
-	// count is more than the items available, a partial remove is done").
-	const int32 NumRemoved = CentralStorage->TryRemoveItemsFromCentralStorage(ItemClass, Amount);
-	if (NumRemoved <= 0)
+	// Add-to-player BEFORE remove-from-Depot (fixed 2026-09-02). The
+	// Dimensional Depot has no API to deposit a raw amount back
+	// (UploadItemFromInventoryToCentralStorage needs the item already sitting
+	// in a real inventory slot), so the previous remove-then-add ordering
+	// silently DESTROYED any part of the withdrawal that didn't fit in a full
+	// player inventory. Instead: clamp to what the Depot actually holds, add
+	// only what fits to the player, then remove from the Depot EXACTLY what
+	// landed in the inventory - anything that didn't fit is never removed and
+	// stays safely in the Depot.
+	const int32 Available = CentralStorage->GetNumItemsFromCentralStorage(ItemClass);
+	if (Available <= 0)
 	{
 		return FAIModOperationResult::Failure(TEXT("NOTHING_WITHDRAWN"),
 			FString::Printf(TEXT("Dimensional Depot has none of '%s'"), *ItemClassPath));
 	}
 
-	// No API exists to deposit a raw amount back into the Depot (only
-	// UploadItemFromInventoryToCentralStorage, which needs the item to
-	// already be sitting in a real inventory slot) - if the player's
-	// inventory can't hold all of it, whatever doesn't fit is genuinely
-	// lost rather than silently stuck in limbo. Reported honestly below,
-	// not hidden.
-	const int32 NumAdded = PlayerInventory->AddStack(FInventoryStack(NumRemoved, ItemClass), /*allowPartialAdd=*/true);
-
-	UE_LOG(LogAIModAI, Display, TEXT("WithdrawFromCentralStorage: withdrew %d of %s from Dimensional Depot to player inventory (requested %d)"),
-		NumAdded, *ItemClassPath, Amount);
-
-	if (NumAdded < NumRemoved)
+	const int32 ToWithdraw = FMath::Min(Amount, Available);
+	const int32 NumAdded = PlayerInventory->AddStack(FInventoryStack(ToWithdraw, ItemClass), /*allowPartialAdd=*/true);
+	if (NumAdded <= 0)
 	{
 		return FAIModOperationResult::Failure(TEXT("INVENTORY_FULL"),
-			FString::Printf(TEXT("Withdrew %d of %d requested, but only %d fit in inventory - the rest was lost (inventory was full)"), NumRemoved, Amount, NumAdded));
+			FString::Printf(TEXT("Player inventory has no room for '%s' - nothing withdrawn (all items remain safely in the Dimensional Depot)"), *ItemClassPath));
+	}
+
+	// Remove from the Depot exactly what actually landed in the player's
+	// inventory. In this synchronous single-player RPC nothing can drain the
+	// Depot between the read above and this call, so this removes NumAdded;
+	// the guard below defends conservation regardless (never conjure items).
+	const int32 NumRemoved = CentralStorage->TryRemoveItemsFromCentralStorage(ItemClass, NumAdded);
+	if (NumRemoved < NumAdded)
+	{
+		PlayerInventory->Remove(ItemClass, NumAdded - NumRemoved);
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("WithdrawFromCentralStorage: withdrew %d of %s from Dimensional Depot to player inventory (requested %d, Depot held %d)"),
+		NumRemoved, *ItemClassPath, Amount, Available);
+
+	if (NumAdded < ToWithdraw)
+	{
+		// The player's inventory filled before the full available amount
+		// could be withdrawn. The un-withdrawn remainder is safely still in
+		// the Depot - nothing was lost. Reported as a soft failure so the
+		// caller knows it didn't receive everything it asked for.
+		return FAIModOperationResult::Failure(TEXT("INVENTORY_FULL"),
+			FString::Printf(TEXT("Withdrew %d of %d requested - player inventory filled up; the remainder is safely still in the Dimensional Depot, not lost"), NumRemoved, Amount));
 	}
 
 	return FAIModOperationResult::Success();

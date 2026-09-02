@@ -1195,9 +1195,24 @@ anything; a separate `GetDismantleRefund()` call is required and this
 mod never made it, silently destroying every dismantled buildable's full
 construction cost with no refund at all. Confirmed live to have cost the
 user several thousand real Iron Plates across repeated test rebuilds
-before being caught — see `docs/placement-lessons.md`). If no local
-player/inventory can be found the refund is logged as lost rather than
-silently dropped; dismantling itself still succeeds either way.
+before being caught — see `docs/placement-lessons.md`).
+
+**Refund overflow is dropped as a vanilla dismantle crate, never
+destroyed** (fixed 2026-09-02 — a second real loss bug found live: the
+refund was credited via `AddStack(allowPartialAdd=true)`, so with a
+**full player inventory** every refund item that needed a NEW inventory
+slot was silently destroyed and only logged as lost. Now the refund is
+credited to the player for whatever fits, and any genuine overflow — or
+the entire refund if there is no local player/inventory at all — is
+dropped on the ground as the vanilla dismantle crate at the buildable's
+location via `FDismantleHelpers::DropRefundOnGroundNoActor`, exactly like
+a player-driven dismantle. Dismantling itself still always succeeds. The
+`Display` log reports `credited to inventory` vs `dropped as a dismantle
+crate` stack counts — **live-verify a crate actually spawns** when
+dismantling with a full inventory; if the engine ever stops exporting
+that entry point the build will fail to link and the fallback is to
+refuse the dismantle when the refund won't fit, see
+`docs/placement-lessons.md`).
 
 Also works on vehicle ids returned by `world.constructVehicle`/
 `world.vehicles`. `AFGVehicle` is not an `AFGBuildable`, so this falls back
@@ -1643,8 +1658,15 @@ doesn't exist for this world — should never happen in practice; fixed
 `false`, the same unreliable-flag bug as `world.centralStorage`, which
 silently blocked every withdrawal even with a real, populated Depot),
 `NOTHING_WITHDRAWN` (Depot has none of the requested item),
-`INVENTORY_FULL` (some of the withdrawn amount did not fit in inventory —
-that portion is genuinely lost, no way to redeposit it programmatically).
+`INVENTORY_FULL` (the player's inventory had no room for some/all of the
+request). **Nothing is ever lost on `INVENTORY_FULL`** — fixed 2026-09-02:
+the previous order removed from the Depot first and then partial-added to
+the player, silently **destroying** whatever didn't fit (the Depot has no
+programmatic re-deposit API). The order is now reversed — it adds only
+what fits to the player, then removes from the Depot **exactly** what
+landed in the inventory — so any un-withdrawn remainder stays safely in
+the Depot. The error just tells the caller it didn't receive the full
+amount; free inventory space and retry.
 
 ### `world.spawnCreature` — synchronous, `result.buildableId` on success
 `params: {"creatureClass" (required), "distanceFromPlayer" (optional,
