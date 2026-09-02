@@ -60,6 +60,14 @@ MIN_RELIABLE_RUN = 300.0
 MAX_SEGMENT_RUN = 5600.0
 MAX_PLANNED_INCLINE_DEGREES = 30.0
 JOG_STANDOFF = 300.0  # how far a jog attachment sits from the input it feeds
+#: Below this 2D run, shape constraints (opposing headings, steep
+#: straight-line inclines) are binding - every live shape failure
+#: happened in tight quarters. Above it the spline has room to curve
+#: around, and the live game's own dry-run accepts geometries the naive
+#: straight-line checks would reject (calibrated 2026-09-02 against
+#: world.testConveyorBelt: an opposing-exit S at 3138 units and a 49-deg
+#: straight-line incline at 3523 units both PASSED the game's check).
+SHAPE_CONSTRAINT_RANGE = 1500.0
 
 
 @dataclass(frozen=True)
@@ -153,27 +161,50 @@ def _heading_dot_displacement(normal: Position, from_pos: Position, to_pos: Posi
     return (normal.x * dx + normal.y * dy) / length
 
 
-def direct_belt_feasible(source: Endpoint, dest: Endpoint) -> Tuple[bool, str]:
+def direct_belt_feasible(
+    source: Endpoint, dest: Endpoint, max_segment_run: float = MAX_SEGMENT_RUN
+) -> Tuple[bool, str]:
     """Whether ONE belt between these pinned connectors is inside the
-    reliability envelope. Returns (ok, reason-if-not)."""
+    reliability envelope. Returns (ok, reason-if-not).
+
+    max_segment_run defaults to the Mk1-4-safe 5600 but is per-tier in
+    reality (the live game accepted 5917 on Mk4) - callers with the
+    world.conveyorBeltTiers data can pass the real tier limit.
+
+    Shape checks (headings, incline) are only binding within
+    SHAPE_CONSTRAINT_RANGE - see that constant's calibration note.
+    """
     run = _dist2d(source.position, dest.position)
     total = math.hypot(run, dest.position.z - source.position.z)
     if total < MIN_RELIABLE_RUN:
         return False, f"run {total:.0f} under reliable minimum {MIN_RELIABLE_RUN:.0f}"
-    if total > MAX_SEGMENT_RUN:
-        return False, f"run {total:.0f} over max segment {MAX_SEGMENT_RUN:.0f}"
-    if _incline_degrees(source.position, dest.position) > MAX_PLANNED_INCLINE_DEGREES:
-        return False, (
-            f"incline {_incline_degrees(source.position, dest.position):.1f} deg over planned max "
-            f"{MAX_PLANNED_INCLINE_DEGREES:.0f}"
+    if total > max_segment_run:
+        return False, f"run {total:.0f} over max segment {max_segment_run:.0f}"
+    if run <= SHAPE_CONSTRAINT_RANGE:
+        if _incline_degrees(source.position, dest.position) > MAX_PLANNED_INCLINE_DEGREES:
+            return False, (
+                f"incline {_incline_degrees(source.position, dest.position):.1f} deg over planned max "
+                f"{MAX_PLANNED_INCLINE_DEGREES:.0f}"
+            )
+        # Exit heading must not oppose the displacement, and the approach
+        # to the input must not oppose ITS entry heading (-dest.normal).
+        if _heading_dot_displacement(source.normal, source.position, dest.position) < -0.1:
+            return False, "source exit heading opposes the displacement (S against the output facing)"
+        entry_heading = Position(x=-dest.normal.x, y=-dest.normal.y, z=-dest.normal.z)
+        if _heading_dot_displacement(entry_heading, source.position, dest.position) < -0.1:
+            return False, "required entry heading opposes the displacement (S against the input facing)"
+    else:
+        # Long range: only a genuinely unclimbable NET rise is fatal -
+        # the spline can otherwise meander. Use the planned incline
+        # against the STRAIGHT distance as a lower bound on feasibility.
+        min_spline_needed = abs(dest.position.z - source.position.z) / math.tan(
+            math.radians(MAX_PLANNED_INCLINE_DEGREES)
         )
-    # Exit heading must not oppose the displacement, and the approach to
-    # the input must not oppose ITS required entry heading (-dest.normal).
-    if _heading_dot_displacement(source.normal, source.position, dest.position) < -0.1:
-        return False, "source exit heading opposes the displacement (S against the output facing)"
-    entry_heading = Position(x=-dest.normal.x, y=-dest.normal.y, z=-dest.normal.z)
-    if _heading_dot_displacement(entry_heading, source.position, dest.position) < -0.1:
-        return False, "required entry heading opposes the displacement (S against the input facing)"
+        if min_spline_needed > max_segment_run:
+            return False, (
+                f"rise {abs(dest.position.z - source.position.z):.0f} needs a spline over "
+                f"{max_segment_run:.0f} even at max incline"
+            )
     return True, ""
 
 

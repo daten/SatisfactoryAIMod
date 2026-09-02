@@ -1,0 +1,925 @@
+{
+ "protocolVersion": 1,
+ "manufacturers": [
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147452321",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 282000,
+    "z": 201
+   },
+   "recipe": "Iron Ingot",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.8472394347190857,
+   "productivity": 0.8156863451004028,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/OreIron/Desc_OreIron.Desc_OreIron_C",
+     "itemName": "Iron Ore",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 95
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147452064",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 282000,
+    "z": 201
+   },
+   "recipe": "Iron Ingot",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.950526773929596,
+   "productivity": 0.7647059559822083,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/OreIron/Desc_OreIron.Desc_OreIron_C",
+     "itemName": "Iron Ore",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 96
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147451770",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 3600,
+    "y": 282000,
+    "z": 201
+   },
+   "recipe": "Iron Ingot",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.3233831822872162,
+   "productivity": 0.7176470756530762,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/OreIron/Desc_OreIron.Desc_OreIron_C",
+     "itemName": "Iron Ore",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 98
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147451209",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 5200,
+    "y": 282000,
+    "z": 201
+   },
+   "recipe": "Iron Ingot",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.6576552987098694,
+   "productivity": 1,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/OreIron/Desc_OreIron.Desc_OreIron_C",
+     "itemName": "Iron Ore",
+     "count": 63
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 96
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147446923",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 4400,
+    "y": 282000,
+    "z": 201
+   },
+   "recipe": "Iron Ingot",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.31565746665000916,
+   "productivity": 0.8549020290374756,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/OreIron/Desc_OreIron.Desc_OreIron_C",
+     "itemName": "Iron Ore",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 97
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_FoundryMk1_C_2147225575",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/FoundryMk1/Build_FoundryMk1.Build_FoundryMk1_C",
+   "position": {
+    "x": 7600,
+    "y": 282000,
+    "z": 201
+   },
+   "recipe": "Steel Ingot",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.021901946514844894,
+   "productivity": 0.5411764979362488,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/OreIron/Desc_OreIron.Desc_OreIron_C",
+     "itemName": "Iron Ore",
+     "count": 98
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/Coal/Desc_Coal.Desc_Coal_C",
+     "itemName": "Coal",
+     "count": 98
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/SteelIngot/Desc_SteelIngot.Desc_SteelIngot_C",
+     "itemName": "Steel Ingot",
+     "count": 94
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_FoundryMk1_C_2147452988",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/FoundryMk1/Build_FoundryMk1.Build_FoundryMk1_C",
+   "position": {
+    "x": 6000,
+    "y": 282000,
+    "z": 201
+   },
+   "recipe": "Steel Ingot",
+   "clockSpeedPercent": 250,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.973202645778656,
+   "productivity": 1,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/OreIron/Desc_OreIron.Desc_OreIron_C",
+     "itemName": "Iron Ore",
+     "count": 100
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/Coal/Desc_Coal.Desc_Coal_C",
+     "itemName": "Coal",
+     "count": 100
+    }
+   ],
+   "outputInventory": []
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147454182",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 277600,
+    "z": 201
+   },
+   "recipe": "Reinforced Iron Plate",
+   "clockSpeedPercent": 150,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.9171921014785767,
+   "productivity": 0.6666666865348816,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronPlate/Desc_IronPlate.Desc_IronPlate_C",
+     "itemName": "Iron Plate",
+     "count": 200
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronScrew/Desc_IronScrew.Desc_IronScrew_C",
+     "itemName": "Screws",
+     "count": 22
+    }
+   ],
+   "outputInventory": []
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147453901",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 276400,
+    "z": 201
+   },
+   "recipe": "Modular Frame",
+   "clockSpeedPercent": 250,
+   "productionStatus": "Standby",
+   "productionProgress": 0.00029838085174560547,
+   "productivity": 0.6627451181411743,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronPlateReinforced/Desc_IronPlateReinforced.Desc_IronPlateReinforced_C",
+     "itemName": "Reinforced Iron Plate",
+     "count": 2
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 198
+    }
+   ],
+   "outputInventory": []
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147215621",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 5200,
+    "y": 276400,
+    "z": 301
+   },
+   "recipe": "Encased Industrial Beam",
+   "clockSpeedPercent": 166.66700744628906,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.12846969068050385,
+   "productivity": 0.8313726186752319,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/SteelPlate/Desc_SteelPlate.Desc_SteelPlate_C",
+     "itemName": "Steel Beam",
+     "count": 76
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/Cement/Desc_Cement.Desc_Cement_C",
+     "itemName": "Concrete",
+     "count": 500
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/SteelPlateReinforced/Desc_SteelPlateReinforced.Desc_SteelPlateReinforced_C",
+     "itemName": "Encased Industrial Beam",
+     "count": 97
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147309110",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 8400,
+    "y": 277200,
+    "z": 401
+   },
+   "recipe": "Reinforced Iron Plate",
+   "clockSpeedPercent": 150,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.06914182752370834,
+   "productivity": 1,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronPlate/Desc_IronPlate.Desc_IronPlate_C",
+     "itemName": "Iron Plate",
+     "count": 8
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronScrew/Desc_IronScrew.Desc_IronScrew_C",
+     "itemName": "Screws",
+     "count": 493
+    }
+   ],
+   "outputInventory": []
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147308839",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 9600,
+    "y": 277200,
+    "z": 401
+   },
+   "recipe": "Modular Frame",
+   "clockSpeedPercent": 250,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.2331966608762741,
+   "productivity": 1,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronPlateReinforced/Desc_IronPlateReinforced.Desc_IronPlateReinforced_C",
+     "itemName": "Reinforced Iron Plate",
+     "count": 3
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 200
+    }
+   ],
+   "outputInventory": []
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ManufacturerMk1_C_2147215368",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ManufacturerMk1/Build_ManufacturerMk1.Build_ManufacturerMk1_C",
+   "position": {
+    "x": 5800,
+    "y": 278000,
+    "z": 301
+   },
+   "recipe": "Heavy Modular Frame",
+   "clockSpeedPercent": 100,
+   "productionStatus": "Producing",
+   "productionProgress": 0.03016308881342411,
+   "productivity": 0.803921639919281,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/ModularFrame/Desc_ModularFrame.Desc_ModularFrame_C",
+     "itemName": "Modular Frame",
+     "count": 5
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/SteelPipe/Desc_SteelPipe.Desc_SteelPipe_C",
+     "itemName": "Steel Pipe",
+     "count": 193
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/SteelPlateReinforced/Desc_SteelPlateReinforced.Desc_SteelPlateReinforced_C",
+     "itemName": "Encased Industrial Beam",
+     "count": 100
+    },
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronScrew/Desc_IronScrew.Desc_IronScrew_C",
+     "itemName": "Screws",
+     "count": 473
+    }
+   ],
+   "outputInventory": []
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147423064",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 279600,
+    "z": 201
+   },
+   "recipe": "Iron Rod",
+   "clockSpeedPercent": 220,
+   "productionStatus": "Standby",
+   "productionProgress": 0.003239274024963379,
+   "productivity": 0.45098042488098145,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 200
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147422750",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 279600,
+    "z": 201
+   },
+   "recipe": "Iron Plate",
+   "clockSpeedPercent": 225,
+   "productionStatus": "Standby",
+   "productionProgress": 0.0021783113479614258,
+   "productivity": 0.6627451181411743,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronPlate/Desc_IronPlate.Desc_IronPlate_C",
+     "itemName": "Iron Plate",
+     "count": 200
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147422397",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 278800,
+    "z": 201
+   },
+   "recipe": "Screws",
+   "clockSpeedPercent": 225,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.96426922082901,
+   "productivity": 0.6666666865348816,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 200
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronScrew/Desc_IronScrew.Desc_IronScrew_C",
+     "itemName": "Screws",
+     "count": 494
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147304108",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 6000,
+    "y": 280800,
+    "z": 201
+   },
+   "recipe": "Steel Beam",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.735328733921051,
+   "productivity": 0.9372549653053284,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/SteelIngot/Desc_SteelIngot.Desc_SteelIngot_C",
+     "itemName": "Steel Ingot",
+     "count": 7
+    }
+   ],
+   "outputInventory": []
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147303796",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 6800,
+    "y": 280800,
+    "z": 201
+   },
+   "recipe": "Steel Pipe",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.09427042305469513,
+   "productivity": 0.8509804606437683,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/SteelIngot/Desc_SteelIngot.Desc_SteelIngot_C",
+     "itemName": "Steel Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/SteelPipe/Desc_SteelPipe.Desc_SteelPipe_C",
+     "itemName": "Steel Pipe",
+     "count": 194
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147240160",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 4100,
+    "y": 274600,
+    "z": -3869
+   },
+   "recipe": "Concrete",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.830525815486908,
+   "productivity": 1,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/Stone/Desc_Stone.Desc_Stone_C",
+     "itemName": "Limestone",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/Cement/Desc_Cement.Desc_Cement_C",
+     "itemName": "Concrete",
+     "count": 376
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147334583",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 10800,
+    "y": 280400,
+    "z": 401
+   },
+   "recipe": "Iron Plate",
+   "clockSpeedPercent": 225,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.6444540619850159,
+   "productivity": 1,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": []
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147083562",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 5700,
+    "y": 274600,
+    "z": -3869
+   },
+   "recipe": "Concrete",
+   "clockSpeedPercent": 200,
+   "productionStatus": "Standby",
+   "productionProgress": 0.005177497863769531,
+   "productivity": 0,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/Stone/Desc_Stone.Desc_Stone_C",
+     "itemName": "Limestone",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/Cement/Desc_Cement.Desc_Cement_C",
+     "itemName": "Concrete",
+     "count": 500
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147308548",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 11600,
+    "y": 280400,
+    "z": 401
+   },
+   "recipe": "Iron Rod",
+   "clockSpeedPercent": 220,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.9545300006866455,
+   "productivity": 0.9058824181556702,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 190
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147044451",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 3600,
+    "y": 279600,
+    "z": 401
+   },
+   "recipe": "Iron Rod",
+   "clockSpeedPercent": 220,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.46526890993118286,
+   "productivity": 0.3137255012989044,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 199
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147044024",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 4400,
+    "y": 279600,
+    "z": 401
+   },
+   "recipe": "Iron Rod",
+   "clockSpeedPercent": 220,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.45371535420417786,
+   "productivity": 0.30980393290519714,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 199
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147441645",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 4900,
+    "y": 274600,
+    "z": -3869
+   },
+   "recipe": "Concrete",
+   "clockSpeedPercent": 200,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.11703630536794662,
+   "productivity": 1,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/RawResources/Stone/Desc_Stone.Desc_Stone_C",
+     "itemName": "Limestone",
+     "count": 99
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/Cement/Desc_Cement.Desc_Cement_C",
+     "itemName": "Concrete",
+     "count": 380
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147409967",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 7600,
+    "y": 280400,
+    "z": 401
+   },
+   "recipe": "Iron Rod",
+   "clockSpeedPercent": 220,
+   "productionStatus": "Standby",
+   "productionProgress": 0.0056035518646240234,
+   "productivity": 0.6509804129600525,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 200
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147409668",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 8400,
+    "y": 280400,
+    "z": 401
+   },
+   "recipe": "Iron Rod",
+   "clockSpeedPercent": 220,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.35920199751853943,
+   "productivity": 0.6509804129600525,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 199
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147409351",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 9200,
+    "y": 280400,
+    "z": 401
+   },
+   "recipe": "Iron Rod",
+   "clockSpeedPercent": 220,
+   "productionStatus": "Standby",
+   "productionProgress": 0.007146239280700684,
+   "productivity": 0.4392157196998596,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 200
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147409030",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 10000,
+    "y": 280400,
+    "z": 401
+   },
+   "recipe": "Iron Rod",
+   "clockSpeedPercent": 220,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.3735462427139282,
+   "productivity": 0.4392157196998596,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronIngot/Desc_IronIngot.Desc_IronIngot_C",
+     "itemName": "Iron Ingot",
+     "count": 100
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 199
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147408702",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 7600,
+    "y": 278800,
+    "z": 401
+   },
+   "recipe": "Screws",
+   "clockSpeedPercent": 214.99998474121094,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.07353377342224121,
+   "productivity": 1,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 200
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronScrew/Desc_IronScrew.Desc_IronScrew_C",
+     "itemName": "Screws",
+     "count": 2
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147408368",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 8400,
+    "y": 278800,
+    "z": 401
+   },
+   "recipe": "Screws",
+   "clockSpeedPercent": 214.99998474121094,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.4826097786426544,
+   "productivity": 1,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 200
+    }
+   ],
+   "outputInventory": []
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147408034",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 9200,
+    "y": 278800,
+    "z": 401
+   },
+   "recipe": "Screws",
+   "clockSpeedPercent": 214.99998474121094,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.0012825727462768555,
+   "productivity": 0.6901960968971252,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 199
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronScrew/Desc_IronScrew.Desc_IronScrew_C",
+     "itemName": "Screws",
+     "count": 491
+    }
+   ]
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147407699",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 10000,
+    "y": 278800,
+    "z": 401
+   },
+   "recipe": "Screws",
+   "clockSpeedPercent": 214.99998474121094,
+   "productionStatus": "ProducingWithCrystal",
+   "productionProgress": 0.49377310276031494,
+   "productivity": 0.686274528503418,
+   "inputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronRod/Desc_IronRod.Desc_IronRod_C",
+     "itemName": "Iron Rod",
+     "count": 200
+    }
+   ],
+   "outputInventory": [
+    {
+     "itemClass": "/Game/FactoryGame/Resource/Parts/IronScrew/Desc_IronScrew.Desc_IronScrew_C",
+     "itemName": "Screws",
+     "count": 489
+    }
+   ]
+  }
+ ]
+}

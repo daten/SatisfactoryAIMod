@@ -215,6 +215,47 @@ class Executor:
                     last_error = str(exc)
         return OpResult(op=op, success=False, error=last_error, attempts=attempts)
 
+    def validate_plan(self, plan: RoutePlan) -> List[OpResult]:
+        """Bulk DRY-RUN of a plan's belt ops via world.testConveyorBelt -
+        nothing is built. Belt ops that reference not-yet-placed
+        attachments (op:<i>) cannot be dry-run (their endpoint doesn't
+        exist) and are reported as skipped-successes with a note.
+
+        Calibration note (2026-09-02, live): the game's dry-run is the
+        AUTHORITATIVE geometry gate - it accepts some routes the
+        router's conservative pre-filter rejects (long-range S-curves,
+        steep-but-long climbs). Use the router to plan cheaply, this to
+        validate before building, and treat a dry-run failure as a
+        planning input (reroute), not a retry candidate.
+        """
+        results: List[OpResult] = []
+        for op in plan.ops:
+            if op.kind != "belt":
+                continue
+            if (op.source_ref or "").startswith("op:") or (op.dest_ref or "").startswith("op:"):
+                results.append(
+                    OpResult(op=op, success=True, error="skipped: endpoint not yet placed")
+                )
+                continue
+            self._hover_near(op.source_pin, op.dest_pin)
+            try:
+                self.client.call(
+                    "world.testConveyorBelt",
+                    {
+                        "sourceBuildableId": self.client.full_id(op.source_ref),
+                        "destBuildableId": self.client.full_id(op.dest_ref),
+                        "recipeClass": self.belt_recipe,
+                        "routeMode": "Auto",
+                        "instigatorStrategy": "RealCharacter",
+                        "sourceConnectorPosition": _pos_dict(op.source_pin),
+                        "destConnectorPosition": _pos_dict(op.dest_pin),
+                    },
+                )
+                results.append(OpResult(op=op, success=True))
+            except RpcError as exc:
+                results.append(OpResult(op=op, success=False, error=str(exc)))
+        return results
+
     # -- power (used by composites, not RouteOps yet) -------------------
 
     def connect_power(self, id_a: str, id_b: str, near: Optional[Position] = None) -> OpResult:

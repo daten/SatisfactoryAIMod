@@ -68,6 +68,17 @@ class RpcClient:
                 request, timeout=timeout_seconds or self.timeout_seconds
             ) as response:
                 payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            # The mod pairs structured error envelopes with non-200 HTTP
+            # status codes (e.g. 400 for CANNOT_CONSTRUCT) - the body is
+            # still the JSON envelope, so parse it rather than treating
+            # the status as a transport failure. (Live-found 2026-09-02:
+            # the first PowerShell client needed -SkipHttpErrorCheck for
+            # exactly this.)
+            try:
+                payload = json.loads(exc.read().decode("utf-8"))
+            except (OSError, ValueError):
+                raise RpcTransportError(f"{method}: HTTP {exc.code}") from exc
         except (OSError, ValueError) as exc:  # URLError subclasses OSError
             raise RpcTransportError(f"{method}: {exc}") from exc
         if not payload.get("success", False):

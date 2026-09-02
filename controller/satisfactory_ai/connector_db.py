@@ -117,22 +117,18 @@ SEED_PROFILES: Dict[str, List[ConnectorProfile]] = {
         ConnectorProfile("Input", _p(200.0, -300.0, 100.0), _p(0.0, -1.0)),
         ConnectorProfile("Output", _p(-200.0, 200.0, 100.0), _p(0.0, 1.0)),
     ],
-    # Smelter: observed on the iron row (machines at y=282000, z=201):
-    # input (x, y+300, 301) n=(0,+1), output (x, y-200, 301) n=(0,-1).
-    # The row's placement yaw was not recorded at build time -> these
-    # locals assume the row was yaw=180 (input north like its neighbors),
-    # giving yaw0 locals of input SOUTH (0,-300), output NORTH (0,+200).
-    # UNVERIFIED-yaw: confirm with one fresh yaw0 placement before
-    # trusting a non-180 smelter placement.
+    # Smelter: LIVE-VERIFIED 2026-09-02 via learn_and_store() against
+    # smelter 2147452321 (its live rotation reads yaw=180): learned
+    # locals match these exactly - input SOUTH (0,-300,+100), output
+    # NORTH (0,+200,+100).
     SMELTER: [
         ConnectorProfile("Input", _p(0.0, -300.0, 100.0), _p(0.0, -1.0)),
         ConnectorProfile("Output", _p(0.0, 200.0, 100.0), _p(0.0, 1.0)),
     ],
-    # Miner Mk3: single output. (Live: limestone miner at
-    # (4128,273242,-3969) -> output (4128,274042,-3869) n=(0,+1); iron/
-    # coal miners match the +800 pattern.) UNVERIFIED-yaw: the placement
-    # yaw of those miners was not recorded; treat the +y offset as the
-    # yaw0 local until a fresh survey confirms.
+    # Miner Mk3: single output. LIVE-VERIFIED 2026-09-02 via
+    # learn_and_store() against the limestone miner 2147456438 (live
+    # rotation yaw=0): output (0,+800,+100) facing +y at yaw0, exactly
+    # this seed.
     MINER_MK3: [
         ConnectorProfile("Output", _p(0.0, 800.0, 100.0), _p(0.0, 1.0)),
     ],
