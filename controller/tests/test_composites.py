@@ -12,7 +12,13 @@ Run from the controller/ directory:
 
 import unittest
 
-from satisfactory_ai.composites import machine_row, manifold, pole_backbone, verify_connections
+from satisfactory_ai.composites import (
+    machine_row,
+    manifold,
+    pole_backbone,
+    verify_connections,
+    vertical_pair_block,
+)
 from satisfactory_ai.connector_db import ConnectorDb
 from satisfactory_ai.models import FactoryConnection, Position
 from satisfactory_ai.router import Endpoint, RoutingError
@@ -109,6 +115,57 @@ class MergerManifold(unittest.TestCase):
         # Splitter distributes: rail -> machine.
         self.assertTrue(drop0.source_ref.startswith("op:"))
         self.assertEqual(drop0.dest_ref, "rodE1")
+
+
+class VerticalPairBlock(unittest.TestCase):
+    """The east-block rod->screw idiom, planned as one unit."""
+
+    def test_pairs_and_belts(self):
+        db = ConnectorDb()
+        cp = vertical_pair_block(
+            db,
+            upstream_build_recipe=CONSTRUCTOR_RECIPE,
+            upstream_class="Build_ConstructorMk1_C",
+            downstream_build_recipe=CONSTRUCTOR_RECIPE,
+            downstream_class="Build_ConstructorMk1_C",
+            count=4,
+            origin=P(7600, 280400, 401),
+            spacing=800.0,
+            row_gap=1600.0,
+            upstream_recipe=ROD_RECIPE,
+            downstream_recipe=ROD_RECIPE,
+            clock_percent=220.0,
+            shards=3,
+        )
+        places = [op for op in cp.plan.ops if op.kind == "place"]
+        belts = [op for op in cp.plan.ops if op.kind == "belt"]
+        self.assertEqual(len(places), 8)
+        self.assertEqual(len(belts), 4)
+        # The live-proven geometry: pair belt runs (x,280100,501)->(x,279100,501).
+        b0 = belts[0]
+        self.assertEqual((b0.source_pin.x, b0.source_pin.y, b0.source_pin.z), (7600, 280100, 501))
+        self.assertEqual((b0.dest_pin.x, b0.dest_pin.y, b0.dest_pin.z), (7600, 279100, 501))
+        self.assertEqual(len(cp.verify_spec), 4)
+
+
+class ElevatedCrossing(unittest.TestCase):
+    def test_crossing_plan_shape(self):
+        db = ConnectorDb()
+        from satisfactory_ai.composites import elevated_crossing
+
+        # The plate2'->rip2 hop shape from the plan discussions: source
+        # output faces south at z=501; dest input faces north at z=501;
+        # lane at z=1501 clearing a manufacturer.
+        src = Endpoint("plate2", P(10800, 280100, 501), P(0, -1))
+        dst = Endpoint("rip2", P(3400, 278400, 501), P(0, 1))
+        cp = elevated_crossing(db, src, dst, lane_z=1501.0)
+        kinds = [op.kind for op in cp.plan.ops]
+        self.assertEqual(kinds, ["place", "lift", "place", "belt", "lift"])
+        # Relays sit at the lane height above the endpoints.
+        self.assertEqual(cp.plan.ops[0].position.z, 1501.0)
+        self.assertEqual(cp.plan.ops[2].position.z, 1501.0)
+        # Final verification pin is the destination connector.
+        self.assertEqual(cp.verify_spec, [("rip2", dst.position)])
 
 
 class PoleBackbone(unittest.TestCase):

@@ -54,6 +54,9 @@ POLE_RECIPE = (
 DEFAULT_BELT_RECIPE = (
     "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk4.Recipe_ConveyorBeltMk4_C"
 )
+LIFT_RECIPE = (
+    "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk4.Recipe_ConveyorLiftMk4_C"
+)
 SETTLE_SECONDS = 0.6
 TELEPORT_HOVER_Z = 250.0  # above the higher endpoint - never a deep z
 
@@ -122,7 +125,41 @@ class Executor:
             return self._wire(op, placed)
         if op.kind == "call":
             return self._call(op, placed)
+        if op.kind == "lift":
+            return self._lift(op, placed)
         return OpResult(op=op, success=False, error=f"unsupported op kind {op.kind!r}")
+
+    def _lift(self, op: RouteOp, placed: Dict[int, str]) -> OpResult:
+        """world.connectConveyorLift with pinned connectors - the
+        live-proven pattern (arbitrary heights work since the trace-ray
+        fix; connector pinning is mandatory or the hologram grabs wrong
+        ports). Mk4 lift by default (Mk1's 60/min cap starved a live
+        chain once)."""
+        source_id = self._resolve_ref(op.source_ref, placed)
+        dest_id = self._resolve_ref(op.dest_ref, placed)
+        if source_id is None or dest_id is None:
+            return OpResult(op=op, success=False, error="unresolved op reference")
+        self._hover_near(op.source_pin, op.dest_pin)
+        last_error = ""
+        for attempt in (1, 2):
+            try:
+                self.client.call(
+                    "world.connectConveyorLift",
+                    {
+                        "sourceBuildableId": self.client.full_id(source_id),
+                        "destBuildableId": self.client.full_id(dest_id),
+                        "recipeClass": LIFT_RECIPE,
+                        "sourceConnectorPosition": _pos_dict(op.source_pin),
+                        "destConnectorPosition": _pos_dict(op.dest_pin),
+                    },
+                )
+                return OpResult(op=op, success=True, attempts=attempt)
+            except RpcError as exc:
+                last_error = str(exc)
+                if not _retryable(last_error):
+                    break
+                time.sleep(self.settle_seconds)
+        return OpResult(op=op, success=False, error=last_error, attempts=attempt)
 
     def _wire(self, op: RouteOp, placed: Dict[int, str]) -> OpResult:
         source_id = self._resolve_ref(op.source_ref, placed)
@@ -214,6 +251,112 @@ class Executor:
                 except RpcError as exc:
                     last_error = str(exc)
         return OpResult(op=op, success=False, error=last_error, attempts=attempts)
+
+    def execute_and_verify(self, plan: RoutePlan, repair_rounds: int = 1) -> ExecutionReport:
+        """execute() plus the post-build endpoint verification and
+        auto-repair the first live composite test proved necessary
+        (2026-09-02): world.connectConveyor can report success while the
+        belt's far end never attached (the documented dangling-belt
+        class). After execution, ONE filtered world.connections query
+        checks every belt op's two pinned endpoints; any belt with an
+        unattached end is repaired by the documented pattern - delete
+        the dangling belt actor (found via the attached end's
+        connectedBuildableId), rebuild, re-verify - up to repair_rounds
+        times. Wire/call/place ops are not re-verified here (place
+        failures already fail loudly; wire verification needs power-graph
+        telemetry the mod doesn't expose yet)."""
+        report = self.execute(plan)
+        if report.halted:
+            return report
+        placed = {
+            f"op:{i}": r.buildable_id
+            for i, r in enumerate(report.results)
+            if r.success and r.buildable_id
+        }
+        for _ in range(max(0, repair_rounds) + 1):
+            broken = self._find_broken_belts(plan, placed)
+            if not broken:
+                break
+            if _ == repair_rounds:  # rounds exhausted; report what's left
+                for op, missing_end, dangling in broken:
+                    report.results.append(OpResult(
+                        op=op, success=False,
+                        error=f"verify: {missing_end} end unattached after repairs",
+                    ))
+                break
+            for op, missing_end, dangling in broken:
+                # Only ever delete a conveyor-belt actor - if the
+                # attached end's peer is anything else, the pin was
+                # taken by a different structure and deleting it would
+                # be destructive; rebuild alone and let it fail loudly.
+                if dangling and "ConveyorBelt" not in dangling:
+                    dangling = ""
+                if dangling:
+                    try:
+                        self.client.call(
+                            "world.deleteBuilding",
+                            {"buildableId": self.client.full_id(dangling)},
+                        )
+                        time.sleep(self.settle_seconds)
+                    except RpcError:
+                        pass
+                repair = self._belt(op, {int(k[3:]): v for k, v in placed.items() if k.startswith("op:")})
+                repair.op = op
+                repair.error = (repair.error or "") if repair.success else repair.error
+                report.results.append(OpResult(
+                    op=op, success=repair.success,
+                    error=None if repair.success else repair.error,
+                    attempts=repair.attempts,
+                ))
+        return report
+
+    def _find_broken_belts(self, plan: RoutePlan, placed: Dict[str, str]):
+        """(op, which_end, dangling_belt_id) for every belt op whose
+        pinned endpoint connector reads unattached. One filtered
+        world.connections query for the whole plan."""
+        belt_ops = [op for op in plan.ops if op.kind == "belt"]
+        if not belt_ops:
+            return []
+        ids = set()
+        resolved = {}
+        for op in belt_ops:
+            for ref in (op.source_ref, op.dest_ref):
+                rid = placed.get(ref, ref) if ref else None
+                if rid:
+                    resolved[ref] = rid
+                    ids.add(rid.rsplit(".", 1)[-1])
+        try:
+            rows = self.client.call(
+                "world.connections", {"ids": sorted(ids)}, timeout_seconds=120
+            )["connections"]
+        except RpcError:
+            return []
+
+        def state_at(owner_id: str, pin: Position):
+            short = owner_id.rsplit(".", 1)[-1]
+            for c in rows:
+                p = c["position"]
+                if short in c["ownerBuildableId"] and (
+                    abs(p["x"] - pin.x) <= 5 and abs(p["y"] - pin.y) <= 5 and abs(p["z"] - pin.z) <= 5
+                ):
+                    return c["connected"], c.get("connectedBuildableId", "")
+            return None, ""
+
+        broken = []
+        for op in belt_ops:
+            src = resolved.get(op.source_ref)
+            dst = resolved.get(op.dest_ref)
+            if not src or not dst:
+                continue
+            src_ok, src_peer = state_at(src, op.source_pin)
+            dst_ok, dst_peer = state_at(dst, op.dest_pin)
+            if src_ok is True and dst_ok is False:
+                broken.append((op, "dest", src_peer))  # belt hangs off the source
+            elif dst_ok is True and src_ok is False:
+                broken.append((op, "source", dst_peer))
+            elif src_ok is False and dst_ok is False:
+                broken.append((op, "both", ""))
+        return broken
 
     def validate_plan(self, plan: RoutePlan) -> List[OpResult]:
         """Bulk DRY-RUN of a plan's belt ops via world.testConveyorBelt -

@@ -306,6 +306,148 @@ def manifold(
     return CompositePlan(plan=plan, verify_spec=verify)
 
 
+LIFT_MK4_RECIPE = (
+    "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk4.Recipe_ConveyorLiftMk4_C"
+)
+
+
+def elevated_crossing(
+    db: ConnectorDb,
+    source: Endpoint,
+    dest: Endpoint,
+    lane_z: float,
+) -> CompositePlan:
+    """Carry a flow OVER obstructed ground: lift up from `source` to a
+    relay at lane_z, traverse, lift down to a relay near `dest`, then a
+    short belt into `dest`. The proven z-lane pattern from the live HMF
+    builds (crossings between same-z lanes collide; a higher lane
+    clears everything).
+
+    lane_z is the agent's choice (clearance is a layout decision - e.g.
+    manufacturer tops needed z >= ~1400 over a z=301 floor). Relay
+    splitters sit directly above/near the endpoints; lifts are Mk4
+    (480/min - the Mk1 lift's 60/min cap starved a live chain once).
+
+    Uses "lift" RouteOps - executed via world.connectConveyorLift with
+    pinned connectors. The lift-top facing quirk (top stub inherits the
+    BOTTOM connector's facing - live-found 2026-09-02) is why the
+    up-relay sits at the lift column and the traverse belt leaves from
+    the relay, not from a dangling lift top.
+    """
+    plan = RoutePlan()
+    verify: List[Tuple[str, Position]] = []
+
+    up_pos = Position(x=source.position.x, y=source.position.y, z=lane_z)
+    down_pos = Position(x=dest.position.x, y=dest.position.y, z=lane_z)
+
+    # Up-relay: input faces DOWN-ish; splitters have no vertical ports,
+    # so the lift docks its top stub to the relay's matching side port -
+    # orient the relay so its INPUT faces the source connector's own
+    # facing (the lift-top stub inherits the bottom facing).
+    in_facing = Position(x=source.normal.x, y=source.normal.y, z=0.0)
+    up_yaws = db.yaw_for_connector_facing(SPLITTER, "Input", in_facing)
+    if not up_yaws:
+        raise RoutingError("no splitter yaw accepts the up-relay input facing")
+    plan.ops.append(RouteOp(kind="place", recipe_class=_SPLITTER_RECIPE, position=up_pos, yaw=up_yaws[0], note="up relay"))
+    up_in_pin, _ = db.find_connector(SPLITTER, up_pos, up_yaws[0], "Input")
+    plan.ops.append(RouteOp(
+        kind="lift", source_ref=source.buildable_id, dest_ref="op:0",
+        source_pin=source.position, dest_pin=up_in_pin, note="lift up",
+    ))
+
+    # Traverse heading and the down-relay orientation.
+    heading = Position(x=down_pos.x - up_pos.x, y=down_pos.y - up_pos.y, z=0.0)
+    length = math.hypot(heading.x, heading.y) or 1.0
+    heading = Position(x=heading.x / length, y=heading.y / length, z=0.0)
+    snapped = Position(
+        x=(1.0 if heading.x > 0 else -1.0) if abs(heading.x) >= abs(heading.y) else 0.0,
+        y=0.0 if abs(heading.x) >= abs(heading.y) else (1.0 if heading.y > 0 else -1.0),
+        z=0.0,
+    )
+    down_yaws = db.yaw_for_connector_facing(
+        SPLITTER, "Input", Position(x=-snapped.x, y=-snapped.y, z=0.0)
+    )
+    if not down_yaws:
+        raise RoutingError("no splitter yaw accepts the down-relay input facing")
+    down_op = len(plan.ops)
+    plan.ops.append(RouteOp(kind="place", recipe_class=_SPLITTER_RECIPE, position=down_pos, yaw=down_yaws[0], note="down relay"))
+    up_out_pin, _ = db.find_connector(SPLITTER, up_pos, up_yaws[0], "Output", facing=snapped)
+    down_in_pin, _ = db.find_connector(
+        SPLITTER, down_pos, down_yaws[0], "Input",
+        facing=Position(x=-snapped.x, y=-snapped.y, z=0.0),
+    )
+    plan.ops.append(RouteOp(
+        kind="belt", source_ref="op:0", dest_ref=f"op:{down_op}",
+        source_pin=up_out_pin, dest_pin=down_in_pin, note="lane traverse",
+    ))
+    # Down lift: from a down-relay output straight down to the dest.
+    entry = Position(x=-dest.normal.x, y=-dest.normal.y, z=0.0)
+    down_out_pin, _ = db.find_connector(SPLITTER, down_pos, down_yaws[0], "Output", facing=entry)
+    plan.ops.append(RouteOp(
+        kind="lift", source_ref=f"op:{down_op}", dest_ref=dest.buildable_id,
+        source_pin=down_out_pin, dest_pin=dest.position, note="lift down",
+    ))
+    verify.append((dest.buildable_id, dest.position))
+    return CompositePlan(plan=plan, verify_spec=verify)
+
+
+def vertical_pair_block(
+    db: ConnectorDb,
+    upstream_build_recipe: str,
+    upstream_class: str,
+    downstream_build_recipe: str,
+    downstream_class: str,
+    count: int,
+    origin: Position,
+    spacing: float,
+    row_gap: float,
+    upstream_recipe: Optional[str] = None,
+    downstream_recipe: Optional[str] = None,
+    clock_percent: Optional[float] = None,
+    shards: int = 0,
+) -> CompositePlan:
+    """The proven east-block idiom: two parallel yaw-180 machine rows
+    where each upstream machine feeds the downstream machine directly
+    below it (rod->screw pairs, 2026-09-02) - no manifold, no crossing
+    corridors. origin is the FIRST upstream machine; the downstream row
+    sits row_gap SOUTH (lower y). Feed/output routing beyond the pairs
+    (supplying the upstream inputs, collecting the downstream outputs)
+    stays with the agent - typically a splitter manifold above and a
+    merger manifold below."""
+    if count < 1:
+        raise ValueError("count must be >= 1")
+    plan = RoutePlan()
+    verify: List[Tuple[str, Position]] = []
+    for i in range(count):
+        x = origin.x + spacing * i
+        up_pos = Position(x=x, y=origin.y, z=origin.z)
+        down_pos = Position(x=x, y=origin.y - row_gap, z=origin.z)
+        up_index = len(plan.ops)
+        plan.ops.append(RouteOp(kind="place", recipe_class=upstream_build_recipe, position=up_pos, yaw=180.0, note=f"upstream {i + 1}/{count}"))
+        if upstream_recipe:
+            plan.ops.append(RouteOp(kind="call", method="world.setRecipe", dest_ref=f"op:{up_index}", params={"recipeClass": upstream_recipe}, note=f"upstream recipe {i + 1}"))
+        if shards > 0:
+            plan.ops.append(RouteOp(kind="call", method="world.installPowerShard", dest_ref=f"op:{up_index}", params={"count": shards}, note=f"upstream shards {i + 1}"))
+        if clock_percent is not None:
+            plan.ops.append(RouteOp(kind="call", method="world.setClockSpeed", dest_ref=f"op:{up_index}", params={"clockSpeedPercent": float(clock_percent)}, note=f"upstream clock {i + 1}"))
+        down_index = len(plan.ops)
+        plan.ops.append(RouteOp(kind="place", recipe_class=downstream_build_recipe, position=down_pos, yaw=180.0, note=f"downstream {i + 1}/{count}"))
+        if downstream_recipe:
+            plan.ops.append(RouteOp(kind="call", method="world.setRecipe", dest_ref=f"op:{down_index}", params={"recipeClass": downstream_recipe}, note=f"downstream recipe {i + 1}"))
+        if shards > 0:
+            plan.ops.append(RouteOp(kind="call", method="world.installPowerShard", dest_ref=f"op:{down_index}", params={"count": shards}, note=f"downstream shards {i + 1}"))
+        if clock_percent is not None:
+            plan.ops.append(RouteOp(kind="call", method="world.setClockSpeed", dest_ref=f"op:{down_index}", params={"clockSpeedPercent": float(clock_percent)}, note=f"downstream clock {i + 1}"))
+        out_pin, _ = db.find_connector(upstream_class, up_pos, 180.0, "Output")
+        in_pin, _ = db.find_connector(downstream_class, down_pos, 180.0, "Input")
+        plan.ops.append(RouteOp(
+            kind="belt", source_ref=f"op:{up_index}", dest_ref=f"op:{down_index}",
+            source_pin=out_pin, dest_pin=in_pin, note=f"pair belt {i + 1}",
+        ))
+        verify.append((f"op:{down_index}", in_pin))
+    return CompositePlan(plan=plan, verify_spec=verify)
+
+
 def pole_backbone(waypoints: Sequence[Position], grid_source_id: Optional[str] = None) -> CompositePlan:
     """A power-pole spine along waypoints, wired pole-to-pole, with an
     optional first wire from an existing grid buildable. Machines then
