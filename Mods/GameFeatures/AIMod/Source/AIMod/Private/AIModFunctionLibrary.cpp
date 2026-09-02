@@ -4203,10 +4203,19 @@ namespace
 	// implying Any is the one documented exception. NOT YET LIVE-TESTED
 	// - no game running this session - but this is a real, source-
 	// grounded fix to logic that was never type-aware, not a guess.
-	bool FindPowerConnectionPair(AFGBuildable* BuildableA, AFGBuildable* BuildableB, UFGPowerConnectionComponent*& OutConnectionA, UFGPowerConnectionComponent*& OutConnectionB)
+	// Optional connector pinning added 2026-09-02 (docs/build-efficiency-
+	// plan.md 2d): like connectConveyor's sourceConnectorPosition, a pin
+	// restricts that side's candidates to connections within
+	// PinTolerance of the given world position - deterministic per-port
+	// selection on multi-connector buildables (a Power Tower's dual
+	// connectors, a wall outlet bank). Unset pins keep the old joint
+	// type-aware selection unchanged.
+	bool FindPowerConnectionPair(AFGBuildable* BuildableA, AFGBuildable* BuildableB, UFGPowerConnectionComponent*& OutConnectionA, UFGPowerConnectionComponent*& OutConnectionB,
+		const TOptional<FVector>& PinA = TOptional<FVector>(), const TOptional<FVector>& PinB = TOptional<FVector>())
 	{
 		OutConnectionA = nullptr;
 		OutConnectionB = nullptr;
+		constexpr float PinTolerance = 150.0f;
 
 		TArray<UFGPowerConnectionComponent*> ConnectionsA;
 		BuildableA->GetComponents<UFGPowerConnectionComponent>(ConnectionsA);
@@ -4214,13 +4223,17 @@ namespace
 		BuildableB->GetComponents<UFGPowerConnectionComponent>(ConnectionsB);
 
 		auto IsFree = [](const UFGPowerConnectionComponent* Connection) { return IsValid(Connection) && Connection->GetNumFreeConnections() > 0; };
+		auto MatchesPin = [PinTolerance](const UFGPowerConnectionComponent* Connection, const TOptional<FVector>& Pin)
+		{
+			return !Pin.IsSet() || FVector::Dist(Connection->GetComponentLocation(), Pin.GetValue()) <= PinTolerance;
+		};
 
 		for (UFGPowerConnectionComponent* CandidateA : ConnectionsA)
 		{
-			if (!IsFree(CandidateA)) { continue; }
+			if (!IsFree(CandidateA) || !MatchesPin(CandidateA, PinA)) { continue; }
 			for (UFGPowerConnectionComponent* CandidateB : ConnectionsB)
 			{
-				if (!IsFree(CandidateB)) { continue; }
+				if (!IsFree(CandidateB) || !MatchesPin(CandidateB, PinB)) { continue; }
 				if (CandidateA->GetPowerConnectionType() == CandidateB->GetPowerConnectionType())
 				{
 					OutConnectionA = CandidateA;
@@ -4232,10 +4245,10 @@ namespace
 
 		for (UFGPowerConnectionComponent* CandidateA : ConnectionsA)
 		{
-			if (!IsFree(CandidateA)) { continue; }
+			if (!IsFree(CandidateA) || !MatchesPin(CandidateA, PinA)) { continue; }
 			for (UFGPowerConnectionComponent* CandidateB : ConnectionsB)
 			{
-				if (!IsFree(CandidateB)) { continue; }
+				if (!IsFree(CandidateB) || !MatchesPin(CandidateB, PinB)) { continue; }
 				if (CandidateA->GetPowerConnectionType() == EPowerConnectionType::PCT_Any || CandidateB->GetPowerConnectionType() == EPowerConnectionType::PCT_Any)
 				{
 					OutConnectionA = CandidateA;
@@ -6824,7 +6837,7 @@ FString UAIModFunctionLibrary::CleanupOrphanedFlowIndicatorsAsJson(UObject* Worl
 	return JsonString;
 }
 
-void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FAIModOperationResult&)> OnComplete)
+void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FAIModOperationResult&)> OnComplete, const TOptional<FVector>& ConnectorPositionA, const TOptional<FVector>& ConnectorPositionB)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -6864,10 +6877,12 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 	// need this instead of two independent single-buildable lookups.
 	UFGPowerConnectionComponent* ConnectionA = nullptr;
 	UFGPowerConnectionComponent* ConnectionB = nullptr;
-	if (!FindPowerConnectionPair(BuildableA, BuildableB, ConnectionA, ConnectionB))
+	if (!FindPowerConnectionPair(BuildableA, BuildableB, ConnectionA, ConnectionB, ConnectorPositionA, ConnectorPositionB))
 	{
 		OnComplete(FAIModOperationResult::Failure(TEXT("NO_POWER_CONNECTION"),
-			FString::Printf(TEXT("No compatible free power connection pair between '%s' and '%s' - connection types (Default/PowerTower/Any) must match, or one side must be Any"), *BuildableIdA, *BuildableIdB)));
+			FString::Printf(TEXT("No compatible free power connection pair between '%s' and '%s'%s - connection types (Default/PowerTower/Any) must match, or one side must be Any"),
+				*BuildableIdA, *BuildableIdB,
+				(ConnectorPositionA.IsSet() || ConnectorPositionB.IsSet()) ? TEXT(" (with the requested connector position pin(s))") : TEXT(""))));
 		return;
 	}
 
@@ -6906,6 +6921,39 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 			FString::Printf(TEXT("HotKeyRecipe(Recipe_PowerLine) did not result in an AFGWireHologram (got %s)"),
 				Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
 		return;
+	}
+
+	// Stuck-state fix (2026-09-02, docs/build-efficiency-plan.md 2d):
+	// live-diagnosed that UnequipBuildGun() on a FAILED attempt does not
+	// destroy the wire hologram - the next HotKeyRecipe hands back the
+	// SAME hologram, still carrying the previous call's SetConnection()
+	// targets, and from then on EVERY connectPower in the session fails
+	// validation ("Must be hooked up to a connection!" - even between
+	// two freshly placed empty poles; sometimes "Already connected with
+	// another wire!") until something else swaps the hologram. The live
+	// workaround was placing and deleting a dummy building (which
+	// equips a different recipe's hologram); this detects the stale
+	// state directly - a FRESH wire hologram has both connection slots
+	// null - and forces a clean respawn instead.
+	if (WireHologram->GetConnection(0) != nullptr || WireHologram->GetConnection(1) != nullptr)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("ConstructPowerConnection: stale wire hologram detected (connection slots still set from a previous failed call) - destroying it and re-equipping"));
+		Character->UnequipBuildGun();
+		if (IsValid(WireHologram))
+		{
+			WireHologram->Destroy();
+		}
+		Character->HotKeyRecipe(RecipeClass);
+		BuildGun = Character->GetBuildGun();
+		BuildState = BuildGun ? Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		WireHologram = BuildState ? Cast<AFGWireHologram>(BuildState->GetHologram()) : nullptr;
+		if (!WireHologram || WireHologram->GetConnection(0) != nullptr || WireHologram->GetConnection(1) != nullptr)
+		{
+			if (IsValid(Character)) { Character->UnequipBuildGun(); }
+			OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+				TEXT("Stale wire hologram persisted through a forced destroy-and-re-equip - a place+delete of any cheap building resets it (known workaround)")));
+			return;
+		}
 	}
 
 	// ConstructPowerConnection (2026-08-25): confirmed live, TWICE, that

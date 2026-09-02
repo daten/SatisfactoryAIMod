@@ -1556,7 +1556,15 @@ public:
 	 * a real pole-vs-daisy-chain progression gate (see
 	 * docs/conveyor-power-connection-research.md), not a bug.
 	 */
-	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FAIModOperationResult&)> OnComplete);
+	/* Optional connector pins (2026-09-02) mirror connectConveyor's
+	 * sourceConnectorPosition/destConnectorPosition: when set, only a
+	 * free power connection within 150 units of the pin is eligible on
+	 * that side - deterministic port selection on multi-connector
+	 * buildables. Also carries the stale-wire-hologram stuck-state fix
+	 * (see the .cpp) - the "Must be hooked up to a connection!"
+	 * everything-fails session state no longer needs the place+delete
+	 * workaround. */
+	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FAIModOperationResult&)> OnComplete, const TOptional<FVector>& ConnectorPositionA = TOptional<FVector>(), const TOptional<FVector>& ConnectorPositionB = TOptional<FVector>());
 
 	/**
 	 * Diagnostic only, not a real placement attempt: spawns a real belt

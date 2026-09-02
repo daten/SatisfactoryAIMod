@@ -195,6 +195,20 @@ power graph for subtree severing before deleting anything wired.
   Executor.execute_and_verify() (endpoint verification + automatic
   dangling-belt delete-and-rebuild), lift RouteOps, elevated_crossing,
   vertical_pair_block. 82/82 tests.
+- **Phase 2d (connectPower hardening) IMPLEMENTED and compiled
+  2026-09-02** - staged for the next redeploy, NOT yet live-tested.
+  Root cause of the global stuck state FOUND: a failed attempt's wire
+  hologram survives UnequipBuildGun() and the next HotKeyRecipe returns
+  it with stale SetConnection targets - now detected (non-null slots on
+  a fresh hologram) and reset with a destroy-and-re-equip. Plus
+  connectorPositionA/B pins (150-unit tolerance) for deterministic
+  per-port selection. The spawn-task chip for this was dismissed as
+  superseded. After live verification, the executor's dummy-pole
+  ResetWireState fallback can be retired.
+  ALL PLAN PHASES (1a-1d, 2a-2d) ARE NOW IMPLEMENTED; remaining work is
+  live verification of 2b/2d after the next redeploy, the delete-refund
+  chip (task_10e59175), and the possible batch id-substitution
+  follow-up.
 - **First live composite build DONE (2026-09-02)**: machine_row +
   merger manifold + routed trunk into a container, standing at
   (12400-14200, 279300-280400, z651) as evidence (delete on request).

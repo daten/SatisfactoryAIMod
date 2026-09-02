@@ -1727,12 +1727,33 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		bool bIgnoreWireSnap = false;
 		ParamsObject->TryGetBoolField(TEXT("ignoreWireSnap"), bIgnoreWireSnap);
 
+		// Optional connector pins (2026-09-02) - {"x","y","z"} objects,
+		// same shape/semantics as connectConveyor's
+		// sourceConnectorPosition/destConnectorPosition: deterministic
+		// per-port selection (Power Tower dual connectors etc).
+		auto ParsePinField = [&ParamsObject](const TCHAR* FieldName) -> TOptional<FVector>
+		{
+			const TSharedPtr<FJsonObject>* VectorObject = nullptr;
+			double PX = 0.0, PY = 0.0, PZ = 0.0;
+			if (ParamsObject->TryGetObjectField(FieldName, VectorObject) && VectorObject && VectorObject->IsValid()
+				&& (*VectorObject)->TryGetNumberField(TEXT("x"), PX)
+				&& (*VectorObject)->TryGetNumberField(TEXT("y"), PY)
+				&& (*VectorObject)->TryGetNumberField(TEXT("z"), PZ))
+			{
+				return TOptional<FVector>(FVector(PX, PY, PZ));
+			}
+			return TOptional<FVector>();
+		};
+		const TOptional<FVector> ConnectorPositionA = ParsePinField(TEXT("connectorPositionA"));
+		const TOptional<FVector> ConnectorPositionB = ParsePinField(TEXT("connectorPositionB"));
+
 		const bool bDryRun = Method == TEXT("world.testPowerConnection");
 		UAIModFunctionLibrary::ConstructPowerConnection(GetGameInstance(), BuildableIdA, BuildableIdB, bDryRun, bIgnoreAimLocation, bIgnoreWireSnap,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));
-			});
+			},
+			ConnectorPositionA, ConnectorPositionB);
 		return true;
 	}
 

@@ -1683,6 +1683,22 @@ it fails and is not bypassable by either ignore flag (it's a real
 deterministic distance check); chain through an intermediate power pole
 instead.
 
+**Hardening (2026-09-02, compiled NOT yet redeployed/live-tested —
+docs/build-efficiency-plan.md 2d)**: (1) optional `connectorPositionA`/
+`connectorPositionB` `{"x","y","z"}` pins — when set, only a free power
+connection within 150 units of the pin is eligible on that side, giving
+deterministic per-port selection on multi-connector buildables (a Power
+Tower's dual connectors). Same semantics as `connectConveyor`'s
+connector pins. (2) The session-wide stuck state where EVERY wire
+connect fails `"Must be hooked up to a connection!"` (even between two
+fresh empty poles) was root-caused: a failed attempt's wire hologram
+survives `UnequipBuildGun()` and the next `HotKeyRecipe` returns the
+SAME hologram still carrying the previous call's connection targets.
+The call now detects the stale hologram (non-null connection slots on a
+supposedly fresh one), destroys it, and re-equips — the old
+place-and-delete-a-dummy workaround should no longer be needed (the
+Python executor keeps it as a fallback until this is live-verified).
+
 **Power Tower correctness fix (2026-08-31, real bug found — not a new
 feature)**: a Power Tower is `AFGBuildablePowerPole` with
 `powerPoleType == "PowerTower"` (see `world.powerPoles` below) and has
