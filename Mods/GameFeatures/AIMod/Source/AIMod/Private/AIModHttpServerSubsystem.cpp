@@ -2156,9 +2156,58 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogWaterVolumesAsJson(GetGameInstance());
 	}
-	else if (Method == TEXT("world.buildables"))
+	else if (Method == TEXT("world.buildables") || Method == TEXT("world.connections"))
 	{
-		MethodResultJson = UAIModFunctionLibrary::LogBuildablesAsJson(GetGameInstance());
+		// Optional filters (2026-09-02, docs/build-efficiency-plan.md 2a):
+		// params.ids = array of id substrings (OR), params.minX/minY/
+		// maxX/maxY (+ optional minZ/maxZ) = position box (AND with ids).
+		// No params = the unfiltered full dump, exactly as before.
+		TArray<FString> IdSubstrings;
+		bool bBoundsSet = false;
+		FVector BoundsMin = FVector::ZeroVector;
+		FVector BoundsMax = FVector::ZeroVector;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		TSharedPtr<FJsonObject> ParamsObject;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			ParamsObject = *ParamsObjectPtr;
+		}
+		if (ParamsObject.IsValid())
+		{
+			const TArray<TSharedPtr<FJsonValue>>* IdsArray = nullptr;
+			if (ParamsObject->TryGetArrayField(TEXT("ids"), IdsArray))
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *IdsArray)
+				{
+					FString Id;
+					if (Value.IsValid() && Value->TryGetString(Id) && !Id.IsEmpty())
+					{
+						IdSubstrings.Add(Id);
+					}
+				}
+			}
+			double MinX = 0.0, MinY = 0.0, MaxX = 0.0, MaxY = 0.0;
+			if (ParamsObject->TryGetNumberField(TEXT("minX"), MinX) &&
+				ParamsObject->TryGetNumberField(TEXT("minY"), MinY) &&
+				ParamsObject->TryGetNumberField(TEXT("maxX"), MaxX) &&
+				ParamsObject->TryGetNumberField(TEXT("maxY"), MaxY))
+			{
+				bBoundsSet = true;
+				double MinZ = 0.0, MaxZ = 0.0;
+				ParamsObject->TryGetNumberField(TEXT("minZ"), MinZ);
+				ParamsObject->TryGetNumberField(TEXT("maxZ"), MaxZ);
+				BoundsMin = FVector(MinX, MinY, MinZ);
+				BoundsMax = FVector(MaxX, MaxY, MaxZ);
+			}
+		}
+		if (Method == TEXT("world.buildables"))
+		{
+			MethodResultJson = UAIModFunctionLibrary::LogBuildablesAsJsonFiltered(GetGameInstance(), IdSubstrings, bBoundsSet, BoundsMin, BoundsMax);
+		}
+		else
+		{
+			MethodResultJson = UAIModFunctionLibrary::LogFactoryConnectionsAsJsonFiltered(GetGameInstance(), IdSubstrings, bBoundsSet, BoundsMin, BoundsMax);
+		}
 	}
 	else if (Method == TEXT("world.vehicles"))
 	{
@@ -2188,9 +2237,23 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogManufacturersAsJson(GetGameInstance());
 	}
-	else if (Method == TEXT("world.connections"))
+	else if (Method == TEXT("world.connectorLayout"))
 	{
-		MethodResultJson = UAIModFunctionLibrary::LogFactoryConnectionsAsJson(GetGameInstance());
+		// Class-defaults connector layout (2026-09-02, build-efficiency
+		// plan 2c) - params.buildableClass is the Build_*_C class path
+		// (from world.buildables rows or world.buildableCatalog).
+		const TSharedPtr<FJsonObject>* LayoutParamsPtr = nullptr;
+		FString BuildableClassPath;
+		if (RequestObject->TryGetObjectField(TEXT("params"), LayoutParamsPtr) && LayoutParamsPtr && LayoutParamsPtr->IsValid())
+		{
+			(*LayoutParamsPtr)->TryGetStringField(TEXT("buildableClass"), BuildableClassPath);
+		}
+		if (BuildableClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableClass must be a non-empty class path")));
+			return true;
+		}
+		MethodResultJson = UAIModFunctionLibrary::LogConnectorLayoutAsJson(GetGameInstance(), BuildableClassPath);
 	}
 	else if (Method == TEXT("world.pipeConnections"))
 	{

@@ -219,6 +219,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogBuildablesAsJson(UObject* WorldContextObject);
 
+	/** Filtered variant (2026-09-02, docs/build-efficiency-plan.md 2a):
+	 * IdSubstrings keeps rows whose id contains ANY of the substrings
+	 * (empty = no id filter); bBoundsSet + BoundsMin/BoundsMax keep rows
+	 * whose position lies inside the box (Z ignored when both bounds' Z
+	 * are 0). Filters AND together. Full-world dumps ran 250KB+ per
+	 * single-component verification during the live HMF builds -
+	 * phase-scoped queries replace that. Plain static (not a UFUNCTION):
+	 * protocol-facing only, reached via world.buildables' optional
+	 * params. */
+	static FString LogBuildablesAsJsonFiltered(UObject* WorldContextObject, const TArray<FString>& IdSubstrings, bool bBoundsSet, const FVector& BoundsMin, const FVector& BoundsMax);
+
 	/**
 	 * world.vehicles (2026-08-29) - AFGVehicle is not an AFGBuildable, so
 	 * world.buildables cannot see anything world.constructVehicle builds.
@@ -291,6 +302,22 @@ public:
 	/** Serializes connection telemetry to {"protocolVersion":1,"connections":[...]}, logs it, and returns it. */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogFactoryConnectionsAsJson(UObject* WorldContextObject);
+
+	/** Filtered variant - see LogBuildablesAsJsonFiltered's comment.
+	 * IdSubstrings match against ownerBuildableId here. */
+	static FString LogFactoryConnectionsAsJsonFiltered(UObject* WorldContextObject, const TArray<FString>& IdSubstrings, bool bBoundsSet, const FVector& BoundsMin, const FVector& BoundsMax);
+
+	/** world.connectorLayout (2026-09-02, docs/build-efficiency-plan.md
+	 * 2c): a buildable CLASS's factory-connection layout in the actor's
+	 * LOCAL frame, read from the class defaults WITHOUT spawning
+	 * anything - native CDO components plus Blueprint SCS component
+	 * templates (transforms composed down each SCS attachment chain).
+	 * This is the authoritative source for the Python connector DB
+	 * (controller/satisfactory_ai/connector_db.py), replacing hand-seeded
+	 * profiles learned from placed instances - a class never placed yet
+	 * can now be planned correctly the first time. Read-only; the class
+	 * is loaded if not already in memory. */
+	static FString LogConnectorLayoutAsJson(UObject* WorldContextObject, const FString& BuildableClassPath);
 
 	/**
 	 * Same purpose as GetFactoryConnectionTelemetry, for pipes

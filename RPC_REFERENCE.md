@@ -266,7 +266,7 @@ after the call, rather than assuming the call worked.
   Pressurizer) before an extractor can be built on it — see
   `world.placeExtractor` below.
 
-### `world.buildables` — no params
+### `world.buildables` — params optional
 ```json
 {
   "protocolVersion": 1,
@@ -276,6 +276,14 @@ after the call, rather than assuming the call worked.
 }
 ```
 Every placed buildable — machines, belts, foundations, poles, everything.
+
+**Optional filters (2026-09-02, compiled NOT yet redeployed/live-tested)**
+— identical on `world.connections`: `params.ids` (array of id substrings,
+row kept if it contains ANY of them) and/or `params.minX`/`minY`/`maxX`/
+`maxY` (+ optional `minZ`/`maxZ`) position box; both AND together. No
+params = the full dump exactly as before. Full-world dumps ran 250KB+
+per single-component verification during the live HMF builds — send a
+bounding box or the ids you're verifying instead.
 Some ids (foundations and other mass-placed pieces) look like
 `"lightweight:<ClassPath>|<Index>"` instead of a path — treat as opaque
 either way, both work with `world.deleteBuilding`.
@@ -340,6 +348,29 @@ One row per belt/lift/splitter/merger/machine connector
 (an `"Output"` row on the source, an `"Input"` row on the destination).
 For a straight, no-bend connection, the destination connector's `normal`
 must be the exact negation of the source's.
+
+Accepts the same **optional `ids`/bounding-box filter params** as
+`world.buildables` (2026-09-02, compiled NOT yet redeployed) — see there.
+
+### `world.connectorLayout` — `{"buildableClass": "<Build_*_C class path>"}` (2026-09-02, compiled NOT yet redeployed/live-tested)
+```json
+{ "protocolVersion": 1, "buildableClass": "...", "connectors": [
+  { "name": "Input0", "direction": "Input", "clearance": 100,
+    "source": "scs", "localPosition": {"x":0,"y":-300,"z":100},
+    "localNormal": {"x":0,"y":-1,"z":0} } ] }
+```
+A buildable CLASS's factory-connector layout in the actor's LOCAL frame
+(yaw 0), read from the class defaults — native CDO components (`source:
+"native"`) plus Blueprint SCS component templates (`"scs"`, transforms
+composed down each attachment chain) — **without spawning anything**.
+This is what `controller/satisfactory_ai/connector_db.py` should feed on
+instead of hand-seeded profiles: a class never placed before can be
+planned correctly the first time. `localNormal` mirrors the live path's
+`GetConnectorNormal()` (component forward vector). Get class paths from
+`world.buildables` rows' `buildableClass` or `world.buildableCatalog`.
+Returns `error: "CLASS_NOT_FOUND"` inside the result if the path doesn't
+resolve. First live test should cross-check a known class (constructor)
+against the DB's live-verified seed profiles.
 
 ### `world.pipeConnections` — no params
 Same shape as `world.connections`, for fluid pipes AND Hypertube tubes

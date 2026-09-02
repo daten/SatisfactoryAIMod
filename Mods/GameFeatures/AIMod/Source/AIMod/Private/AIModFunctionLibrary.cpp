@@ -76,6 +76,9 @@
 #include "Buildables/FGBuildableSplineSnappedBase.h"
 #include "FGTimeSubsystem.h"
 #include "FGChatManager.h"
+#include "Engine/BlueprintGeneratedClass.h"
+#include "Engine/SimpleConstructionScript.h"
+#include "Engine/SCS_Node.h"
 #include "Configuration/ConfigManager.h"
 #include "Configuration/Properties/ConfigPropertyBool.h"
 #include "Configuration/Properties/ConfigPropertyFloat.h"
@@ -1268,6 +1271,55 @@ void UAIModFunctionLibrary::LogBuildables(UObject* WorldContextObject)
 
 FString UAIModFunctionLibrary::LogBuildablesAsJson(UObject* WorldContextObject)
 {
+	return LogBuildablesAsJsonFiltered(WorldContextObject, TArray<FString>(), false, FVector::ZeroVector, FVector::ZeroVector);
+}
+
+namespace
+{
+	// Shared row filter for the 2a filtered-telemetry variants
+	// (docs/build-efficiency-plan.md): id-substring OR-match plus an
+	// optional AABB on position (Z participates only when the caller
+	// supplied a non-degenerate Z range, so a flat XY box "just works").
+	bool AIModTelemetryRowPasses(
+		const FString& Id, const FVector& Position,
+		const TArray<FString>& IdSubstrings, bool bBoundsSet,
+		const FVector& BoundsMin, const FVector& BoundsMax)
+	{
+		if (IdSubstrings.Num() > 0)
+		{
+			bool bAnyMatch = false;
+			for (const FString& Substring : IdSubstrings)
+			{
+				if (Id.Contains(Substring))
+				{
+					bAnyMatch = true;
+					break;
+				}
+			}
+			if (!bAnyMatch)
+			{
+				return false;
+			}
+		}
+		if (bBoundsSet)
+		{
+			if (Position.X < BoundsMin.X || Position.X > BoundsMax.X ||
+				Position.Y < BoundsMin.Y || Position.Y > BoundsMax.Y)
+			{
+				return false;
+			}
+			if (!FMath::IsNearlyEqual(BoundsMin.Z, BoundsMax.Z) &&
+				(Position.Z < BoundsMin.Z || Position.Z > BoundsMax.Z))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+}
+
+FString UAIModFunctionLibrary::LogBuildablesAsJsonFiltered(UObject* WorldContextObject, const TArray<FString>& IdSubstrings, bool bBoundsSet, const FVector& BoundsMin, const FVector& BoundsMax)
+{
 	const TArray<FAIModBuildableTelemetry> Buildables = GetBuildableTelemetry(WorldContextObject);
 
 	TArray<TSharedPtr<FJsonValue>> BuildableJsonArray;
@@ -1275,6 +1327,10 @@ FString UAIModFunctionLibrary::LogBuildablesAsJson(UObject* WorldContextObject)
 
 	for (const FAIModBuildableTelemetry& Buildable : Buildables)
 	{
+		if (!AIModTelemetryRowPasses(Buildable.Id, Buildable.Position, IdSubstrings, bBoundsSet, BoundsMin, BoundsMax))
+		{
+			continue;
+		}
 		const TSharedRef<FJsonObject> BuildableObject = MakeShared<FJsonObject>();
 		BuildableObject->SetStringField(TEXT("id"), Buildable.Id);
 		BuildableObject->SetStringField(TEXT("buildableClass"), Buildable.BuildableClass);
@@ -1528,6 +1584,126 @@ void UAIModFunctionLibrary::LogFactoryConnections(UObject* WorldContextObject)
 
 FString UAIModFunctionLibrary::LogFactoryConnectionsAsJson(UObject* WorldContextObject)
 {
+	return LogFactoryConnectionsAsJsonFiltered(WorldContextObject, TArray<FString>(), false, FVector::ZeroVector, FVector::ZeroVector);
+}
+
+namespace
+{
+	// One connector row for world.connectorLayout - LOCAL-frame data
+	// derived from a class-default component template (never a live,
+	// world-transformed instance).
+	void AddConnectorLayoutRow(
+		TArray<TSharedPtr<FJsonValue>>& OutRows, const UFGFactoryConnectionComponent* Template,
+		const FTransform& ComposedLocalTransform, const TCHAR* SourceTag)
+	{
+		const TSharedRef<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetStringField(TEXT("name"), Template->GetName());
+		Row->SetStringField(TEXT("direction"), FactoryConnectionDirectionToString(Template->GetDirection()));
+		Row->SetNumberField(TEXT("clearance"), Template->GetConnectorClearance());
+		Row->SetStringField(TEXT("source"), SourceTag);
+
+		const FVector LocalPosition = ComposedLocalTransform.GetLocation();
+		const TSharedRef<FJsonObject> PositionObject = MakeShared<FJsonObject>();
+		PositionObject->SetNumberField(TEXT("x"), LocalPosition.X);
+		PositionObject->SetNumberField(TEXT("y"), LocalPosition.Y);
+		PositionObject->SetNumberField(TEXT("z"), LocalPosition.Z);
+		Row->SetObjectField(TEXT("localPosition"), PositionObject);
+
+		// Mirrors the live path's GetConnectorNormal() (the component
+		// rotation's forward vector), but in the actor's local frame.
+		const FVector LocalNormal = ComposedLocalTransform.GetRotation().GetForwardVector();
+		const TSharedRef<FJsonObject> NormalObject = MakeShared<FJsonObject>();
+		NormalObject->SetNumberField(TEXT("x"), LocalNormal.X);
+		NormalObject->SetNumberField(TEXT("y"), LocalNormal.Y);
+		NormalObject->SetNumberField(TEXT("z"), LocalNormal.Z);
+		Row->SetObjectField(TEXT("localNormal"), NormalObject);
+
+		OutRows.Add(MakeShared<FJsonValueObject>(Row));
+	}
+
+	// Depth-first SCS walk composing each node's template transform onto
+	// its parent chain (child-relative * parent, Unreal's compose order),
+	// so a connector attached to a non-root scene component still reports
+	// a correct actor-local transform.
+	void WalkScsNode(
+		TArray<TSharedPtr<FJsonValue>>& OutRows, const USCS_Node* Node, const FTransform& ParentTransform)
+	{
+		if (!Node)
+		{
+			return;
+		}
+		FTransform Composed = ParentTransform;
+		if (const USceneComponent* SceneTemplate = Cast<USceneComponent>(Node->ComponentTemplate))
+		{
+			Composed = SceneTemplate->GetRelativeTransform() * ParentTransform;
+			if (const UFGFactoryConnectionComponent* ConnectionTemplate = Cast<UFGFactoryConnectionComponent>(SceneTemplate))
+			{
+				AddConnectorLayoutRow(OutRows, ConnectionTemplate, Composed, TEXT("scs"));
+			}
+		}
+		for (const USCS_Node* Child : Node->GetChildNodes())
+		{
+			WalkScsNode(OutRows, Child, Composed);
+		}
+	}
+}
+
+FString UAIModFunctionLibrary::LogConnectorLayoutAsJson(UObject* WorldContextObject, const FString& BuildableClassPath)
+{
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetStringField(TEXT("buildableClass"), BuildableClassPath);
+
+	UClass* BuildableClass = LoadClass<AFGBuildable>(nullptr, *BuildableClassPath);
+	if (!BuildableClass)
+	{
+		RootObject->SetStringField(TEXT("error"), TEXT("CLASS_NOT_FOUND"));
+		return WriteCondensedJson(RootObject);
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Rows;
+
+	// Native components: created in C++ constructors, present on the CDO
+	// with their default relative transforms. These attach to the actor
+	// root in every FactoryGame case seen so far, so the relative
+	// transform IS the actor-local transform - if a nested native
+	// attachment ever appears, its rows would need parent composition
+	// like the SCS walk below (the source tag lets a consumer notice).
+	if (const AFGBuildable* CDO = BuildableClass->GetDefaultObject<AFGBuildable>())
+	{
+		TArray<UFGFactoryConnectionComponent*> NativeConnections;
+		CDO->GetComponents<UFGFactoryConnectionComponent>(NativeConnections);
+		for (const UFGFactoryConnectionComponent* Connection : NativeConnections)
+		{
+			if (IsValid(Connection))
+			{
+				AddConnectorLayoutRow(Rows, Connection, Connection->GetRelativeTransform(), TEXT("native"));
+			}
+		}
+	}
+
+	// Blueprint-added components: walk every SCS in the class hierarchy
+	// (parent BP classes contribute their own nodes).
+	for (UClass* CurrentClass = BuildableClass; CurrentClass; CurrentClass = CurrentClass->GetSuperClass())
+	{
+		const UBlueprintGeneratedClass* BPGC = Cast<UBlueprintGeneratedClass>(CurrentClass);
+		if (!BPGC || !BPGC->SimpleConstructionScript)
+		{
+			continue;
+		}
+		for (const USCS_Node* RootNode : BPGC->SimpleConstructionScript->GetRootNodes())
+		{
+			WalkScsNode(Rows, RootNode, FTransform::Identity);
+		}
+	}
+
+	RootObject->SetArrayField(TEXT("connectors"), Rows);
+	UE_LOG(LogAIModAI, Display, TEXT("LogConnectorLayoutAsJson: %s -> %d connector(s)"), *BuildableClassPath, Rows.Num());
+	return WriteCondensedJson(RootObject);
+}
+
+FString UAIModFunctionLibrary::LogFactoryConnectionsAsJsonFiltered(UObject* WorldContextObject, const TArray<FString>& IdSubstrings, bool bBoundsSet, const FVector& BoundsMin, const FVector& BoundsMax)
+{
 	const TArray<FAIModFactoryConnectionTelemetry> Connections = GetFactoryConnectionTelemetry(WorldContextObject);
 
 	TArray<TSharedPtr<FJsonValue>> ConnectionJsonArray;
@@ -1535,6 +1711,10 @@ FString UAIModFunctionLibrary::LogFactoryConnectionsAsJson(UObject* WorldContext
 
 	for (const FAIModFactoryConnectionTelemetry& Connection : Connections)
 	{
+		if (!AIModTelemetryRowPasses(Connection.OwnerBuildableId, Connection.Position, IdSubstrings, bBoundsSet, BoundsMin, BoundsMax))
+		{
+			continue;
+		}
 		const TSharedRef<FJsonObject> ConnectionObject = MakeShared<FJsonObject>();
 		ConnectionObject->SetStringField(TEXT("ownerBuildableId"), Connection.OwnerBuildableId);
 		ConnectionObject->SetStringField(TEXT("direction"), Connection.Direction);

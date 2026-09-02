@@ -158,8 +158,22 @@ power graph for subtree severing before deleting anything wired.
   **Not yet exercised against a running game** - the first live use
   should start small (one machine_row, one manifold) and
   learn_and_store() any class whose seed is marked UNVERIFIED-yaw.
-- Phase 2 (mod C++): not started - next recompile/redeploy window.
-  connectPower hardening is spawn-tasked separately (task_09ace681).
+- Phase 2 (mod C++): **2a (filtered world.buildables/world.connections)
+  and 2c (world.connectorLayout) IMPLEMENTED and compiled 2026-09-02** -
+  staged for the next Alpakit redeploy, NOT yet live-tested (see
+  RPC_REFERENCE.md for both). After redeploy: cross-check
+  world.connectorLayout's constructor output against connector_db's
+  live-verified seeds, then switch the DB to feed from it. 2b
+  (world.batch) deferred to a focused session - batching the ASYNC
+  construction ops means chaining their deferred-poll completions, which
+  deserves its own careful pass. connectPower hardening (2d) is
+  spawn-tasked separately (task_09ace681).
+- Read-only live calibration DONE 2026-09-02 (game running, nothing
+  built): rpc_client verified, connector seeds live-verified via
+  learn_and_store (smelter/miner resolved, foundry cross-check exact),
+  router calibrated against world.testConveyorBelt on real free
+  connector pairs (11/14 agreement; remaining gaps are deliberate
+  conservatism), executor.validate_plan() dry-run gate proven end-to-end.
 - Typical agent flow with the new tools:
   ```python
   from satisfactory_ai.connector_db import ConnectorDb, CONSTRUCTOR
