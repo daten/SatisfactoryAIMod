@@ -145,4 +145,27 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	AllowCreatureSpawning->DefaultValue = false;
 	AllowCreatureSpawning->Value = false;
 	Section->SectionProperties.Add(TEXT("AllowCreatureSpawning"), AllowCreatureSpawning);
+
+	// A seventh property, added 2026-09-02 - multiplayer chat safety, same
+	// off-by-default player-opt-in character as bUnlimitedResources /
+	// bAllowCreatureSpawning. By default, world.chatHistory suppresses
+	// chat messages typed by anyone OTHER than the host player (the game's
+	// own FChatMessageStruct::bIsLocalPlayerMessage identifies the host's
+	// messages in the host process, where AIMod runs), and the instant
+	// auto-acknowledgment only reacts to the host. This means a guest in a
+	// multiplayer session cannot issue instructions to an external AI
+	// controller through in-game chat unless the HOST deliberately turns
+	// this on from the settings menu - the AI controller can never enable
+	// it via RPC. See UAIModFunctionLibrary::LogChatHistoryAsJson and
+	// UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded.
+	UConfigPropertyBool* AllowNonHostChatMessages = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("AllowNonHostChatMessages"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
+	AllowNonHostChatMessages->DisplayName = FText::FromString(TEXT("Allow Other Players' Chat Messages"));
+	AllowNonHostChatMessages->Tooltip = FText::FromString(TEXT(
+		"Off by default. In a multiplayer session, only YOUR (the host's) chat messages are visible to an "
+		"external AI controller through AIMod's chat interface, and only your messages get the instant "
+		"\"seen\" acknowledgment. Enable this to let every connected player's chat messages through as well, "
+		"so other players can also talk to the AI. Leave off if you don't want guests directing the AI."));
+	AllowNonHostChatMessages->DefaultValue = false;
+	AllowNonHostChatMessages->Value = false;
+	Section->SectionProperties.Add(TEXT("AllowNonHostChatMessages"), AllowNonHostChatMessages);
 }

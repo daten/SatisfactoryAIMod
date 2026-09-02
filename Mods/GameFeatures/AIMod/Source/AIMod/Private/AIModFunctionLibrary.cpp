@@ -2078,25 +2078,67 @@ FString UAIModFunctionLibrary::LogChatHistoryAsJson(UObject* WorldContextObject)
 	TArray<FChatMessageStruct> Messages;
 	ChatManager->GetReceivedChatMessages(Messages);
 
+	// Multiplayer safety (2026-09-02): by default, suppress chat messages
+	// typed by anyone OTHER than the host player, so a guest in a
+	// multiplayer session cannot issue instructions to an external AI
+	// controller that naively treats every PlayerMessage in this history
+	// as a command from its operator. The discriminator is the game's own
+	// FChatMessageStruct::bIsLocalPlayerMessage ("True if this message has
+	// been instigated by a local player. Automatically set by the Chat
+	// Manager", NotReplicated) - AIMod's RPC server runs in the HOST's
+	// process, so in that process only the host's own messages carry the
+	// flag; messages replicated from remote clients do not. Suppression is
+	// done HERE, at the mod's security boundary, rather than trusting
+	// every external agent to check a field - a suppressed message never
+	// reaches the protocol at all. The host can opt other players in via
+	// the AllowNonHostChatMessages mod setting (AIModConfiguration.cpp);
+	// an RPC caller can never enable it. System/Ada/Custom messages are
+	// never suppressed - they are game/mod output, not player input.
+	// NOTE: on a dedicated server there is no local player, so with the
+	// setting off NO player chat would come through at all - a dedicated
+	// server operator must enable the setting (documented in
+	// RPC_REFERENCE.md; dedicated servers are outside this project's
+	// current single-player/listen-host target).
+	const bool bAllowNonHostChat = GetAIModConfigBool(WorldContextObject, TEXT("AllowNonHostChatMessages"), false);
+	int32 SuppressedRemotePlayerMessages = 0;
+
 	TArray<TSharedPtr<FJsonValue>> MessageArray;
 	for (const FChatMessageStruct& Message : Messages)
 	{
+		const bool bIsPlayerMessage = Message.MessageType == EFGChatMessageType::CMT_PlayerMessage;
+		const bool bIsRemotePlayerMessage = bIsPlayerMessage && !Message.bIsLocalPlayerMessage;
+		if (bIsRemotePlayerMessage && !bAllowNonHostChat)
+		{
+			++SuppressedRemotePlayerMessages;
+			continue;
+		}
+
 		const TSharedRef<FJsonObject> MessageObject = MakeShared<FJsonObject>();
 		MessageObject->SetStringField(TEXT("sender"), Message.MessageSender.ToString());
 		MessageObject->SetStringField(TEXT("text"), Message.MessageText.ToString());
 		MessageObject->SetStringField(TEXT("type"), ChatMessageTypeToString(Message.MessageType));
 		MessageObject->SetNumberField(TEXT("timestamp"), Message.ServerTimeStamp);
 		MessageObject->SetBoolField(TEXT("isLocalPlayerMessage"), Message.bIsLocalPlayerMessage);
+		// Explicit host-attribution field so an agent can (and should) key
+		// its "instruction from my operator" logic on this rather than
+		// re-deriving it from type+isLocalPlayerMessage. When
+		// AllowNonHostChatMessages is on, remote players' messages appear
+		// with fromHostPlayer=false - the agent can then decide per-message
+		// how much authority to grant them.
+		MessageObject->SetBoolField(TEXT("fromHostPlayer"), bIsPlayerMessage && Message.bIsLocalPlayerMessage);
 		MessageArray.Add(MakeShared<FJsonValueObject>(MessageObject));
 	}
 
 	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
 	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
 	RootObject->SetArrayField(TEXT("messages"), MessageArray);
+	RootObject->SetBoolField(TEXT("nonHostChatAllowed"), bAllowNonHostChat);
+	RootObject->SetNumberField(TEXT("suppressedRemotePlayerMessages"), SuppressedRemotePlayerMessages);
 
 	const FString JsonString = WriteCondensedJson(RootObject);
 
-	UE_LOG(LogAIModAI, Verbose, TEXT("LogChatHistoryAsJson: %d message(s)"), Messages.Num());
+	UE_LOG(LogAIModAI, Verbose, TEXT("LogChatHistoryAsJson: %d message(s), %d remote-player message(s) suppressed (AllowNonHostChatMessages=%s)"),
+		Messages.Num(), SuppressedRemotePlayerMessages, bAllowNonHostChat ? TEXT("true") : TEXT("false"));
 
 	return JsonString;
 }

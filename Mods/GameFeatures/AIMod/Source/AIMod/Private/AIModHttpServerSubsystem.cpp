@@ -324,7 +324,21 @@ void UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded()
 		// so no separate check is needed for that). Explicitly excludes
 		// System/Ada/Custom messages, which includes AIMod's own acks -
 		// without this a real ack would count as "new" too.
-		if (Message.MessageType == EFGChatMessageType::CMT_PlayerMessage && Message.bIsLocalPlayerMessage)
+		//
+		// Multiplayer safety (2026-09-02): bIsLocalPlayerMessage identifies
+		// the HOST player's own messages in this (host-side) process -
+		// remote clients' messages replicate in without the flag. By
+		// default only the host is acknowledged, mirroring
+		// LogChatHistoryAsJson's suppression of remote-player messages
+		// from world.chatHistory: a message the external agent will never
+		// see should not get a "received, thinking..." reply implying it
+		// was heard. When the host enables AllowNonHostChatMessages, both
+		// the history filter and this ack open up together.
+		const bool bIsHostPlayerMessage = Message.MessageType == EFGChatMessageType::CMT_PlayerMessage && Message.bIsLocalPlayerMessage;
+		const bool bIsRemotePlayerMessage = Message.MessageType == EFGChatMessageType::CMT_PlayerMessage && !Message.bIsLocalPlayerMessage;
+		const bool bAckThisMessage = bIsHostPlayerMessage ||
+			(bIsRemotePlayerMessage && UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowNonHostChatMessages"), false));
+		if (bAckThisMessage)
 		{
 			// Duplicate-submission guard, added 2026-08-28: root-caused
 			// live via the diagnostic logging above - confirmed the

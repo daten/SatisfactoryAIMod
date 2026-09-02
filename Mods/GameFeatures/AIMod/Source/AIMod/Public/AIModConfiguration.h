@@ -51,6 +51,15 @@
  * like bUnlimitedResources: an external AI controller can never enable it
  * itself, only the player from this settings menu.
  *
+ * A seventh property, added 2026-09-02, is multiplayer chat safety -
+ * AllowNonHostChatMessages (off by default). With it off, only the HOST
+ * player's chat messages reach the external AI through world.chatHistory,
+ * and only the host gets the instant auto-acknowledgment - guests in a
+ * multiplayer session cannot direct the AI through chat. The discriminator
+ * is the game's own FChatMessageStruct::bIsLocalPlayerMessage evaluated in
+ * the host process. See UAIModFunctionLibrary::LogChatHistoryAsJson and
+ * UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded.
+ *
  * See AIModFunctionLibrary::GetAIModConfigBool/GetAIModConfigFloat for
  * how these are read at construction time, and
  * UAIModHttpServerSubsystem::Initialize for registration and where
