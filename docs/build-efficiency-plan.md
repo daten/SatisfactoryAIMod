@@ -146,6 +146,37 @@ power graph for subtree severing before deleting anything wired.
 - Multi-click spline routing (SHBS_AdjustPole) - segment chaining via
   waypoint buildables remains the pattern.
 
+## Status
+
+- **Phase 1a-1d: IMPLEMENTED 2026-09-02** (same session as this plan),
+  80/80 controller tests passing. Modules: `connector_db.py`
+  (9 seeded classes; smelter + miner marked UNVERIFIED-yaw),
+  `router.py`, `rpc_client.py`, `executor.py`, `composites.py`
+  (machine_row, manifold, pole_backbone, verify_connections). Tests
+  reproduce real live geometries including the lift-top jog fix and the
+  east screw rail (planned yaw matches the live build exactly).
+  **Not yet exercised against a running game** - the first live use
+  should start small (one machine_row, one manifold) and
+  learn_and_store() any class whose seed is marked UNVERIFIED-yaw.
+- Phase 2 (mod C++): not started - next recompile/redeploy window.
+  connectPower hardening is spawn-tasked separately (task_09ace681).
+- Typical agent flow with the new tools:
+  ```python
+  from satisfactory_ai.connector_db import ConnectorDb, CONSTRUCTOR
+  from satisfactory_ai.composites import machine_row, manifold
+  from satisfactory_ai.executor import Executor
+  from satisfactory_ai.router import Endpoint, route_connection
+  from satisfactory_ai.rpc_client import RpcClient
+
+  db, ex = ConnectorDb(), Executor(RpcClient())
+  row = machine_row(db, build_recipe=..., class_key=CONSTRUCTOR, count=4,
+                    origin=..., spacing=800, yaw=180,
+                    machine_recipe=..., clock_percent=220, shards=3)
+  report = ex.execute(row.plan)          # place + configure, one call
+  # outputs from db.predict(...) -> manifold(...) -> ex.execute(...)
+  # trunk from the manifold warning -> route_connection(...) -> execute
+  ```
+
 ## Success measure
 
 The HMF optimization's belt/attachment work (~40 belts, ~20

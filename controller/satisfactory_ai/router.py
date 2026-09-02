@@ -74,16 +74,21 @@ class Endpoint:
 
 @dataclass
 class RouteOp:
-    kind: str  # "place" | "belt" | "lift"
+    kind: str  # "place" | "belt" | "wire" | "call"
     # place:
     recipe_class: Optional[str] = None
     position: Optional[Position] = None
     yaw: Optional[float] = None
-    # belt/lift (source/dest may name a placeholder from a prior place op):
+    # belt/wire (source/dest may name a placeholder from a prior place op):
     source_ref: Optional[str] = None  # buildable id or "op:<index>"
     dest_ref: Optional[str] = None
     source_pin: Optional[Position] = None
     dest_pin: Optional[Position] = None
+    # call: an arbitrary world.* method against a placed/existing target -
+    # the executor substitutes dest_ref into params["buildableId"]. Used
+    # by composites for setRecipe/installPowerShard/setClockSpeed.
+    method: Optional[str] = None
+    params: Optional[dict] = None
     note: str = ""
 
 
