@@ -181,6 +181,20 @@ power graph for subtree severing before deleting anything wired.
   correctly) - the DB can now self-feed from the mod. Multiplayer chat
   fields present (single-player smoke only; a real second-player test
   still pending).
+- **Phase 2b (world.batch) IMPLEMENTED and compiled 2026-09-02** -
+  staged for the next redeploy, NOT yet live-tested. Sequential
+  server-side dispatch through the normal handler with the parent's
+  peer address (no policy bypass), async sub-ops chained via completion
+  callbacks, 100-op cap, haltOnError, per-op results. Two documented
+  limits: no cross-op buildableId substitution (batch pre-known-id ops
+  only; op:ref plans still go through Executor.execute), and player
+  proximity still applies (interleave teleport sub-ops). Client helper:
+  RpcClient.batch(). Possible follow-up: server-side "$op:N.buildableId"
+  substitution to let whole place-then-connect plans batch.
+- **Auto-repair + remaining composites DONE 2026-09-02**:
+  Executor.execute_and_verify() (endpoint verification + automatic
+  dangling-belt delete-and-rebuild), lift RouteOps, elevated_crossing,
+  vertical_pair_block. 82/82 tests.
 - **First live composite build DONE (2026-09-02)**: machine_row +
   merger manifold + routed trunk into a container, standing at
   (12400-14200, 279300-280400, z651) as evidence (delete on request).

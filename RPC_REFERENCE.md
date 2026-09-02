@@ -939,6 +939,27 @@ extractor-recipe refusal above) and it isn't worth the risk for a read-only
 query on a category that realistically has no meaningful swatch cost
 anyway.
 
+### `world.batch` — `{"ops": [{"method", "params"?}...], "haltOnError"?: true}` (2026-09-02, compiled NOT yet redeployed/live-tested)
+```json
+{ "protocolVersion": 1, "success": true, "result": {
+  "results": [ { "index": 0, "method": "world.setRecipe", "success": true, "result": {...} } ],
+  "completed": 3, "total": 3, "succeeded": 3, "allSucceeded": true, "halted": false } }
+```
+Runs up to **100** sub-operations SEQUENTIALLY in one HTTP round trip —
+asynchronous construction sub-ops chain through their completion
+callbacks, so a whole config/belt phase costs one request. Each sub-op
+is a normal `{method, params}` pair dispatched through the same handler
+as a direct call, with the parent request's peer address — batch is not
+a policy bypass, and nested `world.batch` is rejected. `haltOnError`
+(default true) stops at the first failed sub-op; either way the batch
+envelope itself reports `success: true` with per-op outcomes in
+`results[]` (check `allSucceeded`). Caveats: sub-ops **cannot reference
+earlier sub-ops' buildableIds** (no substitution — batch only ops whose
+target ids are already known), and player-proximity rules still apply
+inside the batch — interleave `world.teleportPlayer` sub-ops before
+belt/wire sub-ops. A batch of slow construction ops answers only when
+done — use a generous client timeout.
+
 ### `world.chatHistory` — no params
 ```json
 { "protocolVersion": 1, "messages": [ { "sender": "PlayerName", "text": "hello", "type": "PlayerMessage", "timestamp": 0, "isLocalPlayerMessage": true, "fromHostPlayer": true } ], "nonHostChatAllowed": false, "suppressedRemotePlayerMessages": 0 }

@@ -55,6 +55,20 @@ private:
 	bool HandleRpcRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
 
 	/**
+	 * world.batch (2026-09-02, docs/build-efficiency-plan.md 2b): runs an
+	 * ordered list of sub-operations SEQUENTIALLY - each sub-op is a
+	 * normal {method, params} pair dispatched back through
+	 * HandleRpcRequest with a synthesized request that keeps the parent's
+	 * PeerAddress (so the loopback/remote policy applies identically -
+	 * batch is not a bypass). Asynchronous construction sub-ops chain
+	 * through their completion callbacks, so a batch of belts/placements
+	 * costs ONE HTTP round trip instead of one per op. The parent
+	 * response reports every sub-result in order. Nested world.batch is
+	 * rejected. See RunBatchStep in the .cpp.
+	 */
+	void RunBatchStep(TSharedRef<struct FAIModBatchState> State, FHttpServerRequest BaseRequest, FHttpResultCallback ParentComplete, FString ParentRequestId);
+
+	/**
 	 * Instant chat acknowledgment (2026-08-28, per explicit user request):
 	 * binds to AFGChatManager::OnChatMessageAdded so a real player-typed
 	 * chat message gets an immediate "seen" reply, independent of - and

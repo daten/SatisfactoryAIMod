@@ -44,6 +44,28 @@ namespace
 		return PeerIp == TEXT("127.0.0.1") || PeerIp == TEXT("::1") || PeerIp.StartsWith(TEXT("127."));
 	}
 
+	// forward declaration for FAIModBatchState's finalizer, defined with
+	// the other helpers below
+	TUniquePtr<FHttpServerResponse> MakeJsonResponse(EHttpServerResponseCodes Code, const TSharedRef<FJsonObject>& Body);
+}
+
+/**
+ * world.batch bookkeeping (2026-09-02) - shared across the chained
+ * sub-op completion callbacks. File scope (not the anonymous namespace)
+ * because the header forward-declares it for RunBatchStep's signature.
+ */
+struct FAIModBatchState
+{
+	TArray<TSharedPtr<FJsonObject>> Ops;
+	bool bHaltOnError = true;
+	int32 Index = 0;
+	int32 SucceededCount = 0;
+	bool bAnyFailed = false;
+	TArray<TSharedPtr<FJsonValue>> Results;
+};
+
+namespace
+{
 	TUniquePtr<FHttpServerResponse> MakeJsonResponse(EHttpServerResponseCodes Code, const TSharedRef<FJsonObject>& Body)
 	{
 		FString JsonString;
@@ -431,6 +453,60 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	if (!RequestObject->TryGetStringField(TEXT("method"), Method))
 	{
 		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'method' field")));
+		return true;
+	}
+
+	// world.batch (2026-09-02, docs/build-efficiency-plan.md 2b):
+	// sequential sub-op dispatch through this same handler. Placed
+	// before every other method branch; the loopback/size checks above
+	// already ran for the whole batch request, and each synthesized
+	// sub-request re-runs them with the SAME PeerAddress, so batch
+	// grants nothing a direct call would not.
+	if (Method == TEXT("world.batch"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TArray<TSharedPtr<FJsonValue>>* OpsArray = nullptr;
+		if (!(*ParamsObjectPtr)->TryGetArrayField(TEXT("ops"), OpsArray) || OpsArray->Num() == 0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.ops must be a non-empty array of {method, params} objects")));
+			return true;
+		}
+		if (OpsArray->Num() > 100)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.ops is capped at 100 sub-operations per batch")));
+			return true;
+		}
+
+		TSharedRef<FAIModBatchState> State = MakeShared<FAIModBatchState>();
+		State->bHaltOnError = true;
+		(*ParamsObjectPtr)->TryGetBoolField(TEXT("haltOnError"), State->bHaltOnError);
+		for (const TSharedPtr<FJsonValue>& OpValue : *OpsArray)
+		{
+			const TSharedPtr<FJsonObject>* OpObject = nullptr;
+			FString OpMethod;
+			if (!OpValue.IsValid() || !OpValue->TryGetObject(OpObject) || !(*OpObject)->TryGetStringField(TEXT("method"), OpMethod) || OpMethod.IsEmpty())
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("every params.ops entry must be an object with a non-empty 'method' string")));
+				return true;
+			}
+			// No batch-in-batch: prevents unbounded recursion and keeps
+			// the 100-op cap meaningful.
+			if (OpMethod == TEXT("world.batch"))
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("nested world.batch is not allowed")));
+				return true;
+			}
+			State->Ops.Add(*OpObject);
+		}
+
+		UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server: world.batch %s starting %d sub-op(s), haltOnError=%s"),
+			*RequestId, State->Ops.Num(), State->bHaltOnError ? TEXT("true") : TEXT("false"));
+		RunBatchStep(State, Request, OnComplete, RequestId);
 		return true;
 	}
 
@@ -2525,4 +2601,126 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 
 	OnComplete(MakeJsonResponse(EHttpServerResponseCodes::Ok, Root));
 	return true;
+}
+
+void UAIModHttpServerSubsystem::RunBatchStep(TSharedRef<FAIModBatchState> State, FHttpServerRequest BaseRequest, FHttpResultCallback ParentComplete, FString ParentRequestId)
+{
+	// Finished (all ops done, or halted on a failure)?
+	const bool bHalted = State->bHaltOnError && State->bAnyFailed;
+	if (State->Index >= State->Ops.Num() || bHalted)
+	{
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetNumberField(TEXT("protocolVersion"), 1);
+		Root->SetStringField(TEXT("requestId"), ParentRequestId);
+		// The batch call itself succeeded if it DISPATCHED as requested -
+		// per-op outcomes live in results[]. allSucceeded is the quick
+		// aggregate a caller usually wants.
+		Root->SetBoolField(TEXT("success"), true);
+		const TSharedRef<FJsonObject> ResultObject = MakeShared<FJsonObject>();
+		ResultObject->SetArrayField(TEXT("results"), State->Results);
+		ResultObject->SetNumberField(TEXT("completed"), State->Results.Num());
+		ResultObject->SetNumberField(TEXT("total"), State->Ops.Num());
+		ResultObject->SetNumberField(TEXT("succeeded"), State->SucceededCount);
+		ResultObject->SetBoolField(TEXT("allSucceeded"), !State->bAnyFailed && State->Results.Num() == State->Ops.Num());
+		ResultObject->SetBoolField(TEXT("halted"), bHalted);
+		Root->SetObjectField(TEXT("result"), ResultObject);
+		UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server: world.batch %s finished - %d/%d succeeded%s"),
+			*ParentRequestId, State->SucceededCount, State->Ops.Num(), bHalted ? TEXT(" (halted on first failure)") : TEXT(""));
+		ParentComplete(MakeJsonResponse(EHttpServerResponseCodes::Ok, Root));
+		return;
+	}
+
+	const int32 OpIndex = State->Index;
+	const TSharedPtr<FJsonObject> Op = State->Ops[OpIndex];
+	FString OpMethod;
+	Op->TryGetStringField(TEXT("method"), OpMethod);
+
+	// Synthesize the sub-request: the normal envelope around this op,
+	// re-serialized into a copy of the parent request so PeerAddress -
+	// and therefore the loopback/remote policy - carries over unchanged.
+	const TSharedRef<FJsonObject> SubEnvelope = MakeShared<FJsonObject>();
+	SubEnvelope->SetNumberField(TEXT("protocolVersion"), 1);
+	SubEnvelope->SetStringField(TEXT("requestId"), FString::Printf(TEXT("%s-%d"), *ParentRequestId, OpIndex));
+	SubEnvelope->SetStringField(TEXT("method"), OpMethod);
+	const TSharedPtr<FJsonObject>* OpParams = nullptr;
+	if (Op->TryGetObjectField(TEXT("params"), OpParams) && OpParams && OpParams->IsValid())
+	{
+		SubEnvelope->SetObjectField(TEXT("params"), *OpParams);
+	}
+	FString SubBody;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&SubBody);
+	FJsonSerializer::Serialize(SubEnvelope, Writer);
+	FTCHARToUTF8 Utf8(*SubBody);
+	BaseRequest.Body.SetNum(Utf8.Length());
+	FMemory::Memcpy(BaseRequest.Body.GetData(), Utf8.Get(), Utf8.Length());
+
+	// Chain: the sub-op's completion (immediate for sync methods, a
+	// deferred poll for construction) records its parsed envelope and
+	// re-enters RunBatchStep for the next op. No retain cycle: the
+	// callback captures only copyable state and a weak subsystem ptr.
+	TWeakObjectPtr<UAIModHttpServerSubsystem> WeakThis(this);
+	const FHttpResultCallback SubComplete =
+		[State, WeakThis, BaseRequest, ParentComplete, ParentRequestId, OpIndex, OpMethod](TUniquePtr<FHttpServerResponse>&& SubResponse) mutable
+	{
+		const TSharedRef<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetNumberField(TEXT("index"), OpIndex);
+		Row->SetStringField(TEXT("method"), OpMethod);
+		bool bOpSuccess = false;
+		if (SubResponse.IsValid() && SubResponse->Body.Num() > 0)
+		{
+			const auto Converted = StringCast<TCHAR>(reinterpret_cast<const UTF8CHAR*>(SubResponse->Body.GetData()), SubResponse->Body.Num());
+			const FString SubBodyString(Converted.Length(), Converted.Get());
+			TSharedPtr<FJsonObject> SubObject;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(SubBodyString);
+			if (FJsonSerializer::Deserialize(Reader, SubObject) && SubObject.IsValid())
+			{
+				SubObject->TryGetBoolField(TEXT("success"), bOpSuccess);
+				const TSharedPtr<FJsonObject>* SubResult = nullptr;
+				if (SubObject->TryGetObjectField(TEXT("result"), SubResult) && SubResult && SubResult->IsValid())
+				{
+					Row->SetObjectField(TEXT("result"), *SubResult);
+				}
+				const TSharedPtr<FJsonObject>* SubError = nullptr;
+				if (SubObject->TryGetObjectField(TEXT("error"), SubError) && SubError && SubError->IsValid())
+				{
+					Row->SetObjectField(TEXT("error"), *SubError);
+				}
+			}
+		}
+		Row->SetBoolField(TEXT("success"), bOpSuccess);
+		State->Results.Add(MakeShared<FJsonValueObject>(Row));
+		if (bOpSuccess)
+		{
+			State->SucceededCount++;
+		}
+		else
+		{
+			State->bAnyFailed = true;
+		}
+		State->Index++;
+		if (UAIModHttpServerSubsystem* Subsystem = WeakThis.Get())
+		{
+			Subsystem->RunBatchStep(State, BaseRequest, ParentComplete, ParentRequestId);
+		}
+		else
+		{
+			// Subsystem torn down mid-batch (world unload) - report what
+			// completed rather than leaving the HTTP request hanging.
+			const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+			Root->SetNumberField(TEXT("protocolVersion"), 1);
+			Root->SetStringField(TEXT("requestId"), ParentRequestId);
+			Root->SetBoolField(TEXT("success"), false);
+			const TSharedRef<FJsonObject> ErrorObject = MakeShared<FJsonObject>();
+			ErrorObject->SetStringField(TEXT("code"), TEXT("BATCH_ABORTED"));
+			ErrorObject->SetStringField(TEXT("message"), FString::Printf(TEXT("Subsystem shut down after %d of %d sub-op(s)"), State->Results.Num(), State->Ops.Num()));
+			Root->SetObjectField(TEXT("error"), ErrorObject);
+			const TSharedRef<FJsonObject> PartialResult = MakeShared<FJsonObject>();
+			PartialResult->SetArrayField(TEXT("results"), State->Results);
+			Root->SetObjectField(TEXT("result"), PartialResult);
+			ParentComplete(MakeJsonResponse(EHttpServerResponseCodes::ServerError, Root));
+		}
+	};
+
+	HandleRpcRequest(BaseRequest, SubComplete);
 }

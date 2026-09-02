@@ -103,3 +103,35 @@ class RpcClient:
             "world.teleportPlayer",
             {"x": float(x), "y": float(y), "z": float(z), "ignoreGroundTrace": True},
         )
+
+    def batch(
+        self,
+        ops: list,
+        halt_on_error: bool = True,
+        timeout_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """world.batch (mod >= 2026-09-02): run up to 100 {method, params}
+        sub-ops in ONE round trip, sequentially, server-side. Returns the
+        batch result ({results, completed, succeeded, allSucceeded,
+        halted}); the batch envelope itself succeeds even when sub-ops
+        fail - check allSucceeded / per-row success.
+
+        Sub-ops run through the same dispatcher as direct calls, so
+        player-proximity rules still apply to belt/wire sub-ops -
+        interleave world.teleportPlayer sub-ops before them, exactly as
+        the executor does between direct calls. Sub-ops cannot reference
+        earlier sub-ops' buildableIds (no substitution yet) - batch only
+        ops whose target ids are already known; plans that place
+        attachments and then belt to them still need client-side
+        chaining (Executor.execute).
+
+        Give a generous timeout: a batch of async construction ops runs
+        them back-to-back and the HTTP response arrives only at the end.
+        """
+        if len(ops) > 100:
+            raise ValueError("world.batch is capped at 100 sub-ops")
+        return self.call(
+            "world.batch",
+            {"ops": ops, "haltOnError": halt_on_error},
+            timeout_seconds=timeout_seconds or max(self.timeout_seconds, 30.0 * len(ops)),
+        )
