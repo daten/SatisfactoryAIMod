@@ -104,6 +104,41 @@ Foundry in], coal->manifold[Foundry in + BlackPowder in], sulfur->
 BlackPowder in. Manifolds self-balance (supply=demand). (c) verify 100%
 into depot + save.
 
+## PROGRESS UPDATE 4 (saved: erb-coal-flowing) 2026-09-02
+REMOTE BELT HAULS - major progress. Reusable haul pattern PROVEN: place
+Recipe_ConveyorPole poles every <=4600u along the straight miner->factory
+line (place base at z-100 so SnapOnly connector sits at z), read each
+pole's SnapOnly connector via world.connections, chain belts pole-to-pole
+(they relay belt-to-belt through the single SnapOnly connector - items
+flow, confirmed). Factory-end: place a Recipe_ConveyorAttachmentSplitter
+WELL AWAY (>1500u from every machine input - the belt "shape rule" binds
+only <1500u) and feed machine inputs; manifolds self-balance (supply=demand).
+- COAL: DONE + FLOWING. miner->7 poles->splitter(2146815703@184600,188500)
+  ->Foundry coal-in + BlackPowder coal-in. Foundry & BlackPowder show
+  IN[Coal=100].
+- SULFUR: DONE (built). miner->20 poles->arrival(2146718829@185400,188000)
+  ->BlackPowder sulfur-in(185400,193400). 3 mid-haul gaps were repaired by
+  inserting a midpoint pole ~150u ABOVE the straight line (clears terrain
+  bumps). Sulfur still traveling the 68000u belt (~6min) at last check.
+- IRON: haul 11/12 built + miner + power + splitter(2146798816@183800,187500)
+  ->Smelter in + Foundry iron-in all DONE. BLOCKED at the final hop into
+  the factory. ROOT CAUSE: the FACTORY SITS UNDER A MOUNTAIN OVERHANG
+  (groundHeight at 182200,193600 = -1207 surface ABOVE a -5362 cave floor).
+  Coal/sulfur enter via the factory's OPEN SE mouth; iron approaches from
+  the NW open canyon straight INTO the mountain/cave, where belts fail
+  (PLACEMENT_INCOMPLETE / "too long"/"too steep" as the spline fights
+  cave walls) and near-factory poles land buried (can't source belts).
+  Last OPEN iron pole = pole10 Build_ConveyorPole_C_2146807691
+  @(180600,197800,-5655) (t=0.83, groundHeight None = open canyon). FIX
+  NEEDED: reroute from pole10 AROUND the mountain to approach the arrival
+  from the open S/SE (like coal/sulfur), OR relocate the iron arrival to
+  the SE mouth. Iron ore IS mining + riding 11 belts, stuck at pole11.
+KEY LESSONS: (1) belts tolerate steep slopes (~34% ok) and long spans
+(<5600u) but NOT routing through terrain/cave interiors. (2) place poles
+ABOVE local ground (groundHeight); buried poles can't source belts.
+(3) approach the factory only from its open SE mouth. (4) pure-cardinal
+short belts hit the shape rule; keep segments >1500u.
+
 ## PROGRESS UPDATE 2 (saved: erb-internal-complete)
 INTERNAL MATERIAL FLOW COMPLETE. Manufacturer RELOCATED north (was
 overlapping F1 columns): NEW manuf=Build_ManufacturerMk1_C_2147152776
