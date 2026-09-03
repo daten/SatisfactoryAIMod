@@ -162,12 +162,24 @@ real sulfur arrival 2146630434 -> east lane x188400 -> Nobelisk BP sulfur-in
 (186200,182400). Deleted the dead feeder 2146008018 + the wrong black-powder
 tap belt off splitter 2146128028. Nobelisk BP then went Producing (Sulfur 16),
 Nobelisk assembler Producing.
-STILL BROKEN (base infra, user flagged, separate from Nobelisk): base BP
-2147204177 both inputs (185000/185400,193400) disconnected -> base Explosive
-Rebar coasting on 200 banked, not actively producing. Plus abandoned elevated
-belt cluster near (186400,192500) (2146905898/2146717993/2146643343/2147191671/
-2147152629, 2nd refinery 2146899368 both-ends-free). NEXT: revive base BP
-(sulfur from SP2 north tap + coal from coal splitter -> base BP inputs).
+BASE BP REVIVED (saved: nobelisk-and-base-producing): base BP 2147204177 was
+disconnected (both inputs free) so base Explosive Rebar was stuck at 200 banked.
+FIXED: sulfur from SP2 +y tap -> north poles -> base BP sulfur-in (185400,193400);
+coal via a NEW pass-through splitter SP3b 2147328804 on the coal line (coal
+splitter 2146815703 -> SP3b -> pole 2147342311 -> base BP coal-in 185000,193400).
+Now: base BP Producing (Coal+Sulfur), base Smokeless refinery 2147210567
+Producing, base Constructor 2147204620 (Steel Pipe, fed by steel ingot - was
+never broken). BOTH DEPOTS CLIMBING LIVE: Nobelisk 240->247 & Explosive Rebar
+211->214 over 40s. Deleted my dead first-tap leftovers.
+NOTE (pre-existing, NOT mine, left alone): abandoned elevated belt cluster near
+(186400,192500) - belts 2146717993/2146643343/2147191671/2147152629 + a 2nd
+refinery 2146899368, all both-ends-free (an incomplete 2nd smokeless line). Inert
+(carries nothing); user's call whether to remove or finish it.
+GOTCHA logged: splitter output orientation from yaw is non-obvious - READ the
+placed splitter's connector normals and pick the output facing your target;
+don't assume. And a belt's real connector may be offset from a deleted
+neighbor's coord (targeted 185000,191300 = deleted belt's out; real input was
+185000,191800).
 
 ## NOBELISK EXPANSION -- earlier: raws fed (2026-09-03, saved: nobelisk-raws-fed)
 ALL 4 raw feeds connected + verified. Every machine input/output connected
