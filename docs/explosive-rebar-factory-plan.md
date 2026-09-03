@@ -139,6 +139,46 @@ ABOVE local ground (groundHeight); buried poles can't source belts.
 (3) approach the factory only from its open SE mouth. (4) pure-cardinal
 short belts hit the shape rule; keep segments >1500u.
 
+## PROGRESS UPDATE 5 (saved: erb-iron-connected) 2026-09-02
+ALL THREE RAWS DELIVERED. Coal+sulfur flowing (BlackPowder was PRODUCING
+Black Powder). IRON solved via a LIFT-SKYWAY over the mountain (user's
+suggested technique - subterranean/void belts are risky+abnormal, don't).
+The factory sits under a mountain overhang open only to the SE; the NW iron
+node's canyon belts reach pole10 (Build_ConveyorPole_C_2146807691 @
+180600,197800,-5655, open air) but can't belt through the mountain. Route:
+pole10 -> LIFT UP to a SPLITTER at (180600,197800,-500) above the crest ->
+sky belt (poles at z~-500..-720, above the -947 crest) diagonally SE across
+the mountain -> skyend (183700,187600,-720) -> belt N to liftpole
+(183700,190200,-720) -> LIFT DOWN to botpole (183700,190200,-5100) -> belt
+to the existing iron splitter (2146798816 @183800,187500) input -> Smelter
++ Foundry. Whole chain structurally verified (all connectors fed).
+
+CRITICAL BELT/PLAYER LEARNINGS (this is why it was hard):
+1. Floating conveyor poles at HIGH Z: belts between them FAIL ("too long"/
+   "too steep"/"incomplete") UNLESS the player is teleported NEAR the belt
+   (within the mod's 2000u no-re-teleport window) - the mod's inclined-belt
+   validation is player-camera-dependent, not just the synthetic hit. Belts
+   at low Z near their terrain worked because my old teleport put the player
+   there. Parking the player far (factory) BREAKS high belts.
+2. PLAYER SAFETY: teleport near a belt ONLY where world.groundHeight finds a
+   floor below (a survivable fall onto it); over DEEP VOID (no floor) park at
+   the factory instead (that belt fails; reroute/accept). Void teleports KILL
+   the player (NO_PLAYER, needs manual save-reload). The SE iron nodes are
+   void pinnacles - AVOID. hover = belt_z - 150 (just below the belt).
+3. LIFT->belt transition: lift into a SPLITTER (real directional connectors),
+   NOT a plain pole (its single connector gets vertically oriented by the
+   lift -> a horizontal belt off it reads "too steep"). Conveyor LIFTS do
+   arbitrary height (5000+ verified).
+4. Flaky "too long/too steep" on a geometrically-fine belt: brute-force with
+   varied player hover positions (dz, xy offset) - a slight offset fixes it.
+5. setClockSpeed = SetPendingPotential, applies on the NEXT PRODUCTION CYCLE.
+   Standby machines never apply it (revert to 100). Set/verify clocks AFTER
+   the machine is producing. Clocks currently pending: Smelter/Foundry/BP
+   33.334, Rod/Rebar 66.667, Pipe/Smokeless 50, HOR 12.5, Manuf 100.
+IRON2 miner (SE Impure node attempt) was ABANDONED (void); using the NW Pure
+node via the skyway. REMAINING: wait for iron to traverse the long path,
+confirm Smelter->...->Manufacturer->Depot at 100%, re-verify clocks applied.
+
 ## PROGRESS UPDATE 2 (saved: erb-internal-complete)
 INTERNAL MATERIAL FLOW COMPLETE. Manufacturer RELOCATED north (was
 overlapping F1 columns): NEW manuf=Build_ManufacturerMk1_C_2147152776
