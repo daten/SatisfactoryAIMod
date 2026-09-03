@@ -139,6 +139,69 @@ ABOVE local ground (groundHeight); buried poles can't source belts.
 (3) approach the factory only from its open SE mouth. (4) pure-cardinal
 short belts hit the shape rule; keep segments >1500u.
 
+## >>> COMPLETE 2026-09-03 (saved: erb-COMPLETE-producing) <<<
+FACTORY DONE. Explosive Rebar is being produced from raw ore+crude and
+UPLOADED to the Dimensional Depot (2147152393) - depot count climbing live.
+Full chain verified Producing: miners->belts->Smelter/Foundry->Rod/Rebar/
+Pipe + Coal/Sulfur->BlackPowder + Crude->pump->HOR->Smokeless->Manufacturer
+->Depot.
+THE FIX that cracked the final assembly (the mis-oriented prior-session
+internal lifts): DELETE the mis-oriented lifts+receivers and connect each F1
+machine output DIRECTLY to its target (machine->machine belts are the most
+reliable - they climb 800u fine; pole->pole and machine->pole CLIMB belts
+fail, so keep pole belts LEVEL and put the climb in the machine->pole/machine
+belt). Rebar->Manuf(184200) and Pipe->Manuf(185000) are direct. BlackPowder
+output faces +y(north) and the Smokeless SOLID input faces -y(south) on the
+south face of the refinery, so BP loops around the refinery's EAST+SOUTH
+(poles NE 187000,194500 / MID 187000,191200 / SE 187000,187900 / SW 185100,
+187900) then SW->Smokeless direct (pure +y 3700u, south of the refinery
+body). Smokeless->Manuf was ALSO never connected - added direct
+Smokeless-out(185100,193400)->Manuf(184600). GOTCHAS that cost time:
+place_pole needs base=conn-100 (poles landed 100u high); deleting a pole
+leaves a DANGLING belt occupying the machine connector ("no free
+Output"/"...connection") - delete the dangling belt to free it; a pole can't
+relay if both belts land on the SAME side of its connector (feed from the
+opposite side of the outflow).
+NEXT (user request 2026-09-03): expand to also make NOBELISK (Recipe_Nobelisk:
+2 Black Powder + 2 Steel Pipe -> 1 Nobelisk, Assembler, 6s; producedIn
+AssemblerMk1). Pure overlap - scale up Black Powder + Steel Pipe (both are
+currently fully consumed), add a Nobelisk Assembler -> a SECOND Dimensional
+Depot Uploader (Recipe_CentralStorage). Needs more Coal/Sulfur/Iron (raise
+miner clocks; nodes are Pure/infinite).
+
+## (superseded) STATUS 2026-09-03: 95% DONE, producing intermediates
+Saved: erb-internal-lifts-fixed / erb-pump-fixed. THE WHOLE PRODUCTION CHAIN
+RUNS except the final assembly delivery. Confirmed PRODUCING with correct
+clocks: Smelter(IronIngot), Foundry(Steel), Rod(IronRod), Rebar(IronRebar),
+Pipe(SteelPipe), BlackPowder, HOR-refinery(HeavyOilResidue). Smokeless has
+HOR=50000. All 3 raws (coal/sulfur/IRON via the lift-skyway) delivered.
+FIXES THIS SESSION:
+- Belts: use routeMode "Auto" NOT "Straight" (Straight zig-zags with 90-deg
+  mid-span bends -> spurious too-long/too-steep). haul_lib.belt() now Auto-first.
+- Iron flowing: the miner "Wire is too long" was a red herring (already
+  powered); iron just took ~minutes over the 70000u path. IRON WORKS.
+- CRUDE was stuck: extractor produces but the junction is ~12.5m ABOVE it,
+  just over the extractor's 12.1m head -> crude couldn't climb. FIX: added a
+  Build_PipelinePump_C_2147419438 @(184500,191900,-5300) on the crude line
+  (extractor->pump->junction), powered via freshpole 2147426119 -> P7
+  2146848415. Crude now flows; HOR producing. (P5/P3/P4 power connectors are
+  FULL -> "must match"; use a pole with a free slot like P7.)
+REMAINING (the ONLY gap): the 3 internal F1->F2 lifts (Rebar 2147176174,
+Pipe 2147173699, BP 2147171193) have OUTPUTS facing -y (SOUTH) at z-4400, but
+their receiver splitters (rebar-recv 2147176692, pipe-recv 2147174365, bp-recv
+2147171831) have INPUTS facing -x (WEST) - orientation mismatch, so the lift
+outputs won't take a belt toward the recv. PROVEN: a lift output DOES attach a
+belt going SOUTH (its facing dir) to a fresh pole (test pole @183800,193900).
+FIX (machine-level, SAFE, no void): for each lift either (a) re-place its recv
+rotated so the INPUT faces +y/north toward the lift, then belt lift-out->recv-in
+and rebuild recv-out->target; OR (b) belt lift-out -> pole due south -> pole due
+west -> recv-in (approach the west-facing input from the west). Then recv routes
+to its target (rebar/pipe -> Manufacturer inputs @y195325; bp -> Smokeless solid
+input @185100,191600). Once Black Powder reaches Smokeless (it has HOR), Smokeless
+Powder is made, and the Manufacturer gets IronRebar+SteelPipe+Smokeless ->
+Explosive Rebar -> Depot. USE "Auto" mode + player-near (F2 platform is SOLID,
+no void here). A stray test pole/belt is at 183800,193900,-4400 (harmless).
+
 ## >>> PAUSE / RESUME HERE (saved: erb-pause-2026-09-02) <<<
 Session paused 2026-09-02 for the day. Player parked SAFE on the factory
 platform (184500,192926,-5101). Coal + sulfur DELIVERED and FLOWING
