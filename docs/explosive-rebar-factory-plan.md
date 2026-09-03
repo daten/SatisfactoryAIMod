@@ -139,7 +139,32 @@ ABOVE local ground (groundHeight); buried poles can't source belts.
 (3) approach the factory only from its open SE mouth. (4) pure-cardinal
 short belts hit the shape rule; keep segments >1500u.
 
-## NOBELISK EXPANSION (in progress 2026-09-03, saved: nobelisk-internal-wired)
+## NOBELISK EXPANSION -- RAWS FED, STRUCTURALLY COMPLETE (2026-09-03, saved: nobelisk-raws-fed)
+ALL 4 raw feeds connected + verified. Every machine input/output connected
+(Foundry 2/2, SteelPipe 1/1, BP 2/2, Nobelisk 2/2; recipes confirmed Steel
+Ingot / Steel Pipe / Black Powder / Nobelisk). Awaiting material flow to the
+new Depot (raws travel several minutes; sulfur haul is longest).
+- IRON->Foundry: iron splitter 2146798816 +y out (183800,187600) -> west
+  lane x182600 -> Foundry iron-in (183800,182700). [build_iron_feed.py]
+- COAL->Foundry: coal splitter 2146815703 -y out (184600,188400) -> west
+  lane x182200 -> Foundry coal-in (184200,182700). [build_coal_feeds.py]
+- COAL->BP: coal splitter +y out (184600,188600) -> east lane x187400 ->
+  BP coal-in (185800,182400).
+- SULFUR->BP: the base sulfur haul arrives ELEVATED (z-4300) from the EAST
+  (pole 2146496371 -> belt -> north to base). Inserted a PASS-THROUGH
+  splitter 2146128028 @(186050,187900,-4400 yaw180): input<-pole(east),
+  output->base belt 2146295178(west, base line PRESERVED), -y output tapped
+  -> east lane x187800 (descends z-4300->z-5100) -> BP sulfur-in
+  (186200,182400). [tap_sulfur_step1/2/3.py]
+BELT RULE reconfirmed: raws routed around the machine block via west/east
+lanes (x182200/182600 and x187400/187800), running south to y~181000 then
+back north into the -y-facing machine inputs. Auto mode + player-near.
+NOTE for user: the base's OWN Black Powder assembler 2147204177
+(185200,194000) shows BOTH inputs conn=FALSE (unfed) -- the base appears to
+make its black powder another way or is running on buffer; flagged, NOT
+touched (out of scope, base declared complete).
+
+## NOBELISK EXPANSION (earlier checkpoint 2026-09-03, saved: nobelisk-internal-wired)
 Sub-factory placed SOUTH of the base (platform of 8x2 foundations @z-5250,
 machines @z-5200). Miner clocks raised for base+Nobelisk (coal 12.5%, iron
 11.46%, sulfur 3.125%). Machines (recipes+clocks SET, POWERED via a tower
