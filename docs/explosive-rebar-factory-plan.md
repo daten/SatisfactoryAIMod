@@ -139,6 +139,31 @@ ABOVE local ground (groundHeight); buried poles can't source belts.
 (3) approach the factory only from its open SE mouth. (4) pure-cardinal
 short belts hit the shape rule; keep segments >1500u.
 
+## NOBELISK EXPANSION (in progress 2026-09-03, saved: nobelisk-internal-wired)
+Sub-factory placed SOUTH of the base (platform of 8x2 foundations @z-5250,
+machines @z-5200). Miner clocks raised for base+Nobelisk (coal 12.5%, iron
+11.46%, sulfur 3.125%). Machines (recipes+clocks SET, POWERED via a tower
+bridge: nobelisk-tower 2146247609 -> mytower 2146840725, -> poles pN1
+2146251755 / pN2 2146251457):
+- FOUNDRY 2146256776 (184000,183000) Steel Ingot 66.667%
+- STEELPIPE 2146256289 (184000,184600) Steel Pipe 100%
+- BP 2146255782 (186000,183000) Black Powder 66.667%
+- NOBELISK 2146255268 (185200,186200) Nobelisk 100%
+- DEPOT 2146242927 (185200,187800, yaw180 input faces -y) - Central Storage
+  needs NO power wire (only a belt Input; uploads globally).
+INTERNAL CHAIN WIRED (machine-direct, all OK): Foundry->SteelPipe->Nobelisk
+<-BP, Nobelisk->Depot.
+REMAINING: feed raws. Machine inputs face -y(SOUTH) but the base raw
+splitters are NORTH, so feeds must loop around to approach from the south.
+Base taps: iron splitter 2146798816 free out (183800,187600, faces +y);
+coal splitter 2146815703 free outs (184600,188400 faces -y/SOUTH = easy,
+and 184600,188600); sulfur source TBD. Need: iron->Foundry in(183800 or
+184200,182700); coal->Foundry in + BP in(185800/186200,182400); sulfur->BP
+in. Nobelisk @100% = 10/min needs 20 BP + 20 SteelPipe -> raws iron+30,
+coal+40, sulfur+10 (miners already reclocked). Belt caps: coal at 60/min =
+Mk1 cap (tight). Consider re-orienting Foundry/BP to face north (raws
+direct) if the south loops prove too belt-heavy.
+
 ## >>> COMPLETE 2026-09-03 (saved: erb-COMPLETE-producing) <<<
 FACTORY DONE. Explosive Rebar is being produced from raw ore+crude and
 UPLOADED to the Dimensional Depot (2147152393) - depot count climbing live.
