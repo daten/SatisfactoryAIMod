@@ -139,6 +139,40 @@ ABOVE local ground (groundHeight); buried poles can't source belts.
 (3) approach the factory only from its open SE mouth. (4) pure-cardinal
 short belts hit the shape rule; keep segments >1500u.
 
+## >>> PAUSE / RESUME HERE (saved: erb-pause-2026-09-02) <<<
+Session paused 2026-09-02 for the day. Player parked SAFE on the factory
+platform (184500,192926,-5101). Coal + sulfur DELIVERED and FLOWING
+(BlackPowder was producing). Iron is ONE belt from done.
+IRON PATH (NW Pure node, lift-skyway over the mountain):
+  NW miner(2146836923,powered) -> ~10 canyon belts -> pole10
+  (2146807691 @180600,197800,-5655) -> LIFT-UP 2146469257 (its OUTPUT
+  dangles at 180600,197600,-855; conveyor lift max height ~4800u, so it
+  tops out here, which still clears the route's ceiling ~-1184) -> [[BROKEN:
+  I accidentally deleted sky1 with an over-broad cleanup box]] -> sky2
+  2146526659(181700,192000,-560) -> sky3 2146526353(182600,189500,-640)
+  -> skyend 2146526051(183700,187600,-720) -> belt -> liftpole 2146505800
+  (183700,190200,-720) -> LIFT-DOWN 2146500636 -> botpole 2146501543
+  (183700,190200,-5100) -> belt -> iron splitter 2146798816 input
+  -> Smelter(2147206106) + Foundry(2147205041) iron inputs. Down half +
+  splitter->machines all VERIFIED connected. Only the lift-out->sky1->sky2
+  link is missing.
+RESUME STEP 1: run scratch rebuild_sky1.py (or: place a conveyor pole sky1
+  @~181000,195000,-850; belt LIFT 2146469257 output(180600,197600,-855)
+  -> sky1; belt sky1 -> sky2 2146526659) using the player-near belt method
+  (see [[reference_belt_haul_terrain_rules]]) - the lift-out->sky1 midpoint
+  (~180800,196300) is over VOID so use the brief-hover-then-restore trick,
+  monitor world.player alive.
+RESUME STEP 2: wait for iron to traverse (~minutes), confirm Smelter and
+  Foundry produce; then Rod/Rebar/Pipe, Manufacturer -> Depot at 100%.
+RESUME STEP 3: RE-APPLY clocks AFTER machines are producing (setClockSpeed
+  is pending; Standby reverts to 100) and verify. Fuel-gen/refinery are
+  bonus (grid is powered by the tower bridge). Also: byproduct polymer
+  resin (fuel refinery) currently unrouted - optional.
+USER FEEDBACK this session: subterranean/void belts are risky+abnormal (use
+  lift-skyways); don't teleport the player over void (killed them once ->
+  manual save-reload); questioned the skyway height (it's lift-limited, as
+  low as clears the cave ceiling).
+
 ## PROGRESS UPDATE 5 (saved: erb-iron-connected) 2026-09-02
 ALL THREE RAWS DELIVERED. Coal+sulfur flowing (BlackPowder was PRODUCING
 Black Powder). IRON solved via a LIFT-SKYWAY over the mountain (user's
