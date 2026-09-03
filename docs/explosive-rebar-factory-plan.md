@@ -139,7 +139,37 @@ ABOVE local ground (groundHeight); buried poles can't source belts.
 (3) approach the factory only from its open SE mouth. (4) pure-cardinal
 short belts hit the shape rule; keep segments >1500u.
 
-## NOBELISK EXPANSION -- RAWS FED, STRUCTURALLY COMPLETE (2026-09-03, saved: nobelisk-raws-fed)
+## NOBELISK EXPANSION -- PRODUCING (2026-09-03, saved: nobelisk-producing)
+LIVE VERIFIED: Nobelisk assembler Producing, depot Nobelisk count climbing
+~10/min (74->107 over ~3.5min). Full chain works end to end.
+
+CRUCIAL BELT-AUDIT LESSON (user caught this): after the GPU crash+reload, and
+from brute-force belt routing, MANY belts were left DANGLING (one end in free
+space). Symptoms: sulfur/black-powder sitting on a belt that ends abruptly;
+"empty broken belts connected to machines waiting for resources" (machine-side
+connector shows conn=True but the belt is unfed upstream). ALWAYS audit for
+dangling ends before diagnosing a "supply/power" problem:
+  world.connections on every belt in the area; flag any endpoint conn=False.
+BIGGER MISTAKE I made: I tapped the WRONG line. The elevated z-4300 line from
+the east that I split for "sulfur" was actually the base BLACK-POWDER output
+loop (fed by the idle base BP 2147204177 -> refinery). The REAL sulfur arrives
+on belt 2146630434 (from the east skyway via pole 2146643104), output dangling
+at (185400,188000,-5000), FULL of sulfur, never connected onward. LESSON:
+confirm a belt's ITEM by tracing it to a known source/consumer before tapping;
+"by elimination" was not enough.
+FIX (saved nobelisk-producing): splitter SP2 2147444355 @(186800,188000) on the
+real sulfur arrival 2146630434 -> east lane x188400 -> Nobelisk BP sulfur-in
+(186200,182400). Deleted the dead feeder 2146008018 + the wrong black-powder
+tap belt off splitter 2146128028. Nobelisk BP then went Producing (Sulfur 16),
+Nobelisk assembler Producing.
+STILL BROKEN (base infra, user flagged, separate from Nobelisk): base BP
+2147204177 both inputs (185000/185400,193400) disconnected -> base Explosive
+Rebar coasting on 200 banked, not actively producing. Plus abandoned elevated
+belt cluster near (186400,192500) (2146905898/2146717993/2146643343/2147191671/
+2147152629, 2nd refinery 2146899368 both-ends-free). NEXT: revive base BP
+(sulfur from SP2 north tap + coal from coal splitter -> base BP inputs).
+
+## NOBELISK EXPANSION -- earlier: raws fed (2026-09-03, saved: nobelisk-raws-fed)
 ALL 4 raw feeds connected + verified. Every machine input/output connected
 (Foundry 2/2, SteelPipe 1/1, BP 2/2, Nobelisk 2/2; recipes confirmed Steel
 Ingot / Steel Pipe / Black Powder / Nobelisk). Awaiting material flow to the
