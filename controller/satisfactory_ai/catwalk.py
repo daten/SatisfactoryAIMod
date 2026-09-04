@@ -61,9 +61,9 @@ def _catwalk_pieceset() -> "PieceSet":
         recipe_ramp=_CAT + "Recipe_Catwalk_Ramp.Recipe_Catwalk_Ramp_C",
         # Build_* class paths are resolved lazily from world.buildables if a
         # literal path ever drifts; these are the observed ones.
-        class_t="/Game/FactoryGame/Buildable/Building/Walkways/Build_CatwalkT.Build_CatwalkT_C",
-        class_turn="/Game/FactoryGame/Buildable/Building/Walkways/Build_CatwalkCorner.Build_CatwalkCorner_C",
-        class_ramp="/Game/FactoryGame/Buildable/Building/Walkways/Build_CatwalkRamp.Build_CatwalkRamp_C",
+        class_t="/Game/FactoryGame/Buildable/Building/Catwalk/Build_CatwalkT.Build_CatwalkT_C",
+        class_turn="/Game/FactoryGame/Buildable/Building/Catwalk/Build_CatwalkCorner.Build_CatwalkCorner_C",
+        class_ramp="/Game/FactoryGame/Buildable/Building/Catwalk/Build_CatwalkRamp.Build_CatwalkRamp_C",
     )
 
 
