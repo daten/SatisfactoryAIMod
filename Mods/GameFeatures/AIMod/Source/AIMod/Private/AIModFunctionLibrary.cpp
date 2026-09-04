@@ -5341,6 +5341,29 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 		}
 
 		const FVector ConstructLocation = PollHologram->GetActorLocation();
+
+		// GUARD (2026-09-04): AFGResourceExtractorHologram::ConfigureActor() has
+		// a hard check(mSnappedExtractableResource) that CRASHES the game (assert
+		// at FGResourceExtractorHologram.cpp:235) if the extractor hologram never
+		// snapped to an extractable resource - hit live placing a Mk1 miner on an
+		// iron resource node whose resource component didn't snap. The disqualifier
+		// pass above does NOT catch this. Read that protected-but-UPROPERTY
+		// TScriptInterface via reflection and abort with a structured error rather
+		// than let the engine assert - per CLAUDE.md an expected failure (a node
+		// the extractor can't actually attach to) must never crash the game.
+		if (const FInterfaceProperty* SnapProp = CastField<FInterfaceProperty>(
+				PollHologram->GetClass()->FindPropertyByName(TEXT("mSnappedExtractableResource"))))
+		{
+			const FScriptInterface* Snap = SnapProp->ContainerPtrToValuePtr<FScriptInterface>(PollHologram);
+			if (!Snap || Snap->GetObject() == nullptr)
+			{
+				UE_LOG(LogAIModAI, Warning, TEXT("ConstructExtractorOnNode: extractor hologram did NOT snap an extractable resource for node=%s - aborting to avoid the ConfigureActor assert crash"), *PollState->NodeId);
+				if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+				PollState->OnComplete(FAIModOperationResult::Failure(TEXT("NO_EXTRACTABLE_RESOURCE"), TEXT("The extractor hologram did not snap to an extractable resource on this node; miner not constructed (would otherwise assert/crash).")));
+				return;
+			}
+		}
+
 		PollBuildState->InternalConstructHologram(ConstructionID);
 
 		// Confirmation, not just trust: if construction genuinely
