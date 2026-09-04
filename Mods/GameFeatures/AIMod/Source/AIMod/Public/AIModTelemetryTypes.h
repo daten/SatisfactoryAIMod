@@ -111,6 +111,26 @@ struct FAIModBuildableTelemetry
 
 	UPROPERTY(BlueprintReadOnly, Category = "AIMod|Telemetry")
 	FRotator Rotation = FRotator::ZeroRotator;
+
+	/**
+	 * World-space axis-aligned bounding box of this buildable's clearance
+	 * footprint (2026-09-03: added so lightweight buildables -
+	 * foundations/walls/catwalks/ramps - expose real geometry, not just a
+	 * pivot; catches overhang/overlap/spacing and reveals a ramp's rise via
+	 * the Z extent, all without a human eyeballing the game). Derived from
+	 * the class CDO's FFGClearanceData transformed by the instance transform.
+	 * bHasBounds is false when the class has no clearance data (e.g.
+	 * conveyors/beams whose clearance is computed per-instance and is empty
+	 * on the CDO) - callers must check it before trusting Min/Max.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "AIMod|Telemetry")
+	bool bHasBounds = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AIMod|Telemetry")
+	FVector BoundsMin = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "AIMod|Telemetry")
+	FVector BoundsMax = FVector::ZeroVector;
 };
 
 /** One item stack in an inventory, for FAIModManufacturerTelemetry. */

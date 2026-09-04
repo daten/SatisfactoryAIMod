@@ -54,6 +54,8 @@
 #include "Engine/ActorInstanceHandle.h"
 #include "FGDismantleInterface.h"
 #include "FGLightweightBuildableSubsystem.h"
+#include "FGClearanceInterface.h"
+#include "FGClearanceData.h"
 #include "Resources/FGBuildingDescriptor.h"
 #include "Resources/FGBuildDescriptor.h"
 #include "FGRecipeManager.h"
@@ -606,6 +608,54 @@ namespace
 		return nullptr;
 	}
 
+	// World-space AABB of a buildable's clearance footprint, for
+	// FAIModBuildableTelemetry.Bounds. A class's local clearance boxes (its
+	// CDO FFGClearanceData) are constant per class, so cache the composed
+	// LOCAL box per class and just TransformBy each instance/actor transform -
+	// cheap enough to run over every buildable each world.buildables call.
+	// Returns false (Out* untouched) when the class exposes no clearance data
+	// on its CDO (dynamic-clearance buildables - conveyors, beams - compute it
+	// per-instance, so it is empty on the CDO). The box is the CLEARANCE
+	// footprint, not the render mesh, which is exactly what matters for
+	// overhang/overlap/spacing checks and for a ramp's Z rise.
+	bool TryComputeBuildableWorldBounds(UClass* BuildableClass, const FTransform& WorldTransform, FVector& OutMin, FVector& OutMax)
+	{
+		if (!BuildableClass)
+		{
+			return false;
+		}
+		static TMap<TWeakObjectPtr<UClass>, FBox> LocalBoxCache;
+		FBox LocalBox(ForceInit);
+		if (const FBox* Cached = LocalBoxCache.Find(BuildableClass))
+		{
+			LocalBox = *Cached;
+		}
+		else
+		{
+			if (BuildableClass->ImplementsInterface(UFGClearanceInterface::StaticClass()))
+			{
+				if (UObject* CDO = BuildableClass->GetDefaultObject())
+				{
+					TArray<FFGClearanceData> ClearanceData;
+					IFGClearanceInterface::Execute_GetClearanceData(CDO, ClearanceData);
+					for (const FFGClearanceData& Entry : ClearanceData)
+					{
+						LocalBox += Entry.GetTransformedClearanceBox();
+					}
+				}
+			}
+			LocalBoxCache.Add(BuildableClass, LocalBox);
+		}
+		if (!LocalBox.IsValid)
+		{
+			return false;
+		}
+		const FBox WorldBox = LocalBox.TransformBy(WorldTransform);
+		OutMin = WorldBox.Min;
+		OutMax = WorldBox.Max;
+		return true;
+	}
+
 	TArray<FAIModBuildableTelemetry> CollectLightweightBuildableTelemetry(UWorld* World)
 	{
 		TArray<FAIModBuildableTelemetry> Result;
@@ -646,6 +696,7 @@ namespace
 				Telemetry.BuildableClass = BuildableClass->GetPathName();
 				Telemetry.Position = InstanceData.Transform.GetLocation();
 				Telemetry.Rotation = InstanceData.Transform.Rotator();
+				Telemetry.bHasBounds = TryComputeBuildableWorldBounds(BuildableClass, InstanceData.Transform, Telemetry.BoundsMin, Telemetry.BoundsMax);
 				Result.Add(MoveTemp(Telemetry));
 			}
 		}
@@ -667,6 +718,7 @@ namespace
 			Telemetry.BuildableClass = Buildable->GetClass()->GetPathName();
 			Telemetry.Position = Buildable->GetActorLocation();
 			Telemetry.Rotation = Buildable->GetActorRotation();
+			Telemetry.bHasBounds = TryComputeBuildableWorldBounds(Buildable->GetClass(), Buildable->GetActorTransform(), Telemetry.BoundsMin, Telemetry.BoundsMax);
 			Result.Add(MoveTemp(Telemetry));
 		}
 		Result.Append(CollectLightweightBuildableTelemetry(World));
@@ -1346,6 +1398,30 @@ FString UAIModFunctionLibrary::LogBuildablesAsJsonFiltered(UObject* WorldContext
 		RotationObject->SetNumberField(TEXT("yaw"), Buildable.Rotation.Yaw);
 		RotationObject->SetNumberField(TEXT("roll"), Buildable.Rotation.Roll);
 		BuildableObject->SetObjectField(TEXT("rotation"), RotationObject);
+
+		// World-space clearance AABB (min/max/size). Absent when the class
+		// has no CDO clearance data - callers key off its presence.
+		if (Buildable.bHasBounds)
+		{
+			const FVector BoundsSize = Buildable.BoundsMax - Buildable.BoundsMin;
+			const TSharedRef<FJsonObject> BoundsObject = MakeShared<FJsonObject>();
+			const TSharedRef<FJsonObject> BoundsMinObject = MakeShared<FJsonObject>();
+			BoundsMinObject->SetNumberField(TEXT("x"), Buildable.BoundsMin.X);
+			BoundsMinObject->SetNumberField(TEXT("y"), Buildable.BoundsMin.Y);
+			BoundsMinObject->SetNumberField(TEXT("z"), Buildable.BoundsMin.Z);
+			BoundsObject->SetObjectField(TEXT("min"), BoundsMinObject);
+			const TSharedRef<FJsonObject> BoundsMaxObject = MakeShared<FJsonObject>();
+			BoundsMaxObject->SetNumberField(TEXT("x"), Buildable.BoundsMax.X);
+			BoundsMaxObject->SetNumberField(TEXT("y"), Buildable.BoundsMax.Y);
+			BoundsMaxObject->SetNumberField(TEXT("z"), Buildable.BoundsMax.Z);
+			BoundsObject->SetObjectField(TEXT("max"), BoundsMaxObject);
+			const TSharedRef<FJsonObject> BoundsSizeObject = MakeShared<FJsonObject>();
+			BoundsSizeObject->SetNumberField(TEXT("x"), BoundsSize.X);
+			BoundsSizeObject->SetNumberField(TEXT("y"), BoundsSize.Y);
+			BoundsSizeObject->SetNumberField(TEXT("z"), BoundsSize.Z);
+			BoundsObject->SetObjectField(TEXT("size"), BoundsSizeObject);
+			BuildableObject->SetObjectField(TEXT("bounds"), BoundsObject);
+		}
 
 		BuildableJsonArray.Add(MakeShared<FJsonValueObject>(BuildableObject));
 	}
