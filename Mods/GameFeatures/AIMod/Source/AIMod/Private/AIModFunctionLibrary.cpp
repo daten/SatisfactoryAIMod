@@ -56,13 +56,12 @@
 #include "FGLightweightBuildableSubsystem.h"
 #include "FGClearanceInterface.h"
 #include "FGClearanceData.h"
+#include "Buildables/FGBuildableWalkway.h"
 #include "Resources/FGBuildingDescriptor.h"
 #include "Resources/FGBuildDescriptor.h"
 #include "FGRecipeManager.h"
 #include "Buildables/FGBuildableGenerator.h"
 #include "Buildables/FGBuildableResourceExtractorBase.h"
-#include "FGClearanceInterface.h"
-#include "FGClearanceData.h"
 #include "Hologram/FGBuildableHologram.h"
 #include "FGFactoryColoringTypes.h"
 #include "Buildables/FGBuildableDroneStation.h"
@@ -1774,6 +1773,47 @@ FString UAIModFunctionLibrary::LogConnectorLayoutAsJson(UObject* WorldContextObj
 	}
 
 	RootObject->SetArrayField(TEXT("connectors"), Rows);
+
+	// Walkway/catwalk orientation data (2026-09-03): catwalks (and walkways)
+	// are AFGBuildableWalkway, which stores exactly the facts we otherwise had
+	// to calibrate against the user's eyes - mSize (footprint side), mElevation
+	// (ramp rise; per FGBuildableWalkway.h the ramp goes UP toward LOCAL +X),
+	// and mDisableSnapOn (the sides with snapping disabled == the RAILED/closed
+	// sides). Emitting the railed sides as LOCAL-frame normals lets a caller
+	// rotate them by a placed piece's yaw to get the world rail direction with
+	// zero eyeballing (a Catwalk_T reports one rail side, a Straight/Turn two,
+	// a Cross none). Local side->normal: Front=+X, Back=-X, Right=+Y, Left=-Y.
+	if (const AFGBuildableWalkway* WalkwayCDO = BuildableClass->GetDefaultObject<AFGBuildableWalkway>())
+	{
+		const TSharedRef<FJsonObject> WalkwayObject = MakeShared<FJsonObject>();
+		WalkwayObject->SetNumberField(TEXT("size"), WalkwayCDO->mSize);
+		WalkwayObject->SetNumberField(TEXT("elevation"), WalkwayCDO->mElevation);
+		// mElevation rises toward local +X (documented on FGBuildableWalkway).
+		const TSharedRef<FJsonObject> RiseDir = MakeShared<FJsonObject>();
+		RiseDir->SetNumberField(TEXT("x"), 1.0);
+		RiseDir->SetNumberField(TEXT("y"), 0.0);
+		RiseDir->SetNumberField(TEXT("z"), 0.0);
+		WalkwayObject->SetObjectField(TEXT("rampHighLocalDir"), RiseDir);
+
+		const FFoundationSideSelectionFlags& Snap = WalkwayCDO->mDisableSnapOn;
+		TArray<TSharedPtr<FJsonValue>> RailNormals;
+		auto AddRail = [&RailNormals](double NX, double NY, double NZ)
+		{
+			const TSharedRef<FJsonObject> N = MakeShared<FJsonObject>();
+			N->SetNumberField(TEXT("x"), NX);
+			N->SetNumberField(TEXT("y"), NY);
+			N->SetNumberField(TEXT("z"), NZ);
+			RailNormals.Add(MakeShared<FJsonValueObject>(N));
+		};
+		if (Snap.Front) { AddRail(1.0, 0.0, 0.0); }
+		if (Snap.Back)  { AddRail(-1.0, 0.0, 0.0); }
+		if (Snap.Right) { AddRail(0.0, 1.0, 0.0); }
+		if (Snap.Left)  { AddRail(0.0, -1.0, 0.0); }
+		WalkwayObject->SetArrayField(TEXT("railLocalNormals"), RailNormals);
+
+		RootObject->SetObjectField(TEXT("walkway"), WalkwayObject);
+	}
+
 	UE_LOG(LogAIModAI, Display, TEXT("LogConnectorLayoutAsJson: %s -> %d connector(s)"), *BuildableClassPath, Rows.Num());
 	return WriteCondensedJson(RootObject);
 }
