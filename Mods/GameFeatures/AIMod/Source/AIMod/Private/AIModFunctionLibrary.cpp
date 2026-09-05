@@ -69,6 +69,7 @@
 #include "Resources/FGVehicleDescriptor.h"
 #include "Hologram/FGVehicleHologram.h"
 #include "FGRailroadTrackConnectionComponent.h"
+#include "FGRailroadSubsystem.h"
 #include "Hologram/FGRailroadTrackHologram.h"
 #include "Hologram/FGRailroadVehicleHologram.h"
 #include "Buildables/FGBuildableRailroadTrack.h"
@@ -12145,16 +12146,17 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		// end connections are co-located with the source/dest connections we
 		// aimed at but are NOT graph-linked. Explicitly link them via the public
 		// UFGRailroadTrackConnectionComponent::AddConnection (bidirectional).
-		auto ForceLink = [PollWorld](UFGRailroadTrackConnectionComponent* Anchor, const TCHAR* Label)
+		auto ForceLink = [PollWorld](UFGRailroadTrackConnectionComponent* Anchor, const TCHAR* Label) -> AFGBuildableRailroadTrack*
 		{
 			if (!IsValid(Anchor))
 			{
-				return;
+				return nullptr;
 			}
 			if (Anchor->IsConnected())
 			{
 				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: %s connection already graph-linked (hologram snapped)"), Label);
-				return;
+				UFGRailroadTrackConnectionComponent* Peer = Anchor->GetConnection();
+				return Peer ? Peer->GetTrack() : nullptr;
 			}
 			const FVector Loc = Anchor->GetConnectorLocation();
 			UFGRailroadTrackConnectionComponent* Best = nullptr;
@@ -12188,17 +12190,34 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 				Anchor->AddConnection(Best);
 				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: force-linked %s connection to new track end at dist %.1f (nowConnected=%s)"),
 					Label, FMath::Sqrt(BestDistSq), Anchor->IsConnected() ? TEXT("true") : TEXT("false"));
+				return Best->GetTrack();
 			}
-			else
-			{
-				UE_LOG(LogAIModAI, Warning, TEXT("ConstructRailroadTrack: could not force-link %s connection - no free co-located track end (nearest %.1f)"),
-					Label, Best ? FMath::Sqrt(BestDistSq) : -1.0f);
-			}
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructRailroadTrack: could not force-link %s connection - no free co-located track end (nearest %.1f)"),
+				Label, Best ? FMath::Sqrt(BestDistSq) : -1.0f);
+			return nullptr;
 		};
 		if (!PollState->bDryRun)
 		{
-			ForceLink(PollState->SourceConn.Get(), TEXT("source"));
-			ForceLink(PollState->DestConn.Get(), TEXT("dest"));
+			AFGBuildableRailroadTrack* CurveA = ForceLink(PollState->SourceConn.Get(), TEXT("source"));
+			AFGBuildableRailroadTrack* CurveB = ForceLink(PollState->DestConn.Get(), TEXT("dest"));
+			AFGBuildableRailroadTrack* NewTrack = CurveA ? CurveA : CurveB;
+			// AddConnection updates the components but the railroad SUBSYSTEM's
+			// pathfinding graph doesn't learn of it (trains still read
+			// StationUnreachable - live 2026-09-05). Re-register the now-fully-
+			// connected new track so the subsystem rebuilds/merges the graphs
+			// ("Track must have its connections set up" then AddTrack, per
+			// AFGRailroadSubsystem::AddTrack's contract).
+			AFGRailroadSubsystem* RailSub = AFGRailroadSubsystem::Get(PollWorld);
+			if (NewTrack && RailSub)
+			{
+				RailSub->RemoveTrack(NewTrack);
+				RailSub->AddTrack(NewTrack);
+				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: re-registered new track %s with railroad subsystem for graph merge"), *NewTrack->GetName());
+			}
+			else
+			{
+				UE_LOG(LogAIModAI, Warning, TEXT("ConstructRailroadTrack: no new track resolved for subsystem re-registration (RailSub=%s)"), RailSub ? TEXT("ok") : TEXT("null"));
+			}
 		}
 
 		if (IsValid(PollCharacter))
