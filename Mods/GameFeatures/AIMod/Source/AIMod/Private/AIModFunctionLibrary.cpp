@@ -609,6 +609,31 @@ namespace
 		return nullptr;
 	}
 
+	// The FREE railroad connection on a buildable closest to a world position -
+	// lets a caller pick WHICH end of a multi-connector track (e.g. a station's
+	// two ends) to join, so a loop's two curves join matching sides instead of
+	// whatever "first free" happens to return (2026-09-05).
+	UFGRailroadTrackConnectionComponent* FindFreeRailroadConnectionNearest(AFGBuildable* Buildable, const FVector& WorldPos)
+	{
+		TArray<UFGRailroadTrackConnectionComponent*> Connections;
+		Buildable->GetComponents<UFGRailroadTrackConnectionComponent>(Connections);
+		UFGRailroadTrackConnectionComponent* Best = nullptr;
+		float BestDistSq = TNumericLimits<float>::Max();
+		for (UFGRailroadTrackConnectionComponent* Connection : Connections)
+		{
+			if (IsValid(Connection) && !Connection->IsConnected())
+			{
+				const float DistSq = FVector::DistSquared(Connection->GetConnectorLocation(), WorldPos);
+				if (DistSq < BestDistSq)
+				{
+					BestDistSq = DistSq;
+					Best = Connection;
+				}
+			}
+		}
+		return Best;
+	}
+
 	// World-space AABB of a buildable's clearance footprint, for
 	// FAIModBuildableTelemetry.Bounds. A class's local clearance boxes (its
 	// CDO FFGClearanceData) are constant per class, so cache the composed
@@ -11761,7 +11786,7 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 // this only builds a single point-to-point segment between two existing
 // connector-bearing buildables (e.g. two Train Station platforms, or an
 // existing track's open end).
-void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
+void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -11790,13 +11815,17 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		return;
 	}
 
-	UFGRailroadTrackConnectionComponent* SourceConnection = FindFreeRailroadConnection(SourceBuildable);
+	UFGRailroadTrackConnectionComponent* SourceConnection = bHasSourceConnectorPos
+		? FindFreeRailroadConnectionNearest(SourceBuildable, SourceConnectorPos)
+		: FindFreeRailroadConnection(SourceBuildable);
 	if (!SourceConnection)
 	{
 		OnComplete(FAIModOperationResult::Failure(TEXT("NO_RAILROAD_CONNECTION"), FString::Printf(TEXT("'%s' has no free railroad track connection component"), *SourceBuildableId)));
 		return;
 	}
-	UFGRailroadTrackConnectionComponent* DestConnection = FindFreeRailroadConnection(DestBuildable);
+	UFGRailroadTrackConnectionComponent* DestConnection = bHasDestConnectorPos
+		? FindFreeRailroadConnectionNearest(DestBuildable, DestConnectorPos)
+		: FindFreeRailroadConnection(DestBuildable);
 	if (!DestConnection)
 	{
 		OnComplete(FAIModOperationResult::Failure(TEXT("NO_RAILROAD_CONNECTION"), FString::Printf(TEXT("'%s' has no free railroad track connection component"), *DestBuildableId)));

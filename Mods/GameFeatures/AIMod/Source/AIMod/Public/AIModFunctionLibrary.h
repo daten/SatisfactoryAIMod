@@ -2498,7 +2498,7 @@ public:
 	 * (FGRailroadTrackHologram.cpp is a stub, real construct-path
 	 * behavior unconfirmed).
 	 */
-	static void ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+	static void ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
 	 * world.constructVehiclePathSegment (2026-08-29) - researched from

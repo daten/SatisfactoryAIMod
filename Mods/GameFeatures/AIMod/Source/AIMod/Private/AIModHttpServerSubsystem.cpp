@@ -2022,7 +2022,31 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		}
 
 		const bool bDryRunTrack = Method == TEXT("world.testRailroadTrack");
+
+		// Optional: pick WHICH end of each buildable's railroad track to join,
+		// by nearest world position (needed to close a loop with matching-side
+		// curves rather than whatever "first free" returns).
+		auto ParseConnPos = [&ParamsObject](const TCHAR* Field, FVector& Out) -> bool
+		{
+			const TSharedPtr<FJsonObject>* PosObj = nullptr;
+			if (ParamsObject->TryGetObjectField(Field, PosObj) && PosObj && PosObj->IsValid())
+			{
+				double PX = 0.0, PY = 0.0, PZ = 0.0;
+				if ((*PosObj)->TryGetNumberField(TEXT("x"), PX) && (*PosObj)->TryGetNumberField(TEXT("y"), PY) && (*PosObj)->TryGetNumberField(TEXT("z"), PZ))
+				{
+					Out = FVector(PX, PY, PZ);
+					return true;
+				}
+			}
+			return false;
+		};
+		FVector SrcConnPos = FVector::ZeroVector;
+		FVector DstConnPos = FVector::ZeroVector;
+		const bool bHasSrcConnPos = ParseConnPos(TEXT("sourceConnectorPosition"), SrcConnPos);
+		const bool bHasDstConnPos = ParseConnPos(TEXT("destConnectorPosition"), DstConnPos);
+
 		UAIModFunctionLibrary::ConstructRailroadTrack(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRunTrack,
+			SrcConnPos, bHasSrcConnPos, DstConnPos, bHasDstConnPos,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));
