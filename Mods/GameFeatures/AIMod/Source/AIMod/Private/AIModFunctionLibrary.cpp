@@ -12006,6 +12006,11 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		bool bDryRun = true;
 		FRotator DeterministicLook;
 		FHitResult EndHit; // re-asserted every poll tick, see below
+		// The source/dest rail connections to force-link the new track to
+		// (the hologram builds the spline but IsConnectionSnapped stays
+		// false -> isolated track -> trains can't path; live 2026-09-05).
+		TWeakObjectPtr<UFGRailroadTrackConnectionComponent> SourceConn;
+		TWeakObjectPtr<UFGRailroadTrackConnectionComponent> DestConn;
 		int32 AttemptsRemaining = 120;
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -12019,6 +12024,8 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 	PollState->bDryRun = bDryRun;
 	PollState->DeterministicLook = TrackDeterministicLook;
 	PollState->EndHit = EndHit;
+	PollState->SourceConn = SourceConnection;
+	PollState->DestConn = DestConnection;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -12130,6 +12137,69 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 
 		UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
 			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
+
+		// GRAPH-LINK FIX (2026-09-05): the hologram builds the track spline but
+		// never snaps to the rail connections (IsConnectionSnapped stayed false
+		// in every live build), so the new track is isolated and trains can't
+		// path over it (selfDrivingError StationUnreachable). The new track's
+		// end connections are co-located with the source/dest connections we
+		// aimed at but are NOT graph-linked. Explicitly link them via the public
+		// UFGRailroadTrackConnectionComponent::AddConnection (bidirectional).
+		auto ForceLink = [PollWorld](UFGRailroadTrackConnectionComponent* Anchor, const TCHAR* Label)
+		{
+			if (!IsValid(Anchor))
+			{
+				return;
+			}
+			if (Anchor->IsConnected())
+			{
+				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: %s connection already graph-linked (hologram snapped)"), Label);
+				return;
+			}
+			const FVector Loc = Anchor->GetConnectorLocation();
+			UFGRailroadTrackConnectionComponent* Best = nullptr;
+			float BestDistSq = TNumericLimits<float>::Max();
+			for (TActorIterator<AFGBuildableRailroadTrack> It(PollWorld); It; ++It)
+			{
+				AFGBuildableRailroadTrack* Track = *It;
+				if (!IsValid(Track))
+				{
+					continue;
+				}
+				TArray<UFGRailroadTrackConnectionComponent*> Conns;
+				Track->GetComponents<UFGRailroadTrackConnectionComponent>(Conns);
+				for (UFGRailroadTrackConnectionComponent* Cn : Conns)
+				{
+					if (!IsValid(Cn) || Cn == Anchor || Cn->IsConnected())
+					{
+						continue;
+					}
+					const float DistSq = FVector::DistSquared(Cn->GetConnectorLocation(), Loc);
+					if (DistSq < BestDistSq)
+					{
+						BestDistSq = DistSq;
+						Best = Cn;
+					}
+				}
+			}
+			// Co-located end of the freshly built track (tolerance 150cm).
+			if (Best && BestDistSq <= 150.0f * 150.0f)
+			{
+				Anchor->AddConnection(Best);
+				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: force-linked %s connection to new track end at dist %.1f (nowConnected=%s)"),
+					Label, FMath::Sqrt(BestDistSq), Anchor->IsConnected() ? TEXT("true") : TEXT("false"));
+			}
+			else
+			{
+				UE_LOG(LogAIModAI, Warning, TEXT("ConstructRailroadTrack: could not force-link %s connection - no free co-located track end (nearest %.1f)"),
+					Label, Best ? FMath::Sqrt(BestDistSq) : -1.0f);
+			}
+		};
+		if (!PollState->bDryRun)
+		{
+			ForceLink(PollState->SourceConn.Get(), TEXT("source"));
+			ForceLink(PollState->DestConn.Get(), TEXT("dest"));
+		}
 
 		if (IsValid(PollCharacter))
 		{
