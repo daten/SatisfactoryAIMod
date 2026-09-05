@@ -11786,6 +11786,18 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
+		// Rail TrySnapToActor may key off the hit's Component (belts/pipes
+		// tolerated a null Component; the rail hologram's start step never
+		// advanced without one - 2026-09-05). The connection is a
+		// USceneComponent, not a primitive, so point the hit at the
+		// buildable's root primitive instead.
+		if (Buildable)
+		{
+			if (UPrimitiveComponent* RootPrim = Cast<UPrimitiveComponent>(Buildable->GetRootComponent()))
+			{
+				Hit.Component = RootPrim;
+			}
+		}
 		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
 		// doc comment (proven for the lift's height; suspected fix for
 		// the belt player-distance "too long" failures).
@@ -11814,37 +11826,81 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		TrackController->SetControlRotation(TrackDeterministicLook);
 	}
 
+	auto StepName = [](ESplineHologramBuildStep s) -> const TCHAR*
+	{
+		switch (s)
+		{
+			case ESplineHologramBuildStep::SHBS_FindStart: return TEXT("FindStart");
+			case ESplineHologramBuildStep::SHBS_AdjustStartingPole: return TEXT("AdjustStartingPole");
+			case ESplineHologramBuildStep::SHBS_PlacePoleOrSnapEnding: return TEXT("PlacePoleOrSnapEnding");
+			case ESplineHologramBuildStep::SHBS_AdjustPole: return TEXT("AdjustPole");
+			default: return TEXT("?");
+		}
+	};
+
+	// ---- START click. Instrumented (2026-09-05): the rail hologram's
+	// start step never advanced past FindStart with the belt/pipe pattern.
+	// Capture every state signal (returned verbatim in the error) and, if
+	// the "release/tap" input didn't advance the step, retry as a "press".
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
 	TrackHologram->UpdateHologramPlacement(StartHit);
-	TrackHologram->TrySnapToActor(StartHit);
-	const bool bStartStepComplete = TrackHologram->DoMultiStepPlacement(true);
-	const ESplineHologramBuildStep StepAfterStart = TrackHologram->GetCurrentBuildStep();
+	const bool bSnapStart = TrackHologram->TrySnapToActor(StartHit);
+	const bool bCanStepStart = TrackHologram->CanTakeNextBuildStep();
+	const bool bConnSnapStart = TrackHologram->IsConnectionSnapped(false);
+	bool bStartStepComplete = TrackHologram->DoMultiStepPlacement(true);
+	ESplineHologramBuildStep StepAfterStart = TrackHologram->GetCurrentBuildStep();
+	bool bStartRetriedAsPress = false;
+	if (!bStartStepComplete && StepAfterStart == ESplineHologramBuildStep::SHBS_FindStart)
+	{
+		bStartRetriedAsPress = true;
+		TrackHologram->UpdateHologramPlacement(StartHit);
+		TrackHologram->TrySnapToActor(StartHit);
+		bStartStepComplete = TrackHologram->DoMultiStepPlacement(false);
+		StepAfterStart = TrackHologram->GetCurrentBuildStep();
+	}
 
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: source=%s dest=%s after start click: stepComplete=%s step=%d disqualifiers=[%s]"),
-		*SourceBuildableId, *DestBuildableId, bStartStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterStart), *SummarizeDisqualifiers(TrackHologram));
+	FString Diag = FString::Printf(TEXT("start[snap=%d canStep=%d connSnap=%d done=%d step=%s pressRetry=%d disq=%s]"),
+		bSnapStart ? 1 : 0, bCanStepStart ? 1 : 0, bConnSnapStart ? 1 : 0, bStartStepComplete ? 1 : 0,
+		StepName(StepAfterStart), bStartRetriedAsPress ? 1 : 0, *SummarizeDisqualifiers(TrackHologram));
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: src=%s dst=%s %s"), *SourceBuildableId, *DestBuildableId, *Diag);
 
 	if (bStartStepComplete)
 	{
 		Character->UnequipBuildGun();
-		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"), TEXT("DoMultiStepPlacement() reported complete after only the start click")));
+		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"),
+			FString::Printf(TEXT("placement completed after only the start click - %s"), *Diag)));
 		return;
 	}
 
+	// ---- END click ----
 	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
 	TrackHologram->UpdateHologramPlacement(EndHit);
-	TrackHologram->TrySnapToActor(EndHit);
-	const bool bEndStepComplete = TrackHologram->DoMultiStepPlacement(true);
-	const ESplineHologramBuildStep StepAfterEnd = TrackHologram->GetCurrentBuildStep();
-	const bool bEndConnectionSnapped = TrackHologram->IsConnectionSnapped(false);
+	const bool bSnapEnd = TrackHologram->TrySnapToActor(EndHit);
+	const bool bCanStepEnd = TrackHologram->CanTakeNextBuildStep();
+	bool bEndStepComplete = TrackHologram->DoMultiStepPlacement(true);
+	ESplineHologramBuildStep StepAfterEnd = TrackHologram->GetCurrentBuildStep();
+	bool bEndConnectionSnapped = TrackHologram->IsConnectionSnapped(true);
+	bool bEndRetriedAsPress = false;
+	if (!bEndStepComplete && StepAfterEnd == StepAfterStart)
+	{
+		bEndRetriedAsPress = true;
+		TrackHologram->UpdateHologramPlacement(EndHit);
+		TrackHologram->TrySnapToActor(EndHit);
+		bEndStepComplete = TrackHologram->DoMultiStepPlacement(false);
+		StepAfterEnd = TrackHologram->GetCurrentBuildStep();
+		bEndConnectionSnapped = TrackHologram->IsConnectionSnapped(true);
+	}
 
-	UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: source=%s dest=%s after end click: stepComplete=%s step=%d connectionSnapped=%s disqualifiers=[%s]"),
-		*SourceBuildableId, *DestBuildableId, bEndStepComplete ? TEXT("true") : TEXT("false"), static_cast<int32>(StepAfterEnd), bEndConnectionSnapped ? TEXT("true") : TEXT("false"), *SummarizeDisqualifiers(TrackHologram));
+	Diag += FString::Printf(TEXT(" end[snap=%d canStep=%d done=%d step=%s connSnapLast=%d pressRetry=%d disq=%s]"),
+		bSnapEnd ? 1 : 0, bCanStepEnd ? 1 : 0, bEndStepComplete ? 1 : 0, StepName(StepAfterEnd),
+		bEndConnectionSnapped ? 1 : 0, bEndRetriedAsPress ? 1 : 0, *SummarizeDisqualifiers(TrackHologram));
+	UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: src=%s dst=%s %s"), *SourceBuildableId, *DestBuildableId, *Diag);
 
 	if (!bEndStepComplete)
 	{
 		Character->UnequipBuildGun();
 		OnComplete(FAIModOperationResult::Failure(TEXT("PLACEMENT_INCOMPLETE"),
-			FString::Printf(TEXT("DoMultiStepPlacement() did not report complete after the end click - step=%d connectionSnapped=%s, may need a third step"), static_cast<int32>(StepAfterEnd), bEndConnectionSnapped ? TEXT("true") : TEXT("false"))));
+			FString::Printf(TEXT("track placement did not complete - %s"), *Diag)));
 		return;
 	}
 
