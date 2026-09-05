@@ -70,7 +70,9 @@
 #include "Hologram/FGVehicleHologram.h"
 #include "FGRailroadTrackConnectionComponent.h"
 #include "Hologram/FGRailroadTrackHologram.h"
+#include "Hologram/FGRailroadVehicleHologram.h"
 #include "Buildables/FGBuildableRailroadTrack.h"
+#include "Components/SplineComponent.h"
 #include "Hologram/FGVehiclePathSegmentHologram.h"
 #include "WheeledVehicles/FGVehiclePathSegment.h"
 #include "WheeledVehicles/FGVehiclePathNode.h"
@@ -5876,6 +5878,14 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 		return;
 	}
 
+	// Rail vehicles (Locomotive/FreightWagon) drive a AFGRailroadVehicleHologram
+	// whose SetHologramLocationAndRotation snaps to a track spline FROM the hit -
+	// a bare free-placement hit (no track referenced) reads as "no track under
+	// it" -> "Not enough space on track!" (live 2026-09-05). Detected here so the
+	// hit-building below can point at the nearest track, and so the target-yaw
+	// override is skipped (rail orientation follows the track, not the caller).
+	const bool bIsRailVehicle = (Cast<AFGRailroadVehicleHologram>(Hologram) != nullptr);
+
 	FHitResult SyntheticHit;
 	if (TargetStation)
 	{
@@ -5926,6 +5936,59 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 		}
 	}
 
+	// Rail vehicle: re-point the hit at the nearest railroad track spline so
+	// the hologram can snap to it (see bIsRailVehicle note above). Not for the
+	// drone/station-snap path.
+	if (bIsRailVehicle && !TargetStation)
+	{
+		const FVector Desired(X, Y, (Z > -1000000.0f) ? Z : Character->GetActorLocation().Z);
+		AFGBuildableRailroadTrack* BestTrack = nullptr;
+		FVector BestPoint = Desired;
+		float BestDistSq = TNumericLimits<float>::Max();
+		for (TActorIterator<AFGBuildableRailroadTrack> It(World); It; ++It)
+		{
+			AFGBuildableRailroadTrack* Track = *It;
+			if (!IsValid(Track))
+			{
+				continue;
+			}
+			USplineComponent* Spline = Track->GetSplineComponent();
+			if (!Spline)
+			{
+				continue;
+			}
+			const FVector ClosestWorld = Spline->FindLocationClosestToWorldLocation(Desired, ESplineCoordinateSpace::World);
+			const float DistSq = FVector::DistSquared(ClosestWorld, Desired);
+			if (DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				BestPoint = ClosestWorld;
+				BestTrack = Track;
+			}
+		}
+		if (BestTrack)
+		{
+			SyntheticHit = FHitResult();
+			SyntheticHit.Location = BestPoint;
+			SyntheticHit.ImpactPoint = BestPoint;
+			SyntheticHit.Normal = FVector::UpVector;
+			SyntheticHit.ImpactNormal = FVector::UpVector;
+			SyntheticHit.HitObjectHandle = FActorInstanceHandle(BestTrack);
+			SyntheticHit.bBlockingHit = true;
+			if (UPrimitiveComponent* TrackPrim = Cast<UPrimitiveComponent>(BestTrack->GetRootComponent()))
+			{
+				SyntheticHit.Component = TrackPrim;
+			}
+			PopulateSyntheticTraceRay(SyntheticHit);
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructVehicle: rail vehicle snapped hit to track %s at (%.0f,%.0f,%.0f) dist=%.0f"),
+				*BestTrack->GetName(), BestPoint.X, BestPoint.Y, BestPoint.Z, FMath::Sqrt(BestDistSq));
+		}
+		else
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructVehicle: rail vehicle recipe but no AFGBuildableRailroadTrack found near (%.0f,%.0f,%.0f) - placement will likely fail"), Desired.X, Desired.Y, Desired.Z);
+		}
+	}
+
 	// Player-independence - same deterministic-look-at-target fix already
 	// proven for every other click/snap-driven Construct* function in
 	// this file.
@@ -5940,7 +6003,7 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 	{
 		Hologram->TrySnapToActor(SyntheticHit);
 	}
-	if (bHasTargetYaw)
+	if (bHasTargetYaw && !bIsRailVehicle)
 	{
 		Hologram->SetActorRotation(FRotator(0.0f, TargetYawDegrees, 0.0f));
 	}
@@ -5965,7 +6028,7 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 	PollState->World = World;
 	PollState->SyntheticHit = SyntheticHit;
 	PollState->DeterministicLook = DeterministicLook;
-	PollState->bHasTargetYaw = bHasTargetYaw;
+	PollState->bHasTargetYaw = bHasTargetYaw && !bIsRailVehicle;
 	PollState->TargetYawDegrees = TargetYawDegrees;
 	PollState->bSnappedToStation = (TargetStation != nullptr);
 	PollState->OnComplete = MoveTemp(OnComplete);
