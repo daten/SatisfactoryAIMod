@@ -1580,6 +1580,49 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.setTruckAutopilot - road-vehicle autopilot; see SetTruckAutopilot's
+	// doc comment. params: vehicleId (str), enabled (bool), stationIds
+	// (optional JSON array of docking-station buildable ids = the route stops).
+	if (Method == TEXT("world.setTruckAutopilot"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString VehicleId;
+		if (!ParamsObject->TryGetStringField(TEXT("vehicleId"), VehicleId) || VehicleId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.vehicleId must be a non-empty string")));
+			return true;
+		}
+		bool bEnabled = false;
+		if (!ParamsObject->TryGetBoolField(TEXT("enabled"), bEnabled))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.enabled must be a boolean")));
+			return true;
+		}
+
+		// stationIds is optional; when present it overwrites the route.
+		// Re-serialize it to a compact string for the UFUNCTION boundary,
+		// same technique as setTrainTimetable's stops.
+		FString StationIdsJson;
+		const TArray<TSharedPtr<FJsonValue>>* StationIdsArrayPtr = nullptr;
+		if (ParamsObject->TryGetArrayField(TEXT("stationIds"), StationIdsArrayPtr) && StationIdsArrayPtr)
+		{
+			const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> StationIdsWriter =
+				TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&StationIdsJson);
+			FJsonSerializer::Serialize(*StationIdsArrayPtr, StationIdsWriter);
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetTruckAutopilot(GetGameInstance(), VehicleId, bEnabled, StationIdsJson);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	if (Method == TEXT("world.pairDroneStations"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;

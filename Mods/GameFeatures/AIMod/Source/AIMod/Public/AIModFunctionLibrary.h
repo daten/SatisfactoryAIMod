@@ -3072,6 +3072,37 @@ public:
 	static FAIModOperationResult SetTrainSelfDriving(UObject* WorldContextObject, const FString& TrainId, bool bEnabled);
 
 	/**
+	 * world.setTruckAutopilot (2026-09-06) - the road-vehicle analogue of
+	 * setTrainSelfDriving, for AFGWheeledVehicle (trucks/tractors/explorers).
+	 * Trucks have no "self driving" concept; instead their persistent
+	 * AFGWheeledVehicleIdentifier holds an ordered route of waypoint GUIDs
+	 * (AFGWheeledVehicleIdentifier::SetVehicleRoute) plus an autopilot enable
+	 * flag (SetAutopilotEnabled). A waypoint is the GUID of a docking
+	 * station's docking path node (AFGBuildableDockingStation::
+	 * GetDockingPathNode()->GetPathNodeGUID()), so the caller passes the
+	 * station BUILDABLE ids and this resolves each to its docking node GUID.
+	 *
+	 * StationIdsJson (optional) is a JSON array of docking-station buildable
+	 * ids in visit order; when non-empty it overwrites the whole route
+	 * (SetVehicleRoute). Pass an empty string to leave the existing route
+	 * untouched (e.g. to just toggle autopilot off). Before enabling, the
+	 * truck is snapped onto its current path segment
+	 * (UpdateCurrentVehiclePathSegmentFromVehicleLocation) so it is "on the
+	 * path".
+	 *
+	 * Like setTrainSelfDriving this does NOT fail on a post-enable autopilot
+	 * error (StationUnreachable/NotOnPath/TooFewStations/NoFuel/Deadlocked) -
+	 * that's real configuration state returned in result.detail.autopilotError
+	 * for the caller to act on. Only fails on bad input / target not found /
+	 * the enable flag not sticking.
+	 *
+	 * Server-authority (single-player local host is the server). NOT YET
+	 * LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetTruckAutopilot(UObject* WorldContextObject, const FString& VehicleId, bool bEnabled, const FString& StationIdsJson);
+
+	/**
 	 * world.droneStations (2026-08-29) - lists every drone station via
 	 * AFGDroneSubsystem::GetAllStations(): id (the underlying
 	 * AFGBuildableDroneStation's buildable id), pairedStationId (its

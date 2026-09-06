@@ -117,6 +117,7 @@
 #include "FGDroneStationInfo.h"
 #include "Buildables/FGBuildableDockingStation.h"
 #include "WheeledVehicles/FGWheeledVehicle.h"
+#include "WheeledVehicles/FGWheeledVehicleIdentifier.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "FGMapManager.h"
 #include "FGIconDatabaseSubsystem.h"
@@ -14084,6 +14085,23 @@ namespace
 		}
 	}
 
+	// Road-vehicle (truck) autopilot error status - EVehicleAutopilotErrorStatus
+	// from FGWheeledVehicleIdentifier.h. Distinct enum from the train's
+	// ESelfDrivingLocomotiveError above.
+	FString VehicleAutopilotErrorToString(EVehicleAutopilotErrorStatus Status)
+	{
+		switch (Status)
+		{
+		case EVehicleAutopilotErrorStatus::None: return TEXT("None");
+		case EVehicleAutopilotErrorStatus::StationUnreachable: return TEXT("StationUnreachable");
+		case EVehicleAutopilotErrorStatus::NotOnPath: return TEXT("NotOnPath");
+		case EVehicleAutopilotErrorStatus::TooFewStations: return TEXT("TooFewStations");
+		case EVehicleAutopilotErrorStatus::NoFuel: return TEXT("NoFuel");
+		case EVehicleAutopilotErrorStatus::Deadlocked: return TEXT("Deadlocked");
+		default: return TEXT("Unknown");
+		}
+	}
+
 	FString TrainDockingStateToString(ETrainDockingState State)
 	{
 		switch (State)
@@ -14408,6 +14426,136 @@ FAIModOperationResult UAIModFunctionLibrary::SetTrainSelfDriving(UObject* WorldC
 
 	UE_LOG(LogAIModAI, Display, TEXT("SetTrainSelfDriving: train=%s enabled=%s error=%s"),
 		*TargetTrain->GetTrainName().ToString(), bEnabled ? TEXT("true") : TEXT("false"), *SelfDrivingErrorToString(TargetTrain->GetSelfDrivingError()));
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldContextObject, const FString& VehicleId, bool bEnabled, const FString& StationIdsJson)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	if (VehicleId.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("vehicleId must be a non-empty string"));
+	}
+
+	// Resolve the truck. AFGWheeledVehicle is an AFGVehicle (a pawn), NOT an
+	// AFGBuildable, so it is not in the buildable subsystem and FindBuildableById
+	// cannot see it - iterate the actor world by GetPathName() the same way
+	// SetTrainSelfDriving resolves an AFGTrain.
+	AFGWheeledVehicle* TargetVehicle = nullptr;
+	for (TActorIterator<AFGWheeledVehicle> It(World); It; ++It)
+	{
+		if (IsValid(*It) && It->GetPathName() == VehicleId)
+		{
+			TargetVehicle = *It;
+			break;
+		}
+	}
+	if (!TargetVehicle)
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No wheeled vehicle found with id '%s'"), *VehicleId));
+	}
+
+	AFGWheeledVehicleIdentifier* Identifier = TargetVehicle->GetVehicleIdentifier();
+	if (!IsValid(Identifier))
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Vehicle has no AFGWheeledVehicleIdentifier (route/autopilot state lives on the identifier)"));
+	}
+
+	// Optionally overwrite the route from a JSON array of docking-station
+	// buildable ids. Each stop resolves to that station's docking path node
+	// GUID (the waypoint the autopilot actually navigates to).
+	int32 RouteWaypointsSet = -1;
+	if (!StationIdsJson.IsEmpty())
+	{
+		TArray<TSharedPtr<FJsonValue>> StationIdArray;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(StationIdsJson);
+		if (!FJsonSerializer::Deserialize(Reader, StationIdArray))
+		{
+			return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("stationIds must be a JSON array of docking-station buildable id strings"));
+		}
+
+		TArray<FGuid> RouteGuids;
+		for (const TSharedPtr<FJsonValue>& Value : StationIdArray)
+		{
+			FString StationId;
+			if (!Value.IsValid() || !Value->TryGetString(StationId) || StationId.IsEmpty())
+			{
+				return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("every stationIds entry must be a non-empty string"));
+			}
+
+			AFGBuildableDockingStation* Station = Cast<AFGBuildableDockingStation>(FindBuildableById(World, StationId));
+			if (!IsValid(Station))
+			{
+				return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+					FString::Printf(TEXT("No docking station found with id '%s'"), *StationId));
+			}
+
+			AFGVehiclePathNode* DockNode = Station->GetDockingPathNode();
+			if (!IsValid(DockNode))
+			{
+				return FAIModOperationResult::Failure(TEXT("INVALID_TARGET"),
+					FString::Printf(TEXT("Docking station '%s' has no docking path node yet (GetDockingPathNode() null)"), *StationId));
+			}
+
+			const FGuid NodeGuid = DockNode->GetPathNodeGUID();
+			if (!NodeGuid.IsValid())
+			{
+				return FAIModOperationResult::Failure(TEXT("INVALID_TARGET"),
+					FString::Printf(TEXT("Docking station '%s' docking node has an invalid GUID"), *StationId));
+			}
+			RouteGuids.Add(NodeGuid);
+		}
+
+		Identifier->SetVehicleRoute(RouteGuids);
+		RouteWaypointsSet = RouteGuids.Num();
+	}
+
+	// Make sure the truck is registered on the path segment under it before
+	// enabling, otherwise the autopilot reports NotOnPath. Harmless when the
+	// truck is already on a segment or when disabling.
+	if (bEnabled)
+	{
+		TargetVehicle->UpdateCurrentVehiclePathSegmentFromVehicleLocation();
+	}
+
+	const bool bCanEnable = Identifier->CanEnableAutopilot();
+	Identifier->SetAutopilotEnabled(bEnabled);
+
+	if (Identifier->IsAutopilotEnabled() != bEnabled)
+	{
+		// CanEnableAutopilot gates enabling; surface why rather than a bare
+		// INTERNAL_ERROR when the engine refused to flip the flag on.
+		return FAIModOperationResult::Failure(TEXT("AUTOPILOT_NOT_APPLIED"),
+			FString::Printf(TEXT("SetAutopilotEnabled(%s) did not take (IsAutopilotEnabled()=%s, CanEnableAutopilot()=%s, error=%s, routeLen=%d) - the truck likely is not on a path or the route has too few reachable stations"),
+				bEnabled ? TEXT("true") : TEXT("false"),
+				Identifier->IsAutopilotEnabled() ? TEXT("true") : TEXT("false"),
+				bCanEnable ? TEXT("true") : TEXT("false"),
+				*VehicleAutopilotErrorToString(Identifier->GetAutopilotErrorStatus()),
+				Identifier->GetVehicleRoute().Num()));
+	}
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetBoolField(TEXT("autopilotEnabled"), Identifier->IsAutopilotEnabled());
+	DetailObject->SetBoolField(TEXT("canEnableAutopilot"), bCanEnable);
+	DetailObject->SetStringField(TEXT("autopilotError"), VehicleAutopilotErrorToString(Identifier->GetAutopilotErrorStatus()));
+	DetailObject->SetNumberField(TEXT("routeWaypoints"), Identifier->GetVehicleRoute().Num());
+	if (RouteWaypointsSet >= 0)
+	{
+		DetailObject->SetNumberField(TEXT("routeWaypointsSet"), RouteWaypointsSet);
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetTruckAutopilot: vehicle=%s enabled=%s canEnable=%s error=%s routeLen=%d"),
+		*Identifier->GetVehicleName().ToString(), bEnabled ? TEXT("true") : TEXT("false"),
+		bCanEnable ? TEXT("true") : TEXT("false"),
+		*VehicleAutopilotErrorToString(Identifier->GetAutopilotErrorStatus()), Identifier->GetVehicleRoute().Num());
 
 	FAIModOperationResult Result = FAIModOperationResult::Success();
 	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
