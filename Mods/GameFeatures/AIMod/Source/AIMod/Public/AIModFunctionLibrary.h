@@ -3100,7 +3100,7 @@ public:
 	 * LIVE-TESTED.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
-	static FAIModOperationResult SetTruckAutopilot(UObject* WorldContextObject, const FString& VehicleId, bool bEnabled, const FString& StationIdsJson);
+	static FAIModOperationResult SetTruckAutopilot(UObject* WorldContextObject, const FString& VehicleId, bool bEnabled, const FString& StationIdsJson, const FString& FuelItemClass, int32 FuelAmount);
 
 	/**
 	 * world.droneStations (2026-08-29) - lists every drone station via

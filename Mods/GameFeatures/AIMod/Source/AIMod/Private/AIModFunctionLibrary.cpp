@@ -14432,7 +14432,7 @@ FAIModOperationResult UAIModFunctionLibrary::SetTrainSelfDriving(UObject* WorldC
 	return Result;
 }
 
-FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldContextObject, const FString& VehicleId, bool bEnabled, const FString& StationIdsJson)
+FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldContextObject, const FString& VehicleId, bool bEnabled, const FString& StationIdsJson, const FString& FuelItemClass, int32 FuelAmount)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -14518,6 +14518,33 @@ FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldCon
 		RouteWaypointsSet = RouteGuids.Num();
 	}
 
+	// Optionally load fuel into the vehicle's fuel inventory. A freshly
+	// constructed truck has no fuel, and the autopilot will not drive (and may
+	// refuse to enable) without it. FuelItemClass empty = don't touch fuel.
+	int32 FuelActuallyAdded = -1;
+	FString FuelAddNote;
+	if (!FuelItemClass.IsEmpty() && FuelAmount > 0)
+	{
+		UClass* FuelClassResolved = LoadObject<UClass>(nullptr, *FuelItemClass);
+		if (!FuelClassResolved || !FuelClassResolved->IsChildOf(UFGItemDescriptor::StaticClass()))
+		{
+			return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"),
+				FString::Printf(TEXT("fuelItemClass '%s' did not resolve to a UFGItemDescriptor subclass"), *FuelItemClass));
+		}
+		UFGInventoryComponent* FuelInv = TargetVehicle->GetFuelInventory();
+		if (!IsValid(FuelInv))
+		{
+			FuelAddNote = TEXT("vehicle has no fuel inventory component");
+		}
+		else
+		{
+			const TSubclassOf<UFGItemDescriptor> FuelDesc = FuelClassResolved;
+			// AddStack respects the inventory's allowed-item filter, so a fuel
+			// the truck can't burn returns 0 added (reported, not fatal).
+			FuelActuallyAdded = FuelInv->AddStack(FInventoryStack(FuelAmount, FuelDesc), /*allowPartialAdd*/ true);
+		}
+	}
+
 	// Make sure the truck is registered on the path segment under it before
 	// enabling, otherwise the autopilot reports NotOnPath. Harmless when the
 	// truck is already on a segment or when disabling.
@@ -14529,33 +14556,42 @@ FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldCon
 	const bool bCanEnable = Identifier->CanEnableAutopilot();
 	Identifier->SetAutopilotEnabled(bEnabled);
 
-	if (Identifier->IsAutopilotEnabled() != bEnabled)
-	{
-		// CanEnableAutopilot gates enabling; surface why rather than a bare
-		// INTERNAL_ERROR when the engine refused to flip the flag on.
-		return FAIModOperationResult::Failure(TEXT("AUTOPILOT_NOT_APPLIED"),
-			FString::Printf(TEXT("SetAutopilotEnabled(%s) did not take (IsAutopilotEnabled()=%s, CanEnableAutopilot()=%s, error=%s, routeLen=%d) - the truck likely is not on a path or the route has too few reachable stations"),
-				bEnabled ? TEXT("true") : TEXT("false"),
-				Identifier->IsAutopilotEnabled() ? TEXT("true") : TEXT("false"),
-				bCanEnable ? TEXT("true") : TEXT("false"),
-				*VehicleAutopilotErrorToString(Identifier->GetAutopilotErrorStatus()),
-				Identifier->GetVehicleRoute().Num()));
-	}
+	// Full diagnostic detail, always returned. Like setTrainSelfDriving, a
+	// truck that refuses to drive is real configuration state for the caller
+	// to act on (add fuel, fix the path), not a failure of this RPC - so we
+	// no longer hard-fail when the enable flag doesn't stick, we report why.
+	const bool bOnPath = (TargetVehicle->GetCurrentVehiclePathSegment() != nullptr);
+	const bool bHasFuel = TargetVehicle->HasFuel();
+	const bool bAutopilotAvailableForType = AFGWheeledVehicle::IsAutopilotAvailableForVehicleType(TargetVehicle->GetClass());
 
 	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
 	DetailObject->SetBoolField(TEXT("autopilotEnabled"), Identifier->IsAutopilotEnabled());
+	DetailObject->SetBoolField(TEXT("autopilotTookEffect"), Identifier->IsAutopilotEnabled() == bEnabled);
 	DetailObject->SetBoolField(TEXT("canEnableAutopilot"), bCanEnable);
+	DetailObject->SetBoolField(TEXT("onPath"), bOnPath);
+	DetailObject->SetBoolField(TEXT("hasFuel"), bHasFuel);
+	DetailObject->SetBoolField(TEXT("autopilotAvailableForType"), bAutopilotAvailableForType);
 	DetailObject->SetStringField(TEXT("autopilotError"), VehicleAutopilotErrorToString(Identifier->GetAutopilotErrorStatus()));
 	DetailObject->SetNumberField(TEXT("routeWaypoints"), Identifier->GetVehicleRoute().Num());
 	if (RouteWaypointsSet >= 0)
 	{
 		DetailObject->SetNumberField(TEXT("routeWaypointsSet"), RouteWaypointsSet);
 	}
+	if (FuelActuallyAdded >= 0)
+	{
+		DetailObject->SetNumberField(TEXT("fuelAdded"), FuelActuallyAdded);
+	}
+	if (!FuelAddNote.IsEmpty())
+	{
+		DetailObject->SetStringField(TEXT("fuelNote"), FuelAddNote);
+	}
 
-	UE_LOG(LogAIModAI, Display, TEXT("SetTruckAutopilot: vehicle=%s enabled=%s canEnable=%s error=%s routeLen=%d"),
+	UE_LOG(LogAIModAI, Display, TEXT("SetTruckAutopilot: vehicle=%s enabled=%s took=%s canEnable=%s onPath=%s hasFuel=%s availForType=%s error=%s routeLen=%d fuelAdded=%d"),
 		*Identifier->GetVehicleName().ToString(), bEnabled ? TEXT("true") : TEXT("false"),
-		bCanEnable ? TEXT("true") : TEXT("false"),
-		*VehicleAutopilotErrorToString(Identifier->GetAutopilotErrorStatus()), Identifier->GetVehicleRoute().Num());
+		(Identifier->IsAutopilotEnabled() == bEnabled) ? TEXT("true") : TEXT("false"),
+		bCanEnable ? TEXT("true") : TEXT("false"), bOnPath ? TEXT("true") : TEXT("false"),
+		bHasFuel ? TEXT("true") : TEXT("false"), bAutopilotAvailableForType ? TEXT("true") : TEXT("false"),
+		*VehicleAutopilotErrorToString(Identifier->GetAutopilotErrorStatus()), Identifier->GetVehicleRoute().Num(), FuelActuallyAdded);
 
 	FAIModOperationResult Result = FAIModOperationResult::Success();
 	Result.ResultDetailJson = SerializeJsonObject(DetailObject);

@@ -1618,7 +1618,17 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 			FJsonSerializer::Serialize(*StationIdsArrayPtr, StationIdsWriter);
 		}
 
-		const FAIModOperationResult Result = UAIModFunctionLibrary::SetTruckAutopilot(GetGameInstance(), VehicleId, bEnabled, StationIdsJson);
+		// Optional fuel loading: fuelItemClass (item descriptor path) + fuelAmount.
+		FString FuelItemClass;
+		ParamsObject->TryGetStringField(TEXT("fuelItemClass"), FuelItemClass);
+		int32 FuelAmount = 0;
+		double FuelAmountNum = 0.0;
+		if (ParamsObject->TryGetNumberField(TEXT("fuelAmount"), FuelAmountNum))
+		{
+			FuelAmount = static_cast<int32>(FuelAmountNum);
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetTruckAutopilot(GetGameInstance(), VehicleId, bEnabled, StationIdsJson, FuelItemClass, FuelAmount);
 		OnComplete(MakeOperationResponse(Result, RequestId));
 		return true;
 	}
