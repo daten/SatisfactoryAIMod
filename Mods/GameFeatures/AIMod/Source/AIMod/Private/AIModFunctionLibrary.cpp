@@ -12198,19 +12198,53 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		};
 		if (!PollState->bDryRun)
 		{
-			AFGBuildableRailroadTrack* CurveA = ForceLink(PollState->SourceConn.Get(), TEXT("source"));
-			AFGBuildableRailroadTrack* CurveB = ForceLink(PollState->DestConn.Get(), TEXT("dest"));
-			AFGBuildableRailroadTrack* NewTrack = CurveA ? CurveA : CurveB;
-			// AddConnection updates the components but the railroad SUBSYSTEM's
-			// pathfinding graph doesn't learn of it (trains still read
-			// StationUnreachable - live 2026-09-05). Re-register the now-fully-
-			// connected new track so the subsystem rebuilds/merges the graphs
-			// ("Track must have its connections set up" then AddTrack, per
-			// AFGRailroadSubsystem::AddTrack's contract).
+			// The hologram builds the spline but never connection-snaps
+			// (IsConnectionSnapped stayed false), and AddConnection alone
+			// doesn't reach the railroad SUBSYSTEM's pathfinding graph - trains
+			// read StationUnreachable even across a straight, fully component-
+			// connected join (live 2026-09-06). Correct sequence per
+			// AFGRailroadSubsystem::AddTrack ("Track must have its connections
+			// set up"): find the new track, RemoveTrack it (drops it from its
+			// isolated graph), (re)link BOTH ends to the source/dest station
+			// connections, THEN AddTrack so the subsystem merges the graphs
+			// with the complete connection set. Order matters: linking must
+			// happen while the track is out of the graph and BEFORE AddTrack.
 			AFGRailroadSubsystem* RailSub = AFGRailroadSubsystem::Get(PollWorld);
+			AFGBuildableRailroadTrack* NewTrack = nullptr;
+			for (UFGRailroadTrackConnectionComponent* An : { PollState->SourceConn.Get(), PollState->DestConn.Get() })
+			{
+				if (IsValid(An) && An->IsConnected())
+				{
+					if (UFGRailroadTrackConnectionComponent* Peer = An->GetConnection())
+					{
+						NewTrack = Peer->GetTrack();
+						if (NewTrack) { break; }
+					}
+				}
+			}
 			if (NewTrack && RailSub)
 			{
 				RailSub->RemoveTrack(NewTrack);
+			}
+			ForceLink(PollState->SourceConn.Get(), TEXT("source"));
+			ForceLink(PollState->DestConn.Get(), TEXT("dest"));
+			if (!NewTrack)
+			{
+				// Fallback: resolve the curve now that links exist.
+				for (UFGRailroadTrackConnectionComponent* An : { PollState->SourceConn.Get(), PollState->DestConn.Get() })
+				{
+					if (IsValid(An) && An->IsConnected())
+					{
+						if (UFGRailroadTrackConnectionComponent* Peer = An->GetConnection())
+						{
+							NewTrack = Peer->GetTrack();
+							if (NewTrack) { break; }
+						}
+					}
+				}
+			}
+			if (NewTrack && RailSub)
+			{
 				RailSub->AddTrack(NewTrack);
 				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: re-registered new track %s with railroad subsystem for graph merge"), *NewTrack->GetName());
 			}
