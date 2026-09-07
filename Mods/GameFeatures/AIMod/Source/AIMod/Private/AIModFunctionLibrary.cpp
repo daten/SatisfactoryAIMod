@@ -14548,9 +14548,48 @@ FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldCon
 	// Make sure the truck is registered on the path segment under it before
 	// enabling, otherwise the autopilot reports NotOnPath. Harmless when the
 	// truck is already on a segment or when disabling.
+	//
+	// Auto-detection (UpdateCurrentVehiclePathSegmentFromVehicleLocation) relies
+	// on the segment's virtualized collision being streamed in / significant and
+	// was observed to leave GetCurrentVehiclePathSegment() null for an idle
+	// just-built truck. So if it comes back null, explicitly find the nearest
+	// AFGVehiclePathSegment spline and pin the truck onto it with the public
+	// SetCurrentVehiclePathSegment().
+	float NearestSegmentDist = -1.0f;
 	if (bEnabled)
 	{
 		TargetVehicle->UpdateCurrentVehiclePathSegmentFromVehicleLocation();
+		if (TargetVehicle->GetCurrentVehiclePathSegment() == nullptr)
+		{
+			const FVector TruckLoc = TargetVehicle->GetActorLocation();
+			AFGVehiclePathSegment* BestSegment = nullptr;
+			float BestDistSq = TNumericLimits<float>::Max();
+			for (TActorIterator<AFGVehiclePathSegment> It(World); It; ++It)
+			{
+				AFGVehiclePathSegment* Segment = *It;
+				if (!IsValid(Segment)) { continue; }
+				USplineComponent* Spline = Segment->GetSplineComponent();
+				if (!Spline) { continue; }
+				const FVector Closest = Spline->FindLocationClosestToWorldLocation(TruckLoc, ESplineCoordinateSpace::World);
+				const float DistSq = FVector::DistSquared(Closest, TruckLoc);
+				if (DistSq < BestDistSq)
+				{
+					BestDistSq = DistSq;
+					BestSegment = Segment;
+				}
+			}
+			if (BestSegment)
+			{
+				NearestSegmentDist = FMath::Sqrt(BestDistSq);
+				// Only pin if the truck is genuinely close to the segment (a
+				// couple of foundation cells) - past that it is not really "on"
+				// the path and pinning would be a lie.
+				if (NearestSegmentDist <= 800.0f)
+				{
+					TargetVehicle->SetCurrentVehiclePathSegment(BestSegment);
+				}
+			}
+		}
 	}
 
 	const bool bCanEnable = Identifier->CanEnableAutopilot();
@@ -14584,6 +14623,10 @@ FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldCon
 	if (!FuelAddNote.IsEmpty())
 	{
 		DetailObject->SetStringField(TEXT("fuelNote"), FuelAddNote);
+	}
+	if (NearestSegmentDist >= 0.0f)
+	{
+		DetailObject->SetNumberField(TEXT("nearestSegmentDist"), NearestSegmentDist);
 	}
 
 	UE_LOG(LogAIModAI, Display, TEXT("SetTruckAutopilot: vehicle=%s enabled=%s took=%s canEnable=%s onPath=%s hasFuel=%s availForType=%s error=%s routeLen=%d fuelAdded=%d"),
