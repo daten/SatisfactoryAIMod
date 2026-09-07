@@ -1600,7 +1600,9 @@ FString UAIModFunctionLibrary::LogCreaturesAsJson(UObject* WorldContextObject)
 
 			const TSharedRef<FJsonObject> Obj = MakeShared<FJsonObject>();
 			Obj->SetStringField(TEXT("id"), Creature->GetPathName());
-			Obj->SetStringField(TEXT("class"), Creature->GetClass()->GetName());
+			// Full class PATH (not short name) so it can be fed back to
+			// world.spawnCreature's creatureClass param.
+			Obj->SetStringField(TEXT("class"), Creature->GetClass()->GetPathName());
 
 			const FVector Loc = Creature->GetActorLocation();
 			const TSharedRef<FJsonObject> Pos = MakeShared<FJsonObject>();
