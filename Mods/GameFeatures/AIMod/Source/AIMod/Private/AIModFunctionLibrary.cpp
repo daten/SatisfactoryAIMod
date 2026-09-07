@@ -6114,7 +6114,11 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 		// reason documented there (a zero-distance synthetic hit was
 		// confirmed live to fail a real placement-validation sanity
 		// check).
-		const FVector StationLocation = TargetStation->GetActorLocation();
+		// Snap the hit at the station's actual DRONE DOCKING location (the port
+		// pad), not the station's base actor origin - AFGBuildableDroneHologram::
+		// TrySnapToActor was found live (2026-09-07) to leave mSnappedStation
+		// null (=> "Must snap to a Drone Port!") when handed a hit at the base.
+		const FVector StationLocation = TargetStation->GetDroneDockingLocation();
 		SyntheticHit.Location = StationLocation;
 		SyntheticHit.ImpactPoint = StationLocation;
 		SyntheticHit.Normal = FVector::UpVector;
@@ -6126,6 +6130,7 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 			SyntheticHit.Component = StationPrimitive;
 		}
 		SyntheticHit.Distance = FVector::Dist(Character->GetActorLocation(), StationLocation);
+		PopulateSyntheticTraceRay(SyntheticHit);
 	}
 	else
 	{
@@ -6220,7 +6225,9 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 	Hologram->UpdateHologramPlacement(SyntheticHit);
 	if (TargetStation)
 	{
-		Hologram->TrySnapToActor(SyntheticHit);
+		const bool bSnapped = Hologram->TrySnapToActor(SyntheticHit);
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructVehicle: drone TrySnapToActor(station %s @ dockLoc %.0f,%.0f,%.0f) returned %s"),
+			*TargetStation->GetName(), SyntheticHit.Location.X, SyntheticHit.Location.Y, SyntheticHit.Location.Z, bSnapped ? TEXT("true") : TEXT("false"));
 	}
 	if (bHasTargetYaw && !bIsRailVehicle)
 	{
