@@ -253,6 +253,21 @@ public:
 	static FString LogVehiclePathNodesAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.creatures (2026-09-07) - read-only telemetry for every AFGCreature,
+	 * primarily to verify a spawned creature is actually live/animated and not
+	 * frozen (the pre-FinishSpawning failure mode). Per creature: id, class,
+	 * position, rotation, velocity + speed, behaviorState
+	 * (ECreatureState -> string), hasController (+ class), isPassive,
+	 * isPersistent, isAliveAndWell, currentHealth/maxHealth, and
+	 * hasAnimInstance (+ anim class) from the skeletal mesh. A frozen creature
+	 * reads: no controller, no anim instance, CS_Default, zero speed, unchanged
+	 * position across polls; an animated one has a controller + anim instance
+	 * and a live behavior state / nonzero speed / drifting position.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogCreaturesAsJson(UObject* WorldContextObject);
+
+	/**
 	 * world.addItemsToInventory (2026-09-07) - explicit, validated item
 	 * injection into a specific buildable inventory. Deliberately scoped (not a
 	 * generic "write any inventory") per the interface's explicit-operations

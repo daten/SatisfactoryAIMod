@@ -2457,6 +2457,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogVehiclePathNodesAsJson(GetGameInstance());
 	}
+	else if (Method == TEXT("world.creatures"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogCreaturesAsJson(GetGameInstance());
+	}
 	else if (Method == TEXT("world.milestoneProgress"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogMilestoneProgressAsJson(GetGameInstance());

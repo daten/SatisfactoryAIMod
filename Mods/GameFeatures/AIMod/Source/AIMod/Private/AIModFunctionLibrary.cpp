@@ -97,6 +97,9 @@
 #include "FGCreatureSubsystem.h"
 #include "FGCentralStorageSubsystem.h"
 #include "Creature/FGCreature.h"
+#include "FGHealthComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimInstance.h"
 #include "FGSchematicManager.h"
 #include "FGSchematic.h"
 #include "FGAdminInterface.h"
@@ -1580,6 +1583,79 @@ FString UAIModFunctionLibrary::LogVehiclePathNodesAsJson(UObject* WorldContextOb
 
 	UE_LOG(LogAIModAI, Display, TEXT("LogVehiclePathNodesAsJson: %d node(s)"), NodeJsonArray.Num());
 
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::LogCreaturesAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+
+	TArray<TSharedPtr<FJsonValue>> CreatureJsonArray;
+	if (World)
+	{
+		for (TActorIterator<AFGCreature> It(World); It; ++It)
+		{
+			AFGCreature* Creature = *It;
+			if (!IsValid(Creature)) { continue; }
+
+			const TSharedRef<FJsonObject> Obj = MakeShared<FJsonObject>();
+			Obj->SetStringField(TEXT("id"), Creature->GetPathName());
+			Obj->SetStringField(TEXT("class"), Creature->GetClass()->GetName());
+
+			const FVector Loc = Creature->GetActorLocation();
+			const TSharedRef<FJsonObject> Pos = MakeShared<FJsonObject>();
+			Pos->SetNumberField(TEXT("x"), Loc.X); Pos->SetNumberField(TEXT("y"), Loc.Y); Pos->SetNumberField(TEXT("z"), Loc.Z);
+			Obj->SetObjectField(TEXT("position"), Pos);
+
+			const FVector Vel = Creature->GetVelocity();
+			Obj->SetNumberField(TEXT("speed"), Vel.Size());
+			const TSharedRef<FJsonObject> VelObj = MakeShared<FJsonObject>();
+			VelObj->SetNumberField(TEXT("x"), Vel.X); VelObj->SetNumberField(TEXT("y"), Vel.Y); VelObj->SetNumberField(TEXT("z"), Vel.Z);
+			Obj->SetObjectField(TEXT("velocity"), VelObj);
+
+			Obj->SetStringField(TEXT("behaviorState"), CreatureStateEnumToString(Creature->GetCurrentBehaviorState()));
+			AController* Ctrl = Creature->GetController();
+			Obj->SetBoolField(TEXT("hasController"), Ctrl != nullptr);
+			Obj->SetStringField(TEXT("controllerClass"), Ctrl ? Ctrl->GetClass()->GetName() : FString());
+			Obj->SetBoolField(TEXT("isPassive"), Creature->IsPassiveCreature());
+			Obj->SetBoolField(TEXT("isPersistent"), Creature->IsPersistent());
+			Obj->SetBoolField(TEXT("isAliveAndWell"), Creature->IsAliveAndWell());
+
+			if (UFGHealthComponent* Health = Creature->GetHealthComponent())
+			{
+				Obj->SetNumberField(TEXT("currentHealth"), Health->GetCurrentHealth());
+				Obj->SetNumberField(TEXT("maxHealth"), Health->GetMaxHealth());
+			}
+
+			// Animation liveness: a frozen (pre-FinishSpawning) creature has no
+			// AnimInstance driving its skeletal mesh.
+			bool bHasAnimInstance = false;
+			FString AnimClass;
+			if (USkeletalMeshComponent* Mesh = Creature->GetMesh())
+			{
+				if (UAnimInstance* Anim = Mesh->GetAnimInstance())
+				{
+					bHasAnimInstance = true;
+					AnimClass = Anim->GetClass()->GetName();
+				}
+			}
+			Obj->SetBoolField(TEXT("hasAnimInstance"), bHasAnimInstance);
+			Obj->SetStringField(TEXT("animInstanceClass"), AnimClass);
+
+			CreatureJsonArray.Add(MakeShared<FJsonValueObject>(Obj));
+		}
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("creatures"), CreatureJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogCreaturesAsJson: %d creature(s)"), CreatureJsonArray.Num());
 	return JsonString;
 }
 
