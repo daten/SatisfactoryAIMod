@@ -2062,7 +2062,11 @@ FString UAIModFunctionLibrary::LogConnectorLayoutAsJson(UObject* WorldContextObj
 	// rotate them by a placed piece's yaw to get the world rail direction with
 	// zero eyeballing (a Catwalk_T reports one rail side, a Straight/Turn two,
 	// a Cross none). Local side->normal: Front=+X, Back=-X, Right=+Y, Left=-Y.
-	if (const AFGBuildableWalkway* WalkwayCDO = BuildableClass->GetDefaultObject<AFGBuildableWalkway>())
+	// Use the untyped CDO + Cast<> (returns null on mismatch). The templated
+	// GetDefaultObject<AFGBuildableWalkway>() does a CastChecked internally and
+	// hard-asserts (crash) for any non-walkway class - it took down the game
+	// live 2026-09-07 when connectorLayout was queried for a drone station.
+	if (const AFGBuildableWalkway* WalkwayCDO = Cast<AFGBuildableWalkway>(BuildableClass->GetDefaultObject()))
 	{
 		const TSharedRef<FJsonObject> WalkwayObject = MakeShared<FJsonObject>();
 		WalkwayObject->SetNumberField(TEXT("size"), WalkwayCDO->mSize);
