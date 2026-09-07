@@ -66,6 +66,7 @@
 #include "FGFactoryColoringTypes.h"
 #include "Buildables/FGBuildableDroneStation.h"
 #include "Buildables/FGBuildableStorage.h"
+#include "FGDroneStationInfo.h"
 #include "FGVehicle.h"
 #include "Resources/FGVehicleDescriptor.h"
 #include "Hologram/FGVehicleHologram.h"
@@ -1674,10 +1675,16 @@ FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldC
 	// "any inventory component" write.
 	UFGInventoryComponent* TargetInventory = nullptr;
 	FString ResolvedRoleDesc;
+	// When fuel is loaded into a drone station we must also fire the station's
+	// OnFuelItemAdded handler afterwards - a raw AddStack into the fuel
+	// inventory does not arm the station's active fuel type (UpdateActiveDrone-
+	// FuelType is private; OnFuelItemAdded is the intended entry point), so the
+	// drone reports no usable fuel and never takes off (found live 2026-09-07).
+	AFGBuildableDroneStation* DroneStationToArmFuel = nullptr;
 	if (AFGBuildableDroneStation* Drone = Cast<AFGBuildableDroneStation>(Buildable))
 	{
 		if (Role == TEXT("output")) { TargetInventory = Drone->GetOutputInventory(); ResolvedRoleDesc = TEXT("droneStation.output"); }
-		else if (Role == TEXT("fuel")) { TargetInventory = Drone->GetFuelInventory(); ResolvedRoleDesc = TEXT("droneStation.fuel"); }
+		else if (Role == TEXT("fuel")) { TargetInventory = Drone->GetFuelInventory(); ResolvedRoleDesc = TEXT("droneStation.fuel"); DroneStationToArmFuel = Drone; }
 		else { TargetInventory = Drone->GetInputInventory(); ResolvedRoleDesc = TEXT("droneStation.input"); }
 	}
 	else if (AFGBuildableDockingStation* Dock = Cast<AFGBuildableDockingStation>(Buildable))
@@ -1704,11 +1711,37 @@ FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldC
 
 	const int32 Added = TargetInventory->AddStack(FInventoryStack(Amount, ItemDesc), /*allowPartialAdd*/ true);
 
+	// Arm the drone station's active fuel type by invoking its OnFuelItemAdded
+	// UFUNCTION (the handler a belt-fed fuel delivery would trigger). Targeted,
+	// explicit call to a known handler for the fuel we just added - not a
+	// generic reflection interface.
+	FString ArmedFuelType;
+	if (DroneStationToArmFuel && Added > 0)
+	{
+		if (UFunction* Fn = DroneStationToArmFuel->FindFunction(FName(TEXT("OnFuelItemAdded"))))
+		{
+			struct FOnFuelItemAddedParams { UClass* Item; int32 Amount; UFGInventoryComponent* Source; };
+			FOnFuelItemAddedParams Params;
+			Params.Item = ItemClassResolved;
+			Params.Amount = Added;
+			Params.Source = nullptr;
+			DroneStationToArmFuel->ProcessEvent(Fn, &Params);
+		}
+		if (AFGDroneStationInfo* Info = DroneStationToArmFuel->GetInfo())
+		{
+			ArmedFuelType = Info->GetDroneActiveFuelType() ? Info->GetDroneActiveFuelType()->GetPathName() : FString();
+		}
+	}
+
 	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
 	DetailObject->SetStringField(TEXT("resolvedInventory"), ResolvedRoleDesc);
 	DetailObject->SetNumberField(TEXT("requested"), Amount);
 	DetailObject->SetNumberField(TEXT("itemsAdded"), Added);
 	DetailObject->SetNumberField(TEXT("inventorySlots"), TargetInventory->GetSizeLinear());
+	if (DroneStationToArmFuel)
+	{
+		DetailObject->SetStringField(TEXT("armedActiveFuelType"), ArmedFuelType);
+	}
 
 	UE_LOG(LogAIModAI, Display, TEXT("AddItemsToInventory: %s <- %d x %s into %s (added %d)"),
 		*BuildableId, Amount, *ItemClassPath, *ResolvedRoleDesc, Added);
