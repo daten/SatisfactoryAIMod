@@ -12203,11 +12203,32 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		}
 	};
 
+	// Snap verification helper (2026-09-07): the drivable-joint fix hinges on
+	// the hologram actually snapping its endpoint onto a station connector.
+	// GetSnappedConnectionComponents() (public) returns the connectors the
+	// hologram snapped to; if it contains our source/dest connection, the
+	// engine will wire a real drivable joint in ConfigureComponents at construct
+	// (unlike a post-construct AddConnection force-link, which only graph-merges).
+	auto DidSnapTo = [](AFGRailroadTrackHologram* H, UFGRailroadTrackConnectionComponent* Want) -> bool
+	{
+		if (!Want) { return false; }
+		for (UFGRailroadTrackConnectionComponent* S : H->GetSnappedConnectionComponents())
+		{
+			if (S == Want) { return true; }
+		}
+		return false;
+	};
+
 	// ---- START click. Instrumented (2026-09-05): the rail hologram's
 	// start step never advanced past FindStart with the belt/pipe pattern.
 	// Capture every state signal (returned verbatim in the error) and, if
 	// the "release/tap" input didn't advance the step, retry as a "press".
+	// 2026-09-07: also drive the rail-specific SetHologramLocationAndRotation
+	// (the override that runs TryFindAndSnapToOverlappingConnection) so the
+	// endpoint actually snaps to the station connector - UpdateHologramPlacement
+	// alone never set IsConnectionSnapped.
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
+	TrackHologram->SetHologramLocationAndRotation(StartHit);
 	TrackHologram->UpdateHologramPlacement(StartHit);
 	const bool bSnapStart = TrackHologram->TrySnapToActor(StartHit);
 	const bool bCanStepStart = TrackHologram->CanTakeNextBuildStep();
@@ -12224,8 +12245,9 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		StepAfterStart = TrackHologram->GetCurrentBuildStep();
 	}
 
-	FString Diag = FString::Printf(TEXT("start[snap=%d canStep=%d connSnap=%d done=%d step=%s pressRetry=%d disq=%s]"),
-		bSnapStart ? 1 : 0, bCanStepStart ? 1 : 0, bConnSnapStart ? 1 : 0, bStartStepComplete ? 1 : 0,
+	const bool bStartSnappedToConnector = DidSnapTo(TrackHologram, SourceConnection);
+	FString Diag = FString::Printf(TEXT("start[snap=%d canStep=%d connSnap=%d snappedToSrc=%d done=%d step=%s pressRetry=%d disq=%s]"),
+		bSnapStart ? 1 : 0, bCanStepStart ? 1 : 0, bConnSnapStart ? 1 : 0, bStartSnappedToConnector ? 1 : 0, bStartStepComplete ? 1 : 0,
 		StepName(StepAfterStart), bStartRetriedAsPress ? 1 : 0, *SummarizeDisqualifiers(TrackHologram));
 	UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: src=%s dst=%s %s"), *SourceBuildableId, *DestBuildableId, *Diag);
 
@@ -12239,6 +12261,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 
 	// ---- END click ----
 	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
+	TrackHologram->SetHologramLocationAndRotation(EndHit);
 	TrackHologram->UpdateHologramPlacement(EndHit);
 	const bool bSnapEnd = TrackHologram->TrySnapToActor(EndHit);
 	const bool bCanStepEnd = TrackHologram->CanTakeNextBuildStep();
@@ -12256,9 +12279,11 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		bEndConnectionSnapped = TrackHologram->IsConnectionSnapped(true);
 	}
 
-	Diag += FString::Printf(TEXT(" end[snap=%d canStep=%d done=%d step=%s connSnapLast=%d pressRetry=%d disq=%s]"),
+	const bool bEndSnappedToConnector = DidSnapTo(TrackHologram, DestConnection);
+	const bool bBothConnectorsSnapped = bStartSnappedToConnector && bEndSnappedToConnector;
+	Diag += FString::Printf(TEXT(" end[snap=%d canStep=%d done=%d step=%s connSnapLast=%d snappedToDst=%d pressRetry=%d disq=%s] bothSnapped=%d"),
 		bSnapEnd ? 1 : 0, bCanStepEnd ? 1 : 0, bEndStepComplete ? 1 : 0, StepName(StepAfterEnd),
-		bEndConnectionSnapped ? 1 : 0, bEndRetriedAsPress ? 1 : 0, *SummarizeDisqualifiers(TrackHologram));
+		bEndConnectionSnapped ? 1 : 0, bEndSnappedToConnector ? 1 : 0, bEndRetriedAsPress ? 1 : 0, *SummarizeDisqualifiers(TrackHologram), bBothConnectorsSnapped ? 1 : 0);
 	UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: src=%s dst=%s %s"), *SourceBuildableId, *DestBuildableId, *Diag);
 
 	if (!bEndStepComplete)
@@ -12284,6 +12309,12 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		// false -> isolated track -> trains can't path; live 2026-09-05).
 		TWeakObjectPtr<UFGRailroadTrackConnectionComponent> SourceConn;
 		TWeakObjectPtr<UFGRailroadTrackConnectionComponent> DestConn;
+		// When the hologram genuinely snapped BOTH endpoints onto the station
+		// connectors, ConfigureComponents (run inside InternalConstructHologram)
+		// wires a real drivable joint - so the post-construct force-link/
+		// RemoveTrack/AddTrack graph surgery must be SKIPPED (it only graph-
+		// merges and would fight the engine's own setup).
+		bool bBothSnapped = false;
 		int32 AttemptsRemaining = 120;
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -12299,6 +12330,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 	PollState->EndHit = EndHit;
 	PollState->SourceConn = SourceConnection;
 	PollState->DestConn = DestConnection;
+	PollState->bBothSnapped = bBothConnectorsSnapped;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -12468,7 +12500,14 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 				Label, Best ? FMath::Sqrt(BestDistSq) : -1.0f);
 			return nullptr;
 		};
-		if (!PollState->bDryRun)
+		if (!PollState->bDryRun && PollState->bBothSnapped)
+		{
+			// Engine snapped both endpoints onto the station connectors during
+			// placement, so InternalConstructHologram -> ConfigureComponents just
+			// wired a real drivable joint. Do NOT run the graph surgery below.
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: both ends snapped to station connectors - drivable joint built by ConfigureComponents, skipping force-link"));
+		}
+		else if (!PollState->bDryRun)
 		{
 			// The hologram builds the spline but never connection-snaps
 			// (IsConnectionSnapped stayed false), and AddConnection alone
