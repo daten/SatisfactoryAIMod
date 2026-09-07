@@ -6283,10 +6283,20 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 			}
 		}
 
-		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
 		if (PollState->bSnappedToStation)
 		{
-			PollHologram->TrySnapToActor(PollState->SyntheticHit);
+			// Drone: do NOT re-run UpdateHologramPlacement each tick - it
+			// re-traces the synthetic hit and the subsequent CheckValidPlacement
+			// clears the station snap (a synthetic hit has no real port-collider
+			// overlap), which was observed live to lose a snap that TrySnapToActor
+			// had just returned true for. Only (re)assert the snap.
+			const bool bPollSnap = PollHologram->TrySnapToActor(PollState->SyntheticHit);
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructVehicle drone poll tick %d: TrySnapToActor=%s"),
+				PollState->AttemptsTaken, bPollSnap ? TEXT("true") : TEXT("false"));
+		}
+		else
+		{
+			PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
 		}
 		if (PollState->bHasTargetYaw)
 		{
