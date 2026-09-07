@@ -253,6 +253,23 @@ public:
 	static FString LogVehiclePathNodesAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.addItemsToInventory (2026-09-07) - explicit, validated item
+	 * injection into a specific buildable inventory. Deliberately scoped (not a
+	 * generic "write any inventory") per the interface's explicit-operations
+	 * rule. InventoryRole selects which of a buildable's inventories:
+	 *   drone station  -> "input" | "output" | "fuel"
+	 *   truck station  -> "fuel" (dedicated fuel input) | "input"/"store"
+	 *   storage/other  -> "store" | "auto" (first inventory component)
+	 * Resolves ItemClassPath to a UFGItemDescriptor and AddStack()s Amount into
+	 * the chosen inventory (respects the inventory's allowed-item filter, so a
+	 * disallowed item returns 0 added). Used to seed a drone pickup station with
+	 * cargo + batteries without hauling a belt across the map. Reports itemsAdded
+	 * and the inventory's post-add item count.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult AddItemsToInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount);
+
+	/**
 	 * world.mergeVehiclePathNodes (2026-09-06) - migrates all path-segment
 	 * connections from SourceNodeId onto DestNodeId and removes the source node
 	 * (AFGVehiclePathNode::MoveConnectionsToNode). Used to wire a docking

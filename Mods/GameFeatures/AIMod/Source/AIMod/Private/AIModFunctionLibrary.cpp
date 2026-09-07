@@ -65,6 +65,7 @@
 #include "Hologram/FGBuildableHologram.h"
 #include "FGFactoryColoringTypes.h"
 #include "Buildables/FGBuildableDroneStation.h"
+#include "Buildables/FGBuildableStorage.h"
 #include "FGVehicle.h"
 #include "Resources/FGVehicleDescriptor.h"
 #include "Hologram/FGVehicleHologram.h"
@@ -1625,6 +1626,92 @@ FAIModOperationResult UAIModFunctionLibrary::MergeVehiclePathNodes(UObject* Worl
 
 	UE_LOG(LogAIModAI, Display, TEXT("MergeVehiclePathNodes: src conns %d -> dest conns %d=>%d (srcStillValid=%s)"),
 		SourceConnsBefore, DestConnsBefore, DestConnsAfter, IsValid(SourceNode) ? TEXT("true") : TEXT("false"));
+
+	FString DetailJson;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> DetailWriter =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&DetailJson);
+	FJsonSerializer::Serialize(DetailObject, DetailWriter);
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = DetailJson;
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	if (BuildableId.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("buildableId must be a non-empty string"));
+	}
+	if (Amount <= 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("amount must be a positive integer"));
+	}
+
+	UClass* ItemClassResolved = LoadObject<UClass>(nullptr, *ItemClassPath);
+	if (!ItemClassResolved || !ItemClassResolved->IsChildOf(UFGItemDescriptor::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"),
+			FString::Printf(TEXT("itemClass '%s' did not resolve to a UFGItemDescriptor subclass"), *ItemClassPath));
+	}
+	const TSubclassOf<UFGItemDescriptor> ItemDesc = ItemClassResolved;
+
+	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
+	if (!IsValid(Buildable))
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+	}
+
+	const FString Role = InventoryRole.IsEmpty() ? TEXT("auto") : InventoryRole.ToLower();
+
+	// Resolve the target inventory by buildable type + role. Deliberately a
+	// small whitelist of known factory inventories rather than a generic
+	// "any inventory component" write.
+	UFGInventoryComponent* TargetInventory = nullptr;
+	FString ResolvedRoleDesc;
+	if (AFGBuildableDroneStation* Drone = Cast<AFGBuildableDroneStation>(Buildable))
+	{
+		if (Role == TEXT("output")) { TargetInventory = Drone->GetOutputInventory(); ResolvedRoleDesc = TEXT("droneStation.output"); }
+		else if (Role == TEXT("fuel")) { TargetInventory = Drone->GetFuelInventory(); ResolvedRoleDesc = TEXT("droneStation.fuel"); }
+		else { TargetInventory = Drone->GetInputInventory(); ResolvedRoleDesc = TEXT("droneStation.input"); }
+	}
+	else if (AFGBuildableDockingStation* Dock = Cast<AFGBuildableDockingStation>(Buildable))
+	{
+		if (Role == TEXT("fuel")) { TargetInventory = Dock->GetFuelInventory(); ResolvedRoleDesc = TEXT("dockingStation.fuel"); }
+		else { TargetInventory = Dock->GetInventory(); ResolvedRoleDesc = TEXT("dockingStation.inventory"); }
+	}
+	else if (AFGBuildableStorage* Storage = Cast<AFGBuildableStorage>(Buildable))
+	{
+		TargetInventory = Storage->GetStorageInventory(); ResolvedRoleDesc = TEXT("storage.inventory");
+	}
+	else
+	{
+		// Generic fallback: first inventory component on the buildable.
+		TargetInventory = Buildable->FindComponentByClass<UFGInventoryComponent>();
+		ResolvedRoleDesc = TEXT("firstInventoryComponent");
+	}
+
+	if (!IsValid(TargetInventory))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_TARGET"),
+			FString::Printf(TEXT("Could not resolve a '%s' inventory on buildable '%s' (%s)"), *Role, *BuildableId, *Buildable->GetClass()->GetName()));
+	}
+
+	const int32 Added = TargetInventory->AddStack(FInventoryStack(Amount, ItemDesc), /*allowPartialAdd*/ true);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("resolvedInventory"), ResolvedRoleDesc);
+	DetailObject->SetNumberField(TEXT("requested"), Amount);
+	DetailObject->SetNumberField(TEXT("itemsAdded"), Added);
+	DetailObject->SetNumberField(TEXT("inventorySlots"), TargetInventory->GetSizeLinear());
+
+	UE_LOG(LogAIModAI, Display, TEXT("AddItemsToInventory: %s <- %d x %s into %s (added %d)"),
+		*BuildableId, Amount, *ItemClassPath, *ResolvedRoleDesc, Added);
 
 	FString DetailJson;
 	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> DetailWriter =
