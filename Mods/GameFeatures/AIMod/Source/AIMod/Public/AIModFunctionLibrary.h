@@ -242,6 +242,32 @@ public:
 	static FString LogVehiclesAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.vehiclePathNodes (2026-09-06) - read-only diagnostic for the truck
+	 * vehicle-path network. Lists every AFGVehiclePathNode: guid, position,
+	 * class (docking vs default), server path-network id, and arriving/leaving
+	 * segment connection counts. Used to see whether a docking station's
+	 * docking node is actually wired into a path loop (a route waypoint is
+	 * unreachable if its node is an isolated network of its own).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogVehiclePathNodesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.mergeVehiclePathNodes (2026-09-06) - migrates all path-segment
+	 * connections from SourceNodeId onto DestNodeId and removes the source node
+	 * (AFGVehiclePathNode::MoveConnectionsToNode). Used to wire a docking
+	 * station's docking node into a hand-built path loop: a
+	 * constructVehiclePathSegment endpoint that lands next to (but does not
+	 * snap onto) a station's docking node leaves two coincident-but-separate
+	 * nodes, so the loop never actually reaches the station and its route
+	 * waypoint is unreachable. Merging the loop's default node into the
+	 * docking node makes the docking node part of the loop. Both ids must
+	 * resolve to AFGVehiclePathNode buildables.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult MergeVehiclePathNodes(UObject* WorldContextObject, const FString& SourceNodeId, const FString& DestNodeId);
+
+	/**
 	 * Enumerates all AFGBuildableManufacturer actors and reads their
 	 * current recipe, clock speed, production status/progress/
 	 * productivity, and input/output inventory contents (PLAN.md

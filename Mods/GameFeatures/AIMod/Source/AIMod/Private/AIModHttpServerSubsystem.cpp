@@ -1580,6 +1580,35 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.mergeVehiclePathNodes - wire a docking node into a hand-built loop;
+	// see MergeVehiclePathNodes' doc comment.
+	if (Method == TEXT("world.mergeVehiclePathNodes"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceNodeId, DestNodeId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceNodeId"), SourceNodeId) || SourceNodeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceNodeId must be a non-empty string")));
+			return true;
+		}
+		if (!ParamsObject->TryGetStringField(TEXT("destNodeId"), DestNodeId) || DestNodeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.destNodeId must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::MergeVehiclePathNodes(GetGameInstance(), SourceNodeId, DestNodeId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// world.setTruckAutopilot - road-vehicle autopilot; see SetTruckAutopilot's
 	// doc comment. params: vehicleId (str), enabled (bool), stationIds
 	// (optional JSON array of docking-station buildable ids = the route stops).
@@ -2386,6 +2415,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.vehicles"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogVehiclesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.vehiclePathNodes"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogVehiclePathNodesAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.milestoneProgress"))
 	{

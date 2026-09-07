@@ -1531,6 +1531,110 @@ FString UAIModFunctionLibrary::LogVehiclesAsJson(UObject* WorldContextObject)
 	return JsonString;
 }
 
+FString UAIModFunctionLibrary::LogVehiclePathNodesAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+
+	TArray<TSharedPtr<FJsonValue>> NodeJsonArray;
+	if (World)
+	{
+		for (TActorIterator<AFGVehiclePathNode> It(World); It; ++It)
+		{
+			AFGVehiclePathNode* Node = *It;
+			if (!IsValid(Node)) { continue; }
+
+			const TSharedRef<FJsonObject> NodeObject = MakeShared<FJsonObject>();
+			NodeObject->SetStringField(TEXT("id"), Node->GetPathName());
+			NodeObject->SetStringField(TEXT("class"), Node->GetClass()->GetName());
+			NodeObject->SetStringField(TEXT("guid"), Node->GetPathNodeGUID().ToString());
+			NodeObject->SetNumberField(TEXT("pathNetworkId"), Node->GetPathNetworkID());
+			NodeObject->SetNumberField(TEXT("arrivingConnections"), Node->GetArrivingConnections().Num());
+			NodeObject->SetNumberField(TEXT("leavingConnections"), Node->GetLeavingConnections().Num());
+
+			TArray<AFGVehiclePathNode*> Connected;
+			Node->GetConnectedNodes(Connected);
+			NodeObject->SetNumberField(TEXT("connectedNodeCount"), Connected.Num());
+
+			const FVector Location = Node->GetActorLocation();
+			const TSharedRef<FJsonObject> PositionObject = MakeShared<FJsonObject>();
+			PositionObject->SetNumberField(TEXT("x"), Location.X);
+			PositionObject->SetNumberField(TEXT("y"), Location.Y);
+			PositionObject->SetNumberField(TEXT("z"), Location.Z);
+			NodeObject->SetObjectField(TEXT("position"), PositionObject);
+
+			NodeJsonArray.Add(MakeShared<FJsonValueObject>(NodeObject));
+		}
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("vehiclePathNodes"), NodeJsonArray);
+
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(RootObject, Writer);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogVehiclePathNodesAsJson: %d node(s)"), NodeJsonArray.Num());
+
+	return JsonString;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::MergeVehiclePathNodes(UObject* WorldContextObject, const FString& SourceNodeId, const FString& DestNodeId)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	if (SourceNodeId.IsEmpty() || DestNodeId.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("sourceNodeId and destNodeId must both be non-empty strings"));
+	}
+	if (SourceNodeId == DestNodeId)
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("sourceNodeId and destNodeId must differ"));
+	}
+
+	AFGVehiclePathNode* SourceNode = Cast<AFGVehiclePathNode>(FindBuildableById(World, SourceNodeId));
+	if (!IsValid(SourceNode))
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No vehicle path node found with id '%s'"), *SourceNodeId));
+	}
+	AFGVehiclePathNode* DestNode = Cast<AFGVehiclePathNode>(FindBuildableById(World, DestNodeId));
+	if (!IsValid(DestNode))
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No vehicle path node found with id '%s'"), *DestNodeId));
+	}
+
+	const int32 SourceConnsBefore = SourceNode->GetArrivingConnections().Num() + SourceNode->GetLeavingConnections().Num();
+	const int32 DestConnsBefore = DestNode->GetArrivingConnections().Num() + DestNode->GetLeavingConnections().Num();
+
+	// Moves the source node's connections onto DestNode and removes the source
+	// node. After this SourceNode is expected to be destroyed - do not touch it.
+	SourceNode->MoveConnectionsToNode(DestNode);
+
+	const int32 DestConnsAfter = IsValid(DestNode) ? (DestNode->GetArrivingConnections().Num() + DestNode->GetLeavingConnections().Num()) : -1;
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("sourceConnectionsBefore"), SourceConnsBefore);
+	DetailObject->SetNumberField(TEXT("destConnectionsBefore"), DestConnsBefore);
+	DetailObject->SetNumberField(TEXT("destConnectionsAfter"), DestConnsAfter);
+	DetailObject->SetBoolField(TEXT("sourceStillValid"), IsValid(SourceNode));
+
+	UE_LOG(LogAIModAI, Display, TEXT("MergeVehiclePathNodes: src conns %d -> dest conns %d=>%d (srcStillValid=%s)"),
+		SourceConnsBefore, DestConnsBefore, DestConnsAfter, IsValid(SourceNode) ? TEXT("true") : TEXT("false"));
+
+	FString DetailJson;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> DetailWriter =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&DetailJson);
+	FJsonSerializer::Serialize(DetailObject, DetailWriter);
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = DetailJson;
+	return Result;
+}
+
 TArray<FAIModManufacturerTelemetry> UAIModFunctionLibrary::GetManufacturerTelemetry(UObject* WorldContextObject)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
