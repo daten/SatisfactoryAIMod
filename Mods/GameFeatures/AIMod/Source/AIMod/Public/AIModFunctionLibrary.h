@@ -194,7 +194,7 @@ public:
 	 * volume, or something finer-grained the stub-sourced `.cpp` doesn't
 	 * reveal) - a real, flagged unknown, not assumed either way.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogWaterVolumesAsJson(UObject* WorldContextObject);
@@ -453,7 +453,7 @@ public:
 	 * on TeleportTo's own encroachment check having picked a genuinely
 	 * clear spot, not on that separate mechanism.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult TeleportPlayer(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees);
@@ -478,7 +478,7 @@ public:
 	 * resolve it from this call first (same "search, don't fabricate"
 	 * posture as every other catalog in this project).
 	 *
-	 * NOT YET LIVE-TESTED - `AFGIconDatabaseSubsystem::Get()` genuinely
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07) - `AFGIconDatabaseSubsystem::Get()` genuinely
 	 * requires the database to have finished initializing
 	 * (`IsInitialized()`/`mOnDatabaseAvailable`) - unconfirmed whether
 	 * that has already happened by the time this is likely to be called
@@ -501,7 +501,7 @@ public:
 	 * hand is real transcription-error risk for no benefit over the
 	 * engine's own reflection data.
 	 *
-	 * NOT YET LIVE-TESTED - same `AFGMapManager::Get()`-may-return-null-
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07) - same `AFGMapManager::Get()`-may-return-null-
 	 * before-world-fully-ready caveat as every other subsystem-`Get()`
 	 * call in this file.
 	 */
@@ -551,7 +551,7 @@ public:
 	 * Z) still gets a sensible marker elevation for 3D compass-ping
 	 * rendering, not because a map marker has any collision to avoid.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult PlaceMapMarker(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, int32 IconId, const FString& Name, bool bHasColor, float ColorR, float ColorG, float ColorB, float Scale, const FString& CompassViewDistance);
@@ -572,7 +572,7 @@ public:
 	 * made - same "report the ACTUAL result" posture as every write
 	 * operation in this project.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult RemoveMapMarker(UObject* WorldContextObject, const FString& MarkerId);
@@ -738,7 +738,7 @@ public:
 	 * real UFGPowerShardDescriptor::GetBoostValue() value this function
 	 * does not currently look up separately).
 	 *
-	 * NOT YET LIVE-TESTED - the real per-building default shard slot
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07) - the real per-building default shard slot
 	 * count (when overridesShardSlotCount is false, which is the case
 	 * for all three buildings this was designed for: Miner Mk3, Smelter
 	 * Mk1, Constructor Mk1) is a real value this project's own
@@ -889,7 +889,10 @@ public:
 	 * NOT_COLORABLE if false, rather than calling the setter on
 	 * something the game itself says shouldn't be painted.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07):
+	 * works on normal actor buildables (machines). KNOWN LIMITATION: fails on
+	 * LIGHTWEIGHT/instanced buildables (e.g. foundations, whose id is an
+	 * "class|index" instance handle) - same for SetBuildableRotation.
 	 * In particular, whether setting ColorSlot=INDEX_CUSTOM_COLOR_SLOT
 	 * is really sufficient (vs. needing some other field combination) is
 	 * inferred from the constant's own doc comment, not confirmed by
@@ -1354,7 +1357,7 @@ public:
 	 * destination (AFGDroneSubsystem::Server_PairStations, a public
 	 * BlueprintCallable function, not yet exposed here) before it will
 	 * fly a route - neither is handled by this function, which only
-	 * covers construction itself. NOT YET LIVE-TESTED.
+	 * covers construction itself. LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	static void ConstructVehicle(UObject* WorldContextObject, const FString& RecipeClassPath, const FString& DroneStationId, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
@@ -1758,7 +1761,8 @@ public:
 	 * component type as regular belts (both derive from
 	 * `AFGBuildableConveyorBase`).
 	 *
-	 * NOT YET LIVE-TESTED. No post-end-click connectivity diagnostic is
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
+	 * No post-end-click connectivity diagnostic is
 	 * available here (unlike belts'/pipes' `GetAnyConnectedBuildables()`/
 	 * `IsConnectionSnapped()`, inherited from `AFGSplineHologram` which
 	 * this hologram does NOT derive from) - only the disqualifier list
@@ -1784,7 +1788,7 @@ public:
 	 * times-per-real-player-notch pattern for regular building rotation.
 	 * Positive rotates one way, negative the other, magnitude is number
 	 * of 90-degree steps. 0 (default) leaves rotation exactly as the
-	 * hologram itself would resolve it - NOT YET LIVE-TESTED, including
+	 * hologram itself would resolve it - LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07), including
 	 * whether this actually affects the free end at all.
 	 */
 	static void ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
@@ -1849,7 +1853,7 @@ public:
 	 * as distinct concepts beyond what the wildcard class + output index
 	 * pairing itself represents.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogSplitterSortRulesAsJson(UObject* WorldContextObject);
@@ -1890,7 +1894,7 @@ public:
 	 * guessing at exactly how `SetSortRules` handles an out-of-range
 	 * request.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult SetSplitterSortRules(UObject* WorldContextObject, const FString& BuildableId, const FString& RulesJson);
@@ -2036,7 +2040,7 @@ public:
 	 * `"Christmas"`, matching world.recipeCatalog's `relevantEvents`
 	 * string exactly (not `"FICSMAS"`).
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session;
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07) - compiled only, no game running this session;
 	 * `AFGEventSubsystem::Get()` is stub-bodied like most subsystem
 	 * `Get()` calls in this file.
 	 */
@@ -2163,7 +2167,7 @@ public:
 	 * expected to report TWO entries here (one `PowerTower`, one
 	 * `Default`); an ordinary Pole/Wall Plug is expected to report ONE.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogPowerPolesAsJson(UObject* WorldContextObject);
@@ -2203,7 +2207,7 @@ public:
 	 * `docs/buildable-coverage.md`'s "Smart/Priority Power Switch" row
 	 * should be read as one real thing, not two.
 	 *
-	 * NOT YET LIVE-TESTED - no game running this session, though the
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07) - no game running this session, though the
 	 * non-stub-bodied getters here carry real confidence they'll resolve
 	 * correctly at runtime.
 	 */
@@ -2222,7 +2226,7 @@ public:
 	 * Priority Power Switch's on/off control IS `AFGBuildableCircuitSwitch::
 	 * SetSwitchOn`, there is no priority-specific override of it).
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult SetPowerSwitchOn(UObject* WorldContextObject, const FString& BuildableId, bool bSwitchOn);
@@ -2241,7 +2245,7 @@ public:
 	 * a priority field, a plain `Recipe_PowerSwitch` instance fails
 	 * `WRONG_TYPE` here.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult SetPriorityPowerSwitchPriority(UObject* WorldContextObject, const FString& BuildableId, int32 Priority);
@@ -2305,7 +2309,7 @@ public:
 	 * flowLimit) - a pump adds headlift, it does NOT increase a
 	 * network's real throughput ceiling beyond the pipe tier in use.
 	 *
-	 * NOT YET LIVE-TESTED (compiled only) - in particular, whether the
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07) (compiled only) - in particular, whether the
 	 * CDO's GetDefaultFlowLimit()/GetMaxHeadLift()/GetDesignHeadLift()
 	 * return meaningful defaults absent a real connected pipe network
 	 * (CDOs are never actually placed/connected) is unconfirmed; a
@@ -2348,7 +2352,7 @@ public:
 	 * confirmed as a real, documented simulation feature, not
 	 * speculation.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogPipeFluidBoxesAsJson(UObject* WorldContextObject);
@@ -2371,7 +2375,7 @@ public:
 	 * per-tier reference, confirm against a real placed tank if exact
 	 * numbers matter.
 	 *
-	 * NOT YET LIVE-TESTED - same CDO-never-placed caveat as
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07) - same CDO-never-placed caveat as
 	 * world.pipelinePumpTiers.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
@@ -2413,7 +2417,7 @@ public:
 	 * genuinely open, separate future addition for freight wagons
 	 * specifically, not done here).
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString LogTrainCargoPlatformsAsJson(UObject* WorldContextObject);
@@ -2453,7 +2457,7 @@ public:
 	 * fields (resourceForm, load/unload cycle, per-vehicle-tracking
 	 * combined rates) that world.buildables does not expose.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 * GetDockingStationResourceForm() is stub-bodied in this local
 	 * source tree (returns default EResourceForm() unconditionally when
 	 * read from source) - the real logic only exists in the compiled
@@ -2590,7 +2594,7 @@ public:
 	 * same posture as drone station-pairing being deferred alongside
 	 * ConstructVehicle.
 	 *
-	 * NOT YET LIVE-TESTED - implemented from header research only
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07) - implemented from header research only
 	 * (FGVehiclePathSegmentHologram.cpp is a stub, real construct-path
 	 * behavior unconfirmed).
 	 */
@@ -2671,7 +2675,7 @@ public:
 	 * "let the real engine trace decide" posture as
 	 * ConstructExtractorOnNode).
 	 *
-	 * NOT YET LIVE-TESTED - implemented from header research only
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07) - implemented from header research only
 	 * (FGBeamHologram.cpp is a stub, real placement/build-mode/rotation
 	 * behavior unconfirmed).
 	 */
@@ -2738,7 +2742,7 @@ public:
 	 * to just the first one found) can't represent the whole stack -
 	 * check `ResultDetailJson` for the full picture.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 * This is the FIRST time this project has driven the Zoop mechanic
 	 * via `SetZoopAmount()` rather than the ordinary single-click/
 	 * two-click flow - real confidence here is lower than most of
@@ -2792,7 +2796,7 @@ public:
 	 * reference's real top attachment point, same "let the real engine
 	 * decide" posture as every other Construct* function in this file.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	static void ConstructStackableSupportOnTop(UObject* WorldContextObject, const FString& ReferenceBuildableId, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
@@ -2837,7 +2841,7 @@ public:
 	 * thing to verify live: set a beam's length, then re-query
 	 * world.buildables (or dismantle it) and confirm the change stuck.
 	 *
-	 * NOT YET LIVE-TESTED - compiled only, no game running this session.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult SetBeamLength(UObject* WorldContextObject, const FString& BuildableId, float NewLength);
@@ -3191,7 +3195,7 @@ public:
 	 * that GetPairedStation() matches the requested target (or is null,
 	 * for an unpair) - never trusts the call blindly.
 	 *
-	 * NOT YET LIVE-TESTED.
+	 * LIVE-TESTED 2026-09-07 (see memory reference_rpc_live_verified_2026_09_07).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult PairDroneStations(UObject* WorldContextObject, const FString& StationBuildableId, const FString& TargetStationBuildableId);
