@@ -1716,18 +1716,42 @@ FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldC
 	// explicit call to a known handler for the fuel we just added - not a
 	// generic reflection interface.
 	FString ArmedFuelType;
+	FString FuelArmMethod;
 	if (DroneStationToArmFuel && Added > 0)
 	{
-		if (UFunction* Fn = DroneStationToArmFuel->FindFunction(FName(TEXT("OnFuelItemAdded"))))
+		AFGDroneStationInfo* Info = DroneStationToArmFuel->GetInfo();
+		// 1) Preferred: run the station's own OnFuelItemAdded handler (the
+		//    belt-delivery path), now with the fuel inventory as the source.
+		UFunction* Fn = DroneStationToArmFuel->FindFunction(FName(TEXT("OnFuelItemAdded")));
+		if (Fn)
 		{
 			struct FOnFuelItemAddedParams { UClass* Item; int32 Amount; UFGInventoryComponent* Source; };
 			FOnFuelItemAddedParams Params;
 			Params.Item = ItemClassResolved;
 			Params.Amount = Added;
-			Params.Source = nullptr;
+			Params.Source = TargetInventory;
 			DroneStationToArmFuel->ProcessEvent(Fn, &Params);
 		}
-		if (AFGDroneStationInfo* Info = DroneStationToArmFuel->GetInfo())
+		bool bArmed = (Info && Info->GetDroneActiveFuelType() != nullptr);
+		FuelArmMethod = Fn ? (bArmed ? TEXT("OnFuelItemAdded") : TEXT("OnFuelItemAdded(no-effect)")) : TEXT("handler-not-found");
+
+		// 2) Fallback: directly set the info's active/last-inserted fuel type
+		//    (both TSubclassOf<UFGItemDescriptor>, reflected as FClassProperty).
+		//    The working reference stations show mActiveDroneFuelType populated;
+		//    a docked drone will not depart while it is None.
+		if (Info && !bArmed)
+		{
+			for (const TCHAR* PropName : { TEXT("mLastInsertedFuelType"), TEXT("mActiveDroneFuelType") })
+			{
+				if (FClassProperty* Prop = CastField<FClassProperty>(Info->GetClass()->FindPropertyByName(FName(PropName))))
+				{
+					Prop->SetObjectPropertyValue_InContainer(Info, ItemClassResolved);
+				}
+			}
+			bArmed = (Info->GetDroneActiveFuelType() != nullptr);
+			if (bArmed) { FuelArmMethod = TEXT("directPropertySet"); }
+		}
+		if (Info)
 		{
 			ArmedFuelType = Info->GetDroneActiveFuelType() ? Info->GetDroneActiveFuelType()->GetPathName() : FString();
 		}
@@ -1741,6 +1765,7 @@ FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldC
 	if (DroneStationToArmFuel)
 	{
 		DetailObject->SetStringField(TEXT("armedActiveFuelType"), ArmedFuelType);
+		DetailObject->SetStringField(TEXT("fuelArmMethod"), FuelArmMethod);
 	}
 
 	UE_LOG(LogAIModAI, Display, TEXT("AddItemsToInventory: %s <- %d x %s into %s (added %d)"),
