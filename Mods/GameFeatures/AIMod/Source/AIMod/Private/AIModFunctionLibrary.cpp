@@ -118,6 +118,7 @@
 #include "Buildables/FGBuildableDockingStation.h"
 #include "WheeledVehicles/FGWheeledVehicle.h"
 #include "WheeledVehicles/FGWheeledVehicleIdentifier.h"
+#include "WheeledVehicles/FGVehicleAutopilotComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "FGMapManager.h"
 #include "FGIconDatabaseSubsystem.h"
@@ -14774,6 +14775,16 @@ FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldCon
 		DetailObject->SetNumberField(TEXT("validSegmentsForPreset"), ValidSegmentsForPreset);
 		DetailObject->SetBoolField(TEXT("currentSegmentValidForPreset"), bCurrentSegmentValidForPreset);
 		DetailObject->SetNumberField(TEXT("currentTargetWaypointIndex"), Identifier->GetCurrentTargetWaypointIndex());
+		DetailObject->SetBoolField(TEXT("vehicleInProxyMode"), TargetVehicle->IsVehicleInProxyMode());
+		if (UFGVehicleAutopilotComponent* Autopilot = TargetVehicle->GetVehicleAutopilotComponent())
+		{
+			DetailObject->SetBoolField(TEXT("shouldTickAutopilot"), Autopilot->ShouldTickAutopilotComponent());
+			DetailObject->SetNumberField(TEXT("autopilotForwardSpeed"), Autopilot->GetCurrentForwardSpeed());
+		}
+		else
+		{
+			DetailObject->SetStringField(TEXT("autopilotComponentNote"), TEXT("GetVehicleAutopilotComponent() returned null"));
+		}
 	}
 
 	UE_LOG(LogAIModAI, Display, TEXT("SetTruckAutopilot: vehicle=%s enabled=%s took=%s canEnable=%s onPath=%s hasFuel=%s availForType=%s error=%s routeLen=%d fuelAdded=%d"),
