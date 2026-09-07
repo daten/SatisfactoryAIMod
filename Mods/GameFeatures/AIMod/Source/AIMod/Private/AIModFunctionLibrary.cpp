@@ -14660,8 +14660,29 @@ FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldCon
 	// AFGVehiclePathSegment spline and pin the truck onto it with the public
 	// SetCurrentVehiclePathSegment().
 	float NearestSegmentDist = -1.0f;
+	int32 SegmentCount = 0;
+	int32 ValidSegmentsForPreset = 0;
+	bool bCurrentSegmentValidForPreset = false;
 	if (bEnabled)
 	{
+		// RPC-built path segments may never have had their per-vehicle-type
+		// traversability/validation data computed (it is significance-gated and
+		// streamed over frames). Without it CanVehicleTraverseSegment is false
+		// and the autopilot finds no route (idles with error None). Force an
+		// immediate rebuild on every segment so the network is traversable now.
+		UFGVehiclePathPreset* TruckPreset = TargetVehicle->GetVehiclePathPreset();
+		for (TActorIterator<AFGVehiclePathSegment> It(World); It; ++It)
+		{
+			AFGVehiclePathSegment* Segment = *It;
+			if (!IsValid(Segment)) { continue; }
+			++SegmentCount;
+			Segment->ImmediateRebuildPathValidationData();
+			if (TruckPreset && Segment->IsPathValidForPreset(TruckPreset))
+			{
+				++ValidSegmentsForPreset;
+			}
+		}
+
 		TargetVehicle->UpdateCurrentVehiclePathSegmentFromVehicleLocation();
 		if (TargetVehicle->GetCurrentVehiclePathSegment() == nullptr)
 		{
@@ -14696,8 +14717,23 @@ FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldCon
 		}
 	}
 
+	if (bEnabled)
+	{
+		UFGVehiclePathPreset* TruckPreset = TargetVehicle->GetVehiclePathPreset();
+		AFGVehiclePathSegment* CurSeg = TargetVehicle->GetCurrentVehiclePathSegment();
+		bCurrentSegmentValidForPreset = (CurSeg && TruckPreset) ? CurSeg->IsPathValidForPreset(TruckPreset) : false;
+	}
+
 	const bool bCanEnable = Identifier->CanEnableAutopilot();
 	Identifier->SetAutopilotEnabled(bEnabled);
+
+	// Give the autopilot an explicit first destination. A bare SetAutopilotEnabled
+	// was observed to leave the truck armed but idle (error None) - setting the
+	// current target waypoint to the first route stop kicks route calculation.
+	if (bEnabled && Identifier->IsAutopilotEnabled() && Identifier->GetVehicleRoute().Num() >= 2)
+	{
+		Identifier->SetCurrentTargetWaypoint(0);
+	}
 
 	// Full diagnostic detail, always returned. Like setTrainSelfDriving, a
 	// truck that refuses to drive is real configuration state for the caller
@@ -14731,6 +14767,13 @@ FAIModOperationResult UAIModFunctionLibrary::SetTruckAutopilot(UObject* WorldCon
 	if (NearestSegmentDist >= 0.0f)
 	{
 		DetailObject->SetNumberField(TEXT("nearestSegmentDist"), NearestSegmentDist);
+	}
+	if (bEnabled)
+	{
+		DetailObject->SetNumberField(TEXT("segmentCount"), SegmentCount);
+		DetailObject->SetNumberField(TEXT("validSegmentsForPreset"), ValidSegmentsForPreset);
+		DetailObject->SetBoolField(TEXT("currentSegmentValidForPreset"), bCurrentSegmentValidForPreset);
+		DetailObject->SetNumberField(TEXT("currentTargetWaypointIndex"), Identifier->GetCurrentTargetWaypointIndex());
 	}
 
 	UE_LOG(LogAIModAI, Display, TEXT("SetTruckAutopilot: vehicle=%s enabled=%s took=%s canEnable=%s onPath=%s hasFuel=%s availForType=%s error=%s routeLen=%d fuelAdded=%d"),
