@@ -2261,8 +2261,15 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		const bool bHasSrcConnPos = ParseConnPos(TEXT("sourceConnectorPosition"), SrcConnPos);
 		const bool bHasDstConnPos = ParseConnPos(TEXT("destConnectorPosition"), DstConnPos);
 
+		// Optional (2026-09-08, docs/train-drivable-joint-research.md experiment
+		// 2): drive the engine's real build-gun PrimaryFire path instead of the
+		// manual DoMultiStepPlacement + InternalConstructHologram, so the joint is
+		// actually drivable (default false = the proven straight-build path).
+		bool bUsePrimaryFire = false;
+		ParamsObject->TryGetBoolField(TEXT("usePrimaryFire"), bUsePrimaryFire);
+
 		UAIModFunctionLibrary::ConstructRailroadTrack(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRunTrack,
-			SrcConnPos, bHasSrcConnPos, DstConnPos, bHasDstConnPos,
+			SrcConnPos, bHasSrcConnPos, DstConnPos, bHasDstConnPos, bUsePrimaryFire,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

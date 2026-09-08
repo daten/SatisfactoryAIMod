@@ -12428,7 +12428,7 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 // this only builds a single point-to-point segment between two existing
 // connector-bearing buildables (e.g. two Train Station platforms, or an
 // existing track's open end).
-void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, TFunction<void(const FAIModOperationResult&)> OnComplete)
+void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -12587,6 +12587,159 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		}
 		return false;
 	};
+
+	// ==== EXPERIMENT 2 (2026-09-08, docs/train-drivable-joint-research.md):
+	// drive the engine's REAL build-gun PrimaryFire path instead of the manual
+	// DoMultiStepPlacement + InternalConstructHologram below. The manual path
+	// graph-merges the track but leaves the JOINT non-traversable (loco reports
+	// StationUnreachable and never moves - verified live for straight AND curved
+	// track, even both-ends-snapped and powered). Theory: the binary's
+	// ConfigureComponents (opaque stub in the workspace) wires a drivable joint
+	// only when the hologram is in the exact state the interactive player build
+	// leaves it, which PrimaryFire_Implementation() produces but our manual
+	// DoMultiStepPlacement does not. So: fire the source connector as the first
+	// "click", then the dest connector as the second "click" (which constructs),
+	// letting the engine own placement + connection setup end to end. Behind a
+	// param (default off) so the proven straight-build path is untouched.
+	if (bUsePrimaryFire && !bDryRun)
+	{
+		const FHitResult FireStartHit = MakeHitAt(SourceBuildable, SourceConnection);
+		const FHitResult FireEndHit = MakeHitAt(DestBuildable, DestConnection);
+
+		struct FFireState
+		{
+			TWeakObjectPtr<AFGRailroadTrackHologram> Hologram;
+			TWeakObjectPtr<AFGCharacterPlayer> Character;
+			TWeakObjectPtr<AFGBuildGun> BuildGun;
+			TWeakObjectPtr<UFGBuildGunStateBuild> BuildState;
+			TWeakObjectPtr<UWorld> World;
+			TWeakObjectPtr<UFGRailroadTrackConnectionComponent> SourceConn;
+			TWeakObjectPtr<UFGRailroadTrackConnectionComponent> DestConn;
+			FHitResult StartHit;
+			FHitResult EndHit;
+			FRotator DeterministicLook;
+			FString SourceBuildableId;
+			FString DestBuildableId;
+			int32 Phase = 0; // 0 = wait-out-Initializing then fire START; 1 = fire END (constructs); 2 = report
+			int32 AttemptsRemaining = 120;
+			int32 AttemptsTaken = 0;
+			TFunction<void(const FAIModOperationResult&)> OnComplete;
+		};
+		const TSharedRef<FFireState> Fire = MakeShared<FFireState>();
+		Fire->Hologram = TrackHologram;
+		Fire->Character = Character;
+		Fire->BuildGun = BuildGun;
+		Fire->BuildState = BuildState;
+		Fire->World = World;
+		Fire->SourceConn = SourceConnection;
+		Fire->DestConn = DestConnection;
+		Fire->StartHit = FireStartHit;
+		Fire->EndHit = FireEndHit;
+		Fire->DeterministicLook = TrackDeterministicLook;
+		Fire->SourceBuildableId = SourceBuildableId;
+		Fire->DestBuildableId = DestBuildableId;
+		Fire->OnComplete = MoveTemp(OnComplete);
+
+		const TSharedRef<TFunction<void()>> FireFn = MakeShared<TFunction<void()>>();
+		*FireFn = [Fire, FireFn]()
+		{
+			++Fire->AttemptsTaken;
+			AFGRailroadTrackHologram* H = Fire->Hologram.Get();
+			UWorld* W = Fire->World.Get();
+			AFGCharacterPlayer* Ch = Fire->Character.Get();
+			AFGBuildGun* Gun = Fire->BuildGun.Get();
+			UFGBuildGunStateBuild* State = Fire->BuildState.Get();
+			if (!IsValid(H) || !W || !IsValid(Gun) || !IsValid(State))
+			{
+				if (IsValid(Ch)) { Ch->UnequipBuildGun(); }
+				Fire->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("hologram/build gun invalid during PrimaryFire drive")));
+				return;
+			}
+
+			// Keep the player's control rotation deterministic (as the manual
+			// path does) so any aim-derived logic in PrimaryFire is stable.
+			if (IsValid(Ch))
+			{
+				if (AController* Ct = Ch->GetController()) { Ct->SetControlRotation(Fire->DeterministicLook); }
+			}
+
+			auto DriveHit = [H, Gun](const FHitResult& Hit)
+			{
+				Gun->GetHitResult() = Hit;
+				H->SetHologramLocationAndRotation(Hit);
+				H->UpdateHologramPlacement(Hit);
+			};
+
+			--Fire->AttemptsRemaining;
+
+			if (Fire->Phase == 0)
+			{
+				// Wait out the one-shot "Initializing" disqualifier just like the
+				// manual poll, so the first fire lands on a ready hologram.
+				TArray<TSubclassOf<UFGConstructDisqualifier>> Disq;
+				H->GetConstructDisqualifiers(Disq);
+				const bool bInit = Disq.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+				DriveHit(Fire->StartHit);
+				if (bInit && Fire->AttemptsRemaining > 0)
+				{
+					W->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([FireFn]() { (*FireFn)(); }));
+					return;
+				}
+				const ESplineHologramBuildStep StepBefore = H->GetCurrentBuildStep();
+				State->PrimaryFire_Implementation();
+				const ESplineHologramBuildStep StepAfter = H->GetCurrentBuildStep();
+				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack[PrimaryFire]: START fire stepBefore=%d stepAfter=%d"),
+					static_cast<int32>(StepBefore), static_cast<int32>(StepAfter));
+				Fire->Phase = 1;
+				W->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([FireFn]() { (*FireFn)(); }));
+				return;
+			}
+
+			if (Fire->Phase == 1)
+			{
+				DriveHit(Fire->EndHit);
+				const ESplineHologramBuildStep StepBefore = H->GetCurrentBuildStep();
+				State->PrimaryFire_Implementation();
+				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack[PrimaryFire]: END fire stepBefore=%d (construct expected)"),
+					static_cast<int32>(StepBefore));
+				Fire->Phase = 2;
+				// give the construct a tick to resolve before we look for the track
+				W->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([FireFn]() { (*FireFn)(); }));
+				return;
+			}
+
+			// Phase 2: report. The engine (if the fire worked) built + wired the
+			// track itself - do NOT run the force-link/subsystem surgery. Resolve
+			// the new track via a now-connected source/dest connector.
+			if (IsValid(Ch)) { Ch->UnequipBuildGun(); }
+			AFGBuildableRailroadTrack* NewTrack = nullptr;
+			for (UFGRailroadTrackConnectionComponent* An : { Fire->SourceConn.Get(), Fire->DestConn.Get() })
+			{
+				if (IsValid(An) && An->IsConnected())
+				{
+					if (UFGRailroadTrackConnectionComponent* Peer = An->GetConnection())
+					{
+						NewTrack = Peer->GetTrack();
+						if (NewTrack) { break; }
+					}
+				}
+			}
+			const bool bSrcConn = Fire->SourceConn.IsValid() && Fire->SourceConn->IsConnected();
+			const bool bDstConn = Fire->DestConn.IsValid() && Fire->DestConn->IsConnected();
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack[PrimaryFire]: done src=%s dst=%s newTrack=%s srcConnected=%d dstConnected=%d"),
+				*Fire->SourceBuildableId, *Fire->DestBuildableId, NewTrack ? *NewTrack->GetName() : TEXT("<none>"), bSrcConn ? 1 : 0, bDstConn ? 1 : 0);
+			if (!NewTrack)
+			{
+				Fire->OnComplete(FAIModOperationResult::Failure(TEXT("PRIMARYFIRE_NO_TRACK"),
+					FString::Printf(TEXT("PrimaryFire drive produced no connected track (srcConnected=%d dstConnected=%d) - the fire path may need a different input sequence"),
+						bSrcConn ? 1 : 0, bDstConn ? 1 : 0)));
+				return;
+			}
+			Fire->OnComplete(FAIModOperationResult::Success());
+		};
+		World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([FireFn]() { (*FireFn)(); }));
+		return;
+	}
 
 	// ---- START click. Instrumented (2026-09-05): the rail hologram's
 	// start step never advanced past FindStart with the belt/pipe pattern.
