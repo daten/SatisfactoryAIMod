@@ -35,35 +35,45 @@ source-of-truth priority, logging/testing conventions).
 
 ## Current functionality
 
-Everything below is exposed as JSON-RPC methods over a **loopback-only**
-HTTP server the mod runs inside the game (`world.*` namespace). All of it
-has been exercised against a real, running Satisfactory session, not just
-compiled.
+Everything is exposed as JSON-RPC methods over a **loopback-only** HTTP
+server the mod runs inside the game (`world.*` namespace). There are
+**~104 methods**, most exercised against a real running session (not just
+compiled). Rather than list them here, the interface is **self-describing**:
 
-**Read / telemetry:**
-`world.resourceNodes`, `world.buildables`, `world.manufacturers`,
-`world.connections`, `world.conveyorBeltTiers`, `world.conveyorLiftTiers`,
-`world.conveyorAttachments`, `world.pipelineTiers`, `world.powerLineLimits`,
-`world.targetedManufacturer`, `world.player`.
+- **`world.help`** returns a live catalog of every method with its params
+  and a one-line summary — so an external agent can discover the whole
+  interface at runtime without the mod source.
+- [`docs/rpc-catalog.md`](docs/rpc-catalog.md) is the same catalog
+  rendered as a browsable doc (generated from the dispatcher).
 
-**Write / construct** (each has a `world.testX` dry-run counterpart where
-noted):
-`world.placeBuilding`, `world.placeExtractor`, `world.deleteBuilding`,
-`world.setRecipe`, `world.setClockSpeed`,
-`world.testConveyorBelt` / `world.connectConveyor`,
-`world.testConveyorLift` / `world.connectConveyorLift`,
-`world.testPipe` / `world.connectPipe`,
-`world.testPowerConnection` / `world.connectPower`.
+Coverage, by area:
 
-A full demo chain — Miner -> vertical conveyor lift -> splitter -> 3
-parallel Constructors -> merger -> storage container, real power routed
-from the map's existing grid — has been built entirely through this RPC
-surface and confirmed producing (`world.manufacturers` showing
-`productionStatus: "Producing"` with real material flow), not just placed.
+- **Telemetry (read):** resource nodes, buildables (+bounds), factory/pipe
+  connections, manufacturers, power poles/switches, inventories, central
+  storage, catalogs (recipes/items/buildables), tiers (belt/lift/pipe/pump),
+  water volumes, terrain height grid, milestones/M.A.M. status, time of day,
+  map markers, vehicles/trains/trucks/drones/creatures, and more.
+- **Construction & wiring:** place/delete buildings and extractors, connect
+  belts/lifts/pipes/hypertubes/power (each with a `world.testX` dry-run),
+  beams, stackable supports, water pumps.
+- **Configuration:** set recipe / clock / power shards / splitter sort rules /
+  power-switch state / buildable color & rotation, add items to a buildable
+  inventory, time of day, map markers.
+- **Vehicles & logistics:** trains (track, stations, timetable, self-driving),
+  trucks (vehicle paths, autopilot), and **drones** (stations, pairing,
+  cargo/fuel) — drone transport works end-to-end; see
+  [`docs/vehicle-placement-guide.md`](docs/vehicle-placement-guide.md) for
+  the current status of each.
 
-Out of scope so far: no planning/optimization layer exists yet, and the
-mod deliberately avoids any generic "call arbitrary function" style
-operation — see CLAUDE.md's Safety and Stability Boundary.
+Real factories have been built entirely through this surface and confirmed
+producing (a copper line and a Heavy Modular Frame factory), plus rail/truck/
+drone proofs-of-concept.
+
+Out of scope so far: **no planning/optimization layer exists yet** (Phases
+17/19/20 in [PLAN.md](PLAN.md)) — the Python side is a deterministic
+*toolkit*, not an auto-solver — and the mod deliberately avoids any generic
+"call arbitrary function" operation (see CLAUDE.md's Safety and Stability
+Boundary).
 
 ## Where things live
 
@@ -76,15 +86,20 @@ operation — see CLAUDE.md's Safety and Stability Boundary.
   [`controller/`](controller) — `satisfactory_ai/` is a toolkit of
   geometry/protocol helpers (not an auto-layout solver by design), with
   its own test suite under `controller/tests`.
-- **Living documentation**: [`docs/`](docs) — in particular,
-  [`docs/placement-lessons.md`](docs/placement-lessons.md) is a
-  continuously-updated, practical reference for placing/connecting
-  buildables reliably (read this before writing new placement code or
-  debugging a placement failure). The rest of `docs/` are dated
+- **Living documentation**: [`docs/`](docs). Start with the distilled,
+  task-oriented guides:
+  [`docs/factory-placement-guide.md`](docs/factory-placement-guide.md)
+  (foundations, machines, splitters/mergers, belts, lifts) and
+  [`docs/vehicle-placement-guide.md`](docs/vehicle-placement-guide.md)
+  (trains, trucks, drones); the full method catalog is
+  [`docs/rpc-catalog.md`](docs/rpc-catalog.md) (also live via `world.help`).
+  [`docs/placement-lessons.md`](docs/placement-lessons.md) is the complete
+  chronological log the guides distil. The rest of `docs/` are dated
   investigation logs (`*-research.md`) recording how specific FactoryGame
-  APIs were reverse-engineered from stub-source headers, plus protocol
-  references (`telemetry-protocol.md`, `operations-protocol.md`) and
-  environment/build notes (`current-environment.md`, `build.md`).
+  APIs were reverse-engineered from stub-source headers, plus environment/
+  build notes (`current-environment.md`, `build.md`). (The older
+  `telemetry-protocol.md` / `operations-protocol.md` predate most of the
+  interface — prefer `world.help` / `rpc-catalog.md`.)
 - **Plan and working rules**: [`PLAN.md`](PLAN.md) (objective, phase
   breakdown, current milestone) and [`CLAUDE.md`](CLAUDE.md) (behavioral
   rules for AI-assisted development on this repo — safety boundaries,

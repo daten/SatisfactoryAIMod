@@ -20,7 +20,7 @@ import json, re, sys, pathlib
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DISP = ROOT / "Mods/GameFeatures/AIMod/Source/AIMod/Private/AIModHttpServerSubsystem.cpp"
 GEN_CPP = ROOT / "Mods/GameFeatures/AIMod/Source/AIMod/Private/AIModRpcCatalog.gen.cpp"
-REF_MD = ROOT / "docs/rpc-reference.md"
+REF_MD = ROOT / "docs/rpc-catalog.md"
 
 # Concise one-line summaries (hand-authored). Keep terse; deep detail lives in
 # docs/factory-placement-guide.md, docs/vehicle-placement-guide.md, docs/telemetry-protocol.md.
@@ -201,12 +201,15 @@ def emit_cpp(cat):
     GEN_CPP.write_text(txt, encoding="utf-8")
 
 def emit_md(cat):
-    lines = ["# AIMod RPC reference (generated)", "",
-             f"Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py`. "
-             f"**{cat['methodCount']} methods.** The running mod serves this same catalog live via "
-             "the `world.help` RPC (returns the full catalog; filter client-side). Param *types* can "
-             "also be confirmed at runtime from structured errors like "
-             "`params.buildableId must be a non-empty string`. Deep placement guidance: "
+    lines = ["# AIMod RPC catalog (generated)", "",
+             f"Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the "
+             f"always-current, complete list of **{cat['methodCount']} methods** with params + one-line "
+             "summaries. The running mod serves this same catalog live via the `world.help` RPC. Param "
+             "*types* can also be confirmed at runtime from structured errors like "
+             "`params.buildableId must be a non-empty string`.", "",
+             "For richer, hand-written detail (examples, a Connecting section, per-method notes) see "
+             "`RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust "
+             "`world.help` / this file on any conflict. Deep placement guidance: "
              "`docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.", ""]
     bycat = {}
     for e in cat["methods"]:

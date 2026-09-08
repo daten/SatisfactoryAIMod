@@ -465,7 +465,7 @@ source. `world.help` returns a live catalog of every `world.*` method (name,
 category, params with name/type/required, and a one-line summary). It is
 generated from the dispatcher — the single source of truth — by
 `controller/tools/gen_rpc_catalog.py`, which emits both the embedded catalog
-(`AIModRpcCatalog.gen.cpp`, served by `world.help`) and `docs/rpc-reference.md`.
+(`AIModRpcCatalog.gen.cpp`, served by `world.help`) and `docs/rpc-catalog.md`.
 Keep it current (see Definition of Done item 9);
 `python controller/tools/gen_rpc_catalog.py --check` fails (non-zero) if the
 committed catalog/reference are stale or a method lacks a summary, so it can be
@@ -477,9 +477,9 @@ guides live in `docs/factory-placement-guide.md` and
 
 # Networking
 
-Do not implement network transport until read-only telemetry and JSON serialization have been proven locally.
+**STATUS: IMPLEMENTED** — a loopback-only JSON-RPC HTTP server (`AIModHttpServerSubsystem`) is live, serving ~104 `world.*` methods. The requirements below are the standing constraints it must keep meeting (they are satisfied today; do not regress them).
 
-When networking is implemented:
+The following constraints apply:
 
 - bind only to loopback by default
 - do not expose the API to the LAN by default
@@ -586,6 +586,8 @@ If a project-specific identity system becomes necessary, design it deliberately.
 
 # Read Before Write
 
+**STATUS (2026-09): this bottom-up progression is COMPLETE** — full telemetry, an external world model, and full game-state mutation/construction are all built and live-tested. The rule below is kept as an enduring principle for any *new* capability: read/observe it reliably before you mutate it.
+
 Development order is deliberately read-first.
 
 Do not implement factory construction while world telemetry remains incomplete or unreliable.
@@ -610,6 +612,8 @@ This lets us understand how Satisfactory represents the world before attempting 
 ---
 
 # First Write Operations
+
+**STATUS: COMPLETE** — `SetRecipe`/`SetClockSpeed` through `PlaceBuilding`/`ConnectConveyor`/`ConnectPipe`/`ConnectPower` (and far beyond) are all implemented and live-tested. Kept as the record of the deliberate order taken; the "start simple, validate, then expand" discipline still applies to new write operations.
 
 When mutation work eventually begins, start with operations against existing objects.
 
@@ -890,30 +894,29 @@ Unreal compile cycles are expensive; preserve known-working states.
 
 ---
 
-# Current Near-Term Milestone
+# Current Status and Frontier
 
-The current milestone is:
+The original near-term milestone (trustworthy read-only resource-node JSON) and
+the whole bottom-up interface — logging, telemetry, loopback JSON-RPC transport,
+stable IDs, full game-state mutation, and factory/logistics **construction** —
+are **complete and live-tested**. The interface is ~104 `world.*` methods and is
+self-describing via `world.help` (+ `docs/rpc-catalog.md`). Real factories
+(a copper line, a Heavy Modular Frame factory) and rail/truck/drone PoCs have
+been built through it. See `PLAN.md` for the phase-by-phase status.
 
-> Export trustworthy read-only Satisfactory resource-node information from C++ in a normalized JSON form.
+The current frontier is:
 
-The required progression is:
+1. **Engineering gaps in the interface** — e.g. a fully drivable RPC-built train
+   joint, a truck driving a clean tree-free loop, freight-platform snap and rail
+   coupling. Tracked in `docs/vehicle-placement-guide.md`.
+2. **The layers above the mod that are NOT built yet** (deliberately external to
+   the mod — keep them out of it): the deterministic production/optimization
+   solver and the closed-loop "observe → plan → solve → build → validate →
+   correct" agent (PLAN.md Phases 17, 19, 20). The Python side
+   (`controller/satisfactory_ai`) is today a deterministic *toolkit*, not a
+   solver.
 
-```text
-1. Inspect existing AIMod source.
-2. Verify repeatable C++ build.
-3. Establish dedicated logging.
-4. Expose minimal C++ function to Blueprint.
-5. Verify it in the existing Blueprint test mod.
-6. Research resource-node APIs in installed headers.
-7. Enumerate resource nodes.
-8. Normalize resource-node data.
-9. Serialize it to JSON.
-10. Validate captured JSON with an external Python test.
-```
-
-Do not implement networking before this milestone is complete.
-
-Do not implement game-state mutation before this milestone is complete.
+The read-first, prove-each-layer discipline still applies to any new capability.
 
 ---
 
@@ -929,7 +932,7 @@ Before declaring a native-code task complete:
 6. runtime verification steps are described
 7. logs/errors are checked when runtime testing is available
 8. documentation is updated if a non-obvious discovery was made
-9. **if you added, removed, or changed the params of a `world.*` RPC method**, re-run `python controller/tools/gen_rpc_catalog.py` (add a one-line summary for any new method) and rebuild, so the `world.help` catalog and `docs/rpc-reference.md` stay in sync with the dispatcher. This is required — a source-less agent depends on `world.help` being complete and current.
+9. **if you added, removed, or changed the params of a `world.*` RPC method**, re-run `python controller/tools/gen_rpc_catalog.py` (add a one-line summary for any new method) and rebuild, so the `world.help` catalog and `docs/rpc-catalog.md` stay in sync with the dispatcher. This is required — a source-less agent depends on `world.help` being complete and current.
 
 If Unreal Editor or Satisfactory must be launched manually by the user to complete validation, explicitly state exactly what should be tested and what result is expected.
 

@@ -7,6 +7,13 @@ be complete as of this file's last update. If a call behaves differently than
 documented here, trust the live response over this file — the mod may have
 moved on since this was written.
 
+> **Always-current method list:** call **`world.help`** on the live mod (it
+> returns a machine-readable catalog of every method + params, generated from
+> the dispatcher), or read its rendered snapshot `docs/rpc-catalog.md`. This
+> file is the richer *hand-written* companion (examples, the Connecting section,
+> per-method notes) but is maintained manually and can lag; `world.help` /
+> `docs/rpc-catalog.md` are authoritative for *which* methods and params exist.
+
 If you *do* have the repo, `PLAYBOOK.md` covers how to phrase a request in
 plain language; this file covers how the interface actually works once a
 request has been decided. For "is building family X supported yet" at a
