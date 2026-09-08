@@ -140,13 +140,28 @@ arriving/leaving connection counts) is how you inspect/repair the graph;
 
 ---
 
-## 3. TRAINS — construction **WORKS**, drivable joint **PENDING/BLOCKED**
+## 3. TRAINS — **WORKS end to end** (self-driving train runs on RPC-built track)
 
-Track, stations, rail vehicles, timetable, self-driving, and power all work; the
-one remaining wall is that an **RPC-built rail joint graph-merges but is not
-guaranteed traversable** (the hologram never connection-snapped, so the joint is
-a graph edge without a drivable track position). A fix that drives the real
-hologram connection-snap is committed and pending live verification.
+Track, stations, rail vehicles, timetable, self-driving, and power all work, and
+a self-driving train **physically circulates on RPC-built track** — confirmed
+live 2026-09-08 (loco moving ~1600 u/s at z=5000 on a sky loop, `NoError`). The
+drivable joint IS traversable once the track is built with connector snapping +
+subsystem re-registration (both happen inside `constructRailroadTrack`). The
+earlier "not traversable" reading was a **test-topology** problem, not a joint
+problem. Three things MUST be right or the train reports `StationUnreachable`/
+`NoPower` and sits still:
+
+1. **Power ≥ one station.** Connect a powered pole to at least one station — rail
+   power flows across the whole track graph, so one connection powers the line
+   (`selfDrivingError` `NoPower`→`NoError`). Without it the train never departs.
+2. **Locomotive must face the arrival direction.** The loco has to be oriented so
+   its forward approach matches the route/station docking direction; a loco
+   facing the wrong way can't arrive and dock. Orient the loco (or the loop) so
+   it drives *into* each station the correct way.
+3. **Build a FULL LOOP, not two stations joined by one dead-end track.** Two
+   stations with a single connecting segment leaves dead ends the self-driver
+   won't reverse through → `StationUnreachable`. Close the circuit (curves back
+   around) so the train always has a forward path to the next stop.
 
 **Recipes:** station `Recipe_TrainStation_C`; track `Recipe_RailroadTrack_C`;
 loco `Recipe_Locomotive_C`; wagon `Recipe_FreightWagon_C`.
@@ -157,7 +172,11 @@ loco `Recipe_Locomotive_C`; wagon `Recipe_FreightWagon_C`.
   integrated track runs along **Y** at x = station_x + 800).
 - `constructRailroadTrack(sourceBuildableId, destBuildableId, recipeClass,
   sourceConnectorPosition, destConnectorPosition)` — builds straight + curved
-  track. **Pin `source/destConnectorPosition`** to choose which free connector
+  track. **Pass the station's `RailroadTrackIntegrated` child as source/dest, NOT
+  the station actor** — the station itself has no rail connector components
+  (passing it gives `NO_RAILROAD_CONNECTION`); the connectors live on the
+  integrated-track child (`Build_RailroadTrackIntegrated_C`, at station_x+800 at
+  yaw 0). **Pin `source/destConnectorPosition`** to choose which free connector
   each end joins (matters for loops).
 - Rail-vehicle placement via `constructVehicle` (snaps to nearest track spline).
 - `setTrainTimetable(trainId, stops=[{stationBuildableId, dockingDefinition:
@@ -171,13 +190,21 @@ loco `Recipe_Locomotive_C`; wagon `Recipe_FreightWagon_C`.
   "player in the way" on curves is a player-proximity flake. (This is the
   *opposite* of belts, where you teleport the player *near*.)
 - The engine `.cpp` for railroad is a shipped stub in the workspace — real logic
-  is in the game binary; the drivable-joint fix drives the hologram's own
-  connection-snap so `ConfigureComponents` wires a real joint.
+  is in the game binary. `constructRailroadTrack` gets a drivable joint by doing
+  BOTH: (a) driving the hologram's own connection-snap during placement so
+  `ConfigureComponents` wires the joint, AND (b) re-registering the new track
+  with `AFGRailroadSubsystem` (`RemoveTrack`→link→`AddTrack`) so it merges into
+  the pathfinding graph. Both are needed — snap alone leaves it unreachable,
+  re-register alone leaves it non-traversable.
+- **Teardown gap:** RPC-built stations/track currently **cannot be dismantled**
+  (`deleteBuilding` → `CanDismantle` false); plan loop placement so you don't
+  need to remove it, or dismantle in-game.
 
 **BLOCKED / unsolved:** multi-vehicle **coupling** (a station platform track
 holds one vehicle; wagons need adjacent plain track + coupling) · **freight-
 platform inline-snap** (`Recipe_TrainDockingStation` rejects free placement,
-needs a platform-extension snap not yet implemented).
+needs a platform-extension snap not yet implemented) · **rail dismantle**
+(`CanDismantle` false on RPC-built rail — see teardown gap above).
 
 ---
 
@@ -196,9 +223,11 @@ needs a platform-extension snap not yet implemented).
 
 `addItemsToInventory(buildableId, inventoryRole, itemClass, amount)` seeds a
 **buildable** inventory (drone `input`/`output`/`fuel`, truck-station `fuel`,
-storage). There is **no RPC to add to the PLAYER inventory** — so features that
-require a held item (e.g. `placePortableMiner` needs a portable-miner item) can't
-be bootstrapped from empty.
+storage). To add to the **PLAYER** inventory use
+`addItemsToPlayerInventory(itemClass, amount)` — so a held-item feature (e.g.
+`placePortableMiner` needs a portable-miner item) can now be bootstrapped from
+empty. `removeItemsFromInventory` is the buildable-side counterpart, and
+`uploadToCentralStorage`/`withdrawFromCentralStorage` move items player↔depot.
 
 ---
 
@@ -207,7 +236,11 @@ be bootstrapped from empty.
 - **Mechanisms + rationale:** baked into `AIModFunctionLibrary.cpp` with dated
   "why" comments (search the method names above).
 - **Operational procedure:** this doc + `vehicles.py`.
-- **Open problems:** truck drive needs a clean tree-free loop; train drivable
-  joint pending redeploy; train coupling + freight-platform snap unsolved;
-  no add-to-player-inventory RPC; `setBuildableColor`/`setBuildableRotation`
-  fail on lightweight (instanced) buildables like foundations.
+- **Open problems:** truck drive needs a clean tree-free loop; train coupling +
+  freight-platform snap unsolved; RPC-built rail can't be dismantled
+  (`CanDismantle` false); `setBuildableColor`/`setBuildableRotation` fail on
+  lightweight (instanced) buildables like foundations.
+- **Solved this session:** a self-driving train runs on RPC-built track (needs
+  power + correct loco facing + a full loop — see Trains §3);
+  `addItemsToPlayerInventory(itemClass, amount)` now adds to the PLAYER
+  inventory, and depot upload/withdraw + storage add/remove are all live-verified.

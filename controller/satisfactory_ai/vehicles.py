@@ -12,8 +12,12 @@ Status of each area (see the guide for detail):
   * drones  - WORKS end to end (build_drone_transport).
   * trucks  - infra + autopilot ARM correctly; the truck only physically drives
               on a clean tree/terrain-free directed loop (a SITE constraint).
-  * trains  - construction/vehicle/timetable/power WORK; a fully drivable
-              RPC-built joint is pending a hologram-connection-snap fix.
+  * trains  - WORKS end to end: a self-driving train runs on RPC-built track
+              (live 2026-09-08). Requires 3 things or it sits still: (1) power to
+              >=1 station, (2) the loco facing the arrival direction, (3) a FULL
+              LOOP (not two stations on one dead-end segment). Pass the station's
+              RailroadTrackIntegrated child (not the station actor) as the track
+              source/dest. RPC-built rail can't be dismantled yet.
 
 All calls go through rpc_client.RpcClient. Power uses executor.Executor
 (optional). Nothing here verifies silently - helpers return the ids/telemetry
@@ -229,13 +233,17 @@ def construct_rail_link(client, source_station_id: str, dest_station_id: str,
                         src_connector_pos: Optional[Tuple[float, float, float]] = None,
                         dst_connector_pos: Optional[Tuple[float, float, float]] = None,
                         recipe: str = RAIL_TRACK_RECIPE) -> dict:
-    """Build track between two rail buildables. PIN src/dst connector positions
-    to choose which free connector each end joins (essential for loops).
-    Reliability notes (see guide §3): stations >= ~6000u apart for end curves;
-    teleport the player AWAY from a curve before building (proximity flake,
-    opposite of belts). NB: a fully drivable RPC-built joint is pending a
-    hologram-connection-snap fix - the track builds and graph-merges, but verify
-    selfDrivingError clears past StationUnreachable before trusting it."""
+    """Build track between two rail buildables. IMPORTANT: source/dest must be
+    the station's RailroadTrackIntegrated CHILD buildable, not the station actor
+    (the station has no rail connector components; passing it gives
+    NO_RAILROAD_CONNECTION). PIN src/dst connector positions to choose which free
+    connector each end joins (essential for loops). Reliability notes (see guide
+    §3): stations >= ~6000u apart for end curves; teleport the player AWAY from a
+    curve before building (proximity flake, opposite of belts). The joint is
+    genuinely drivable (snap + subsystem re-registration both run inside the RPC,
+    live-verified 2026-09-08) - the earlier StationUnreachable was a topology
+    problem: a train needs power, correct loco facing, and a FULL LOOP (see
+    set_train_route). NB: RPC-built rail can't be dismantled yet."""
     params = {"sourceBuildableId": source_station_id, "destBuildableId": dest_station_id, "recipeClass": recipe}
     if src_connector_pos:
         params["sourceConnectorPosition"] = {"x": src_connector_pos[0], "y": src_connector_pos[1], "z": src_connector_pos[2]}
@@ -247,8 +255,13 @@ def construct_rail_link(client, source_station_id: str, dest_station_id: str,
 def set_train_route(client, train_id: str, station_ids: List[str],
                     docking: str = "LoadUnloadOnce", self_driving: bool = True) -> dict:
     """Timetable a train across stations then enable self-driving. NB: the stop
-    key is stationBuildableId. Untestable end-to-end until the drivable-joint
-    fix lands."""
+    key is stationBuildableId. For the train to actually MOVE (not just report a
+    timetable) three conditions must hold, or selfDrivingError stays
+    NoPower/StationUnreachable and the loco sits still (live-verified 2026-09-08):
+    (1) at least ONE station is powered (rail power spans the whole graph);
+    (2) the locomotive faces the arrival direction for its stops; (3) the track
+    is a FULL LOOP, not two stations joined by a single dead-end segment. With
+    all three, selfDrivingError -> NoError and the loco circulates."""
     stops = [{"stationBuildableId": sid, "dockingDefinition": docking} for sid in station_ids]
     tt = client.call("world.setTrainTimetable", {"trainId": train_id, "stops": stops}, timeout_seconds=60)
     sd = client.call("world.setTrainSelfDriving", {"trainId": train_id, "enabled": self_driving}, timeout_seconds=60)
