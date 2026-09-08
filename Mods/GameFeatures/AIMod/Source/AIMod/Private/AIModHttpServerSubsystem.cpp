@@ -1782,6 +1782,36 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.uploadToCentralStorage - player inventory -> Dimensional Depot (the
+	// reverse of withdraw); see UploadToCentralStorage's doc comment.
+	if (Method == TEXT("world.uploadToCentralStorage"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ItemClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClassPath) || ItemClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.itemClass must be a non-empty string")));
+			return true;
+		}
+		double Amount = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("amount"), Amount) || Amount <= 0.0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.amount must be a positive number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::UploadToCentralStorage(GetGameInstance(), ItemClassPath, static_cast<int32>(Amount));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Synchronous, unlike the buildable-placement RPCs above -
 	// UAIModFunctionLibrary::SpawnCreatureNearPlayer calls
 	// AFGCreatureSubsystem::BeginSpawningCreature directly (a plain C++

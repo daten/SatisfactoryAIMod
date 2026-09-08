@@ -1584,6 +1584,22 @@ public:
 	static FAIModOperationResult WithdrawFromCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);
 
 	/**
+	 * world.uploadToCentralStorage (2026-09-08) - the reverse of
+	 * withdrawFromCentralStorage: move items from the local PLAYER inventory
+	 * INTO the Dimensional Depot. The engine's only deposit path
+	 * (AFGCentralStorageSubsystem::UploadItemFromInventoryToCentralStorage) is
+	 * per-slot / whole-stack, so upload is STACK-GRANULAR: it uploads whole
+	 * matching stacks whose size keeps the running total <= Amount (never
+	 * overshoots the cap, never partially destroys a stack). Clamped by what
+	 * the player actually holds AND the Depot's remaining capacity for that item
+	 * (GetCentralStorageItemLimit). Reports itemsUploaded (may be < Amount when
+	 * the remaining need is smaller than the smallest matching stack, or the
+	 * Depot is near full) - a soft shortfall, not a loss. NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult UploadToCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);
+
+	/**
 	 * Deletes every AFGBuildablePipelineFlowIndicator in the world that
 	 * isn't the real, currently-attached indicator of any live
 	 * AFGBuildablePipeline - added 2026-08-27 per explicit user request,

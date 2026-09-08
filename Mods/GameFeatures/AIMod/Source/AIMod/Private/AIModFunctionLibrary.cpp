@@ -7462,6 +7462,105 @@ FAIModOperationResult UAIModFunctionLibrary::WithdrawFromCentralStorage(UObject*
 	return FAIModOperationResult::Success();
 }
 
+FAIModOperationResult UAIModFunctionLibrary::UploadToCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	if (Amount <= 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Amount must be greater than 0"));
+	}
+
+	AFGCentralStorageSubsystem* CentralStorage = AFGCentralStorageSubsystem::Get(World);
+	if (!CentralStorage)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_CENTRAL_STORAGE"), TEXT("No AFGCentralStorageSubsystem found for this world"));
+	}
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+	UFGInventoryComponent* PlayerInventory = Character->GetInventory();
+	if (!IsValid(PlayerInventory))
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No player inventory found"));
+	}
+
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *ItemClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGItemDescriptor::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_ITEM_CLASS"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGItemDescriptor subclass"), *ItemClassPath));
+	}
+	const TSubclassOf<UFGItemDescriptor> ItemClass = ResolvedClass;
+
+	const int32 Have = PlayerInventory->GetNumItems(ItemClass);
+	if (Have <= 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("NOTHING_TO_UPLOAD"),
+			FString::Printf(TEXT("Player inventory has none of '%s'"), *ItemClassPath));
+	}
+	// Remaining Depot capacity for this item (limit - already-stored). The Depot
+	// caps per-item; do not attempt to exceed it.
+	const int32 Room = FMath::Max(0, CentralStorage->GetCentralStorageItemLimit(ItemClass) - CentralStorage->GetNumItemsFromCentralStorage(ItemClass));
+	if (Room <= 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("DEPOT_FULL"),
+			FString::Printf(TEXT("Dimensional Depot is at capacity for '%s'"), *ItemClassPath));
+	}
+	const int32 Cap = FMath::Min3(Amount, Have, Room);
+
+	// STACK-GRANULAR upload: the engine only deposits a whole slot at a time
+	// (UploadItemFromInventoryToCentralStorage), so upload whole matching stacks
+	// that keep the running total <= Cap. This never overshoots the cap and
+	// never partially destroys a stack; a remainder smaller than the smallest
+	// matching stack is left safely in the player inventory. Delta-measured
+	// against the Depot count so the reported total is exact.
+	int32 Uploaded = 0;
+	const int32 SlotCount = PlayerInventory->GetSizeLinear();
+	for (int32 Idx = 0; Idx < SlotCount && Uploaded < Cap; ++Idx)
+	{
+		FInventoryStack Stack;
+		if (!PlayerInventory->GetStackFromIndex(Idx, Stack)) { continue; }
+		if (Stack.Item.GetItemClass() != ItemClass || Stack.NumItems <= 0) { continue; }
+		if (Uploaded + Stack.NumItems > Cap) { continue; }               // would exceed the cap
+		if (!CentralStorage->CanUploadInventoryItemToCentralStorage(Stack.Item)) { continue; }
+
+		const int32 Before = CentralStorage->GetNumItemsFromCentralStorage(ItemClass);
+		if (CentralStorage->UploadItemFromInventoryToCentralStorage(PlayerInventory, Idx))
+		{
+			Uploaded += (CentralStorage->GetNumItemsFromCentralStorage(ItemClass) - Before);
+		}
+	}
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("requested"), Amount);
+	DetailObject->SetNumberField(TEXT("itemsUploaded"), Uploaded);
+	DetailObject->SetNumberField(TEXT("depotNowHolds"), CentralStorage->GetNumItemsFromCentralStorage(ItemClass));
+
+	UE_LOG(LogAIModAI, Display, TEXT("UploadToCentralStorage: uploaded %d of %s to Dimensional Depot (requested %d, player held %d, room %d)"),
+		Uploaded, *ItemClassPath, Amount, Have, Room);
+
+	FString DetailJson;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> DetailWriter =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&DetailJson);
+	FJsonSerializer::Serialize(DetailObject, DetailWriter);
+
+	if (Uploaded <= 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("NOTHING_UPLOADED"),
+			FString::Printf(TEXT("Nothing uploaded - the smallest matching stack exceeds the remaining cap (%d), or the item cannot be stored. Items remain safely in the player inventory."), Cap));
+	}
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = DetailJson;
+	return Result;
+}
+
 FString UAIModFunctionLibrary::CleanupOrphanedFlowIndicatorsAsJson(UObject* WorldContextObject)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;

@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **105 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **106 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -220,7 +220,9 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `schematicClass:string, researchTreeClass:string, dryRun:bool?`
 - **`world.teleportPlayer`** — Teleport the local player to (x,y,z) (+optional yaw). Use to satisfy camera-distance-sensitive connect/place calls.  
   params: `x:number, y:number, z:number?, ignoreGroundTrace:bool?, yaw:number?`
-- **`world.withdrawFromCentralStorage`** — Withdraw items from the Dimensional Depot to the player.  
+- **`world.uploadToCentralStorage`** — Upload items from the player inventory into the Dimensional Depot (stack-granular; clamped to Depot capacity).  
+  params: `itemClass:string, amount:number`
+- **`world.withdrawFromCentralStorage`** — Withdraw items from the Dimensional Depot to the player inventory (clamped to what the Depot holds + player room).  
   params: `itemClass:string, amount:number`
 
 _`name:type` = required, `name:type?` = optional. Nested object params (e.g. connector positions {x,y,z}) are summarized; see the guides for shapes._
