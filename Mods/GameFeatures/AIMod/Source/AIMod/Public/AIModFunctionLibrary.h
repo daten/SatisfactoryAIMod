@@ -285,6 +285,19 @@ public:
 	static FAIModOperationResult AddItemsToInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount);
 
 	/**
+	 * world.removeItemsFromInventory (2026-09-08) - the counterpart to
+	 * AddItemsToInventory: remove/delete items from a named buildable inventory
+	 * (storage container/chest, drone station input/output/fuel, truck-station
+	 * fuel/inventory, or the first inventory component). Same inventoryRole
+	 * resolution as the add. Clamps to what is actually present and reports the
+	 * exact itemsRemoved (delta-measured). NOTE: the items are DESTROYED from
+	 * that inventory (not moved to the player) - to move to the player use
+	 * withdrawFromCentralStorage (Depot) or a belt. NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult RemoveItemsFromInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount);
+
+	/**
 	 * world.addItemsToPlayerInventory (2026-09-08) - creative item injection
 	 * into the LOCAL PLAYER's inventory (AFGCharacterPlayer::GetInventory() +
 	 * AddStack), the player-side counterpart to AddItemsToInventory. Unblocks

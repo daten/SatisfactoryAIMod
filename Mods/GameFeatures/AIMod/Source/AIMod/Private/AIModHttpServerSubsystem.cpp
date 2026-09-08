@@ -1647,6 +1647,43 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// world.removeItemsFromInventory - counterpart of addItemsToInventory; see
+	// RemoveItemsFromInventory's doc comment.
+	if (Method == TEXT("world.removeItemsFromInventory"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId, ItemClass;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		if (!ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClass) || ItemClass.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.itemClass must be a non-empty string")));
+			return true;
+		}
+		FString InventoryRole;
+		ParamsObject->TryGetStringField(TEXT("inventoryRole"), InventoryRole);
+		double AmountNum = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("amount"), AmountNum))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.amount must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::RemoveItemsFromInventory(GetGameInstance(), BuildableId, InventoryRole, ItemClass, static_cast<int32>(AmountNum));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// world.mergeVehiclePathNodes - wire a docking node into a hand-built loop;
 	// see MergeVehiclePathNodes' doc comment.
 	if (Method == TEXT("world.mergeVehiclePathNodes"))

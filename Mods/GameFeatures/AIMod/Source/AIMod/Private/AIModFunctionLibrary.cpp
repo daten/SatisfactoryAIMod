@@ -1716,6 +1716,35 @@ FAIModOperationResult UAIModFunctionLibrary::MergeVehiclePathNodes(UObject* Worl
 	return Result;
 }
 
+// Shared by AddItemsToInventory / RemoveItemsFromInventory: resolve which of a
+// buildable's inventories a role names. Deliberately a small whitelist of known
+// factory inventories (drone station input/output/fuel, docking/truck station
+// fuel/inventory, storage container, else the first inventory component) rather
+// than a generic "any component" reach. OutDroneFuelStation is set only when a
+// drone-station FUEL inventory is chosen, so the caller (add only) can arm the
+// station's active fuel type afterward.
+static UFGInventoryComponent* ResolveBuildableRoleInventory(AFGBuildable* Buildable, const FString& Role, FString& OutDesc, AFGBuildableDroneStation*& OutDroneFuelStation)
+{
+	OutDroneFuelStation = nullptr;
+	if (AFGBuildableDroneStation* Drone = Cast<AFGBuildableDroneStation>(Buildable))
+	{
+		if (Role == TEXT("output")) { OutDesc = TEXT("droneStation.output"); return Drone->GetOutputInventory(); }
+		if (Role == TEXT("fuel")) { OutDesc = TEXT("droneStation.fuel"); OutDroneFuelStation = Drone; return Drone->GetFuelInventory(); }
+		OutDesc = TEXT("droneStation.input"); return Drone->GetInputInventory();
+	}
+	if (AFGBuildableDockingStation* Dock = Cast<AFGBuildableDockingStation>(Buildable))
+	{
+		if (Role == TEXT("fuel")) { OutDesc = TEXT("dockingStation.fuel"); return Dock->GetFuelInventory(); }
+		OutDesc = TEXT("dockingStation.inventory"); return Dock->GetInventory();
+	}
+	if (AFGBuildableStorage* Storage = Cast<AFGBuildableStorage>(Buildable))
+	{
+		OutDesc = TEXT("storage.inventory"); return Storage->GetStorageInventory();
+	}
+	OutDesc = TEXT("firstInventoryComponent");
+	return Buildable->FindComponentByClass<UFGInventoryComponent>();
+}
+
 FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -1748,38 +1777,13 @@ FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldC
 
 	const FString Role = InventoryRole.IsEmpty() ? TEXT("auto") : InventoryRole.ToLower();
 
-	// Resolve the target inventory by buildable type + role. Deliberately a
-	// small whitelist of known factory inventories rather than a generic
-	// "any inventory component" write.
-	UFGInventoryComponent* TargetInventory = nullptr;
-	FString ResolvedRoleDesc;
 	// When fuel is loaded into a drone station we must also fire the station's
-	// OnFuelItemAdded handler afterwards - a raw AddStack into the fuel
-	// inventory does not arm the station's active fuel type (UpdateActiveDrone-
-	// FuelType is private; OnFuelItemAdded is the intended entry point), so the
-	// drone reports no usable fuel and never takes off (found live 2026-09-07).
+	// OnFuelItemAdded handler afterwards (a raw AddStack does not arm the active
+	// fuel type; found live 2026-09-07) - ResolveBuildableRoleInventory reports
+	// that case via DroneStationToArmFuel.
+	FString ResolvedRoleDesc;
 	AFGBuildableDroneStation* DroneStationToArmFuel = nullptr;
-	if (AFGBuildableDroneStation* Drone = Cast<AFGBuildableDroneStation>(Buildable))
-	{
-		if (Role == TEXT("output")) { TargetInventory = Drone->GetOutputInventory(); ResolvedRoleDesc = TEXT("droneStation.output"); }
-		else if (Role == TEXT("fuel")) { TargetInventory = Drone->GetFuelInventory(); ResolvedRoleDesc = TEXT("droneStation.fuel"); DroneStationToArmFuel = Drone; }
-		else { TargetInventory = Drone->GetInputInventory(); ResolvedRoleDesc = TEXT("droneStation.input"); }
-	}
-	else if (AFGBuildableDockingStation* Dock = Cast<AFGBuildableDockingStation>(Buildable))
-	{
-		if (Role == TEXT("fuel")) { TargetInventory = Dock->GetFuelInventory(); ResolvedRoleDesc = TEXT("dockingStation.fuel"); }
-		else { TargetInventory = Dock->GetInventory(); ResolvedRoleDesc = TEXT("dockingStation.inventory"); }
-	}
-	else if (AFGBuildableStorage* Storage = Cast<AFGBuildableStorage>(Buildable))
-	{
-		TargetInventory = Storage->GetStorageInventory(); ResolvedRoleDesc = TEXT("storage.inventory");
-	}
-	else
-	{
-		// Generic fallback: first inventory component on the buildable.
-		TargetInventory = Buildable->FindComponentByClass<UFGInventoryComponent>();
-		ResolvedRoleDesc = TEXT("firstInventoryComponent");
-	}
+	UFGInventoryComponent* TargetInventory = ResolveBuildableRoleInventory(Buildable, Role, ResolvedRoleDesc, DroneStationToArmFuel);
 
 	if (!IsValid(TargetInventory))
 	{
@@ -1869,6 +1873,80 @@ TArray<FAIModManufacturerTelemetry> UAIModFunctionLibrary::GetManufacturerTeleme
 	}
 
 	return CollectManufacturerTelemetry(World);
+}
+
+FAIModOperationResult UAIModFunctionLibrary::RemoveItemsFromInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	if (BuildableId.IsEmpty())
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("buildableId must be a non-empty string"));
+	}
+	if (Amount <= 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("amount must be a positive integer"));
+	}
+
+	UClass* ItemClassResolved = LoadObject<UClass>(nullptr, *ItemClassPath);
+	if (!ItemClassResolved || !ItemClassResolved->IsChildOf(UFGItemDescriptor::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"),
+			FString::Printf(TEXT("itemClass '%s' did not resolve to a UFGItemDescriptor subclass"), *ItemClassPath));
+	}
+	const TSubclassOf<UFGItemDescriptor> ItemDesc = ItemClassResolved;
+
+	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
+	if (!IsValid(Buildable))
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableId));
+	}
+
+	const FString Role = InventoryRole.IsEmpty() ? TEXT("auto") : InventoryRole.ToLower();
+	FString ResolvedRoleDesc;
+	AFGBuildableDroneStation* UnusedDroneFuel = nullptr;
+	UFGInventoryComponent* TargetInventory = ResolveBuildableRoleInventory(Buildable, Role, ResolvedRoleDesc, UnusedDroneFuel);
+	if (!IsValid(TargetInventory))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_TARGET"),
+			FString::Printf(TEXT("Could not resolve a '%s' inventory on buildable '%s' (%s)"), *Role, *BuildableId, *Buildable->GetClass()->GetName()));
+	}
+
+	// Clamp to what's actually present and delta-measure the real removal, so
+	// the reported count is exact and we never claim to remove more than existed.
+	// UFGInventoryComponent::Remove destroys the items (they are not returned to
+	// the player) - this is a deletion from that inventory, matching how the
+	// caller would empty a chest.
+	const int32 Have = TargetInventory->GetNumItems(ItemDesc);
+	if (Have <= 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("NOTHING_TO_REMOVE"),
+			FString::Printf(TEXT("Inventory '%s' on '%s' holds none of '%s'"), *ResolvedRoleDesc, *BuildableId, *ItemClassPath));
+	}
+	const int32 ToRemove = FMath::Min(Amount, Have);
+	TargetInventory->Remove(ItemDesc, ToRemove);
+	const int32 Removed = Have - TargetInventory->GetNumItems(ItemDesc);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("resolvedInventory"), ResolvedRoleDesc);
+	DetailObject->SetNumberField(TEXT("requested"), Amount);
+	DetailObject->SetNumberField(TEXT("itemsRemoved"), Removed);
+	DetailObject->SetNumberField(TEXT("remaining"), TargetInventory->GetNumItems(ItemDesc));
+
+	UE_LOG(LogAIModAI, Display, TEXT("RemoveItemsFromInventory: %s <- removed %d x %s from %s (had %d)"),
+		*BuildableId, Removed, *ItemClassPath, *ResolvedRoleDesc, Have);
+
+	FString DetailJson;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> DetailWriter =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&DetailJson);
+	FJsonSerializer::Serialize(DetailObject, DetailWriter);
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = DetailJson;
+	return Result;
 }
 
 FAIModOperationResult UAIModFunctionLibrary::AddItemsToPlayerInventory(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount)
