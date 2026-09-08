@@ -224,12 +224,50 @@ def emit_md(cat):
                  "(e.g. connector positions {x,y,z}) are summarized; see the guides for shapes._")
     REF_MD.write_text("\n".join(lines), encoding="utf-8")
 
+def _render(cat):
+    """Return (cpp_text, md_text) without writing, for --check."""
+    import io
+    global GEN_CPP, REF_MD
+    real_cpp, real_md = GEN_CPP, REF_MD
+    tmp = pathlib.Path
+    buf = {}
+    class _P:
+        def __init__(self, key): self.key = key
+        def write_text(self, s, encoding=None): buf[self.key] = s
+        def relative_to(self, *_): return self.key
+    GEN_CPP, REF_MD = _P("cpp"), _P("md")
+    try:
+        emit_cpp(cat); emit_md(cat)
+    finally:
+        GEN_CPP, REF_MD = real_cpp, real_md
+    return buf["cpp"], buf["md"]
+
+
 if __name__ == "__main__":
     methods = parse()
     cat = build_catalog(methods)
+    missing = [e["method"] for e in cat["methods"] if not e["summary"]]
+
+    if "--check" in sys.argv:
+        # CI/self-test: fail if the committed catalog/reference are stale vs the
+        # current dispatcher. See CLAUDE.md Definition-of-Done item 9.
+        want_cpp, want_md = _render(cat)
+        have_cpp = GEN_CPP.read_text(encoding="utf-8") if GEN_CPP.exists() else ""
+        have_md = REF_MD.read_text(encoding="utf-8") if REF_MD.exists() else ""
+        stale = []
+        if want_cpp != have_cpp: stale.append(str(GEN_CPP.relative_to(ROOT)))
+        if want_md != have_md: stale.append(str(REF_MD.relative_to(ROOT)))
+        if missing:
+            print(f"FAIL: {len(missing)} methods have no summary: {missing}")
+        if stale:
+            print(f"FAIL: RPC catalog is stale - re-run gen_rpc_catalog.py: {stale}")
+        if stale or missing:
+            sys.exit(1)
+        print(f"OK: RPC catalog current ({cat['methodCount']} methods).")
+        sys.exit(0)
+
     emit_cpp(cat)
     emit_md(cat)
-    missing = [e["method"] for e in cat["methods"] if not e["summary"]]
     print(f"methods: {cat['methodCount']}")
     print(f"wrote {GEN_CPP.relative_to(ROOT)} and {REF_MD.relative_to(ROOT)}")
     if missing:

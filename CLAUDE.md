@@ -458,6 +458,21 @@ JSON reflection dump
 
 The external API should remain reasonably stable even if FactoryGame internals change.
 
+## Self-describing interface (`world.help`)
+
+The RPC must remain discoverable by an agent that does **not** have the mod
+source. `world.help` returns a live catalog of every `world.*` method (name,
+category, params with name/type/required, and a one-line summary). It is
+generated from the dispatcher — the single source of truth — by
+`controller/tools/gen_rpc_catalog.py`, which emits both the embedded catalog
+(`AIModRpcCatalog.gen.cpp`, served by `world.help`) and `docs/rpc-reference.md`.
+Keep it current (see Definition of Done item 9);
+`python controller/tools/gen_rpc_catalog.py --check` fails (non-zero) if the
+committed catalog/reference are stale or a method lacks a summary, so it can be
+wired into CI/self-test to enforce freshness rather than relying on memory. Human/agent-facing operational
+guides live in `docs/factory-placement-guide.md` and
+`docs/vehicle-placement-guide.md`; the full changelog is `docs/placement-lessons.md`.
+
 ---
 
 # Networking
@@ -914,6 +929,7 @@ Before declaring a native-code task complete:
 6. runtime verification steps are described
 7. logs/errors are checked when runtime testing is available
 8. documentation is updated if a non-obvious discovery was made
+9. **if you added, removed, or changed the params of a `world.*` RPC method**, re-run `python controller/tools/gen_rpc_catalog.py` (add a one-line summary for any new method) and rebuild, so the `world.help` catalog and `docs/rpc-reference.md` stay in sync with the dispatcher. This is required — a source-less agent depends on `world.help` being complete and current.
 
 If Unreal Editor or Satisfactory must be launched manually by the user to complete validation, explicitly state exactly what should be tested and what result is expected.
 
