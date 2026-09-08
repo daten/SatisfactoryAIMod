@@ -7,6 +7,13 @@ placement work** and **appended to whenever a new mistake or fix earns its
 keep**. Keep entries short and actionable — link to a research doc for the
 full investigation if one exists.
 
+> **Start here for a distilled, task-oriented summary** (this doc is the full
+> chronological log): **`docs/factory-placement-guide.md`** (foundations,
+> machines, splitters/mergers, belts, lifts) and
+> **`docs/vehicle-placement-guide.md`** (trains, trucks, drones). Executable
+> counterparts live in `controller/satisfactory_ai/` (composites, router,
+> connector_db, conveyors, splitters, layout, vehicles).
+
 ## Item-granting RPCs must never destroy overflow (2026-09-02) — found live
 
 A **full player inventory** silently destroyed items in two RPCs that
