@@ -7592,27 +7592,35 @@ FAIModOperationResult UAIModFunctionLibrary::UploadToCentralStorage(UObject* Wor
 	}
 	const int32 Cap = FMath::Min3(Amount, Have, Room);
 
-	// STACK-GRANULAR upload: the engine only deposits a whole slot at a time
-	// (UploadItemFromInventoryToCentralStorage), so upload whole matching stacks
-	// that keep the running total <= Cap. This never overshoots the cap and
-	// never partially destroys a stack; a remainder smaller than the smallest
-	// matching stack is left safely in the player inventory. Delta-measured
-	// against the Depot count so the reported total is exact.
+	// UploadItemFromInventoryToCentralStorage deposits ONE item per call (found
+	// live 2026-09-08: a single call on a 100-stack moved 1), so loop: each
+	// pass find a slot still holding the item and upload once, until we've moved
+	// Cap items or nothing more can move. Delta-measured against the Depot count
+	// so the reported total is exact; a zero-progress call breaks the loop
+	// (never spin). Precise to the item - no overshoot, nothing destroyed.
 	int32 Uploaded = 0;
-	const int32 SlotCount = PlayerInventory->GetSizeLinear();
-	for (int32 Idx = 0; Idx < SlotCount && Uploaded < Cap; ++Idx)
+	int32 Guard = 0;
+	const int32 GuardMax = Cap + 8;
+	while (Uploaded < Cap && Guard++ < GuardMax)
 	{
-		FInventoryStack Stack;
-		if (!PlayerInventory->GetStackFromIndex(Idx, Stack)) { continue; }
-		if (Stack.Item.GetItemClass() != ItemClass || Stack.NumItems <= 0) { continue; }
-		if (Uploaded + Stack.NumItems > Cap) { continue; }               // would exceed the cap
-		if (!CentralStorage->CanUploadInventoryItemToCentralStorage(Stack.Item)) { continue; }
-
-		const int32 Before = CentralStorage->GetNumItemsFromCentralStorage(ItemClass);
-		if (CentralStorage->UploadItemFromInventoryToCentralStorage(PlayerInventory, Idx))
+		int32 SlotIdx = INDEX_NONE;
+		const int32 SlotCount = PlayerInventory->GetSizeLinear();
+		for (int32 Idx = 0; Idx < SlotCount; ++Idx)
 		{
-			Uploaded += (CentralStorage->GetNumItemsFromCentralStorage(ItemClass) - Before);
+			FInventoryStack Stack;
+			if (PlayerInventory->GetStackFromIndex(Idx, Stack) && Stack.Item.GetItemClass() == ItemClass
+				&& Stack.NumItems > 0 && CentralStorage->CanUploadInventoryItemToCentralStorage(Stack.Item))
+			{
+				SlotIdx = Idx;
+				break;
+			}
 		}
+		if (SlotIdx == INDEX_NONE) { break; }
+		const int32 Before = CentralStorage->GetNumItemsFromCentralStorage(ItemClass);
+		if (!CentralStorage->UploadItemFromInventoryToCentralStorage(PlayerInventory, SlotIdx)) { break; }
+		const int32 Moved = CentralStorage->GetNumItemsFromCentralStorage(ItemClass) - Before;
+		if (Moved <= 0) { break; }
+		Uploaded += Moved;
 	}
 
 	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
