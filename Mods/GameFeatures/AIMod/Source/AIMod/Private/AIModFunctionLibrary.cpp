@@ -12818,14 +12818,24 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 				Label, Best ? FMath::Sqrt(BestDistSq) : -1.0f);
 			return nullptr;
 		};
-		if (!PollState->bDryRun && PollState->bBothSnapped)
+		if (PollState->bBothSnapped)
 		{
 			// Engine snapped both endpoints onto the station connectors during
-			// placement, so InternalConstructHologram -> ConfigureComponents just
-			// wired a real drivable joint. Do NOT run the graph surgery below.
-			UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: both ends snapped to station connectors - drivable joint built by ConfigureComponents, skipping force-link"));
+			// placement, so ConfigureComponents already LINKED the connections
+			// (An->IsConnected() is true both ends). That is NOT enough on its
+			// own: a snapped track still reads StationUnreachable because the
+			// railroad SUBSYSTEM's pathfinding graph never merged it in (live
+			// 2026-09-08 - my earlier "skip the graph surgery when snapped"
+			// assumption was wrong; the loco sat between two stations on a
+			// fully-snapped joint and still could not path to either). So fall
+			// through into the same RemoveTrack/AddTrack re-registration below,
+			// which IS what merges the graphs. ForceLink there is a safe no-op
+			// when a connection is already snapped (it early-returns the peer's
+			// track without calling AddConnection), so this single path serves
+			// both the snapped and the never-snapped cases.
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: both ends snapped to station connectors - still re-registering with railroad subsystem for the pathfinding-graph merge"));
 		}
-		else if (!PollState->bDryRun)
+		if (!PollState->bDryRun)
 		{
 			// The hologram builds the spline but never connection-snaps
 			// (IsConnectionSnapped stayed false), and AddConnection alone
