@@ -4554,6 +4554,38 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 
 		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
 
+		// COMPOSITE HOLOGRAM CHILD RE-SYNC (2026-09-08, fixes RPC-built train
+		// loops). A train station/platform hologram (AFGTrainPlatformHologram)
+		// owns a CHILD AFGRailroadTrackHologram - the integrated platform track
+		// that carries the station's rail connectors. UpdateHologramPlacement()
+		// just synced that child to the parent's CURRENT transform, but the
+		// location-pin and target-yaw re-assert below move/rotate ONLY the
+		// parent actor (they do not re-run OnHologramTransformUpdated, which is
+		// what repositions the children). Result: a station placed with a yaw
+		// kept its integrated track - and every rail connector - pointing world
+		// +X, so constructRailroadTrack between two stations could only ever
+		// produce a straight east-west line and a curved/closed rail LOOP was
+		// impossible to build (proven live via world.splineGeometry). Capture
+		// each child's transform RELATIVE to the parent now (while correctly
+		// synced) so we can re-apply it against the parent's pinned/rotated
+		// transform after the two calls below. Only needed when we move the
+		// parent independently of the hit (a pinned position and/or a target
+		// yaw); the child list is empty for ordinary single-actor buildables so
+		// this is a no-op for them.
+		TArray<TPair<TWeakObjectPtr<AFGHologram>, FTransform>> ChildRelativeTransforms;
+		if (PollState->bHasTargetYaw || PollState->bIgnoreGroundTrace)
+		{
+			const FTransform ParentTransformWhenSynced = PollHologram->GetActorTransform();
+			for (AFGHologram* ChildHologram : PollHologram->GetHologramChildren())
+			{
+				if (IsValid(ChildHologram))
+				{
+					ChildRelativeTransforms.Emplace(ChildHologram,
+						ChildHologram->GetActorTransform().GetRelativeTransform(ParentTransformWhenSynced));
+				}
+			}
+		}
+
 		// Pin the literal requested position when the caller asked for
 		// ignoreGroundTrace (2026-09-01, real user-visible bug: machines
 		// and foundations embedding into each other on a supposedly-flat
@@ -4582,6 +4614,25 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		if (PollState->bHasTargetYaw)
 		{
 			PollHologram->SetActorRotation(FRotator(0.0f, PollState->TargetYawDegrees, 0.0f));
+		}
+
+		// Re-sync composite child holograms captured above against the parent's
+		// NOW pinned + rotated transform, so a station's integrated track (and
+		// its rail connectors) follows the station's yaw. This is what makes a
+		// rotated station usable for curved/looping rail: with connectors that
+		// actually point along the station's facing, constructRailroadTrack can
+		// form real arcs instead of only straight east-west lines. Re-applied
+		// every tick (cheap) so the final pre-construct state is correct.
+		if (ChildRelativeTransforms.Num() > 0)
+		{
+			const FTransform ParentTransformNow = PollHologram->GetActorTransform();
+			for (const TPair<TWeakObjectPtr<AFGHologram>, FTransform>& ChildEntry : ChildRelativeTransforms)
+			{
+				if (AFGHologram* ChildHologram = ChildEntry.Key.Get())
+				{
+					ChildHologram->SetActorTransform(ChildEntry.Value * ParentTransformNow);
+				}
+			}
 		}
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
