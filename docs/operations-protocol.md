@@ -1,5 +1,12 @@
 # Write operations protocol v1 (PLAN.md Phase 12)
 
+> **SUPERSEDED / HISTORICAL (v1, Aug 2026).** This describes only the first two
+> write ops (`setRecipe`, `setClockSpeed`) from when construction "had
+> deliberately not started yet." Construction and the full write surface (~104
+> `world.*` methods incl. place/connect/vehicles/etc.) are long since built. Use
+> **`world.help`** / `docs/rpc-catalog.md` for the current interface and
+> `RPC_REFERENCE.md` for hand-written detail. Kept only as a historical record.
+
 The first two controlled write operations. Both mutate an existing
 `AFGBuildableManufacturer` — no construction, no actor spawning (that's
 Phase 13, deliberately not started yet — see the note at the bottom of

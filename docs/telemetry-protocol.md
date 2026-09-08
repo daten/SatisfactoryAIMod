@@ -1,5 +1,13 @@
 # Telemetry protocol v1
 
+> **DATED / PARTIAL (v1, Aug 2026).** This documents the JSON *shapes* of an
+> early subset of `Log*AsJson` telemetry methods. It is **not** the current
+> method list — the interface has ~104 methods now. For the authoritative,
+> always-current catalog use **`world.help`** on the live mod or
+> `docs/rpc-catalog.md`; for richer hand-written detail see `RPC_REFERENCE.md`.
+> This file is retained only because it captures return-payload shapes that the
+> param-only catalog does not; treat any conflict in favor of the live response.
+
 Defined by PLAN.md Phases 5-6 / Task 8-9, expanded in Phase 10. These are
 the concrete JSON shapes `UAIModFunctionLibrary`'s `Log*AsJson` functions
 produce, and what PLAN.md Phase 9's `/rpc` endpoint
