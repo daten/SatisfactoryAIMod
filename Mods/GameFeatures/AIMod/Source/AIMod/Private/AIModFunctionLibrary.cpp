@@ -12686,7 +12686,12 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 					return;
 				}
 				const ESplineHologramBuildStep StepBefore = H->GetCurrentBuildStep();
-				State->PrimaryFire_Implementation();
+				// Drive the GUN's press+release cycle (not the state's fire impl
+				// directly) - the gun manages mWaitingForPrimaryFireRelease and
+				// redirects to the active state; a bare State->PrimaryFire_Implementation()
+				// no-ops without that gun-level state (verified: step stayed 0).
+				Gun->OnPrimaryFirePressed();
+				Gun->OnPrimaryFireReleased();
 				const ESplineHologramBuildStep StepAfter = H->GetCurrentBuildStep();
 				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack[PrimaryFire]: START fire stepBefore=%d stepAfter=%d"),
 					static_cast<int32>(StepBefore), static_cast<int32>(StepAfter));
@@ -12699,7 +12704,8 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 			{
 				DriveHit(Fire->EndHit);
 				const ESplineHologramBuildStep StepBefore = H->GetCurrentBuildStep();
-				State->PrimaryFire_Implementation();
+				Gun->OnPrimaryFirePressed();
+				Gun->OnPrimaryFireReleased();
 				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack[PrimaryFire]: END fire stepBefore=%d (construct expected)"),
 					static_cast<int32>(StepBefore));
 				Fire->Phase = 2;
