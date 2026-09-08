@@ -708,6 +708,13 @@ retry cheaply.
 
 ## NEW CAPABILITY: train timetables + drone station pairing - `world.trains`/`world.trainStations`/`world.setTrainTimetable`/`world.setTrainSelfDriving`, `world.droneStations`/`world.pairDroneStations` (added 2026-08-29, not yet live-tested)
 
+> **SUPERSEDED for operational use (2026-09-07):** this section and the other
+> vehicle sections below were written from header research before any live
+> testing. For the current, live-verified procedures and gotchas (drones WORK,
+> trucks arm but need a clean loop, trains' drivable joint is pending), see
+> **`docs/vehicle-placement-guide.md`** and the executable
+> **`controller/satisfactory_ai/vehicles.py`**.
+
 User asked whether AIMod could configure the timetable for a set of
 train stations, or the source/destination for a drone. Both turned out to
 have real, clean, well-documented public APIs - researched
