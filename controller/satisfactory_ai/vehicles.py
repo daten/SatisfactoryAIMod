@@ -12,12 +12,19 @@ Status of each area (see the guide for detail):
   * drones  - WORKS end to end (build_drone_transport).
   * trucks  - infra + autopilot ARM correctly; the truck only physically drives
               on a clean tree/terrain-free directed loop (a SITE constraint).
-  * trains  - WORKS end to end: a self-driving train runs on RPC-built track
-              (live 2026-09-08). Requires 3 things or it sits still: (1) power to
-              >=1 station, (2) the loco facing the arrival direction, (3) a FULL
-              LOOP (not two stations on one dead-end segment). Pass the station's
-              RailroadTrackIntegrated child (not the station actor) as the track
-              source/dest. RPC-built rail can't be dismantled yet.
+  * trains  - build/power/geometry WORK, but a PURE-RPC rail JOINT is NOT
+              DRIVABLE yet (verified 2026-09-08): constructRailroadTrack
+              graph-merges the track (same trackGraphId) but does not create a
+              drivable track-position edge, so a loco on it reports
+              StationUnreachable and never moves - even a straight track between
+              two POWERED stations. The 2026-09-08 station-rotation fix DOES work
+              (rotated stations give correctly-oriented connectors -> clean 90
+              curves buildable), so the loop geometry is achievable; only the
+              joint traversability is missing. A train runs on RPC track only
+              after a human makes one in-game connection (repairs the joint).
+              Pass the station's RailroadTrackIntegrated child (not the station
+              actor) as track source/dest. Real fix pending = drive the engine's
+              PrimaryFire build path (see docs/vehicle-placement-guide.md sec 3).
 
 All calls go through rpc_client.RpcClient. Power uses executor.Executor
 (optional). Nothing here verifies silently - helpers return the ids/telemetry
@@ -239,11 +246,15 @@ def construct_rail_link(client, source_station_id: str, dest_station_id: str,
     NO_RAILROAD_CONNECTION). PIN src/dst connector positions to choose which free
     connector each end joins (essential for loops). Reliability notes (see guide
     §3): stations >= ~6000u apart for end curves; teleport the player AWAY from a
-    curve before building (proximity flake, opposite of belts). The joint is
-    genuinely drivable (snap + subsystem re-registration both run inside the RPC,
-    live-verified 2026-09-08) - the earlier StationUnreachable was a topology
-    problem: a train needs power, correct loco facing, and a FULL LOOP (see
-    set_train_route). NB: RPC-built rail can't be dismantled yet."""
+    curve before building (proximity flake, opposite of belts). The track builds
+    and graph-merges (snap + subsystem re-registration run inside the RPC), and
+    with the 2026-09-08 rotation fix a rotated station's connectors point the
+    right way so clean 90-degree quarter-arcs build - BUT the resulting joint is
+    NOT drivable (loco reports StationUnreachable; see set_train_route). A single
+    call can't make a 180-degree arc; build a loop as 4 quarter-arcs between 4
+    anchors. Rail IS deletable via deleteBuilding unless a train is docked/
+    self-driving on it (setTrainSelfDriving false, then delete loco, then
+    stations)."""
     params = {"sourceBuildableId": source_station_id, "destBuildableId": dest_station_id, "recipeClass": recipe}
     if src_connector_pos:
         params["sourceConnectorPosition"] = {"x": src_connector_pos[0], "y": src_connector_pos[1], "z": src_connector_pos[2]}
@@ -255,13 +266,14 @@ def construct_rail_link(client, source_station_id: str, dest_station_id: str,
 def set_train_route(client, train_id: str, station_ids: List[str],
                     docking: str = "LoadUnloadOnce", self_driving: bool = True) -> dict:
     """Timetable a train across stations then enable self-driving. NB: the stop
-    key is stationBuildableId. For the train to actually MOVE (not just report a
-    timetable) three conditions must hold, or selfDrivingError stays
-    NoPower/StationUnreachable and the loco sits still (live-verified 2026-09-08):
-    (1) at least ONE station is powered (rail power spans the whole graph);
-    (2) the locomotive faces the arrival direction for its stops; (3) the track
-    is a FULL LOOP, not two stations joined by a single dead-end segment. With
-    all three, selfDrivingError -> NoError and the loco circulates."""
+    key is stationBuildableId. IMPORTANT (2026-09-08): even with power, correct
+    station facing, and a full closed loop, a train on PURE-RPC-built track does
+    NOT move - it reports StationUnreachable because constructRailroadTrack's
+    joints graph-merge but are not drivable track-position edges. This is the
+    current train wall; a human in-game connection (or the pending PrimaryFire
+    build-path fix) is needed to make the joints traversable. So calling this on
+    a pure-RPC loop will set the timetable/self-driving flags correctly but the
+    loco will sit still."""
     stops = [{"stationBuildableId": sid, "dockingDefinition": docking} for sid in station_ids]
     tt = client.call("world.setTrainTimetable", {"trainId": train_id, "stops": stops}, timeout_seconds=60)
     sd = client.call("world.setTrainSelfDriving", {"trainId": train_id, "enabled": self_driving}, timeout_seconds=60)
