@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **104 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **105 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -154,6 +154,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
 
 - **`world.addItemsToInventory`** — Inject items into a buildable inventory (drone input/output/fuel, arms drone fuel).  
   params: `buildableId:string, itemClass:string, inventoryRole:string?, amount:number`
+- **`world.addItemsToPlayerInventory`** — Inject items into the local player's inventory (creative; e.g. a portable-miner item, fuel). Respects slot/stack limits.  
+  params: `itemClass:string, amount:number`
 - **`world.batch`** — Run up to 100 ops in one call (per-op results; proximity still applies).  
   params: `(none)`
 - **`world.buildables`** — List placed buildables (id, class, position, bounds); optional id/box filter.  

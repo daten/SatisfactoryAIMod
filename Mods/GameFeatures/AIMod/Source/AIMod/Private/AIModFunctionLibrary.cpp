@@ -1871,6 +1871,61 @@ TArray<FAIModManufacturerTelemetry> UAIModFunctionLibrary::GetManufacturerTeleme
 	return CollectManufacturerTelemetry(World);
 }
 
+FAIModOperationResult UAIModFunctionLibrary::AddItemsToPlayerInventory(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	if (Amount <= 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("amount must be a positive integer"));
+	}
+
+	UClass* ItemClassResolved = LoadObject<UClass>(nullptr, *ItemClassPath);
+	if (!ItemClassResolved || !ItemClassResolved->IsChildOf(UFGItemDescriptor::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"),
+			FString::Printf(TEXT("itemClass '%s' did not resolve to a UFGItemDescriptor subclass"), *ItemClassPath));
+	}
+	const TSubclassOf<UFGItemDescriptor> ItemDesc = ItemClassResolved;
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+	UFGInventoryComponent* Inventory = Character->GetInventory();
+	if (!IsValid(Inventory))
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Player has no inventory component"));
+	}
+
+	// Same creative injection as AddItemsToInventory (buildables), targeting the
+	// player's own inventory. AddStack respects slot count / stack limits, so a
+	// full inventory returns a partial (or zero) add - reported, not an error.
+	// This unblocks flows that need a held ITEM (e.g. placePortableMiner needs a
+	// portable-miner item; hand-loading fuel) which no other RPC could provide.
+	const int32 Added = Inventory->AddStack(FInventoryStack(Amount, ItemDesc), /*allowPartialAdd*/ true);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("requested"), Amount);
+	DetailObject->SetNumberField(TEXT("itemsAdded"), Added);
+	DetailObject->SetNumberField(TEXT("inventorySlots"), Inventory->GetSizeLinear());
+
+	UE_LOG(LogAIModAI, Display, TEXT("AddItemsToPlayerInventory: %d x %s -> player (added %d)"), Amount, *ItemClassPath, Added);
+
+	FString DetailJson;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> DetailWriter =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&DetailJson);
+	FJsonSerializer::Serialize(DetailObject, DetailWriter);
+
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = DetailJson;
+	return Result;
+}
+
 void UAIModFunctionLibrary::LogManufacturers(UObject* WorldContextObject)
 {
 	const TArray<FAIModManufacturerTelemetry> Manufacturers = GetManufacturerTelemetry(WorldContextObject);

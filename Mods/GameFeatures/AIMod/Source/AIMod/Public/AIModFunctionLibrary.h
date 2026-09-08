@@ -285,6 +285,20 @@ public:
 	static FAIModOperationResult AddItemsToInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount);
 
 	/**
+	 * world.addItemsToPlayerInventory (2026-09-08) - creative item injection
+	 * into the LOCAL PLAYER's inventory (AFGCharacterPlayer::GetInventory() +
+	 * AddStack), the player-side counterpart to AddItemsToInventory. Unblocks
+	 * flows that need a held ITEM which no other RPC could provide - e.g.
+	 * placePortableMiner requires a portable-miner item in inventory, and
+	 * hand-loading fuel/ammo. Respects slot/stack limits (a full inventory
+	 * returns a partial or zero add, reported in detail.itemsAdded, not an
+	 * error). Single-player / loopback creative capability, same posture as the
+	 * buildable-inventory injection. NOT YET LIVE-TESTED.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult AddItemsToPlayerInventory(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);
+
+	/**
 	 * world.mergeVehiclePathNodes (2026-09-06) - migrates all path-segment
 	 * connections from SourceNodeId onto DestNodeId and removes the source node
 	 * (AFGVehiclePathNode::MoveConnectionsToNode). Used to wire a docking

@@ -1582,6 +1582,36 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 
 	// world.addItemsToInventory - explicit item injection into a specific
 	// buildable inventory; see AddItemsToInventory's doc comment.
+	// world.addItemsToPlayerInventory - creative item injection into the local
+	// player's inventory; see AddItemsToPlayerInventory's doc comment.
+	if (Method == TEXT("world.addItemsToPlayerInventory"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ItemClass;
+		if (!ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClass) || ItemClass.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.itemClass must be a non-empty string")));
+			return true;
+		}
+		double AmountNum = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("amount"), AmountNum))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.amount must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::AddItemsToPlayerInventory(GetGameInstance(), ItemClass, static_cast<int32>(AmountNum));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	if (Method == TEXT("world.addItemsToInventory"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;

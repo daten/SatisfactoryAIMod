@@ -120,6 +120,7 @@ SUMMARIES = {
  "world.droneStations":"List drone stations (paired id, drone status, fuel, inventories).",
  "world.pairDroneStations":"Pair two drone stations (call BOTH ways for a working route).",
  "world.addItemsToInventory":"Inject items into a buildable inventory (drone input/output/fuel, arms drone fuel).",
+ "world.addItemsToPlayerInventory":"Inject items into the local player's inventory (creative; e.g. a portable-miner item, fuel). Respects slot/stack limits.",
  "world.spawnCreature":"Spawn a creature (gated by the AllowCreatureSpawning mod setting).",
  "world.despawnCreature":"Despawn a creature by id.",
  "world.creatures":"List creatures (state, controller, anim instance) - tells animated vs frozen.",
