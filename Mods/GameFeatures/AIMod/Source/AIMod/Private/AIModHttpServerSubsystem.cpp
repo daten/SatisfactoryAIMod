@@ -2387,8 +2387,17 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 
 	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
 	// not implement GetWorld(); UGameInstance does.
+	// world.help - runtime self-description. Returns the generated RPC catalog
+	// (every method + params + summary) so an agent WITHOUT the mod source can
+	// discover the whole interface. Catalog is generated from this dispatcher by
+	// controller/tools/gen_rpc_catalog.py into AIModRpcCatalog.gen.cpp.
+	extern const TCHAR* GAIModRpcCatalogJson;
 	FString MethodResultJson;
-	if (Method == TEXT("world.resourceNodes"))
+	if (Method == TEXT("world.help"))
+	{
+		MethodResultJson = FString(GAIModRpcCatalogJson);
+	}
+	else if (Method == TEXT("world.resourceNodes"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogResourceNodesAsJson(GetGameInstance());
 	}
