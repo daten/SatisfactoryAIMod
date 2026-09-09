@@ -56,12 +56,28 @@ toolkit to place them:
 Pre-plan compactly, elevated/clear terrain, belts routed intentionally
 ([[feedback_build_layout_preplanning]]).
 
-## 4. Belts / pipes  → `satisfactory_ai/router.py` (+ conveyors.py / pipes.py)
-`router` turns "connect output A → input B" into a concrete belt plan (direct, or
-segments + jog-merger/relay/elevation) honoring the measured belt rulebook
-(min run, `maxSplineLength`, 30° incline, S-against-facing). For long hauls from
-the resource site, cross hostile terrain with a lift-skyway, teleport the player
-NEAR the work (belt validation is camera-dependent) — [[reference_belt_haul_terrain_rules]].
+## 4. Belts / pipes  → `router.py`, `belt_route.py`, `route_drc.py`
+Two routing styles:
+- **Point-to-point** (`router.route_connection`): "connect output A → input B" as
+  a direct belt or segments + jog/relay/elevation, honoring the belt rulebook
+  (min run, `maxSplineLength`, 30° incline, S-against-facing). Fast, but the
+  mid-span spline is the game's choice — fine for functional hookups.
+- **Deterministic circuit-board lanes** (`belt_route.plan_belt_lane`): when you
+  want belts to run exactly where you choose (no wandering), give an ordered
+  WAYPOINT path; it lays a conveyor pole at each vertex and SHORT STRAIGHT spans
+  (auto-subdivided < ~1500u so each span's spline ≈ straight and predictable).
+  You pick the path and z-lanes (route crossings on different z); the tool
+  realizes it. NB a long single `connectConveyor` bulges unpredictably — that's
+  why short pole-anchored spans give clean, non-overlapping routing.
+
+**Verify before building** with `route_drc.check_route`: feed the planned
+segments + obstacle AABBs (map `world.buildables` `bounds` → `Obstacle`) +
+terrain (`world.terrainHeightGrid` → a `ground_z(x,y)`); it flags belt-vs-machine
+/ foundation / belt / terrain overlaps (a PCB-style DRC). Iterate the layout
+offline until clean, THEN build. It also checks BUILT routes via
+`world.splineGeometry`. For long hauls from the resource site, cross hostile
+terrain with a lift-skyway and teleport the player NEAR the work (belt validation
+is camera-dependent) — [[reference_belt_haul_terrain_rules]].
 
 ## 5. Power
 `total_power_mw` from step 1 sizes the generators/fuel. Variable-power machines

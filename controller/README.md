@@ -124,6 +124,20 @@ contains:
   picks the site/miner tier. Solid nodes only. Offline-tested
   (`tests/test_siting.py`). End-to-end playbook:
   [docs/production-planning-workflow.md](../docs/production-planning-workflow.md).
+- `satisfactory_ai/belt_route.py` — waypoint belt-lane planner (added
+  2026-09-09) for deterministic, circuit-board-style routing: give it a chosen
+  waypoint path and it emits a conveyor pole at each interior vertex + SHORT
+  STRAIGHT belt spans (auto-subdivided below the ~1500u shape-constraint range,
+  so the game's spline stays predictable) as a `router.RoutePlan` for the
+  executor, plus `route_drc.RouteSegment`s. The AGENT chooses the path/z-lane;
+  this only realizes and validates it (incline limit, reliable-run warnings).
+  (Pole belt-connector offset is a live-seed TODO.) `tests/test_belt_route.py`.
+- `satisfactory_ai/route_drc.py` — route design-rule check: given belt/lift
+  segments (capsules) + obstacle AABBs (from `world.buildables` `bounds`) +
+  optional terrain (`world.terrainHeightGrid`), returns belt-vs-machine /
+  belt-vs-foundation / belt-vs-belt / belt-below-terrain violations BEFORE you
+  build — the "clean board, no shorts" DRC. Verifies planned OR built routes
+  (`world.splineGeometry`). `tests/test_route_drc.py`.
 - `live_check.py` — a network client, but a diagnostic one, not part of
   the "controller" proper: connects to a **running** AIMod `/rpc`
   server (`http://127.0.0.1:51902/rpc` by default) and checks every RPC
