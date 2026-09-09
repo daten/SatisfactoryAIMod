@@ -51,6 +51,15 @@ class RecipeDef:
     products: Tuple[Tuple[str, float], ...]
     produced_in: Tuple[str, ...]
     is_building_recipe: bool
+    # Variable-power recipes (Particle Accelerator / Quantum Encoder / Converter)
+    # draw a RANGE at 100% clock: [constant, constant+factor] MW.
+    var_power_constant: float = 0.0
+    var_power_factor: float = 0.0
+
+    @property
+    def variable_power_max(self) -> float:
+        """Max MW of the recipe's variable-power range at 100% (0 if not variable)."""
+        return self.var_power_constant + self.var_power_factor
 
     def per_min(self, amount_per_craft: float) -> float:
         """Convert an amount-per-craft to items/minute at 100% clock."""
@@ -106,6 +115,9 @@ RAW_RESOURCE_MARKER = "/RawResources/"
 # power-sublinear (2 machines at 75% draw less than 1.5 at 100%). Standard
 # community constant - confirm live if a build depends on an exact wattage.
 POWER_CLOCK_EXPONENT = 1.321928094887362  # log2(2.5)
+# Each Power Shard adds +50% clock; 3 shards -> 250% max (the standard cap).
+PERCENT_PER_SHARD = 50.0
+MAX_SHARDS = 3
 
 # FLUID/GAS recipe amounts are stored in millilitres in the catalog (Water
 # "4000" = 4 m3); the in-game rate is m3/min, i.e. amount/1000. Solids are whole
@@ -232,6 +244,8 @@ class Catalog:
             products=norm(r.get("products", [])),
             produced_in=tuple(r.get("producedIn", []) or []),
             is_building_recipe=bool(r.get("isBuildingRecipe", False)),
+            var_power_constant=float(r.get("variablePowerConsumptionConstant", 0) or 0),
+            var_power_factor=float(r.get("variablePowerConsumptionFactor", 0) or 0),
         )
 
     @classmethod
@@ -318,6 +332,8 @@ class BomNode:
     machines_ceil: int           # whole machines to build (underclock to hit rate)
     clock_percent_if_ceil: float # clock each of `machines_ceil` runs at to hit rate
     power_mw: float              # total draw of this node: machines_ceil at that clock
+    shards_each: int             # Power Shards per machine (0 unless overclocked >100%)
+    power_is_max_of_range: bool  # True if this machine has variable power (max-of-range used)
     depth: int
 
 
@@ -330,14 +346,17 @@ class Bom:
     raw_totals: Dict[str, float] = field(default_factory=dict)   # itemClass -> per-min
     byproducts: Dict[str, float] = field(default_factory=dict)   # itemClass -> per-min
     machine_totals: Dict[str, int] = field(default_factory=dict) # machine_class -> total ceil count
-    total_power_mw: float = 0.0  # sum of node power draws (machines at their clock)
+    total_power_mw: float = 0.0  # sum of node power draws (variable machines counted at range MAX)
+    total_shards: int = 0        # total Power Shards needed (0 unless overclocked)
 
     def format(self, catalog: "Catalog") -> str:
         lines = [f"BOM for {self.target_name} @ {self.target_rate:g}/min", ""]
-        lines.append("MACHINES (build these):")
+        lines.append("MACHINES (build these):    [~MW = variable-power, sized at range MAX]")
         for n in self.nodes:
-            lines.append(f"  {n.machines_ceil:>3d} x {n.machine_name:<20s} @ {n.clock_percent_if_ceil:6.2f}%  "
-                         f"{n.power_mw:7.1f} MW  -> {n.item_name} {n.rate_per_min:g}/min  "
+            pflag = "~" if n.power_is_max_of_range else " "
+            shard = f" +{n.shards_each}shard/ea" if n.shards_each else ""
+            lines.append(f"  {n.machines_ceil:>3d} x {n.machine_name:<20s} @ {n.clock_percent_if_ceil:6.2f}%{shard:>11s}  "
+                         f"{n.power_mw:7.1f}{pflag}MW  -> {n.item_name} {n.rate_per_min:g}/min  "
                          f"({n.recipe_name}; exact {n.machines_exact:.3f} machines)")
         lines.append("")
         lines.append("RAW INPUTS (per min):")
@@ -353,24 +372,37 @@ class Bom:
         for mc, cnt in sorted(self.machine_totals.items(), key=lambda kv: -kv[1]):
             lines.append(f"  {cnt:>3d} x {catalog.buildable_name(mc)}")
         lines.append("")
-        lines.append(f"TOTAL POWER: {self.total_power_mw:.1f} MW (at the clocks above)")
+        lines.append(f"TOTAL POWER: {self.total_power_mw:.1f} MW (variable-power machines at range MAX, clock-adjusted)")
+        if self.total_shards:
+            lines.append(f"POWER SHARDS: {self.total_shards} (from overclocking above 100%)")
         return "\n".join(lines)
 
 
 def solve_bom(catalog: Catalog, target_item: str, rate_per_min: float,
               recipe_choices: Optional[Dict[str, str]] = None,
-              raw_items: Optional[List[str]] = None) -> Bom:
+              raw_items: Optional[List[str]] = None,
+              max_clock_percent: float = 100.0) -> Bom:
     """Expand the full recipe tree for `target_item` at `rate_per_min`.
 
     target_item may be an itemClass or a display name (resolved via the catalog).
     recipe_choices: {itemClass: recipeClass} to pick alternates / disambiguate.
     raw_items: itemClasses (or names) to treat as leaves (sourced externally) in
     addition to natural raws (parts nothing produces).
+    max_clock_percent: clock ceiling per machine (default 100 = no shards). Raise
+    it (150/200/250 = 1/2/3 Power Shards) to trade machines for overclocking; the
+    BOM then reports the shards needed and the (higher, clock^log2(2.5)) power.
+
+    Power uses each machine's draw at its resolved clock; VARIABLE-power machines
+    (Particle Accelerator / Quantum Encoder / Converter) are counted at the MAX
+    of their range so the grid is sized to avoid brown-outs.
 
     Returns a Bom. Raises RecipeChoiceNeeded (ambiguous recipe) or RecipeCycle.
     """
     if rate_per_min <= 0:
         raise ValueError("rate_per_min must be positive")
+    if max_clock_percent < 1.0:
+        raise ValueError("max_clock_percent must be >= 1")
+    clock_cap = max_clock_percent / 100.0
     recipe_choices = dict(recipe_choices or {})
     target_class = catalog.resolve_item(target_item)
     raw_set = set()
@@ -428,19 +460,29 @@ def solve_bom(catalog: Catalog, target_item: str, rate_per_min: float,
         out_amt = recipe.product_amount(item_class)
         out_per_min = recipe.per_min(out_amt)
         machines_exact = req / out_per_min if out_per_min > 0 else 0.0
-        machines_ceil = max(1, math.ceil(machines_exact - 1e-9)) if machines_exact > 0 else 0
+        # machines needed under the clock cap: at cap C, one machine covers C worth
+        machines_ceil = max(1, math.ceil(machines_exact / clock_cap - 1e-9)) if machines_exact > 0 else 0
         clock = (machines_exact / machines_ceil * 100.0) if machines_ceil else 0.0
         machine_class = recipe.produced_in[0] if recipe.produced_in else ""
-        # power: N machines each at (clock)^exponent of base draw
-        base_mw = catalog.power_base_mw(machine_class)
-        node_power = machines_ceil * base_mw * ((clock / 100.0) ** POWER_CLOCK_EXPONENT) if machines_ceil and base_mw else 0.0
+        # base draw at 100%: a VARIABLE-power machine (buildable base 0) uses the
+        # recipe's range MAX (const+factor) to avoid outages; else the fixed base.
+        fixed_base = catalog.power_base_mw(machine_class)
+        is_variable = fixed_base <= 0 and recipe.variable_power_max > 0
+        base_mw = recipe.variable_power_max if is_variable else fixed_base
+        node_power = machines_ceil * base_mw * ((clock / 100.0) ** POWER_CLOCK_EXPONENT) if (machines_ceil and base_mw) else 0.0
+        # shards per machine to reach this clock (0 at <=100%)
+        shards_each = 0
+        if clock > 100.0 + 1e-9:
+            shards_each = min(MAX_SHARDS, math.ceil((clock - 100.0) / PERCENT_PER_SHARD - 1e-9))
         bom.nodes.append(BomNode(
             item_class=item_class, item_name=catalog.name(item_class), rate_per_min=req,
             recipe_class=recipe.recipe_class, recipe_name=recipe.display_name,
             machine_class=machine_class, machine_name=catalog.buildable_name(machine_class),
             machines_exact=machines_exact, machines_ceil=machines_ceil,
-            clock_percent_if_ceil=clock, power_mw=node_power, depth=d))
+            clock_percent_if_ceil=clock, power_mw=node_power, shards_each=shards_each,
+            power_is_max_of_range=is_variable, depth=d))
         bom.total_power_mw += node_power
+        bom.total_shards += shards_each * machines_ceil
         if machine_class:
             bom.machine_totals[machine_class] = bom.machine_totals.get(machine_class, 0) + machines_ceil
         # ingredient demand (fractional machines drive it)
@@ -469,6 +511,8 @@ def _main(argv: List[str]) -> int:
     ap.add_argument("--catalog", default=None, help="path to catalog_cache.json (default: controller/catalog_cache.json)")
     ap.add_argument("--raw", default="", help="comma-separated parts to treat as raw leaves (sourced externally)")
     ap.add_argument("--choose", action="append", default=[], help="itemClass=recipeClass override; repeatable")
+    ap.add_argument("--max-clock", type=float, default=100.0,
+                    help="clock ceiling per machine (100=no shards; 150/200/250 = 1/2/3 Power Shards)")
     args = ap.parse_args(argv)
     try:
         catalog = Catalog.from_cache(args.catalog)
@@ -482,7 +526,8 @@ def _main(argv: List[str]) -> int:
             choices[catalog.resolve_item(k) if not k.startswith("/") else k] = v
     raw = [r for r in args.raw.split(",") if r.strip()]
     try:
-        bom = solve_bom(catalog, args.item, args.rate, recipe_choices=choices, raw_items=raw)
+        bom = solve_bom(catalog, args.item, args.rate, recipe_choices=choices, raw_items=raw,
+                        max_clock_percent=args.max_clock)
     except RecipeChoiceNeeded as e:
         print("RECIPE CHOICE NEEDED:\n  " + str(e))
         return 3

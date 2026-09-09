@@ -104,8 +104,12 @@ contains:
   (`raw_items=`); `/RawResources/` parts are leaves by default. CLI:
   `python -m satisfactory_ai.recipe_tree "Reinforced Iron Plate" 10`.
   Tested offline against a hand-verified fixture (`tests/test_recipe_tree.py`).
-  Also carries per-machine + total **power (MW)** using the catalog's
-  `producingPowerConsumptionBase` and the clock^log2(2.5) power curve.
+  Also carries per-machine + total **power (MW)** on the clock^log2(2.5) curve:
+  fixed machines use `producingPowerConsumptionBase`; VARIABLE-power machines
+  (Particle Accelerator / Quantum Encoder / Converter) are sized at the MAX of
+  their recipe's range (const+factor) to avoid outages. `--max-clock 150/200/250`
+  trades machines for overclocking and reports the **Power Shards** needed and
+  the higher resulting draw.
 - `satisfactory_ai/siting.py` — resource-node siting toolkit (added
   2026-09-09): turns `world.resourceNodes` into siting facts — nodes grouped
   by resource, `extraction_rate(purity, miner_mk)`, spatial `cluster_nodes()`

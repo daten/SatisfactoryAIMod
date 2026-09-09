@@ -58,7 +58,11 @@ the resource site, cross hostile terrain with a lift-skyway, teleport the player
 NEAR the work (belt validation is camera-dependent) — [[reference_belt_haul_terrain_rules]].
 
 ## 5. Power
-`total_power_mw` from step 1 tells you the generator/fuel need. Wire with
+`total_power_mw` from step 1 sizes the generators/fuel. Variable-power machines
+(Particle Accelerator / Quantum Encoder / Converter) are counted at their range
+MAX so you build for peak, not brown out. If you overclock to save machines
+(`solve_bom(max_clock_percent=150/200/250)` or `--max-clock`), the BOM reports
+the extra draw AND the Power Shards needed — factor both in. Wire with
 `connectPower` (no length limit; `ignoreAimLocation`); if it wedges globally,
 a full game restart clears it (project_hmf_optimization bug #2).
 

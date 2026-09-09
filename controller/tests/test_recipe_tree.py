@@ -126,6 +126,41 @@ class RecipeTreeTest(unittest.TestCase):
         self.assertLess(plate.power_mw, 2 * 4.0)          # < both at 100%
         self.assertLess(plate.power_mw, 1.25 * 4.0)       # < linear (1.25 machine-equiv)
 
+    def test_variable_power_uses_range_max(self):
+        # A machine with buildable base 0 + a variable-power recipe (const 500,
+        # factor 1000) must be sized at the MAX of the range (1500 MW at 100%).
+        cat = Catalog(
+            recipes=[{"recipeClass": "R_V", "displayName": "V", "isBuildingRecipe": False,
+                      "manufacturingDuration": 6,
+                      "ingredients": [{"itemClass": "IN", "itemName": "In", "amount": 1}],
+                      "products": [{"itemClass": "VOUT", "itemName": "V", "amount": 1}],
+                      "producedIn": ["MACHV"],
+                      "variablePowerConsumptionConstant": 500,
+                      "variablePowerConsumptionFactor": 1000}],
+            items=[{"itemClass": "IN", "name": "In", "form": "Solid"},
+                   {"itemClass": "VOUT", "name": "V", "form": "Solid"}],
+            buildables=[{"buildableClass": "MACHV", "name": "Collider", "producingPowerConsumptionBase": 0}])
+        bom = solve_bom(cat, "VOUT", 10)   # 1 machine @ 100%
+        node = bom.nodes[0]
+        self.assertTrue(node.power_is_max_of_range)
+        self.assertAlmostEqual(node.power_mw, 1500.0, places=3)  # 500 + 1000
+        self.assertAlmostEqual(bom.total_power_mw, 1500.0, places=3)
+
+    def test_overclock_uses_shards_and_more_power(self):
+        # Iron Plate @ 25/min = 1.25 machines. At a 250% cap -> 1 machine @ 125%
+        # (1 shard), drawing MORE than one at 100%.
+        base = solve_bom(self.cat, "Iron Plate", 25)                       # 2 @ 62.5%, 0 shards
+        over = solve_bom(self.cat, "Iron Plate", 25, max_clock_percent=250)
+        p_base = self._node(base, PLATE)
+        p_over = self._node(over, PLATE)
+        self.assertEqual(p_over.machines_ceil, 1)
+        self.assertAlmostEqual(p_over.clock_percent_if_ceil, 125.0, places=4)
+        self.assertEqual(p_over.shards_each, 1)
+        self.assertGreaterEqual(over.total_shards, 1)
+        self.assertEqual(base.total_shards, 0)
+        self.assertGreater(p_over.power_mw, 4.0)          # 1 machine @125% > base 4 MW
+        self.assertGreater(p_over.power_mw, p_base.power_mw)  # overclock draws more
+
     def test_resolve_item_by_name_and_class(self):
         self.assertEqual(self.cat.resolve_item("Iron Plate"), PLATE)
         self.assertEqual(self.cat.resolve_item(PLATE), PLATE)
