@@ -111,6 +111,21 @@ class RecipeTreeTest(unittest.TestCase):
         self.assertAlmostEqual(bom.raw_totals[INGOT], 30.0, places=6)
         self.assertNotIn(SMELTER, bom.machine_totals)
 
+    def test_power_totals(self):
+        # Iron Plate @ 20/min: 1 Constructor + 1 Smelter, both @ 100% -> 4 + 4.
+        bom = solve_bom(self.cat, "Iron Plate", 20)
+        self.assertAlmostEqual(bom.total_power_mw, 8.0, places=4)
+        plate = self._node(bom, PLATE)
+        self.assertAlmostEqual(plate.power_mw, 4.0, places=4)
+
+    def test_power_underclock_sublinear(self):
+        # 2 machines @ 62.5% draw LESS than 2 @ 100% and less than 1.25*base.
+        bom = solve_bom(self.cat, "Iron Plate", 25)  # plate -> 2 constructors @ 62.5%
+        plate = self._node(bom, PLATE)
+        self.assertEqual(plate.machines_ceil, 2)
+        self.assertLess(plate.power_mw, 2 * 4.0)          # < both at 100%
+        self.assertLess(plate.power_mw, 1.25 * 4.0)       # < linear (1.25 machine-equiv)
+
     def test_resolve_item_by_name_and_class(self):
         self.assertEqual(self.cat.resolve_item("Iron Plate"), PLATE)
         self.assertEqual(self.cat.resolve_item(PLATE), PLATE)

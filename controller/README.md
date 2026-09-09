@@ -104,6 +104,18 @@ contains:
   (`raw_items=`); `/RawResources/` parts are leaves by default. CLI:
   `python -m satisfactory_ai.recipe_tree "Reinforced Iron Plate" 10`.
   Tested offline against a hand-verified fixture (`tests/test_recipe_tree.py`).
+  Also carries per-machine + total **power (MW)** using the catalog's
+  `producingPowerConsumptionBase` and the clock^log2(2.5) power curve.
+- `satisfactory_ai/siting.py` — resource-node siting toolkit (added
+  2026-09-09): turns `world.resourceNodes` into siting facts — nodes grouped
+  by resource, `extraction_rate(purity, miner_mk)`, spatial `cluster_nodes()`
+  (candidate multi-resource sites with centroids), and
+  `rank_sites_for_demand(nodes, demand, ...)` which composes with the BOM's
+  `raw_totals` to rank clusters by whether their extraction meets the raw
+  demand (with per-resource deficits). Exposes ranked options; the agent
+  picks the site/miner tier. Solid nodes only. Offline-tested
+  (`tests/test_siting.py`). End-to-end playbook:
+  [docs/production-planning-workflow.md](../docs/production-planning-workflow.md).
 - `live_check.py` — a network client, but a diagnostic one, not part of
   the "controller" proper: connects to a **running** AIMod `/rpc`
   server (`http://127.0.0.1:51902/rpc` by default) and checks every RPC

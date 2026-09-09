@@ -82,9 +82,9 @@
     {"itemClass": "/Game/Test/Desc_IronPlateReinforced.Desc_IronPlateReinforced_C", "displayName": "Reinforced Iron Plate"}
   ],
   "buildables": [
-    {"buildableClass": "/Game/Test/Build_SmelterMk1.Build_SmelterMk1_C", "displayName": "Smelter"},
-    {"buildableClass": "/Game/Test/Build_ConstructorMk1.Build_ConstructorMk1_C", "displayName": "Constructor"},
-    {"buildableClass": "/Game/Test/Build_AssemblerMk1.Build_AssemblerMk1_C", "displayName": "Assembler"},
-    {"buildableClass": "/Game/Test/Build_OilRefinery.Build_OilRefinery_C", "displayName": "Refinery"}
+    {"buildableClass": "/Game/Test/Build_SmelterMk1.Build_SmelterMk1_C", "name": "Smelter", "producingPowerConsumptionBase": 4},
+    {"buildableClass": "/Game/Test/Build_ConstructorMk1.Build_ConstructorMk1_C", "name": "Constructor", "producingPowerConsumptionBase": 4},
+    {"buildableClass": "/Game/Test/Build_AssemblerMk1.Build_AssemblerMk1_C", "name": "Assembler", "producingPowerConsumptionBase": 15},
+    {"buildableClass": "/Game/Test/Build_OilRefinery.Build_OilRefinery_C", "name": "Refinery", "producingPowerConsumptionBase": 30}
   ]
 }

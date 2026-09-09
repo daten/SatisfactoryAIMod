@@ -101,6 +101,12 @@ def _short(class_path: str) -> str:
 # by choosing its recipe explicitly (advanced; out of scope for the default BOM).
 RAW_RESOURCE_MARKER = "/RawResources/"
 
+# Satisfactory machine power scales with clock as base * clock^exponent, with
+# exponent = log2(2.5) (a 2.5x clock draws 5x power). Underclocking is therefore
+# power-sublinear (2 machines at 75% draw less than 1.5 at 100%). Standard
+# community constant - confirm live if a build depends on an exact wattage.
+POWER_CLOCK_EXPONENT = 1.321928094887362  # log2(2.5)
+
 
 def _building_token(class_path: str) -> str:
     """Normalize a Desc_/Build_ building class to a shared token, e.g.
@@ -162,11 +168,19 @@ class Catalog:
                 tok = _building_token(it.get("itemClass") or it.get("class") or "")
                 if nm and tok:
                     self._building_names_by_token[tok] = nm
+        # Per-building power draw (MW) at 100% clock, from world.buildableCatalog.
+        self.buildable_power: Dict[str, float] = {}
         for b in (buildables or []):
             bc = b.get("buildableClass") or b.get("class")
             nm = b.get("name") or b.get("displayName")
             if bc and nm:
                 self.buildable_names[bc] = nm
+            if bc:
+                p = b.get("producingPowerConsumptionBase")
+                if p is None:
+                    p = b.get("defaultProducingPowerConsumption")
+                if p is not None:
+                    self.buildable_power[bc] = float(p)
 
     @staticmethod
     def _parse(r: dict) -> RecipeDef:
@@ -201,6 +215,10 @@ class Catalog:
             return self.buildable_names[buildable_class]
         tok = _building_token(buildable_class)
         return self._building_names_by_token.get(tok, tok)
+
+    def power_base_mw(self, buildable_class: str) -> float:
+        """Per-machine power draw (MW) at 100% clock, 0.0 if unknown."""
+        return self.buildable_power.get(buildable_class, 0.0)
 
     def resolve_item(self, query: str) -> str:
         """Resolve a display-name or class fragment to an itemClass. Exact class
@@ -259,6 +277,7 @@ class BomNode:
     machines_exact: float        # fractional machines at 100% clock
     machines_ceil: int           # whole machines to build (underclock to hit rate)
     clock_percent_if_ceil: float # clock each of `machines_ceil` runs at to hit rate
+    power_mw: float              # total draw of this node: machines_ceil at that clock
     depth: int
 
 
@@ -271,13 +290,15 @@ class Bom:
     raw_totals: Dict[str, float] = field(default_factory=dict)   # itemClass -> per-min
     byproducts: Dict[str, float] = field(default_factory=dict)   # itemClass -> per-min
     machine_totals: Dict[str, int] = field(default_factory=dict) # machine_class -> total ceil count
+    total_power_mw: float = 0.0  # sum of node power draws (machines at their clock)
 
     def format(self, catalog: "Catalog") -> str:
         lines = [f"BOM for {self.target_name} @ {self.target_rate:g}/min", ""]
         lines.append("MACHINES (build these):")
         for n in self.nodes:
             lines.append(f"  {n.machines_ceil:>3d} x {n.machine_name:<20s} @ {n.clock_percent_if_ceil:6.2f}%  "
-                         f"-> {n.item_name} {n.rate_per_min:g}/min  ({n.recipe_name}; exact {n.machines_exact:.3f} machines)")
+                         f"{n.power_mw:7.1f} MW  -> {n.item_name} {n.rate_per_min:g}/min  "
+                         f"({n.recipe_name}; exact {n.machines_exact:.3f} machines)")
         lines.append("")
         lines.append("RAW INPUTS (per min):")
         for ic, rate in sorted(self.raw_totals.items(), key=lambda kv: -kv[1]):
@@ -291,6 +312,8 @@ class Bom:
         lines.append("MACHINE TOTALS:")
         for mc, cnt in sorted(self.machine_totals.items(), key=lambda kv: -kv[1]):
             lines.append(f"  {cnt:>3d} x {catalog.buildable_name(mc)}")
+        lines.append("")
+        lines.append(f"TOTAL POWER: {self.total_power_mw:.1f} MW (at the clocks above)")
         return "\n".join(lines)
 
 
@@ -368,12 +391,16 @@ def solve_bom(catalog: Catalog, target_item: str, rate_per_min: float,
         machines_ceil = max(1, math.ceil(machines_exact - 1e-9)) if machines_exact > 0 else 0
         clock = (machines_exact / machines_ceil * 100.0) if machines_ceil else 0.0
         machine_class = recipe.produced_in[0] if recipe.produced_in else ""
+        # power: N machines each at (clock)^exponent of base draw
+        base_mw = catalog.power_base_mw(machine_class)
+        node_power = machines_ceil * base_mw * ((clock / 100.0) ** POWER_CLOCK_EXPONENT) if machines_ceil and base_mw else 0.0
         bom.nodes.append(BomNode(
             item_class=item_class, item_name=catalog.name(item_class), rate_per_min=req,
             recipe_class=recipe.recipe_class, recipe_name=recipe.display_name,
             machine_class=machine_class, machine_name=catalog.buildable_name(machine_class),
             machines_exact=machines_exact, machines_ceil=machines_ceil,
-            clock_percent_if_ceil=clock, depth=d))
+            clock_percent_if_ceil=clock, power_mw=node_power, depth=d))
+        bom.total_power_mw += node_power
         if machine_class:
             bom.machine_totals[machine_class] = bom.machine_totals.get(machine_class, 0) + machines_ceil
         # ingredient demand (fractional machines drive it)
