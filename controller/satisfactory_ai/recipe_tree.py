@@ -107,6 +107,15 @@ RAW_RESOURCE_MARKER = "/RawResources/"
 # community constant - confirm live if a build depends on an exact wattage.
 POWER_CLOCK_EXPONENT = 1.321928094887362  # log2(2.5)
 
+# FLUID/GAS recipe amounts are stored in millilitres in the catalog (Water
+# "4000" = 4 m3); the in-game rate is m3/min, i.e. amount/1000. Solids are whole
+# units. We normalize Liquid/Gas amounts to m3 at parse so every rate, machine
+# count, and raw total is in consistent game units. (Machine counts alone would
+# cancel the 1000x, but raw totals / byproducts / displayed fluid rates would be
+# 1000x wrong without this - confirmed live: Plastic = 3000 mL crude -> 30/min.)
+FLUID_FORMS = frozenset({"Liquid", "Gas"})
+FLUID_SCALE = 1000.0
+
 
 def _building_token(class_path: str) -> str:
     """Normalize a Desc_/Build_ building class to a shared token, e.g.
@@ -128,14 +137,36 @@ class Catalog:
 
     def __init__(self, recipes: List[dict], items: Optional[List[dict]] = None,
                  buildables: Optional[List[dict]] = None):
-        self.recipes: List[RecipeDef] = [self._parse(r) for r in recipes]
-        # itemClass -> [RecipeDef] that produce it, non-building only
+        # item form (Solid/Liquid/Gas) is needed BEFORE parsing so fluid amounts
+        # can be normalized to m3. Built from the items list.
+        self.item_form: Dict[str, str] = {}
+        for it in (items or []):
+            ic = it.get("itemClass") or it.get("class")
+            fm = it.get("form")
+            if ic and fm:
+                self.item_form[ic] = fm
+        self.recipes: List[RecipeDef] = [self._parse(r, self.item_form) for r in recipes]
+        # itemClass -> [RecipeDef] that produce it as their PRIMARY product
+        # (products[0]), non-building only. Keying on any product would treat a
+        # part as "producible" by every recipe that merely emits it as a
+        # BYPRODUCT (e.g. Dark Matter Residue is a byproduct of 6+ recipes but
+        # has ONE dedicated recipe), which pollutes the recipe-choice list and
+        # can create nonsense/circular options. Byproducts are still accounted
+        # for during expansion (Bom.byproducts); they just don't make a part
+        # look like it has many ways to be made.
+        # "Unpackage X" recipes are inverse-logistics (Packaged X -> X); they are
+        # never a real way to SOURCE a fluid (using one needs the packaged form,
+        # which comes from packaging the fluid - a loop), so exclude them from
+        # the producer index. The fluid's real production recipe always coexists,
+        # so nothing is orphaned.
         self.producers: Dict[str, List[RecipeDef]] = {}
         for r in self.recipes:
-            if r.is_building_recipe:
+            if r.is_building_recipe or not r.products:
                 continue
-            for ic, _amt in r.products:
-                self.producers.setdefault(ic, []).append(r)
+            if r.display_name.strip().lower().startswith("unpackage"):
+                continue
+            primary_ic = r.products[0][0]
+            self.producers.setdefault(primary_ic, []).append(r)
         # display names: recipe ingredient/product itemName first, then the
         # items list (authoritative - real catalog uses "name"), then a
         # class-short fallback so every referenced class always resolves.
@@ -183,13 +214,22 @@ class Catalog:
                     self.buildable_power[bc] = float(p)
 
     @staticmethod
-    def _parse(r: dict) -> RecipeDef:
+    def _parse(r: dict, forms: Dict[str, str]) -> RecipeDef:
+        def norm(entries):
+            out = []
+            for e in entries:
+                ic = e["itemClass"]
+                amt = float(e["amount"])
+                if forms.get(ic) in FLUID_FORMS:
+                    amt /= FLUID_SCALE  # mL -> m3
+                out.append((ic, amt))
+            return tuple(out)
         return RecipeDef(
             recipe_class=r["recipeClass"],
             display_name=r.get("displayName", _short(r["recipeClass"])),
             duration_seconds=float(r.get("manufacturingDuration", 0) or 0),
-            ingredients=tuple((i["itemClass"], float(i["amount"])) for i in r.get("ingredients", [])),
-            products=tuple((p["itemClass"], float(p["amount"])) for p in r.get("products", [])),
+            ingredients=norm(r.get("ingredients", [])),
+            products=norm(r.get("products", [])),
             produced_in=tuple(r.get("producedIn", []) or []),
             is_building_recipe=bool(r.get("isBuildingRecipe", False)),
         )

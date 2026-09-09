@@ -134,6 +134,43 @@ class RecipeTreeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             solve_bom(self.cat, "Iron Plate", 0)
 
+    def test_fluid_amounts_scaled_to_m3(self):
+        # A Liquid ingredient stored in mL (3000) must be normalized to m3 (3),
+        # so raw totals read in game units, not 1000x.
+        cat = Catalog(
+            recipes=[{"recipeClass": "R_P", "displayName": "P", "isBuildingRecipe": False,
+                      "manufacturingDuration": 6,
+                      "ingredients": [{"itemClass": "W", "itemName": "Water", "amount": 3000}],
+                      "products": [{"itemClass": "P", "itemName": "P", "amount": 2}], "producedIn": ["M"]}],
+            items=[{"itemClass": "W", "name": "Water", "form": "Liquid"},
+                   {"itemClass": "P", "name": "P", "form": "Solid"}])
+        bom = solve_bom(cat, "P", 20)   # 1 machine (2/6*60=20); water 3*60/6=30/min
+        self.assertAlmostEqual(bom.raw_totals["W"], 30.0, places=6)  # not 30000
+
+    def test_byproduct_only_item_is_not_a_producer(self):
+        # A recipe's SECONDARY product (byproduct) must not make that item look
+        # producible by this recipe; only its primary product is indexed.
+        cat = Catalog(recipes=[
+            {"recipeClass": "R_Main", "displayName": "Main", "isBuildingRecipe": False,
+             "manufacturingDuration": 6, "ingredients": [{"itemClass": "IN", "itemName": "IN", "amount": 1}],
+             "products": [{"itemClass": "MAIN", "itemName": "Main", "amount": 1},
+                          {"itemClass": "BYP", "itemName": "Byp", "amount": 1}], "producedIn": ["M"]}])
+        self.assertIn("MAIN", cat.producers)
+        self.assertNotIn("BYP", cat.producers)   # byproduct only -> not a producer
+
+    def test_unpackage_recipe_filtered(self):
+        # "Unpackage F" must not count as a way to source fluid F, so choosing F
+        # resolves to the real recipe with no RecipeChoiceNeeded.
+        cat = Catalog(recipes=[
+            {"recipeClass": "R_F", "displayName": "Fluid F", "isBuildingRecipe": False,
+             "manufacturingDuration": 2, "ingredients": [{"itemClass": "SRC", "itemName": "Src", "amount": 1}],
+             "products": [{"itemClass": "F", "itemName": "F", "amount": 1}], "producedIn": ["Refinery"]},
+            {"recipeClass": "R_UnpF", "displayName": "Unpackage F", "isBuildingRecipe": False,
+             "manufacturingDuration": 2, "ingredients": [{"itemClass": "PKGF", "itemName": "Packaged F", "amount": 1}],
+             "products": [{"itemClass": "F", "itemName": "F", "amount": 1}], "producedIn": ["Packager"]}])
+        r = cat.choose_recipe("F", {})   # must not raise RecipeChoiceNeeded
+        self.assertEqual(r.recipe_class, "R_F")
+
     def test_cycle_detected(self):
         # A depends on B, B depends on A -> RecipeCycle.
         cyclic = {
