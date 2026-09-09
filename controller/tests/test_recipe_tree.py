@@ -161,6 +161,27 @@ class RecipeTreeTest(unittest.TestCase):
         self.assertGreater(p_over.power_mw, 4.0)          # 1 machine @125% > base 4 MW
         self.assertGreater(p_over.power_mw, p_base.power_mw)  # overclock draws more
 
+    def test_somersloop_halves_machines_and_cascades_inputs(self):
+        # Sloop the Iron Plate step (Constructor, 1 slot -> full = 2x). Output
+        # doubles for the SAME input, so plate machines' INGOT/ORE demand halves
+        # and cascades: 30 ore -> 15 ore. Byproduct-free chain, so no byproducts.
+        base = solve_bom(self.cat, "Iron Plate", 20)
+        sloop = solve_bom(self.cat, "Iron Plate", 20, sloop_items={"Iron Plate": 1})
+        self.assertAlmostEqual(base.raw_totals[ORE], 30.0, places=6)
+        self.assertAlmostEqual(sloop.raw_totals[ORE], 15.0, places=6)   # halved via cascade
+        p = self._node(sloop, PLATE)
+        self.assertAlmostEqual(p.amplification, 2.0, places=6)
+        self.assertEqual(p.sloops_each, 1)
+        self.assertEqual(p.machines_ceil, 1)                            # 0.5 exact -> 1
+        self.assertEqual(sloop.total_sloops, 1)
+
+    def test_somersloop_full_via_bare_request_caps_to_slots(self):
+        # Asking for 999 sloops caps to the machine's real slot count (1 here).
+        s = solve_bom(self.cat, "Iron Plate", 20, sloop_items={"Iron Plate": 999})
+        p = self._node(s, PLATE)
+        self.assertEqual(p.sloops_each, 1)
+        self.assertAlmostEqual(p.amplification, 2.0, places=6)
+
     def test_resolve_item_by_name_and_class(self):
         self.assertEqual(self.cat.resolve_item("Iron Plate"), PLATE)
         self.assertEqual(self.cat.resolve_item(PLATE), PLATE)

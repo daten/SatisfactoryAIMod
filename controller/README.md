@@ -109,7 +109,11 @@ contains:
   (Particle Accelerator / Quantum Encoder / Converter) are sized at the MAX of
   their recipe's range (const+factor) to avoid outages. `--max-clock 150/200/250`
   trades machines for overclocking and reports the **Power Shards** needed and
-  the higher resulting draw.
+  the higher resulting draw. **Somersloops** (non-default): `--sloop "Item"` (or
+  `Item:N`) production-amplifies that item's machines (output x up to 2x for the
+  SAME input), so its machine count AND ingredient demand drop and cascade
+  upstream — use on the most expensive items; the BOM reports total Somersloops
+  and the amplification^2 power cost.
 - `satisfactory_ai/siting.py` — resource-node siting toolkit (added
   2026-09-09): turns `world.resourceNodes` into siting facts — nodes grouped
   by resource, `extraction_rate(purity, miner_mk)`, spatial `cluster_nodes()`

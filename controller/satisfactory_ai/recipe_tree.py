@@ -119,6 +119,32 @@ POWER_CLOCK_EXPONENT = 1.321928094887362  # log2(2.5)
 PERCENT_PER_SHARD = 50.0
 MAX_SHARDS = 3
 
+# SOMERSLOOP production amplification: a machine with S of its M sloop slots
+# filled outputs (1 + S/M)x - full slots = 2x "item duplication" - for the SAME
+# input, at a power cost of amplification^2 PER MACHINE (exponent 2, vs clock's
+# 1.32). Net for a fixed target: half the machines AND half the inputs at 2x
+# (inputs cascade down), byproduct totals unchanged, ~2x net power for that step.
+# Somersloops are rare, so this is a NON-default lever for expensive items.
+# The catalog does not expose slot counts, so this table is a standard-1.0
+# constant (confirm live before a real build), keyed by buildable-class substring.
+SOMERSLOOP_POWER_EXPONENT = 2.0
+MAX_SLOOP_SLOTS = {
+    "QuantumEncoder": 4, "HadronCollider": 4, "Blender": 4, "ManufacturerMk1": 4,
+    "Converter": 2, "AssemblerMk1": 2, "FoundryMk1": 2, "OilRefinery": 2,
+    "ConstructorMk1": 1, "SmelterMk1": 1, "Packager": 1,
+    # loose fallbacks (match if the Mk-suffixed forms above didn't)
+    "Manufacturer": 4, "Assembler": 2, "Foundry": 2, "Refinery": 2,
+    "Constructor": 1, "Smelter": 1,
+}
+
+
+def max_sloop_slots(buildable_class: str) -> int:
+    """Max Somersloop slots for a machine (0 if unknown). Substring match."""
+    for frag, n in MAX_SLOOP_SLOTS.items():
+        if frag in buildable_class:
+            return n
+    return 0
+
 # FLUID/GAS recipe amounts are stored in millilitres in the catalog (Water
 # "4000" = 4 m3); the in-game rate is m3/min, i.e. amount/1000. Solids are whole
 # units. We normalize Liquid/Gas amounts to m3 at parse so every rate, machine
@@ -334,6 +360,8 @@ class BomNode:
     power_mw: float              # total draw of this node: machines_ceil at that clock
     shards_each: int             # Power Shards per machine (0 unless overclocked >100%)
     power_is_max_of_range: bool  # True if this machine has variable power (max-of-range used)
+    sloops_each: int             # Somersloops per machine (0 unless amplified)
+    amplification: float         # output multiplier from sloops (1.0 = none, 2.0 = full)
     depth: int
 
 
@@ -348,6 +376,7 @@ class Bom:
     machine_totals: Dict[str, int] = field(default_factory=dict) # machine_class -> total ceil count
     total_power_mw: float = 0.0  # sum of node power draws (variable machines counted at range MAX)
     total_shards: int = 0        # total Power Shards needed (0 unless overclocked)
+    total_sloops: int = 0        # total Somersloops needed (0 unless amplified)
 
     def format(self, catalog: "Catalog") -> str:
         lines = [f"BOM for {self.target_name} @ {self.target_rate:g}/min", ""]
@@ -355,7 +384,8 @@ class Bom:
         for n in self.nodes:
             pflag = "~" if n.power_is_max_of_range else " "
             shard = f" +{n.shards_each}shard/ea" if n.shards_each else ""
-            lines.append(f"  {n.machines_ceil:>3d} x {n.machine_name:<20s} @ {n.clock_percent_if_ceil:6.2f}%{shard:>11s}  "
+            sloop = f" +{n.sloops_each}sloop/ea({n.amplification:g}x)" if n.sloops_each else ""
+            lines.append(f"  {n.machines_ceil:>3d} x {n.machine_name:<20s} @ {n.clock_percent_if_ceil:6.2f}%{shard}{sloop}  "
                          f"{n.power_mw:7.1f}{pflag}MW  -> {n.item_name} {n.rate_per_min:g}/min  "
                          f"({n.recipe_name}; exact {n.machines_exact:.3f} machines)")
         lines.append("")
@@ -375,13 +405,16 @@ class Bom:
         lines.append(f"TOTAL POWER: {self.total_power_mw:.1f} MW (variable-power machines at range MAX, clock-adjusted)")
         if self.total_shards:
             lines.append(f"POWER SHARDS: {self.total_shards} (from overclocking above 100%)")
+        if self.total_sloops:
+            lines.append(f"SOMERSLOOPS: {self.total_sloops} (production amplification)")
         return "\n".join(lines)
 
 
 def solve_bom(catalog: Catalog, target_item: str, rate_per_min: float,
               recipe_choices: Optional[Dict[str, str]] = None,
               raw_items: Optional[List[str]] = None,
-              max_clock_percent: float = 100.0) -> Bom:
+              max_clock_percent: float = 100.0,
+              sloop_items: Optional[Dict[str, int]] = None) -> Bom:
     """Expand the full recipe tree for `target_item` at `rate_per_min`.
 
     target_item may be an itemClass or a display name (resolved via the catalog).
@@ -391,6 +424,12 @@ def solve_bom(catalog: Catalog, target_item: str, rate_per_min: float,
     max_clock_percent: clock ceiling per machine (default 100 = no shards). Raise
     it (150/200/250 = 1/2/3 Power Shards) to trade machines for overclocking; the
     BOM then reports the shards needed and the (higher, clock^log2(2.5)) power.
+    sloop_items: {item: sloops_per_machine} to apply Somersloop production
+    amplification to those items' machines (NON-default; sloops are rare - use on
+    the most expensive items). Amplification = 1 + sloops/max_slots (capped 2x):
+    each machine outputs more for the SAME input, so machines AND that step's
+    ingredient demand drop (cascading upstream), at amplification^2 power per
+    machine. The BOM reports total Somersloops needed. Stacks with overclocking.
 
     Power uses each machine's draw at its resolved clock; VARIABLE-power machines
     (Particle Accelerator / Quantum Encoder / Converter) are counted at the MAX
@@ -408,6 +447,9 @@ def solve_bom(catalog: Catalog, target_item: str, rate_per_min: float,
     raw_set = set()
     for r in (raw_items or []):
         raw_set.add(catalog.resolve_item(r))
+    sloops_for: Dict[str, int] = {}
+    for k, v in (sloop_items or {}).items():
+        sloops_for[catalog.resolve_item(k)] = int(v)
 
     def is_raw(item_class: str) -> bool:
         return (item_class in raw_set
@@ -457,19 +499,30 @@ def solve_bom(catalog: Catalog, target_item: str, rate_per_min: float,
                 bom.raw_totals[item_class] = bom.raw_totals.get(item_class, 0.0) + req
             continue
         recipe = recipe_for[item_class]
+        machine_class = recipe.produced_in[0] if recipe.produced_in else ""
+        # SOMERSLOOP amplification (non-default): output x amp for the SAME input.
+        sloops_req = sloops_for.get(item_class, 0)
+        slots = max_sloop_slots(machine_class)
+        if sloops_req > 0:
+            eff_sloops = min(sloops_req, slots) if slots > 0 else sloops_req
+            amp = min(2.0, 1.0 + (eff_sloops / slots)) if slots > 0 else 2.0  # slots unknown -> assume full 2x
+        else:
+            eff_sloops, amp = 0, 1.0
         out_amt = recipe.product_amount(item_class)
-        out_per_min = recipe.per_min(out_amt)
-        machines_exact = req / out_per_min if out_per_min > 0 else 0.0
+        eff_out_per_min = recipe.per_min(out_amt) * amp    # amplified output per machine
+        machines_exact = req / eff_out_per_min if eff_out_per_min > 0 else 0.0
         # machines needed under the clock cap: at cap C, one machine covers C worth
         machines_ceil = max(1, math.ceil(machines_exact / clock_cap - 1e-9)) if machines_exact > 0 else 0
         clock = (machines_exact / machines_ceil * 100.0) if machines_ceil else 0.0
-        machine_class = recipe.produced_in[0] if recipe.produced_in else ""
         # base draw at 100%: a VARIABLE-power machine (buildable base 0) uses the
         # recipe's range MAX (const+factor) to avoid outages; else the fixed base.
         fixed_base = catalog.power_base_mw(machine_class)
         is_variable = fixed_base <= 0 and recipe.variable_power_max > 0
         base_mw = recipe.variable_power_max if is_variable else fixed_base
-        node_power = machines_ceil * base_mw * ((clock / 100.0) ** POWER_CLOCK_EXPONENT) if (machines_ceil and base_mw) else 0.0
+        # power = machines x base x clock^1.32 x amp^2 (sloop cost is amp^2 per machine)
+        node_power = (machines_ceil * base_mw
+                      * ((clock / 100.0) ** POWER_CLOCK_EXPONENT)
+                      * (amp ** SOMERSLOOP_POWER_EXPONENT)) if (machines_ceil and base_mw) else 0.0
         # shards per machine to reach this clock (0 at <=100%)
         shards_each = 0
         if clock > 100.0 + 1e-9:
@@ -480,20 +533,22 @@ def solve_bom(catalog: Catalog, target_item: str, rate_per_min: float,
             machine_class=machine_class, machine_name=catalog.buildable_name(machine_class),
             machines_exact=machines_exact, machines_ceil=machines_ceil,
             clock_percent_if_ceil=clock, power_mw=node_power, shards_each=shards_each,
-            power_is_max_of_range=is_variable, depth=d))
+            power_is_max_of_range=is_variable, sloops_each=eff_sloops, amplification=amp, depth=d))
         bom.total_power_mw += node_power
         bom.total_shards += shards_each * machines_ceil
+        bom.total_sloops += eff_sloops * machines_ceil
         if machine_class:
             bom.machine_totals[machine_class] = bom.machine_totals.get(machine_class, 0) + machines_ceil
-        # ingredient demand (fractional machines drive it)
+        # ingredient demand: base input per machine (NOT amplified) x fewer machines
         for ic, amt in recipe.ingredients:
             need[ic] = need.get(ic, 0.0) + machines_exact * recipe.per_min(amt)
             depth[ic] = max(depth.get(ic, 0), d + 1)
-        # other products of this recipe are byproducts
+        # other products are byproducts; they ARE amplified per machine (so the
+        # total tracks the required output rate, amp cancels - as it should)
         for pc, amt in recipe.products:
             if pc == item_class:
                 continue
-            bom.byproducts[pc] = bom.byproducts.get(pc, 0.0) + machines_exact * recipe.per_min(amt)
+            bom.byproducts[pc] = bom.byproducts.get(pc, 0.0) + machines_exact * recipe.per_min(amt) * amp
 
     # order nodes shallow-first for readability
     bom.nodes.sort(key=lambda n: (n.depth, -n.rate_per_min))
@@ -513,6 +568,8 @@ def _main(argv: List[str]) -> int:
     ap.add_argument("--choose", action="append", default=[], help="itemClass=recipeClass override; repeatable")
     ap.add_argument("--max-clock", type=float, default=100.0,
                     help="clock ceiling per machine (100=no shards; 150/200/250 = 1/2/3 Power Shards)")
+    ap.add_argument("--sloop", action="append", default=[],
+                    help="somersloop-amplify an item's machines: 'Item' (full) or 'Item:N' sloops each; repeatable")
     args = ap.parse_args(argv)
     try:
         catalog = Catalog.from_cache(args.catalog)
@@ -525,9 +582,16 @@ def _main(argv: List[str]) -> int:
             k, v = c.split("=", 1)
             choices[catalog.resolve_item(k) if not k.startswith("/") else k] = v
     raw = [r for r in args.raw.split(",") if r.strip()]
+    sloops = {}
+    for s in args.sloop:
+        if ":" in s:
+            k, n = s.rsplit(":", 1)
+            sloops[k] = int(n)
+        else:
+            sloops[s] = 999  # bare item -> full slots (solver caps to the machine's slot count)
     try:
         bom = solve_bom(catalog, args.item, args.rate, recipe_choices=choices, raw_items=raw,
-                        max_clock_percent=args.max_clock)
+                        max_clock_percent=args.max_clock, sloop_items=sloops)
     except RecipeChoiceNeeded as e:
         print("RECIPE CHOICE NEEDED:\n  " + str(e))
         return 3

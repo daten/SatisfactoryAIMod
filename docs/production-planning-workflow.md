@@ -22,6 +22,12 @@ Decisions you make here (the solver forces them rather than guessing):
   `--choose Desc_X_C=Recipe_Y_C` (or `recipe_choices={}` in code).
 - **What to import vs make** → `--raw "Iron Ingot"` treats a part as a sourced
   leaf. `/RawResources/` (ore, water, ...) are leaves by default.
+- **Overclock** (Power Shards) → `--max-clock 150/200/250` to trade machines for
+  clock; reports shards + higher power.
+- **Somersloops** (rare - use strategically on the most EXPENSIVE items) →
+  `--sloop "Item"` amplifies output up to 2x for the same input, so that step's
+  machines AND its ingredient demand drop and cascade upstream (often the biggest
+  lever for a deep end-game part). Reports total Somersloops + the power cost.
 
 Take from the result: `raw_totals` (feeds step 2), machine counts + `total_power_mw`
 (feeds steps 3–4), byproducts (need a sink — [[feedback_byproduct_sink]]).
