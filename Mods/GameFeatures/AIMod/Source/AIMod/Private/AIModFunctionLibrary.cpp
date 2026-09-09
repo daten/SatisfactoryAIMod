@@ -13101,6 +13101,29 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 			{
 				UE_LOG(LogAIModAI, Warning, TEXT("ConstructRailroadTrack: no new track resolved for subsystem re-registration (RailSub=%s)"), RailSub ? TEXT("ok") : TEXT("null"));
 			}
+
+			// DRIVABLE-JOINT REPAIR (2026-09-09, docs/train-drivable-joint-research.md).
+			// RemoveTrack/AddTrack above graph-MERGES the track (same trackGraphID)
+			// but the joint is still not a drivable track-POSITION edge - a loco
+			// reads StationUnreachable and never moves. The user observed that a
+			// single HUMAN in-game connection to RPC-built track repairs it, which
+			// means the engine has a fixup path we just weren't invoking. Two PUBLIC
+			// AFGRailroadSubsystem entry points do exactly that global repair:
+			//   - ValidateAndFixupAllRailroadConnections(): "goes through every
+			//     railroad track buildable and fixes up their connections. Removing
+			//     invalid ones, adding missing switches for junctions, etc."
+			//   - Debug_MarkAllGraphsForFullRebuild(): forces TickTrackGraphs to
+			//     recompute the navigation graph (track positions) next tick.
+			// Call fixup first (repairs/validates the connection topology), then
+			// mark for full rebuild so the pathfinding graph is recomputed with the
+			// repaired joint. This keeps the proven manual build and just adds the
+			// engine's own repair the interactive path triggers implicitly.
+			if (RailSub)
+			{
+				RailSub->ValidateAndFixupAllRailroadConnections();
+				RailSub->Debug_MarkAllGraphsForFullRebuild();
+				UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: ran ValidateAndFixupAllRailroadConnections + Debug_MarkAllGraphsForFullRebuild to repair the joint into a drivable edge"));
+			}
 		}
 
 		if (IsValid(PollCharacter))
