@@ -74,8 +74,11 @@ Two routing styles:
 segments + obstacle AABBs (map `world.buildables` `bounds` → `Obstacle`) +
 terrain (`world.terrainHeightGrid` → a `ground_z(x,y)`); it flags belt-vs-machine
 / foundation / belt / terrain overlaps (a PCB-style DRC). Iterate the layout
-offline until clean, THEN build. It also checks BUILT routes via
-`world.splineGeometry`. For long hauls from the resource site, cross hostile
+offline until clean, THEN build. For a LONG span whose curved path you can't
+predict by hand, call `world.testConveyorBelt` (dry run) - it now returns the
+belt's PREDICTED spline (`result.detail.points`) without building; feed those
+points to the DRC as segments to verify the real path. It also checks BUILT
+routes via `world.splineGeometry`. For long hauls from the resource site, cross hostile
 terrain with a lift-skyway and teleport the player NEAR the work (belt validation
 is camera-dependent) — [[reference_belt_haul_terrain_rules]].
 
