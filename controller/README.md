@@ -87,6 +87,23 @@ contains:
   (`world.connectConveyor`) already work generically with no new
   construction code or chaining pattern to build a toolkit around.
 
+- `satisfactory_ai/production.py` — deterministic production-rate /
+  clock-speed balancing math for a single recipe and a two-stage
+  (upstream row -> manifold -> downstream row) line. Explicit numbers in,
+  computed answer out; no game queries.
+- `satisfactory_ai/recipe_tree.py` — the recursive dependency / **bill-of-
+  materials solver** (added 2026-09-09): given a target part + output
+  rate, expands the whole recipe tree and returns, per intermediate,
+  machine counts (fractional + whole-with-clock%), total RAW-resource
+  rates, byproducts, and machine totals. Reads the offline
+  `catalog_cache.json` (or explicit recipe lists) — works with the game
+  closed. Deterministic per CLAUDE.md ("recipe dependency calculations...
+  do not use an LLM"); it does NOT choose plans — a part with multiple
+  non-alternate recipes raises `RecipeChoiceNeeded` (caller passes
+  `recipe_choices=`), and the caller picks what to treat as raw
+  (`raw_items=`); `/RawResources/` parts are leaves by default. CLI:
+  `python -m satisfactory_ai.recipe_tree "Reinforced Iron Plate" 10`.
+  Tested offline against a hand-verified fixture (`tests/test_recipe_tree.py`).
 - `live_check.py` — a network client, but a diagnostic one, not part of
   the "controller" proper: connects to a **running** AIMod `/rpc`
   server (`http://127.0.0.1:51902/rpc` by default) and checks every RPC

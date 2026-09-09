@@ -1,0 +1,90 @@
+{
+  "exportedAt": "fixture",
+  "sourceUrl": "synthetic test fixture - simplified round-number amounts/durations, NOT real game values",
+  "recipes": [
+    {
+      "recipeClass": "/Game/Test/Recipe_IngotIron.Recipe_IngotIron_C",
+      "displayName": "Iron Ingot",
+      "isBuildingRecipe": false,
+      "manufacturingDuration": 2,
+      "ingredients": [{"itemClass": "/Game/Test/Desc_OreIron.Desc_OreIron_C", "itemName": "Iron Ore", "amount": 1}],
+      "products": [{"itemClass": "/Game/Test/Desc_IronIngot.Desc_IronIngot_C", "itemName": "Iron Ingot", "amount": 1}],
+      "producedIn": ["/Game/Test/Build_SmelterMk1.Build_SmelterMk1_C"]
+    },
+    {
+      "recipeClass": "/Game/Test/Recipe_Alternate_PureIronIngot.Recipe_Alternate_PureIronIngot_C",
+      "displayName": "Alternate: Pure Iron Ingot",
+      "isBuildingRecipe": false,
+      "manufacturingDuration": 2,
+      "ingredients": [
+        {"itemClass": "/Game/Test/Desc_OreIron.Desc_OreIron_C", "itemName": "Iron Ore", "amount": 7},
+        {"itemClass": "/Game/Test/Desc_Water.Desc_Water_C", "itemName": "Water", "amount": 4}
+      ],
+      "products": [{"itemClass": "/Game/Test/Desc_IronIngot.Desc_IronIngot_C", "itemName": "Iron Ingot", "amount": 13}],
+      "producedIn": ["/Game/Test/Build_OilRefinery.Build_OilRefinery_C"]
+    },
+    {
+      "recipeClass": "/Game/Test/Recipe_IronPlate.Recipe_IronPlate_C",
+      "displayName": "Iron Plate",
+      "isBuildingRecipe": false,
+      "manufacturingDuration": 6,
+      "ingredients": [{"itemClass": "/Game/Test/Desc_IronIngot.Desc_IronIngot_C", "itemName": "Iron Ingot", "amount": 3}],
+      "products": [{"itemClass": "/Game/Test/Desc_IronPlate.Desc_IronPlate_C", "itemName": "Iron Plate", "amount": 2}],
+      "producedIn": ["/Game/Test/Build_ConstructorMk1.Build_ConstructorMk1_C"]
+    },
+    {
+      "recipeClass": "/Game/Test/Recipe_IronRod.Recipe_IronRod_C",
+      "displayName": "Iron Rod",
+      "isBuildingRecipe": false,
+      "manufacturingDuration": 4,
+      "ingredients": [{"itemClass": "/Game/Test/Desc_IronIngot.Desc_IronIngot_C", "itemName": "Iron Ingot", "amount": 1}],
+      "products": [{"itemClass": "/Game/Test/Desc_IronRod.Desc_IronRod_C", "itemName": "Iron Rod", "amount": 1}],
+      "producedIn": ["/Game/Test/Build_ConstructorMk1.Build_ConstructorMk1_C"]
+    },
+    {
+      "recipeClass": "/Game/Test/Recipe_Screw.Recipe_Screw_C",
+      "displayName": "Screw",
+      "isBuildingRecipe": false,
+      "manufacturingDuration": 6,
+      "ingredients": [{"itemClass": "/Game/Test/Desc_IronRod.Desc_IronRod_C", "itemName": "Iron Rod", "amount": 1}],
+      "products": [{"itemClass": "/Game/Test/Desc_IronScrew.Desc_IronScrew_C", "itemName": "Screw", "amount": 4}],
+      "producedIn": ["/Game/Test/Build_ConstructorMk1.Build_ConstructorMk1_C"]
+    },
+    {
+      "recipeClass": "/Game/Test/Recipe_ReinforcedIronPlate.Recipe_ReinforcedIronPlate_C",
+      "displayName": "Reinforced Iron Plate",
+      "isBuildingRecipe": false,
+      "manufacturingDuration": 12,
+      "ingredients": [
+        {"itemClass": "/Game/Test/Desc_IronPlate.Desc_IronPlate_C", "itemName": "Iron Plate", "amount": 6},
+        {"itemClass": "/Game/Test/Desc_IronScrew.Desc_IronScrew_C", "itemName": "Screw", "amount": 12}
+      ],
+      "products": [{"itemClass": "/Game/Test/Desc_IronPlateReinforced.Desc_IronPlateReinforced_C", "itemName": "Reinforced Iron Plate", "amount": 1}],
+      "producedIn": ["/Game/Test/Build_AssemblerMk1.Build_AssemblerMk1_C"]
+    },
+    {
+      "recipeClass": "/Game/Test/Recipe_Build_Smelter.Recipe_Build_Smelter_C",
+      "displayName": "Smelter",
+      "isBuildingRecipe": true,
+      "manufacturingDuration": 1,
+      "ingredients": [{"itemClass": "/Game/Test/Desc_IronRod.Desc_IronRod_C", "itemName": "Iron Rod", "amount": 5}],
+      "products": [{"itemClass": "/Game/Test/Build_SmelterMk1.Build_SmelterMk1_C", "itemName": "Smelter", "amount": 1}],
+      "producedIn": []
+    }
+  ],
+  "items": [
+    {"itemClass": "/Game/Test/Desc_OreIron.Desc_OreIron_C", "displayName": "Iron Ore"},
+    {"itemClass": "/Game/Test/Desc_Water.Desc_Water_C", "displayName": "Water"},
+    {"itemClass": "/Game/Test/Desc_IronIngot.Desc_IronIngot_C", "displayName": "Iron Ingot"},
+    {"itemClass": "/Game/Test/Desc_IronPlate.Desc_IronPlate_C", "displayName": "Iron Plate"},
+    {"itemClass": "/Game/Test/Desc_IronRod.Desc_IronRod_C", "displayName": "Iron Rod"},
+    {"itemClass": "/Game/Test/Desc_IronScrew.Desc_IronScrew_C", "displayName": "Screw"},
+    {"itemClass": "/Game/Test/Desc_IronPlateReinforced.Desc_IronPlateReinforced_C", "displayName": "Reinforced Iron Plate"}
+  ],
+  "buildables": [
+    {"buildableClass": "/Game/Test/Build_SmelterMk1.Build_SmelterMk1_C", "displayName": "Smelter"},
+    {"buildableClass": "/Game/Test/Build_ConstructorMk1.Build_ConstructorMk1_C", "displayName": "Constructor"},
+    {"buildableClass": "/Game/Test/Build_AssemblerMk1.Build_AssemblerMk1_C", "displayName": "Assembler"},
+    {"buildableClass": "/Game/Test/Build_OilRefinery.Build_OilRefinery_C", "displayName": "Refinery"}
+  ]
+}
