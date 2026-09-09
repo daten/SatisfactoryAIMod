@@ -1745,6 +1745,16 @@ static UFGInventoryComponent* ResolveBuildableRoleInventory(AFGBuildable* Builda
 	return Buildable->FindComponentByClass<UFGInventoryComponent>();
 }
 
+// Somersloop (Desc_WAT1) and Mercer Sphere (Desc_WAT2) are the deliberately
+// scarce alien artifacts under "/Prototype/WAT/". The item-injection RPCs create
+// items from NOTHING, so they must not fabricate these unless the player opts in
+// via the "Allow Spawning Alien Artifacts" mod setting - a protection independent
+// of UnlimitedResources (which only bypasses build-material cost).
+static bool IsProtectedAlienArtifactClass(const FString& ItemClassPath)
+{
+	return ItemClassPath.Contains(TEXT("/Prototype/WAT/"));
+}
+
 FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -1768,6 +1778,12 @@ FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldC
 			FString::Printf(TEXT("itemClass '%s' did not resolve to a UFGItemDescriptor subclass"), *ItemClassPath));
 	}
 	const TSubclassOf<UFGItemDescriptor> ItemDesc = ItemClassResolved;
+
+	if (IsProtectedAlienArtifactClass(ItemClassPath) && !GetAIModConfigBool(World, TEXT("AllowSpawningAlienArtifacts"), false))
+	{
+		return FAIModOperationResult::Failure(TEXT("ARTIFACT_SPAWN_BLOCKED"),
+			FString::Printf(TEXT("'%s' is a deliberately-limited alien artifact (Somersloop/Mercer Sphere); creating it from nothing is blocked. Enable 'Allow Spawning Alien Artifacts' in AIMod settings to override (independent of Unlimited Resources)."), *ItemClassPath));
+	}
 
 	AFGBuildable* Buildable = FindBuildableById(World, BuildableId);
 	if (!IsValid(Buildable))
@@ -1968,6 +1984,12 @@ FAIModOperationResult UAIModFunctionLibrary::AddItemsToPlayerInventory(UObject* 
 			FString::Printf(TEXT("itemClass '%s' did not resolve to a UFGItemDescriptor subclass"), *ItemClassPath));
 	}
 	const TSubclassOf<UFGItemDescriptor> ItemDesc = ItemClassResolved;
+
+	if (IsProtectedAlienArtifactClass(ItemClassPath) && !GetAIModConfigBool(World, TEXT("AllowSpawningAlienArtifacts"), false))
+	{
+		return FAIModOperationResult::Failure(TEXT("ARTIFACT_SPAWN_BLOCKED"),
+			FString::Printf(TEXT("'%s' is a deliberately-limited alien artifact (Somersloop/Mercer Sphere); creating it from nothing is blocked. Enable 'Allow Spawning Alien Artifacts' in AIMod settings to override (independent of Unlimited Resources)."), *ItemClassPath));
+	}
 
 	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
 	if (!Character)

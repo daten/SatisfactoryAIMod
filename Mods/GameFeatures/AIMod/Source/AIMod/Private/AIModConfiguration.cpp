@@ -168,4 +168,25 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	AllowNonHostChatMessages->DefaultValue = false;
 	AllowNonHostChatMessages->Value = false;
 	Section->SectionProperties.Add(TEXT("AllowNonHostChatMessages"), AllowNonHostChatMessages);
+
+	// An eighth property, added 2026-09-09 - protects the deliberately-scarce
+	// alien artifacts (Somersloop = Desc_WAT1, Mercer Sphere = Desc_WAT2, the
+	// "/Prototype/WAT/" family). AIMod's item-injection RPCs create items from
+	// nothing, so without a gate they could fabricate unlimited Somersloops /
+	// Mercer Spheres, trivializing production amplification and the tech that
+	// consumes spheres. This is INDEPENDENT of Unlimited Resources (that bypasses
+	// build material COST; this protects specific unique items), so even with
+	// Unlimited Resources on, adding these is rejected unless this is enabled.
+	// Off by default (protected), player-opt-in only - an external AI controller
+	// can never enable it. See UAIModFunctionLibrary::AddItemsToInventory /
+	// AddItemsToPlayerInventory (IsProtectedAlienArtifactClass).
+	UConfigPropertyBool* AllowSpawningAlienArtifacts = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("AllowSpawningAlienArtifacts"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
+	AllowSpawningAlienArtifacts->DisplayName = FText::FromString(TEXT("Allow Spawning Alien Artifacts (Somersloops / Mercer Spheres)"));
+	AllowSpawningAlienArtifacts->Tooltip = FText::FromString(TEXT(
+		"Off by default. Somersloops and Mercer Spheres are deliberately limited in the game. By default AIMod "
+		"REFUSES to create them out of nothing via its item-injection RPCs, even when Unlimited Resources is on. "
+		"Enable this only if you deliberately want the RPC to be able to fabricate these artifacts."));
+	AllowSpawningAlienArtifacts->DefaultValue = false;
+	AllowSpawningAlienArtifacts->Value = false;
+	Section->SectionProperties.Add(TEXT("AllowSpawningAlienArtifacts"), AllowSpawningAlienArtifacts);
 }
