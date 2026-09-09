@@ -64,17 +64,24 @@ joint is not drivable.
    joint is non-traversable regardless of length. (Still respect ≤10000 / ≥3000
    for validity, but it does not make the joint drivable.) → go to experiment 2.
 
-2. **Drive the real `PrimaryFire_Implementation()` instead of manual
-   `DoMultiStepPlacement` + `InternalConstructHologram`.** Sequence: set the build
-   gun's hit to the SOURCE connector → `BuildState->PrimaryFire_Implementation()`
-   (advances/places start) → set hit to DEST connector →
-   `PrimaryFire_Implementation()` again (final step constructs via the binary's
-   own `Server_ConstructHologram`). This makes the ENGINE own the full placement
-   + connection setup, so `ConfigureComponents` sees exactly the state the
-   interactive player path produces (which IS drivable). Risks: PrimaryFire may
-   read its own aim trace rather than `GetHitResult()`; single-player server- RPC
-   nuance (should be fine — SP is authority). Prototype lives behind a param so
-   it doesn't regress the working straight-build.
+2. **Drive the real fire path instead of manual `DoMultiStepPlacement` +
+   `InternalConstructHologram`.** ❌ FALSIFIED 2026-09-08 (both forms, param
+   `usePrimaryFire`, commits baef6c238d + 0025f0dc2c, live-tested). Form (a):
+   `BuildState->PrimaryFire_Implementation()` twice (hit at source, then dest) →
+   build step stayed 0 (FindStart), no track. Form (b): the build gun's
+   `Gun->OnPrimaryFirePressed()` + `OnPrimaryFireReleased()` per click → ALSO
+   left step at 0, no track. So calling the fire entry points headlessly does not
+   advance the hologram: the interactive path depends on context we don't
+   reproduce — input-device state, hold-time accumulated in the build gun's
+   `Tick` (`mPrimaryFireHoldTime`, `mBuildModeSelectHoldTime`), and cross-tick
+   `mWaitingForPrimaryFireRelease` transitions. NB the MANUAL path's
+   `DoMultiStepPlacement(true/false)` DOES advance the step (that is why track
+   builds today) — it just yields a non-drivable joint. Next ideas if pursuing
+   this lever: (i) let several real ticks elapse between press and release so the
+   gun's Tick accumulates hold-time; (ii) call `Gun->Input_PrimaryFire(...)` with
+   a synthesized `FInputActionValue` (the actual input entry) rather than the
+   On*Pressed/Released helpers; (iii) find where the binary gates the fire on
+   input state and satisfy it. All redeploy-gated and uncertain.
 
 3. **`SetLocationAndRotationFromPlatformConnections`** — the station's integrated
    platform track is always drivable; this binary function positions a track from
@@ -84,12 +91,21 @@ joint is not drivable.
 4. Last resort: request decompiled `FGBuildableRailroadTrack` /
    `FGRailroadTrackHologram` `ConfigureComponents` to reproduce the exact wiring.
 
-## Recommendation
-Experiment 1 is falsified — length isn't it. **Next: prototype experiment 2**
-(drive `PrimaryFire_Implementation()` with the hit set to source then dest
-connector, instead of manual `DoMultiStepPlacement` + `InternalConstructHologram`),
-behind a param so it can't regress the working straight-build, then redeploy and
-retest drivability. Treat this as an empirical redeploy-iterate loop; the binary
-opacity means we cannot predict which lever works without testing. If experiment
-2 also fails, experiment 3 (`SetLocationAndRotationFromPlatformConnections`) or 4
-(decompiled `ConfigureComponents`) remain.
+## Status / recommendation
+Experiments 1 and 2 are both **falsified** live. Length isn't the cause, and the
+headless fire-path (both `PrimaryFire_Implementation` and gun `On*Pressed/Released`)
+does not advance the hologram build step at all, so it can't construct — the
+interactive input/tick context is the missing piece and reproducing it is
+uncertain and redeploy-gated. The `usePrimaryFire` param and its scaffolding are
+committed (default off; the proven manual straight-build path is unchanged and
+still works), so a future session can iterate on forms (i)–(iii) above without
+rebuilding the plumbing.
+
+**Recommended: pause the drivable-joint goal here.** Banked wins remain solid —
+the station-rotation fix (geometry/curves), power, cleanup, and full research
+trail. The one unsolved piece is the non-traversable joint, which needs either
+the input-simulation iterations above or experiment 3
+(`SetLocationAndRotationFromPlatformConnections` — build drivable track the way
+the station's own always-drivable platform track is built) or experiment 4
+(decompiled `ConfigureComponents`). Until then, a human in-game connection to
+RPC-built track repairs the joints and the train runs.
