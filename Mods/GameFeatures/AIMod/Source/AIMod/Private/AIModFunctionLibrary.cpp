@@ -10236,6 +10236,52 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 // routing correctness, the previous real-Character-rotation approach is
 // preserved in git history and this comment documents exactly what
 // changed and why, to make reverting fast.
+// Serialize a belt/spline HOLOGRAM's computed spline to a JSON object string
+// (the predicted mid-span path before construction). The hologram builds a real
+// USplineComponent (AFGSplineHologram::mSplineComponent) during placement; it's
+// a component subobject, so FindComponentByClass reaches it even though
+// GetSplineData()/mSplineComponent are protected. Same point/tangent shape as
+// LogSplineGeometryAsJson (built belts), so callers parse one format. Empty
+// points[] if the component isn't populated yet. Used by world.testConveyorBelt
+// (dry run) to answer "what path will this belt actually take?" without building
+// it - the missing piece for verifying long-span routing (2026-09-09).
+static FString SerializeHologramSplineJson(AFGSplineHologram* Hologram)
+{
+	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetBoolField(TEXT("predicted"), true);
+	TArray<TSharedPtr<FJsonValue>> Points;
+	USplineComponent* Spline = IsValid(Hologram) ? Hologram->FindComponentByClass<USplineComponent>() : nullptr;
+	if (Spline)
+	{
+		Root->SetNumberField(TEXT("splineLength"), Spline->GetSplineLength());
+		const int32 NumPoints = Spline->GetNumberOfSplinePoints();
+		Points.Reserve(NumPoints);
+		for (int32 i = 0; i < NumPoints; ++i)
+		{
+			const FVector Location = Spline->GetLocationAtSplinePoint(i, ESplineCoordinateSpace::World);
+			const FVector Tangent = Spline->GetTangentAtSplinePoint(i, ESplineCoordinateSpace::World);
+			const TSharedRef<FJsonObject> PointObject = MakeShared<FJsonObject>();
+			const TSharedRef<FJsonObject> LocationObject = MakeShared<FJsonObject>();
+			LocationObject->SetNumberField(TEXT("x"), Location.X);
+			LocationObject->SetNumberField(TEXT("y"), Location.Y);
+			LocationObject->SetNumberField(TEXT("z"), Location.Z);
+			PointObject->SetObjectField(TEXT("location"), LocationObject);
+			const TSharedRef<FJsonObject> TangentObject = MakeShared<FJsonObject>();
+			TangentObject->SetNumberField(TEXT("x"), Tangent.X);
+			TangentObject->SetNumberField(TEXT("y"), Tangent.Y);
+			TangentObject->SetNumberField(TEXT("z"), Tangent.Z);
+			PointObject->SetObjectField(TEXT("tangent"), TangentObject);
+			Points.Add(MakeShared<FJsonValueObject>(PointObject));
+		}
+	}
+	Root->SetArrayField(TEXT("points"), Points);
+	FString JsonString;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+	FJsonSerializer::Serialize(Root, Writer);
+	return JsonString;
+}
+
 void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, const FString& InstigatorStrategy, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	// Strategy dispatch (2026-08-30, explicit user request: "implement
@@ -10826,8 +10872,15 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 
 		if (PollState->bDryRun)
 		{
+			// Capture the hologram's predicted spline BEFORE cleanup destroys it,
+			// so world.testConveyorBelt returns the path the belt would take
+			// (result.detail.points) - lets a caller verify long-span routing
+			// against obstacles without building. See SerializeHologramSplineJson.
+			const FString SplineJson = SerializeHologramSplineJson(PollHologram);
 			PollCleanup(PollState);
-			PollState->OnComplete(FAIModOperationResult::Success());
+			FAIModOperationResult DryResult = FAIModOperationResult::Success();
+			DryResult.ResultDetailJson = SplineJson;
+			PollState->OnComplete(DryResult);
 			return;
 		}
 
