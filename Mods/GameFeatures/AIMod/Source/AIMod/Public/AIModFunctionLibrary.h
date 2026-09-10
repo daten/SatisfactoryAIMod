@@ -1646,14 +1646,18 @@ public:
 	 * GetConnection(0)/(1) for wires at all; do not repeat without new
 	 * evidence.
 	 *
-	 * bIgnoreAimLocation/bIgnoreWireSnap are named, per-disqualifier
-	 * bypasses (manually walks GetConstructDisqualifiers rather than
-	 * trusting the opaque CanConstruct bool) added after diagnosing
-	 * real disqualifier flakiness - the same connection pair returning
-	 * different disqualifiers across identical repeated calls.
-	 * UFGCDWireTooLong is deliberately not ignorable, since it reflects
-	 * a real deterministic length check. Not yet live-verified to
-	 * resolve the flakiness.
+	 * bIgnoreAimLocation/bIgnoreWireSnap/bIgnoreWireLength are named,
+	 * per-disqualifier bypasses (manually walks GetConstructDisqualifiers
+	 * rather than trusting the opaque CanConstruct bool) added after
+	 * diagnosing real disqualifier flakiness - the same connection pair
+	 * returning different disqualifiers across identical repeated calls.
+	 * bIgnoreWireLength (2026-09-10) opts out of UFGCDWireTooLong, the
+	 * wire mMaxLength cap (10000cm pole / 30000cm tower). Unlike the other
+	 * two it is a real deterministic geometry gate, but it is BUILD-TIME
+	 * only - the power circuits merge logically with no runtime length
+	 * dependency - so a wire built past the cap still carries power. Off by
+	 * default; the caller opts in to span any distance with one wire (e.g.
+	 * a remote outpost kilometres from the grid) instead of a pole chain.
 	 *
 	 * Same bDryRun/async pattern as ConstructExtractorOnNode. A
 	 * CANNOT_CONSTRUCT/NO_POWER_CONNECTION result may correctly reflect
@@ -1668,7 +1672,7 @@ public:
 	 * (see the .cpp) - the "Must be hooked up to a connection!"
 	 * everything-fails session state no longer needs the place+delete
 	 * workaround. */
-	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FAIModOperationResult&)> OnComplete, const TOptional<FVector>& ConnectorPositionA = TOptional<FVector>(), const TOptional<FVector>& ConnectorPositionB = TOptional<FVector>());
+	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, bool bIgnoreWireLength, TFunction<void(const FAIModOperationResult&)> OnComplete, const TOptional<FVector>& ConnectorPositionA = TOptional<FVector>(), const TOptional<FVector>& ConnectorPositionB = TOptional<FVector>());
 
 	/**
 	 * Diagnostic only, not a real placement attempt: spawns a real belt

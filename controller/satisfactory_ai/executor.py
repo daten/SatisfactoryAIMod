@@ -470,15 +470,36 @@ class Executor:
 
     # -- power (used by composites, not RouteOps yet) -------------------
 
-    def connect_power(self, id_a: str, id_b: str, near: Optional[Position] = None) -> OpResult:
+    def connect_power(
+        self,
+        id_a: str,
+        id_b: str,
+        near: Optional[Position] = None,
+        ignore_wire_snap: bool = True,
+        ignore_wire_length: bool = True,
+    ) -> OpResult:
         """connectPower with the full live-derived recovery ladder:
         proximity teleport, one plain retry, then the dummy-pole
-        dismantle-cycle reset for the global stuck state."""
+        dismantle-cycle reset for the global stuck state.
+
+        ignore_wire_snap (default True): bypasses UFGCDWireSnap ("Must be
+        hooked up to a connection!"), the stale-hologram false-negative that
+        used to require the dummy-pole reset. Live-verified 2026-09-10 to both
+        clear the failure AND build a real circuit-joining wire (free
+        connections decrement on both poles).
+
+        ignore_wire_length (default True): bypasses UFGCDWireTooLong ("Wire is
+        too long!"), the mMaxLength cap (10000cm pole / 30000cm tower). Requires
+        the AIMod build that plumbs the ignoreWireLength RPC param; harmlessly
+        ignored by older builds. Lets a single wire span any distance so remote
+        factories can be powered without a pole chain."""
         op = RouteOp(kind="wire", source_ref=id_a, dest_ref=id_b, note="power")
         params = {
             "buildableIdA": self.client.full_id(id_a),
             "buildableIdB": self.client.full_id(id_b),
             "ignoreAimLocation": True,
+            "ignoreWireSnap": ignore_wire_snap,
+            "ignoreWireLength": ignore_wire_length,
         }
         if near is not None:
             # Best-effort, like _hover_near - a blocked teleport must not

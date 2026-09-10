@@ -211,6 +211,62 @@ that updated the picture above:
   `maxLength` check (confirmed live as 10000 real units via
   `world.powerLineLimits`, not the 2000 placeholder used in early
   Python test fixtures).
+- **Wire length cap (`world.powerLineLimits`, live 2026-09-10):**
+  `maxLength: 10000` (pole↔pole), `maxPowerTowerLength: 30000` (both
+  ends power towers), `lengthPerCost: 2500`. This is the source of the
+  earlier "no-length-limit power lines" note - it was the 30000 tower
+  cap, 3× the pole cap, not truly unlimited. Confirms the historical
+  live results: 7392u wired (< 10000), 10504u failed pole↔pole
+  (> 10000), and the HMF 20940/26894 runs worked because they used
+  power **towers** (< 30000). Remote mining/smelting outposts are
+  ~1,000,000u (10km) from the main grid - past even a chain of towers
+  without hand-placing dozens.
+- **`bIgnoreWireLength` (added 2026-09-10, `world.connectPower`/
+  `world.testPowerConnection` param `"ignoreWireLength"`, default
+  `false`):** opts out of `UFGCDWireTooLong` in the same
+  named-disqualifier-bypass poll loop. Rationale: the cap is a pure
+  BUILD-TIME gate - `FGPowerConnectionComponent` merges the two power
+  circuits logically, with no runtime dependency on wire length - so a
+  wire built past the cap still carries power; only the visual spline
+  stretches. Lets one wire span any distance instead of a pole chain.
+  The Python `Executor.connect_power` now passes both `ignoreWireSnap`
+  and `ignoreWireLength` `True` by default.
+- **`ignoreWireSnap` (no-rebuild) confirmed 2026-09-10 to build a REAL
+  circuit-joining wire**, not just clear the false-negative: a pad-pole
+  pair's `world.powerPoles` free-connection count dropped 6→5 on both
+  ends after the connect (delta test), proving an actual `FGBuildableWire`.
+  The Python side had never been passing `ignoreWireSnap`, which is why
+  "Must be hooked up to a connection!" kept recurring; now default-on.
+- **`ignoreWireLength` live-verified 2026-09-10**: one wire from the iron
+  outpost's pole to a powered grid pole **16,754cm away** (past the 10,000cm
+  pole cap) flipped the outpost pole `hasPower False→True`, first attempt.
+  Remote outposts can now be grid-powered with a single span. `world.powerPoles`
+  `hasPower` is the verification signal; machines/generators are NOT poles and
+  don't appear there - verify a wired machine indirectly (pole `hasPower` +
+  the pole's free-connection count dropping when you wire the machine to it,
+  visible in the `ConstructPowerConnection ... construction attempted` log).
+
+## Belt delete-corpse on a connector blocks rebuild (2026-09-10)
+
+Deleting a conveyor belt can leave the SOURCE machine's output connector in a
+state where every subsequent `world.connectConveyor` from that connector
+returns `CANNOT_CONSTRUCT: Initializing (hard)` for the full 120-tick poll
+(`connectedCount=2, stepComplete=true` in the log, but the hologram never
+leaves UFGCDInitializing). Diagnosis that pins it to the connector, not a
+global wedge or the destination:
+- a fresh container→container belt on the same deck got PAST Initializing to
+  the real cost check (`Missing: Desc_IronPlate_C`), so the subsystem is fine;
+- belts from the affected merger's output to BOTH a drone-station input AND a
+  brand-new container both hung on Initializing → the SOURCE connector is the
+  common factor;
+- a far-teleport streaming unload/reload did NOT clear it.
+Belts cost materials when `UnlimitedResources` is off - seed the player with
+`world.addItemsToPlayerInventory` (Desc_IronPlate_C) before bulk belt work, or
+the belt fails `Missing ingredients` (this is separate from the corpse issue).
+Clean fix for the corpse: `world.saveGame` then reload the save (actor path-id
+names are stable across load, so stored buildable ids survive). Lesson: do NOT
+delete a working belt to "test" it - verify flow first (drone/station
+inventories, downstream container via removeItemsFromInventory).
 - **The daisy-chain-unlock caveat in §"pole-vs-daisy-chain" above did
   NOT block this session's direct machine↔machine test** - the save
   already had it unlocked (or the constraint doesn't apply the way

@@ -1942,6 +1942,11 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		ParamsObject->TryGetBoolField(TEXT("ignoreAimLocation"), bIgnoreAimLocation);
 		bool bIgnoreWireSnap = false;
 		ParamsObject->TryGetBoolField(TEXT("ignoreWireSnap"), bIgnoreWireSnap);
+		// Optional, default false - opts out of UFGCDWireTooLong (the wire
+		// mMaxLength cap, see world.powerLineLimits). A build-time-only gate;
+		// power still flows past the cap. Lets one wire span any distance.
+		bool bIgnoreWireLength = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreWireLength"), bIgnoreWireLength);
 
 		// Optional connector pins (2026-09-02) - {"x","y","z"} objects,
 		// same shape/semantics as connectConveyor's
@@ -1964,7 +1969,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		const TOptional<FVector> ConnectorPositionB = ParsePinField(TEXT("connectorPositionB"));
 
 		const bool bDryRun = Method == TEXT("world.testPowerConnection");
-		UAIModFunctionLibrary::ConstructPowerConnection(GetGameInstance(), BuildableIdA, BuildableIdB, bDryRun, bIgnoreAimLocation, bIgnoreWireSnap,
+		UAIModFunctionLibrary::ConstructPowerConnection(GetGameInstance(), BuildableIdA, BuildableIdB, bDryRun, bIgnoreAimLocation, bIgnoreWireSnap, bIgnoreWireLength,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

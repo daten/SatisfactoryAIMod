@@ -7782,7 +7782,7 @@ FString UAIModFunctionLibrary::CleanupOrphanedFlowIndicatorsAsJson(UObject* Worl
 	return JsonString;
 }
 
-void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, TFunction<void(const FAIModOperationResult&)> OnComplete, const TOptional<FVector>& ConnectorPositionA, const TOptional<FVector>& ConnectorPositionB)
+void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, bool bIgnoreWireLength, TFunction<void(const FAIModOperationResult&)> OnComplete, const TOptional<FVector>& ConnectorPositionA, const TOptional<FVector>& ConnectorPositionB)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -7952,6 +7952,7 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 		bool bDryRun = true;
 		bool bIgnoreAimLocation = false;
 		bool bIgnoreWireSnap = false;
+		bool bIgnoreWireLength = false;
 		int32 AttemptsRemaining = 120; // safety cap - real ticks, not a fixed duration
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -7966,6 +7967,7 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 	PollState->bDryRun = bDryRun;
 	PollState->bIgnoreAimLocation = bIgnoreAimLocation;
 	PollState->bIgnoreWireSnap = bIgnoreWireSnap;
+	PollState->bIgnoreWireLength = bIgnoreWireLength;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -8018,9 +8020,20 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 		// bIgnoreWireSnap can skip specific disqualifier classes the
 		// caller explicitly opts into ignoring, without bypassing
 		// FactoryGame's own real validation inside
-		// InternalConstructHologram() itself. UFGCDWireTooLong is
-		// deliberately NOT ignorable here - unlike the other two, it is
-		// presumed to reflect the real, deterministic mMaxLength check.
+		// InternalConstructHologram() itself.
+		//
+		// UFGCDWireTooLong (bIgnoreWireLength, 2026-09-10): the wire's
+		// mMaxLength cap (10000cm pole / 30000cm tower - see
+		// world.powerLineLimits). Unlike aim/snap flakiness this IS a real,
+		// deterministic geometry check, so it stayed non-ignorable by
+		// default. But it is a pure BUILD-TIME gate: FGPowerConnectionComponent
+		// merges the two power circuits logically, with no runtime dependency
+		// on wire length, so a wire built past the cap still delivers power
+		// (live-verified after this change). The caller opts in explicitly to
+		// run a single span across any distance - e.g. powering a remote
+		// mining/smelting outpost kilometres from the main grid without
+		// hand-placing a chain of dozens of poles. The visual spline simply
+		// stretches. Off by default; on only when the caller passes the flag.
 		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
 		// identical comment on this being a player-controlled mod setting.
 		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
@@ -8032,6 +8045,7 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 			const bool bIgnoredByFlag =
 				(PollState->bIgnoreAimLocation && DisqualifierClass == UFGCDInvalidAimLocation::StaticClass()) ||
 				(PollState->bIgnoreWireSnap && DisqualifierClass == UFGCDWireSnap::StaticClass()) ||
+				(PollState->bIgnoreWireLength && DisqualifierClass == UFGCDWireTooLong::StaticClass()) ||
 				(bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredByFlag && !bIsSoft)
