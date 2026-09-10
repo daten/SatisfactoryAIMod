@@ -10313,7 +10313,16 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	// required for deterministic per-port selection on a multi-output
 	// buildable like a splitter. Optional and backward-compatible -
 	// omitting them keeps every existing caller's behavior unchanged.
-	const FString Strategy = InstigatorStrategy.IsEmpty() ? TEXT("PlayerController") : InstigatorStrategy;
+	// Default strategy (2026-09-10): "RealCharacter", the ONLY strategy that
+	// clears UFGCDInitializing. The decoy-instigator strategies below
+	// (PlayerController/AIController/LocalPlayer) were an experiment that
+	// conclusively, permanently fails on UFGCDInitializing at every location -
+	// a raw caller hitting the old "PlayerController" default got belts that
+	// never build (KL-1 in docs/known-limitations.md; our own Executor always
+	// passed "RealCharacter", which is why the toolkit never saw it). Default
+	// to the working path so the RPC is correct out of the box; the decoy
+	// strategies remain reachable by explicit opt-in only.
+	const FString Strategy = InstigatorStrategy.IsEmpty() ? TEXT("RealCharacter") : InstigatorStrategy;
 	if (Strategy.Equals(TEXT("RealCharacter"), ESearchCase::IgnoreCase))
 	{
 		ConstructConveyorBelt_RealCharacterStrategy(WorldContextObject, SourceBuildableId, DestBuildableId, RecipeClassPath, RouteMode, SourceConnectorPosition, DestConnectorPosition, bDryRun, MoveTemp(OnComplete));

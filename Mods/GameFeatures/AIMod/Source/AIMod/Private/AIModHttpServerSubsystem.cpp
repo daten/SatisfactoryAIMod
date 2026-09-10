@@ -2021,10 +2021,11 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		FString RouteMode;
 		ParamsObject->TryGetStringField(TEXT("routeMode"), RouteMode);
 
-		// Optional, defaults "PlayerController" - "RealCharacter"/
-		// "AIController"/"PlayerController", see ConstructConveyorBelt's
-		// doc comment. Added 2026-08-30 so multiple competing fixes for
-		// the camera-hijack issue can be tried without a fresh compile.
+		// Optional, defaults "RealCharacter" (the only strategy that clears
+		// UFGCDInitializing - see ConstructConveyorBelt's doc comment and
+		// KL-1 in docs/known-limitations.md). "AIController"/"PlayerController"/
+		// "LocalPlayer" remain reachable by explicit opt-in but permanently
+		// fail on Initializing; they were an experiment, not a usable default.
 		FString InstigatorStrategy;
 		ParamsObject->TryGetStringField(TEXT("instigatorStrategy"), InstigatorStrategy);
 
