@@ -18,7 +18,7 @@ Severity:
 | KL-1 | `world.connectConveyor` default strategy (`PlayerController`) is broken — permanent `Initializing` | P0 (shippability) | no restart; but raw callers get permanently-failing belts | fix ready: change default to `RealCharacter` |
 | KL-2 | `connectPower` global stuck state ("Must be hooked up") | P1 | no (auto-reset + `ignoreWireSnap`) | likely resolved — verify |
 | KL-3 | Void/deep teleport kills the player (`NO_PLAYER`) | P1 | manual menu load to respawn | mitigated by avoidance; respawn RPC not built |
-| KL-4 | `world.connectConveyorLift` doesn't attach the DEST end across a large vertical span | P1 | no restart; blocks tall lifts | investigating |
+| KL-4 | ~~`world.connectConveyorLift` doesn't attach the DEST end~~ | — | — | **WITHDRAWN — usage error, not a bug** |
 
 > **Disproven (2026-09-10): "deleting a belt wedges the source connector."**
 > Feared to be an `AbstractInstanceManager` delete-corpse needing a reload. A
@@ -90,41 +90,32 @@ groundHeight-gates teleports and never targets void/deep Z. The durable fix is
 a `world.respawnPlayer` (and/or `world.loadSave`) RPC so recovery needs no
 manual menu step. Tracked in memory `project_rpc_respawn_load_support`.
 
-## KL-4 — `connectConveyorLift` dest end doesn't attach over a large vertical span
+## KL-4 — WITHDRAWN (2026-09-11): `connectConveyorLift` is fine; this was a usage error
 
-**Symptom.** Building a coal lift up a 34m (~3436u) gap for the steel factory
-(2026-09-11): `world.connectConveyorLift` from a coal-deck splitter (S1, z-1525)
-to a foundry-level splitter (S2, z1911) reports **OK** and attaches the SOURCE
-(S1 output gets the lift), but S2's input stays `connected=False` every time -
-even with the source output and dest input pinned at the **same X,Y** (a pure
-vertical run) and the dest connector position pinned. Repeated attempts each
-leave a dangling lift on S1 (source attached, top floating). Not a connector-
-alignment problem (verified co-located X,Y); the dest simply never binds.
+I reported that `connectConveyorLift` never attaches its DEST end. **That was
+wrong — the lift works; I called it incorrectly.** `connectConveyorLift`'s
+top stub **inherits the BOTTOM (source) connector's facing** (a documented
+quirk, live-found 2026-09-02, see the `elevated_crossing` composite in
+`controller/satisfactory_ai/composites.py`). So the destination relay's INPUT
+must be oriented to face **the same direction as the source output's facing**.
+My hand-rolled coal lift placed the top splitter with its input facing the wrong
+way (−X while the source output faced +Y), so the inherited-facing top stub never
+docked → "dest connected=False". My "short-lift test" repeated the same mistake
+(both endpoints at default yaw0, dest input not oriented to the source facing),
+so it "confirmed" a non-existent bug. I also used Mk1 instead of the proven Mk4.
 
-**Likely cause (unconfirmed).** Either a single conveyor lift has a max height
-below 3436u (so it builds a partial lift that never reaches the dest), or
-`ConstructConveyorLift` has a dangling-dest bug analogous to the belt one
-(source click completes, dest click/registration doesn't) with no
-execute_and_verify-style repair for lifts. The executor's `_lift` does NOT
-verify the dest attached.
-
-**Categorized 2026-09-11 (short-lift test).** A SHORT 800u lift between two
-fresh **splitters** AND between two fresh **storage containers** BOTH left the
-dest `connected=False`. So it is **NOT a height cap and not splitter-specific** —
-`ConstructConveyorLift`'s dest end does not bind at all in these tests (pinned
-or unpinned). This is a C++ dest-attach bug (the source click completes, the
-dest click/registration doesn't), the lift analogue of the belt two-click path.
-Stacking lifts will NOT help (each dest still dangles). NOTE: memory says lifts
-worked in the 2026-09-01 copper build ("2 arbitrary-height lifts") — so either
-that used a different path/params or something regressed; check git history of
-`ConstructConveyorLift` / the copper build scripts before rewriting.
-**Fix path:** make `ConstructConveyorLift` drive the dest attachment like
-`ConstructConveyorBelt`'s RealCharacter two-click flow (needs a rebuild), OR
-finish the steel coal-vertical with a short DRONE hop (drones ignore vgap).
+**Correct usage (the proven pattern — use it, don't hand-roll):**
+`elevated_crossing(db, source, dest, lane_z)` and the `"lift"` RouteOp. Manually:
+place the top relay at (source_output.x, source_output.y, top_z), yaw =
+`db.yaw_for_connector_facing(SPLITTER, "Input", source_output_facing)`, pin the
+lift `sourceConnectorPosition`=source output and `destConnectorPosition`=that
+relay's Input pin, recipe = Mk4. Then the traverse belt leaves from the RELAY
+(not the lift top). Lesson: check the composite/history before declaring a lift
+"bug" (feedback_check_history_before_diagnosing).
 
 **Steel factory status (save `steel-wip2`).** ~90% built at the compact Pure-
 iron + coal site (user extended power to it): iron miner → foundry (steel recipe)
 ✓, coal miner → S1 ✓, S3 → foundry coal input ✓, foundry → output container ✓,
-foundry + coal miner + iron miner powered. The ONE missing link is S1→S2 (the
-34m coal lift, KL-4). Once coal reaches S2, the chain S2→S3→foundry is already
-built and steel will flow.
+foundry + coal miner + iron miner powered. The ONE missing link is the coal
+S1→S2 lift up 34m — buildable now via the correct pattern above. Once coal
+reaches S2, the built chain S2→S3→foundry carries it and steel flows.
