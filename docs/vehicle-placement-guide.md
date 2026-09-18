@@ -140,101 +140,99 @@ arriving/leaving connection counts) is how you inspect/repair the graph;
 
 ---
 
-## 3. TRAINS — build/power/geometry WORK; a pure-RPC joint is **not drivable yet**
+## 3. TRAINS — a pure-RPC autonomous loop **WORKS** (verified 2026-09-18)
 
-What the RPC does today: places stations (with **correct rotation** —
-2026-09-08 fix), builds straight **and** clean curved track between their
-connectors, spawns locomotives, sets timetables + self-driving, and wires rail
-power. You can build a geometrically perfect closed loop entirely via RPC.
+A self-driving train circulates a fully RPC-built circular loop, no in-game
+touch. **The long "pure-RPC joint isn't drivable / StationUnreachable" saga
+(2026-09-06 … 2026-09-09 in the git/memory history) was a SETUP problem, not a
+code wall.** The joints from `constructRailroadTrack` are traversable. The two
+things that were actually wrong every time:
 
-**The remaining wall (verified 2026-09-08, definitive):** a **pure-RPC-built
-rail joint is not traversable.** `constructRailroadTrack` graph-*merges* the new
-track (the two stations end up with the same `trackGraphId`) but does **not**
-create a drivable track-*position* edge across the joint. Proven with the
-minimal case — two stations, one straight connecting track, a loco on it, and
-**both** stations powered — the loco never moves and reports
-`StationUnreachable` (NOT `NoPower`, so power is ruled out). This holds for
-straight and curved track alike, even when the build log says "both ends
-snapped" with no force-link.
+1. **Power.** The first `selfDrivingError` on an unpowered loop is **`NoPower`**
+   — easy to misread as the joint failing. Power one station and the whole rail
+   graph is powered.
+2. **Station orientation.** Stations are **directional**; if they don't all face
+   the circulation direction consistently the loop splits and the train reports
+   `StationUnreachable` and sits still. This is the crux — see the rule below.
 
-Practical consequence: a self-driving train **can** run on RPC track once a
-**human makes one in-game connection** to it (the real build-gun connection-snap
-re-runs the engine's track-position setup and repairs the joints). A *fully*
-autonomous pure-RPC drivable loop is **not achievable** until the joint fix
-lands (drive the engine's real `PrimaryFire` build path over several ticks so
-`TryFindAndSnapToOverlappingConnection` sets up the track position, instead of
-the one-shot `InternalConstructHologram`).
+Prerequisite already in the mod: the **rotation fix (commit a9ec3451e0)** makes a
+station's integrated track inherit its placement yaw. Without it all connectors
+point ±X and you can't orient a curve.
 
-These are still necessary conditions for ANY working train (they were the
-2026-09-08 corrections that got a human-assisted loop running), just not
-sufficient on their own:
+### Reliable build recipe (clockwise circle of radius R)
 
-1. **Power ≥ one station.** Connect a powered pole to at least one station — rail
-   power flows across the whole track graph (`selfDrivingError` `NoPower`→…).
-2. **Stations face the travel direction consistently.** Each station must be
-   oriented so the train flows *through* it in the circulation direction (on a
-   circle: opposite sides face opposite ways). Now achievable via placement yaw
-   thanks to the rotation fix below.
-3. **A FULL LOOP with WIDE turns, not a dead-end segment.** Close the circuit so
-   the train always has a forward path; a single `constructRailroadTrack` call
-   can't make a 180° arc, so build a circle as **4 quarter-arcs** between 4
-   anchors (2 stations E/W + 2 anchor points N/S), each quarter joining a
-   *vertical* connector to a *horizontal* one (perpendicular tangents = a clean
-   90° curve).
+**Recipes:** station `/Game/…/Train/Station/Recipe_TrainStation.Recipe_TrainStation_C`;
+track `/Game/…/Buildings/Recipe_RailroadTrack.Recipe_RailroadTrack_C`;
+loco `/Game/…/Vehicle/Train/Recipe_Locomotive.Recipe_Locomotive_C`.
 
-**Recipes:** station `Recipe_TrainStation_C`; track `Recipe_RailroadTrack_C`;
-loco `Recipe_Locomotive_C`; wagon `Recipe_FreightWagon_C`.
+1. **Pick R ≥ ~7000** (center C, z on/over a surface). Adjacent anchors must be
+   ≥~6000u apart or curves fail "turns too sharply"; R=7000 gives connector
+   chords ~6300u. A bigger loop (R≥9000–10000) is needed if you later want
+   freight platforms extending off each station.
+2. **Place 4 stations** at C±(R,0) and C±(0,R) with `placeBuilding`
+   (`ignoreGroundTrace/ignoreClearance/ignoreInvalidFloor/ignorePlayerEncroachment`).
+   **The station yaw sets its arrow = its local +X axis in world:**
+   `yaw 0→+X (East)`, `90→+Y (North)`, `180→-X (West)`, `270→-Y (South)`.
+   Every station's arrow must point along the travel tangent. **For a CLOCKWISE
+   loop (N→E→S→W): `N=0, E=270, S=180, W=90`.** (N/S tracks run along X, E/W
+   along Y.) Getting two stations facing each way — e.g. `N=0,S=0` — splits the
+   loop 2-and-2 and it will NOT circulate. If a station faces backwards, flip it
+   180°. The player can verify arrows in-game; trust that over the math.
+3. **Find each station's `RailroadTrackIntegrated` child** (a separate buildable
+   ~765u offset from the station, class `Build_RailroadTrackIntegrated_C`; match
+   the nearest one to each anchor via `world.buildables`). **Arcs connect the
+   integrated-track children, NOT the station actors** (passing the station gives
+   `NO_RAILROAD_CONNECTION`).
+4. **Build 4 quarter-arcs** with `constructRailroadTrack(sourceBuildableId,
+   destBuildableId, recipeClass, sourceConnectorPosition, destConnectorPosition)`.
+   Each arc joins one integ's *facing* connector to the next. **Pin each
+   connector ~2500u past the integ center along its axis** toward the target —
+   nearest-free-connector then picks the correct end. Order: NE (N.east↔E.north),
+   SE (E.south↔S.east), SW (S.west↔W.south), NW (W.north↔N.west). A single call
+   can't make a 180° arc; that's why it's 4 quarters. Verify all 4 stations now
+   report the SAME `trackGraphId` (`world.trainStations`) — that's the closed
+   loop.
+5. **Power it.** Wire the stations together and connect ONE to a powered source:
+   `connectPower(stationA, poleWithPower, ignoreAimLocation, ignoreWireSnap,
+   ignoreWireLength)`. Find a powered pole via `world.powerPoles` (has `hasPower`
+   + free conns but NO position — cross-ref `world.buildables` for positions).
+   A local Biomass generator is NOT a fallback: `addItemsToInventory` cannot fuel
+   a generator (`itemsAdded:0`), so tap the base grid (a single loco's load is
+   fine; the fuse held). Power lines have no real length limit with
+   `ignoreWireLength`.
+6. **Spawn the loco** with `constructVehicle(recipeClass=Locomotive, x,y,z+50,
+   ignoreGroundTrace)` on the loop (near a station's integ works; it snaps to the
+   nearest spline). **The train id ≠ the loco id** — a `BP_Train_C` is created
+   alongside the `BP_Locomotive_C` (id number ≈ loco id − 3). Use
+   `world.trains` to find it; identify yours by proximity of the trailing id
+   number and `hasTimeTable:false`. **Never set a timetable on a train you didn't
+   just spawn — the base has its own trains.**
+7. **Route it:** `setTrainTimetable(trainId, stops=[{stationBuildableId,
+   dockingDefinition:"LoadUnloadOnce"}] for each station in travel order)` then
+   `setTrainSelfDriving(trainId, enabled=true)`. **stops key is
+   `stationBuildableId`.**
+8. **Verify** via `world.trains` `selfDrivingError` (expect `NoError`) and
+   `world.vehicles` loco position over time — it should sweep through all four
+   quadrants (compute `atan2(y-Cy, x-Cx)`) and lap continuously (~2700 u/s seen).
 
-**What works (build/geometry — up to the non-traversable joint):**
-- `placeBuilding` a `Recipe_TrainStation_C` (auto-spawns a
-  `RailroadTrackIntegrated` child holding the rail connectors). **The
-  integrated track now inherits the station's placement yaw** (2026-09-08 fix,
-  commit a9ec3451e0): at **yaw 0 it runs along X** (connectors east/west), at
-  **yaw 90/270 along Y** (connectors north/south). Verify with
-  `world.splineGeometry` on the integrated track — its tangent tells you the
-  axis. This is what lets a rotated station anchor a curve.
-- `constructRailroadTrack(sourceBuildableId, destBuildableId, recipeClass,
-  sourceConnectorPosition, destConnectorPosition)` — builds straight + curved
-  track. **Pass the station's `RailroadTrackIntegrated` child as source/dest, NOT
-  the station actor** — the station itself has no rail connector components
-  (passing it gives `NO_RAILROAD_CONNECTION`); the connectors live on the
-  integrated-track child (`Build_RailroadTrackIntegrated_C`). **Pin
-  `source/destConnectorPosition`** to choose which free connector each end joins
-  (nearest-free-connector to the pin; matters for loops). A single call cannot
-  make a 180° arc — it produces a shallow cubic spline; use 90° quarters.
-- Rail-vehicle placement via `constructVehicle` (snaps to nearest track spline).
-  Spawn the loco on a **plain connecting segment**, not on a station's integrated
-  platform track (that fails `Not enough space on track!`).
-- `setTrainTimetable(trainId, stops=[{stationBuildableId, dockingDefinition:
-  "LoadUnloadOnce"|"FullyLoadUnload"}])` — **stops key is `stationBuildableId`**.
-- `setTrainSelfDriving(trainId, enabled)`; rail **power** (connect a powered pole
-  to a station — error goes `NoPower`→…). NB: power does NOT fix the joint —
-  a powered train on a pure-RPC joint still reports `StationUnreachable`.
+### Gotchas
+- **Teleport the player AWAY from curves before building** — "too steep"/"player
+  in the way" on a curve is a proximity flake (the *opposite* of belts). Rail
+  builds fine with the player far off; no teleport to the site needed.
+- **Dismantle:** RPC-built stations/track delete with `deleteBuilding`, EXCEPT
+  while a train is docked/self-driving (fails "un-dismantled parent"). Cleanup:
+  `setTrainSelfDriving(false)` → delete loco → delete stations (integrated track
+  cascades) → delete arc `RailroadTrack` pieces.
 
-**Train-specific gotchas (opposite of belts in places):**
-- **Stations ≥ ~6000u apart** or end curves fail "turns too sharply".
-- **Teleport the player AWAY from a curve before building it** — "too steep"/
-  "player in the way" on curves is a player-proximity flake. (This is the
-  *opposite* of belts, where you teleport the player *near*.)
-- The engine `.cpp` for railroad is a shipped stub in the workspace — real logic
-  is in the game binary. `constructRailroadTrack` currently snaps both ends and
-  re-registers the track with `AFGRailroadSubsystem`
-  (`RemoveTrack`→link→`AddTrack`) so the two stations share a `trackGraphId` —
-  but graph membership is **necessary, not sufficient**: the joint still isn't a
-  drivable track-*position* edge (see the "remaining wall" above), so the train
-  reports `StationUnreachable`. The real fix is the `PrimaryFire` build-path
-  spike, not more graph surgery.
-- **Dismantle:** RPC-built stations/track **can** be deleted with
-  `deleteBuilding` — EXCEPT while a train is docked/self-driving on them (fails
-  `CanDismantle` "un-dismantled parent"). Cleanup pattern: `setTrainSelfDriving`
-  false → delete the locomotive → delete the stations (integrated track
-  cascades). Multi-pass, since parent/child ordering matters.
-
-**BLOCKED / unsolved:** **pure-RPC drivable joint** (the main wall — see above;
-needs the `PrimaryFire` build-path fix) · multi-vehicle **coupling** (a station
-platform track holds one vehicle; wagons need adjacent plain track + coupling) ·
-**freight-platform inline-snap** (`Recipe_TrainDockingStation` rejects free
-placement, needs a platform-extension snap not yet implemented).
+**STILL BLOCKED — freight-platform inline-snap.** `placeBuilding` of
+`Recipe_TrainDockingStation` fails hard **"This must be placed inline with
+another train platform!"** even at the exact inline position (base geometry:
+platforms sit **1600u apart along the track axis**, platform yaw =
+`station_yaw + 180`). No current ignore flag bypasses it → needs a C++
+disqualifier-bypass (the `ignoreWireLength` pattern) or a real platform-snap
+path. Until then, validate station direction by the arrows / the train
+circulating, and add freight platforms in-game. Also unsolved: multi-vehicle
+**coupling** (a station platform holds one vehicle).
 
 ---
 

@@ -1,5 +1,18 @@
 # Research spike: making a pure-RPC rail joint drivable (2026-09-08)
 
+> **⚠️ RESOLVED / SUPERSEDED 2026-09-18 — THE PREMISE BELOW IS WRONG.** A pure-RPC
+> rail joint **is drivable**. A self-driving train circulates a fully RPC-built
+> 4-quarter loop with `selfDrivingError = NoError`, lapping continuously (no
+> in-game touch). The "StationUnreachable / not traversable" symptom in the
+> minimal test below was a **setup problem**, not a joint/code problem:
+> (1) the loop was **unpowered** — the real first error is `NoPower`, and
+> (2) the **stations weren't all facing the travel direction** (a station's arrow
+> = its local +X: yaw 0→E, 90→N, 180→W, 270→S; mixing facings splits the loop
+> and yields `StationUnreachable`). With power + consistent clockwise facings
+> (N=0, E=270, S=180, W=90) the same RPC joints traverse fine. **No `PrimaryFire`
+> build-path fix is needed.** See `docs/vehicle-placement-guide.md` §3 for the
+> reliable recipe. The research below is kept only as a record of the dead end.
+
 ## Problem
 `constructRailroadTrack` builds track between two station connectors and
 graph-merges it (both stations get the same `trackGraphId`), but a locomotive on

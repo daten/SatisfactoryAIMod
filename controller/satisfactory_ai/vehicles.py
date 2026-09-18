@@ -244,17 +244,19 @@ def construct_rail_link(client, source_station_id: str, dest_station_id: str,
     the station's RailroadTrackIntegrated CHILD buildable, not the station actor
     (the station has no rail connector components; passing it gives
     NO_RAILROAD_CONNECTION). PIN src/dst connector positions to choose which free
-    connector each end joins (essential for loops). Reliability notes (see guide
-    §3): stations >= ~6000u apart for end curves; teleport the player AWAY from a
-    curve before building (proximity flake, opposite of belts). The track builds
-    and graph-merges (snap + subsystem re-registration run inside the RPC), and
-    with the 2026-09-08 rotation fix a rotated station's connectors point the
-    right way so clean 90-degree quarter-arcs build - BUT the resulting joint is
-    NOT drivable (loco reports StationUnreachable; see set_train_route). A single
-    call can't make a 180-degree arc; build a loop as 4 quarter-arcs between 4
-    anchors. Rail IS deletable via deleteBuilding unless a train is docked/
-    self-driving on it (setTrainSelfDriving false, then delete loco, then
-    stations)."""
+    connector each end joins - pin ~2500u past the integ center along its axis
+    toward the target and nearest-free-connector picks the right end (essential
+    for loops). Reliability notes (see guide S3): stations >= ~6000u apart for end
+    curves; teleport the player AWAY from a curve before building (proximity
+    flake, opposite of belts). The track builds and graph-merges (all loop
+    stations end up on ONE trackGraphId, verify via world.trainStations), and the
+    2026-09-08 rotation fix (commit a9ec3451e0) makes a rotated station's
+    connectors point the right way so clean 90-degree quarter-arcs build. The
+    resulting joint IS DRIVABLE (verified 2026-09-18: a self-driving train
+    circulates a pure-RPC 4-quarter loop). A single call can't make a 180-degree
+    arc; build a loop as 4 quarter-arcs between 4 anchors. Rail IS deletable via
+    deleteBuilding unless a train is docked/self-driving on it (setTrainSelfDriving
+    false, then delete loco, then stations)."""
     params = {"sourceBuildableId": source_station_id, "destBuildableId": dest_station_id, "recipeClass": recipe}
     if src_connector_pos:
         params["sourceConnectorPosition"] = {"x": src_connector_pos[0], "y": src_connector_pos[1], "z": src_connector_pos[2]}
@@ -266,14 +268,20 @@ def construct_rail_link(client, source_station_id: str, dest_station_id: str,
 def set_train_route(client, train_id: str, station_ids: List[str],
                     docking: str = "LoadUnloadOnce", self_driving: bool = True) -> dict:
     """Timetable a train across stations then enable self-driving. NB: the stop
-    key is stationBuildableId. IMPORTANT (2026-09-08): even with power, correct
-    station facing, and a full closed loop, a train on PURE-RPC-built track does
-    NOT move - it reports StationUnreachable because constructRailroadTrack's
-    joints graph-merge but are not drivable track-position edges. This is the
-    current train wall; a human in-game connection (or the pending PrimaryFire
-    build-path fix) is needed to make the joints traversable. So calling this on
-    a pure-RPC loop will set the timetable/self-driving flags correctly but the
-    loco will sit still."""
+    key is stationBuildableId; the trainId is the BP_Train_C actor (NOT the
+    BP_Locomotive_C - id number ~ loco id minus 3; find it via world.trains,
+    match by trailing-id proximity + hasTimeTable false). NEVER pass a base
+    train's id. VERIFIED 2026-09-18: a pure-RPC 4-quarter loop DRIVES autonomously
+    (selfDrivingError NoError, loco laps continuously). Two prerequisites that
+    were the real blockers historically (NOT the joint):
+      (1) POWER - first symptom is selfDrivingError=NoPower; connectPower one
+          station to a powered pole (ignoreWireLength) and the whole rail graph
+          is powered.
+      (2) STATION FACING - every station's arrow (= its local +X: yaw 0->+X/E,
+          90->+Y/N, 180->-X/W, 270->-Y/S) must point along the travel tangent, or
+          the loop splits 2-and-2 and reports StationUnreachable. Clockwise loop:
+          N=0, E=270, S=180, W=90.
+    Verify motion via world.vehicles loco position sweeping all quadrants."""
     stops = [{"stationBuildableId": sid, "dockingDefinition": docking} for sid in station_ids]
     tt = client.call("world.setTrainTimetable", {"trainId": train_id, "stops": stops}, timeout_seconds=60)
     sd = client.call("world.setTrainSelfDriving", {"trainId": train_id, "enabled": self_driving}, timeout_seconds=60)
