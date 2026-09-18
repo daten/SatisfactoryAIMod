@@ -13446,23 +13446,30 @@ void UAIModFunctionLibrary::ConstructTrainPlatform(UObject* WorldContextObject, 
 			return;
 		}
 
-		// The ONLY tolerated bypass is Unaffordable under the player's own
-		// UnlimitedResources setting (matches ConstructBuildingAtPosition). Every
-		// other hard disqualifier - crucially "This must be placed inline with
-		// another train platform!" - MUST clear on its own, i.e. the platform
-		// genuinely snapped. No caller-facing ignore flags: a non-snapping build
-		// is refused, not forced.
+		// The ONE hard gate we honor is UFGCDMustAttachToTrainPlatform ("must be
+		// placed inline with another train platform") - it means the platform did
+		// NOT snap onto the target's connection, i.e. it would be a disconnected,
+		// non-loading placement, which we refuse. This is the whole point: we do
+		// not bypass the snap. Every OTHER hard disqualifier here is an
+		// environment gate (invalid aim, uneven/absent surface, clearance,
+		// encroachment) that RPC placement bypasses by design - a floating RPC
+		// loop build has no ground under it, same as every other Construct* here.
+		// Unaffordable still blocks unless the player enabled UnlimitedResources.
 		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
 		bool bCanConstruct = true;
+		bool bNeedsSnap = false;
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			const bool bIgnoredByFlag = (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
+			const bool bIsSnapRequirement = (DisqualifierClass == UFGCDMustAttachToTrainPlatform::StaticClass());
+			const bool bIsUnaffordableBlock = (DisqualifierClass == UFGCDUnaffordable::StaticClass()) && !bUnlimitedResources;
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
-			if (!bIgnoredByFlag && !bIsSoft) { bCanConstruct = false; }
+			const bool bBlocks = bIsSnapRequirement || bIsUnaffordableBlock;
+			if (bBlocks) { bCanConstruct = false; }
+			if (bIsSnapRequirement) { bNeedsSnap = true; }
 			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
 				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
-				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredByFlag ? TEXT(", ignored") : TEXT("")));
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bBlocks ? TEXT("") : TEXT(", ignored")));
 		}
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 
@@ -13473,7 +13480,7 @@ void UAIModFunctionLibrary::ConstructTrainPlatform(UObject* WorldContextObject, 
 		{
 			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
 			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"),
-				FString::Printf(TEXT("platform did not snap / had a hard disqualifier: %s"), *DisqualifierSummary)));
+				FString::Printf(TEXT("%s: %s"), bNeedsSnap ? TEXT("platform did NOT snap onto the target connection") : TEXT("blocked (unaffordable)"), *DisqualifierSummary)));
 			return;
 		}
 
