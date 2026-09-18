@@ -224,15 +224,27 @@ loco `/Game/…/Vehicle/Train/Recipe_Locomotive.Recipe_Locomotive_C`.
   `setTrainSelfDriving(false)` → delete loco → delete stations (integrated track
   cascades) → delete arc `RailroadTrack` pieces.
 
-**STILL BLOCKED — freight-platform inline-snap.** `placeBuilding` of
-`Recipe_TrainDockingStation` fails hard **"This must be placed inline with
-another train platform!"** even at the exact inline position (base geometry:
-platforms sit **1600u apart along the track axis**, platform yaw =
-`station_yaw + 180`). No current ignore flag bypasses it → needs a C++
-disqualifier-bypass (the `ignoreWireLength` pattern) or a real platform-snap
-path. Until then, validate station direction by the arrows / the train
-circulating, and add freight platforms in-game. Also unsolved: multi-vehicle
-**coupling** (a station platform holds one vehicle).
+**STILL BLOCKED — freight-platform attach (needs a snap-based construct, NOT a
+bypass).** `placeBuilding` of `Recipe_TrainDockingStation` fails hard **"This
+must be placed inline with another train platform!"**, and a disqualifier-bypass
+is the WRONG fix: the game code shows freight platforms are **snap-to-connection
+buildings, not free placements** —
+`AFGBuildableTrainPlatform` has `mPlatformConnection0/1` (`UFGTrainPlatformConnection`,
+each tied to a `UFGRailroadTrackConnectionComponent`) + its own `mRailroadTrack`,
+and `AFGTrainPlatformHologram` has `mRequireSnapToPlatform`, `TrySnapToActor()`,
+`SnapToConnection(UFGTrainPlatformConnection*)`, `FindOverlappingConnectionComponent()`
+and owns a **child rail-track hologram** (`mRailroadTrackHologram`). Force-placing
+past the disqualifier would leave `mConnectedPlatformComponents` + the child track
+UNLINKED → a dead, non-loading platform (same class of bug as the old force-linked
+rail joints). The RIGHT fix is a dedicated construct that **mirrors
+`constructRailroadTrack`**: spawn `AFGTrainPlatformHologram`, position it at the
+target station/platform's platform connection, drive `TrySnapToActor` /
+`SnapToConnection` so `mConnectedPlatformComponents` + the child track link, then
+`Construct()`. Reference geometry (from the base): platforms sit **1600u apart
+along the track axis**, platform yaw = `station_yaw + 180`. Until that construct
+exists, validate station direction by the arrows / the train circulating and add
+freight platforms in-game. Also unsolved: multi-vehicle **coupling** (a station
+platform holds one vehicle).
 
 ---
 
