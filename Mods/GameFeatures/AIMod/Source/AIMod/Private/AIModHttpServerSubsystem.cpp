@@ -2283,6 +2283,60 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// "world.testTrainPlatform" (dry run) and "world.constructTrainPlatform"
+	// (real) share UAIModFunctionLibrary::ConstructTrainPlatform - drive the
+	// real platform snap onto a station/platform's free connection (NOT a
+	// placement bypass). See ConstructTrainPlatform's doc comment.
+	if (Method == TEXT("world.testTrainPlatform") || Method == TEXT("world.constructTrainPlatform"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString TargetBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("targetBuildableId"), TargetBuildableId) || TargetBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.targetBuildableId must be a non-empty string (the station or platform to attach to)")));
+			return true;
+		}
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string - e.g. Recipe_TrainDockingStation_C; query world.recipeCatalog")));
+			return true;
+		}
+
+		const bool bDryRunPlatform = Method == TEXT("world.testTrainPlatform");
+
+		// Optional: pick WHICH free platform connection to attach to, by nearest
+		// world position (needed when chaining several platforms off one station).
+		FVector ConnPos = FVector::ZeroVector;
+		bool bHasConnPos = false;
+		const TSharedPtr<FJsonObject>* PosObj = nullptr;
+		if (ParamsObject->TryGetObjectField(TEXT("connectorPosition"), PosObj) && PosObj && PosObj->IsValid())
+		{
+			double PX = 0.0, PY = 0.0, PZ = 0.0;
+			if ((*PosObj)->TryGetNumberField(TEXT("x"), PX) && (*PosObj)->TryGetNumberField(TEXT("y"), PY) && (*PosObj)->TryGetNumberField(TEXT("z"), PZ))
+			{
+				ConnPos = FVector(PX, PY, PZ);
+				bHasConnPos = true;
+			}
+		}
+
+		UAIModFunctionLibrary::ConstructTrainPlatform(GetGameInstance(), TargetBuildableId, RecipeClassPath, bDryRunPlatform,
+			ConnPos, bHasConnPos,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
 	// world.constructVehiclePathSegment - see ConstructVehiclePathSegment's
 	// doc comment. NOT YET LIVE-TESTED.
 	if (Method == TEXT("world.constructVehiclePathSegment"))

@@ -118,6 +118,9 @@
 #include "FGTrainDockingRules.h"
 #include "Buildables/FGBuildableRailroadStation.h"
 #include "Buildables/FGBuildableTrainPlatformCargo.h"
+#include "Buildables/FGBuildableTrainPlatform.h"
+#include "FGTrainPlatformConnection.h"
+#include "Hologram/FGTrainPlatformHologram.h"
 #include "FGDroneSubsystem.h"
 #include "FGDroneStationInfo.h"
 #include "Buildables/FGBuildableDockingStation.h"
@@ -13230,6 +13233,310 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		}
 
 		PollState->OnComplete(FAIModOperationResult::Success());
+	};
+
+	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+}
+
+// Train freight/empty platforms (2026-09-18) - a train platform
+// (AFGBuildableTrainPlatform: Freight/Empty/Liquid docking platform) is NOT a
+// free-placed building. AFGTrainPlatformHologram has mRequireSnapToPlatform and
+// SNAPS its near-end UFGTrainPlatformConnection onto an existing station/platform's
+// free platform connection (which also carries the rail-track link) and owns a
+// child rail-track hologram that extends the platform's integrated track. A raw
+// placeBuilding therefore fails hard "This must be placed inline with another
+// train platform!", and force-placing past that disqualifier would leave a
+// DISCONNECTED, non-loading platform (mConnectedPlatformComponents + child track
+// unlinked - the same failure class as the old force-linked rail joints). So we
+// deliberately do NOT bypass the disqualifier: we drive the real snap. Same
+// manual-hologram lineage as ConstructBuildingAtPosition, but WITHOUT the
+// position/yaw pin (the snap must own the transform so its connection aligns
+// inline), and with a synthetic hit aimed at the target's free platform
+// connection so the hologram's own FindOverlappingConnectionComponent /
+// SetHologramLocationAndRotation finds it and SnapToConnection wires it up during
+// InternalConstructHologram. It only constructs once the "must be inline" (and
+// every other hard) disqualifier has cleared - i.e. it genuinely snapped - so a
+// failed snap places nothing.
+void UAIModFunctionLibrary::ConstructTrainPlatform(UObject* WorldContextObject, const FString& TargetBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& ConnectorPos, bool bHasConnectorPos, TFunction<void(const FAIModOperationResult&)> OnComplete)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context")));
+		return;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)")));
+		return;
+	}
+
+	AFGBuildable* TargetBuildable = FindBuildableById(World, TargetBuildableId);
+	if (!TargetBuildable)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *TargetBuildableId)));
+		return;
+	}
+	AFGBuildableTrainPlatform* TargetPlatform = Cast<AFGBuildableTrainPlatform>(TargetBuildable);
+	if (!TargetPlatform)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NOT_A_PLATFORM"), FString::Printf(TEXT("'%s' is not a train station/platform (AFGBuildableTrainPlatform) - freight platforms attach to a station or another platform"), *TargetBuildableId)));
+		return;
+	}
+
+	// Find a FREE platform connection on the target to snap onto. Prefer the
+	// tail (ETPC_Out) for the first platform off a station; a caller pin selects
+	// a specific end (e.g. the free end of the last platform when chaining).
+	UFGTrainPlatformConnection* TargetConn = nullptr;
+	{
+		TArray<UFGTrainPlatformConnection*> Conns;
+		TargetBuildable->GetComponents<UFGTrainPlatformConnection>(Conns);
+		float BestDistSq = TNumericLimits<float>::Max();
+		for (UFGTrainPlatformConnection* C : Conns)
+		{
+			if (!C || C->IsConnected()) { continue; }
+			if (bHasConnectorPos)
+			{
+				const float DistSq = FVector::DistSquared(C->GetComponentLocation(), ConnectorPos);
+				if (DistSq < BestDistSq) { BestDistSq = DistSq; TargetConn = C; }
+			}
+			else
+			{
+				if (!TargetConn) { TargetConn = C; }
+				if (C->GetConnectionType() == ETrainPlatformConnectionType::ETPC_Out) { TargetConn = C; break; }
+			}
+		}
+	}
+	if (!TargetConn)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_FREE_PLATFORM_CONNECTION"), FString::Printf(TEXT("'%s' has no free platform connection to attach to (all sides already have platforms?)"), *TargetBuildableId)));
+		return;
+	}
+
+	const FVector SnapLocation = TargetConn->GetComponentLocation();
+	const FVector SnapNormal = TargetConn->GetForwardVector();
+
+	UClass* PlatformRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+	if (!PlatformRecipeClass || !PlatformRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("INVALID_RECIPE"), FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+		return;
+	}
+	const TSubclassOf<UFGRecipe> RecipeClass = PlatformRecipeClass;
+
+	// Aim the synthetic hit AT the target's free platform connection so the
+	// platform hologram's overlap-snap finds it. Component/HitObjectHandle point
+	// at the target buildable's root primitive (TrySnapToActor keys off the hit's
+	// actor/component, same lesson as the rail hologram).
+	FHitResult SnapHit;
+	SnapHit.Location = SnapLocation;
+	SnapHit.ImpactPoint = SnapLocation;
+	SnapHit.Normal = SnapNormal;
+	SnapHit.ImpactNormal = SnapNormal;
+	SnapHit.HitObjectHandle = FActorInstanceHandle(TargetBuildable);
+	SnapHit.bBlockingHit = true;
+	if (UPrimitiveComponent* RootPrim = Cast<UPrimitiveComponent>(TargetBuildable->GetRootComponent()))
+	{
+		SnapHit.Component = RootPrim;
+	}
+	PopulateSyntheticTraceRay(SnapHit);
+
+	if (AController* Controller = Character->GetController())
+	{
+		const FRotator LookAtTarget = (SnapLocation - Character->GetActorLocation()).Rotation();
+		Controller->SetControlRotation(FRotator(LookAtTarget.Pitch, 0.0f, 0.0f));
+	}
+
+	Character->HotKeyRecipe(RecipeClass);
+
+	AFGBuildGun* BuildGun = Character->GetBuildGun();
+	if (!BuildGun)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_GUN"), TEXT("AFGCharacterPlayer::GetBuildGun() returned null")));
+		return;
+	}
+	UFGBuildGunStateBuild* BuildState = Cast<UFGBuildGunStateBuild>(BuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD));
+	if (!BuildState)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("NO_BUILD_STATE"), TEXT("Could not resolve UFGBuildGunStateBuild from the build gun")));
+		return;
+	}
+
+	AFGHologram* Hologram = BuildState->GetHologram();
+	AFGTrainPlatformHologram* PlatformHologram = Cast<AFGTrainPlatformHologram>(Hologram);
+	if (!PlatformHologram)
+	{
+		Character->UnequipBuildGun();
+		OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_SPAWN_FAILED"),
+			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGTrainPlatformHologram (got %s)"),
+				*RecipeClassPath, Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
+		return;
+	}
+
+	BuildGun->GetHitResult() = SnapHit;
+
+	struct FPlatformPollState
+	{
+		TWeakObjectPtr<AFGTrainPlatformHologram> Hologram;
+		TWeakObjectPtr<AFGCharacterPlayer> Character;
+		TWeakObjectPtr<UWorld> World;
+		TWeakObjectPtr<UFGTrainPlatformConnection> TargetConnection;
+		FString RecipeClassPath;
+		FString TargetBuildableId;
+		FHitResult SnapHit;
+		bool bDryRun = false;
+		int32 AttemptsRemaining = 120;
+		int32 AttemptsTaken = 0;
+		TFunction<void(const FAIModOperationResult&)> OnComplete;
+	};
+	const TSharedRef<FPlatformPollState> PollState = MakeShared<FPlatformPollState>();
+	PollState->Hologram = PlatformHologram;
+	PollState->Character = Character;
+	PollState->World = World;
+	PollState->TargetConnection = TargetConn;
+	PollState->RecipeClassPath = RecipeClassPath;
+	PollState->TargetBuildableId = TargetBuildableId;
+	PollState->SnapHit = SnapHit;
+	PollState->bDryRun = bDryRun;
+	PollState->OnComplete = MoveTemp(OnComplete);
+
+	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
+	*PollFn = [PollState, PollFn]()
+	{
+		++PollState->AttemptsTaken;
+
+		AFGTrainPlatformHologram* PollHologram = PollState->Hologram.Get();
+		UWorld* PollWorld = PollState->World.Get();
+		AFGCharacterPlayer* PollCharacter = PollState->Character.Get();
+		if (!IsValid(PollHologram) || !PollWorld)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructTrainPlatform (deferred): hologram or world became invalid while polling (after %d tick(s)) - nothing built"), PollState->AttemptsTaken);
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("HOLOGRAM_INVALIDATED"), TEXT("Hologram or world became invalid while polling")));
+			return;
+		}
+
+		// Re-assert the look direction at the snap target each tick (same reason
+		// as ConstructBuildingAtPosition). NOTE: no position/yaw pin here - the
+		// platform snap must own the hologram transform so its connection aligns
+		// inline with the target's; pinning would defeat the snap.
+		if (IsValid(PollCharacter))
+		{
+			if (AController* PollController = PollCharacter->GetController())
+			{
+				const FRotator PollLookAtTarget = (PollState->SnapHit.Location - PollCharacter->GetActorLocation()).Rotation();
+				PollController->SetControlRotation(FRotator(PollLookAtTarget.Pitch, 0.0f, 0.0f));
+			}
+		}
+
+		PollHologram->UpdateHologramPlacement(PollState->SnapHit);
+
+		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
+		PollHologram->GetConstructDisqualifiers(Disqualifiers);
+		const bool bStillInitializing = Disqualifiers.Contains(TSubclassOf<UFGConstructDisqualifier>(UFGCDInitializing::StaticClass()));
+
+		--PollState->AttemptsRemaining;
+		if (bStillInitializing && PollState->AttemptsRemaining > 0)
+		{
+			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+			return;
+		}
+
+		// The ONLY tolerated bypass is Unaffordable under the player's own
+		// UnlimitedResources setting (matches ConstructBuildingAtPosition). Every
+		// other hard disqualifier - crucially "This must be placed inline with
+		// another train platform!" - MUST clear on its own, i.e. the platform
+		// genuinely snapped. No caller-facing ignore flags: a non-snapping build
+		// is refused, not forced.
+		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
+		bool bCanConstruct = true;
+		TArray<FString> DisqualifierTexts;
+		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
+		{
+			const bool bIgnoredByFlag = (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
+			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
+			if (!bIgnoredByFlag && !bIsSoft) { bCanConstruct = false; }
+			DisqualifierTexts.Add(FString::Printf(TEXT("%s (%s%s)"),
+				*UFGConstructDisqualifier::GetDisqualifyingText(DisqualifierClass).ToString(),
+				bIsSoft ? TEXT("soft") : TEXT("hard"), bIgnoredByFlag ? TEXT(", ignored") : TEXT("")));
+		}
+		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructTrainPlatform (deferred, resolved after %d real tick(s)): recipe=%s target=%s canConstruct=%s disqualifiers=[%s]"),
+			PollState->AttemptsTaken, *PollState->RecipeClassPath, *PollState->TargetBuildableId, bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		if (!bCanConstruct)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("CANNOT_CONSTRUCT"),
+				FString::Printf(TEXT("platform did not snap / had a hard disqualifier: %s"), *DisqualifierSummary)));
+			return;
+		}
+
+		// Dry run: it WOULD snap+construct. Report success without building.
+		if (PollState->bDryRun)
+		{
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Success());
+			return;
+		}
+
+		AFGBuildableSubsystem* BuildableSubsystem = AFGBuildableSubsystem::Get(PollWorld);
+		const FNetConstructionID ConstructionID = BuildableSubsystem ? BuildableSubsystem->GetNewNetConstructionID() : FNetConstructionID();
+
+		AFGBuildGun* PollBuildGun = IsValid(PollCharacter) ? PollCharacter->GetBuildGun() : nullptr;
+		UFGBuildGunStateBuild* PollBuildState = PollBuildGun ? Cast<UFGBuildGunStateBuild>(PollBuildGun->GetBuildGunStateFor(EBuildGunState::BGS_BUILD)) : nullptr;
+		if (!PollBuildState)
+		{
+			UE_LOG(LogAIModAI, Error, TEXT("ConstructTrainPlatform (deferred): lost the build state before constructing - aborting, nothing built"));
+			if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("Lost the build state before constructing")));
+			return;
+		}
+
+		const FVector ConstructLocation = PollHologram->GetActorLocation();
+		PollBuildState->InternalConstructHologram(ConstructionID);
+
+		// Resolve the new platform by proximity, filtered to the recipe's class.
+		FString ConstructedBuildableId;
+		const TSubclassOf<AFGBuildable> ConstructedBuildableClass = ResolveBuildableClassForRecipe(PollState->RecipeClassPath);
+		if (BuildableSubsystem)
+		{
+			float BestDistSq = TNumericLimits<float>::Max();
+			AFGBuildable* BestMatch = nullptr;
+			for (AFGBuildable* Candidate : BuildableSubsystem->GetAllBuildablesRef())
+			{
+				if (!IsValid(Candidate)) { continue; }
+				if (ConstructedBuildableClass && !Candidate->IsA(ConstructedBuildableClass)) { continue; }
+				const float DistSq = FVector::DistSquared(Candidate->GetActorLocation(), ConstructLocation);
+				if (DistSq < BestDistSq) { BestDistSq = DistSq; BestMatch = Candidate; }
+			}
+			if (BestMatch && BestDistSq < FMath::Square(600.0f)) { ConstructedBuildableId = BestMatch->GetPathName(); }
+		}
+
+		// Verify the snap actually took: the target's free connection should now
+		// report connected. This is the real success signal (vs a placed-but-
+		// disconnected platform, which we design against but confirm anyway).
+		const bool bSnapConfirmed = PollState->TargetConnection.IsValid() && PollState->TargetConnection->IsConnected();
+
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructTrainPlatform (deferred, resolved after %d real tick(s)): built recipe=%s at %s id=%s snapConfirmed=%s"),
+			PollState->AttemptsTaken, *PollState->RecipeClassPath, *ConstructLocation.ToString(), *ConstructedBuildableId, bSnapConfirmed ? TEXT("true") : TEXT("false"));
+
+		if (IsValid(PollCharacter)) { PollCharacter->UnequipBuildGun(); }
+
+		if (!bSnapConfirmed)
+		{
+			PollState->OnComplete(FAIModOperationResult::Failure(TEXT("SNAP_UNCONFIRMED"),
+				FString::Printf(TEXT("platform constructed (id=%s) but the target connection did not report connected - possible disconnected platform"), *ConstructedBuildableId)));
+			return;
+		}
+		PollState->OnComplete(ConstructedBuildableId.IsEmpty()
+			? FAIModOperationResult::Success()
+			: FAIModOperationResult::SuccessWithBuildableId(ConstructedBuildableId));
 	};
 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));

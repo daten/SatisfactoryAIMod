@@ -2610,6 +2610,24 @@ public:
 	static void ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
+	 * world.constructTrainPlatform / world.testTrainPlatform (2026-09-18) -
+	 * attach a freight/empty train platform to a station (or another platform)
+	 * by driving the real AFGTrainPlatformHologram platform SNAP, not a
+	 * placement bypass. Freight platforms are snap-to-connection buildings
+	 * (mRequireSnapToPlatform + a UFGTrainPlatformConnection at each end + a
+	 * child rail-track hologram); a raw placeBuilding fails "must be placed
+	 * inline with another train platform", and force-placing past that would
+	 * leave a disconnected, non-loading platform. This aims a synthetic hit at
+	 * the target's free platform connection, feeds the platform hologram
+	 * (UpdateHologramPlacement, no position/yaw pin) until the "must be inline"
+	 * disqualifier clears (= genuine snap), then InternalConstructHologram, and
+	 * verifies the target connection reports connected. TargetBuildableId is a
+	 * station or existing platform; optional ConnectorPos picks which free end
+	 * (for chaining). bDryRun reports whether it would snap without building.
+	 */
+	static void ConstructTrainPlatform(UObject* WorldContextObject, const FString& TargetBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& ConnectorPos, bool bHasConnectorPos, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
 	 * world.constructVehiclePathSegment (2026-08-29) - researched from
 	 * source before implementing: AFGVehiclePathSegmentHologram :
 	 * AFGBuildableHologram (not AFGSplineHologram, unlike tracks/belts/

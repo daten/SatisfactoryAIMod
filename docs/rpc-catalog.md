@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **107 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **109 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -109,12 +109,14 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.constructBeam`** — Build a beam between two points.  
   params: `recipeClass:string, startX:number, startY:number, endX:number, endY:number, startZ:number?, endZ:number?, ignoreGroundTrace:bool?, freeformMode:bool?, rotationScrollSteps:number?`
-- **`world.constructRailroadTrack`** — Build rail track between two rail buildables (pin connectors; drivable joint pending).  
+- **`world.constructRailroadTrack`** — Build rail track between two rail buildables (pin connectors; joints are drivable).  
   params: `(none)`
 - **`world.constructStackableSupport`** — Build a stackable support at a position.  
   params: `recipeClass:string, x:number, y:number, z:number?, ignoreGroundTrace:bool?, stackCount:number?`
 - **`world.constructStackableSupportOnTop`** — Stack a support on top of an existing one.  
   params: `referenceBuildableId:string, recipeClass:string`
+- **`world.constructTrainPlatform`** — Attach a freight/empty train platform to a station or platform via the real platform snap.  
+  params: `(none)`
 - **`world.constructVehicle`** — Spawn a vehicle (truck/tractor/explorer/loco/wagon; +droneStationId for a drone).  
   params: `recipeClass:string, droneStationId:string?, x:number?, y:number?, z:number?, ignoreGroundTrace:bool?, yaw:number?`
 - **`world.constructVehiclePathSegment`** — Build a directed vehicle-path segment (auto-creates path nodes).  
@@ -148,6 +150,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
 - **`world.testPowerConnection`** — Dry-run a power connection.  
   params: `(none)`
 - **`world.testRailroadTrack`** — Dry-run a rail track build.  
+  params: `(none)`
+- **`world.testTrainPlatform`** — Dry-run a train-platform attach (reports whether it would snap).  
   params: `(none)`
 
 ## command

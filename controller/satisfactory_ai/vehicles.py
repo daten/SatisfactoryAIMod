@@ -286,3 +286,31 @@ def set_train_route(client, train_id: str, station_ids: List[str],
     tt = client.call("world.setTrainTimetable", {"trainId": train_id, "stops": stops}, timeout_seconds=60)
     sd = client.call("world.setTrainSelfDriving", {"trainId": train_id, "enabled": self_driving}, timeout_seconds=60)
     return {"timetable": tt.get("detail", tt), "selfDriving": sd.get("detail", sd)}
+
+
+# Freight platform recipes (attach to a station/platform via world.constructTrainPlatform)
+FREIGHT_PLATFORM_RECIPE = "/Game/FactoryGame/Buildable/Factory/Train/Station/Recipe_TrainDockingStation.Recipe_TrainDockingStation_C"
+EMPTY_PLATFORM_RECIPE = "/Game/FactoryGame/Buildable/Factory/Train/Station/Recipe_TrainPlatformEmpty.Recipe_TrainPlatformEmpty_C"
+
+
+def construct_train_platform(client, target_buildable_id: str,
+                             recipe: str = FREIGHT_PLATFORM_RECIPE,
+                             connector_pos: Optional[Tuple[float, float, float]] = None,
+                             dry_run: bool = False) -> dict:
+    """Attach a freight/empty train platform to a station (or an existing
+    platform) via the REAL platform snap - world.constructTrainPlatform (2026-09-18).
+    Freight platforms are snap-to-connection buildings (mRequireSnapToPlatform +
+    UFGTrainPlatformConnection at each end + a child rail-track hologram), NOT
+    free placements - placeBuilding fails "must be placed inline with another
+    train platform" and a bypass would drop a disconnected, non-loading platform.
+    This drives AFGTrainPlatformHologram's snap onto the target's free platform
+    connection and only builds if it genuinely snaps (else CANNOT_CONSTRUCT /
+    SNAP_UNCONFIRMED - nothing placed). Pass connector_pos to pick which free end
+    (for chaining several platforms; omit for the first one off a station, which
+    prefers the tail/ETPC_Out side). Platforms sit ~1600u apart along the track
+    axis. dry_run reports whether it WOULD snap without building."""
+    method = "world.testTrainPlatform" if dry_run else "world.constructTrainPlatform"
+    params = {"targetBuildableId": client.full_id(target_buildable_id), "recipeClass": recipe}
+    if connector_pos:
+        params["connectorPosition"] = {"x": connector_pos[0], "y": connector_pos[1], "z": connector_pos[2]}
+    return client.call(method, params, timeout_seconds=120)
