@@ -264,6 +264,32 @@ to the station yaw, correct clockwise facing puts every platform on the consiste
 rear/tail automatically. Still unsolved: multi-vehicle **coupling** (a station
 platform track holds one vehicle; wagons need adjacent plain track + coupling).
 
+### Long runs — free-end tracks & track-to-track chaining (2026-09-19, WORKS)
+
+`constructRailroadTrack` can build to a **free end** (pass an empty
+`destBuildableId` + a `destConnectorPosition`), so you're no longer limited to
+track-to-station or track-to-a-preexisting-buildable. This is what long
+multi-segment runs need: lay a segment to a free landing, then start the next
+segment from that segment's free end.
+
+- **The free end must land on a solid surface (a foundation)** — only the free
+  end, not the span (the span may float, like the arcs). The build traces the
+  ground at the landing point; with no foundation there it's correctly refused
+  ("surface too uneven"). Place a small foundation pad at each landing first.
+- **Track-to-track is just a source connector**: a new segment whose
+  `sourceBuildableId` is a plain track (`Build_RailroadTrack_C`) starts from that
+  track's free connector (`FindFreeRailroadConnectionNearest` picks it via the
+  `sourceConnectorPosition` pin). No station needed at the joint.
+- **Live-verified (save `train-t2t-loop`):** the diagram's E/W stations + N/S
+  **foundation platforms** — arc1 E→free-end-on-N-foundation, arc2
+  arc1's-free-end→W (track-to-track at N), arc3 W→free-end-on-S-foundation, arc4
+  arc3's-free-end→E (track-to-track at S). One graph; a self-driving train
+  circulates across both plain-track joints at NoError.
+- **Dead-end caveat:** a *linear* A—B run of chained tracks reports
+  `StationUnreachable` (the self-driver won't path a dead end) — same rule as
+  loops needing to be closed. Chaining is for building the path; make the usable
+  network a loop (or give the train somewhere it can always go forward).
+
 ---
 
 ## 4. RPC quick reference

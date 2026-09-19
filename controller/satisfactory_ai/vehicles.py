@@ -256,7 +256,17 @@ def construct_rail_link(client, source_station_id: str, dest_station_id: str,
     circulates a pure-RPC 4-quarter loop). A single call can't make a 180-degree
     arc; build a loop as 4 quarter-arcs between 4 anchors. Rail IS deletable via
     deleteBuilding unless a train is docked/self-driving on it (setTrainSelfDriving
-    false, then delete loco, then stations)."""
+    false, then delete loco, then stations).
+
+    FREE-END builds (2026-09-19, commit e30a60e197): pass dest_station_id="" with
+    dst_connector_pos set to build to a FREE END rather than onto a dest buildable.
+    The free end MUST land on a foundation (only the end needs a surface; the span
+    floats). Chain long runs by making the NEXT segment's source_station_id that
+    plain track's id (Build_RailroadTrack_C) with src_connector_pos pinned at its
+    free end (= track-to-track, no station at the joint). Make the usable network a
+    LOOP - a linear dead-end chain reports StationUnreachable (self-driver won't
+    path a dead end). Live-verified: E/W stations + N/S foundation platforms, arcs
+    land free-ended + snap track-to-track, train circulates (save train-t2t-loop)."""
     params = {"sourceBuildableId": source_station_id, "destBuildableId": dest_station_id, "recipeClass": recipe}
     if src_connector_pos:
         params["sourceConnectorPosition"] = {"x": src_connector_pos[0], "y": src_connector_pos[1], "z": src_connector_pos[2]}
