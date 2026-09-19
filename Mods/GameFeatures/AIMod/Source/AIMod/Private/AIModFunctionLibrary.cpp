@@ -12551,10 +12551,28 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *SourceBuildableId)));
 		return;
 	}
-	AFGBuildable* DestBuildable = FindBuildableById(World, DestBuildableId);
-	if (!DestBuildable)
+	// FREE-END mode (2026-09-19): an empty destBuildableId means "build this
+	// segment to a free landing point" (destConnectorPosition) rather than onto a
+	// dest buildable's connector - the enabler for laying long multi-segment runs
+	// track-to-track. The free END must land on a solid surface (a foundation),
+	// same as the interactive build gun; only the free end needs a surface, the
+	// span may float. The SOURCE is still a real connector (a station's, or a
+	// prior track's free end - which IS the track-to-track snap), so segments
+	// chain end to end.
+	const bool bFreeEndDest = DestBuildableId.IsEmpty();
+	AFGBuildable* DestBuildable = nullptr;
+	if (!bFreeEndDest)
 	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *DestBuildableId)));
+		DestBuildable = FindBuildableById(World, DestBuildableId);
+		if (!DestBuildable)
+		{
+			OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *DestBuildableId)));
+			return;
+		}
+	}
+	else if (!bHasDestConnectorPos)
+	{
+		OnComplete(FAIModOperationResult::Failure(TEXT("MISSING_DEST_POSITION"), TEXT("free-end build (empty destBuildableId) requires destConnectorPosition - the landing point, which must be over a foundation")));
 		return;
 	}
 
@@ -12566,13 +12584,17 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		OnComplete(FAIModOperationResult::Failure(TEXT("NO_RAILROAD_CONNECTION"), FString::Printf(TEXT("'%s' has no free railroad track connection component"), *SourceBuildableId)));
 		return;
 	}
-	UFGRailroadTrackConnectionComponent* DestConnection = bHasDestConnectorPos
-		? FindFreeRailroadConnectionNearest(DestBuildable, DestConnectorPos)
-		: FindFreeRailroadConnection(DestBuildable);
-	if (!DestConnection)
+	UFGRailroadTrackConnectionComponent* DestConnection = nullptr;
+	if (!bFreeEndDest)
 	{
-		OnComplete(FAIModOperationResult::Failure(TEXT("NO_RAILROAD_CONNECTION"), FString::Printf(TEXT("'%s' has no free railroad track connection component"), *DestBuildableId)));
-		return;
+		DestConnection = bHasDestConnectorPos
+			? FindFreeRailroadConnectionNearest(DestBuildable, DestConnectorPos)
+			: FindFreeRailroadConnection(DestBuildable);
+		if (!DestConnection)
+		{
+			OnComplete(FAIModOperationResult::Failure(TEXT("NO_RAILROAD_CONNECTION"), FString::Printf(TEXT("'%s' has no free railroad track connection component"), *DestBuildableId)));
+			return;
+		}
 	}
 
 	UClass* TrackRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
@@ -12655,7 +12677,8 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 
 	// Player-independence from day one - see ConstructPipe's comment for
 	// the full incident this pattern fixes.
-	const FRotator TrackDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
+	const FVector TrackDestAimLoc = bFreeEndDest ? DestConnectorPos : DestConnection->GetConnectorLocation();
+	const FRotator TrackDeterministicLook = (TrackDestAimLoc - SourceConnection->GetConnectorLocation()).Rotation();
 	if (AController* TrackController = Character->GetController())
 	{
 		TrackController->SetControlRotation(TrackDeterministicLook);
@@ -12702,7 +12725,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 	// "click", then the dest connector as the second "click" (which constructs),
 	// letting the engine own placement + connection setup end to end. Behind a
 	// param (default off) so the proven straight-build path is untouched.
-	if (bUsePrimaryFire && !bDryRun)
+	if (bUsePrimaryFire && !bDryRun && !bFreeEndDest)
 	{
 		const FHitResult FireStartHit = MakeHitAt(SourceBuildable, SourceConnection);
 		const FHitResult FireEndHit = MakeHitAt(DestBuildable, DestConnection);
@@ -12889,7 +12912,25 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 	}
 
 	// ---- END click ----
-	const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection);
+	// Free-end: the second click lands on a foundation surface at the given XY
+	// (trace the ground like ConstructBuildingAtPosition), so the hologram's end
+	// sits on the foundation. Only the free end needs a surface; if none is found
+	// the surface disqualifier will (correctly) block the build. Otherwise the end
+	// snaps to the dest connector as before.
+	FHitResult EndHit;
+	if (bFreeEndDest)
+	{
+		const FGroundTraceResult FreeEndGround = FindGroundAtXY(World, DestConnectorPos.X, DestConnectorPos.Y, DestConnectorPos.Z, Character);
+		EndHit = FreeEndGround.Hit;
+		if (!FreeEndGround.bFound)
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructRailroadTrack: free-end landing at (%.0f,%.0f,%.0f) found no surface - place a foundation there first, or the surface check will block it"), DestConnectorPos.X, DestConnectorPos.Y, DestConnectorPos.Z);
+		}
+	}
+	else
+	{
+		EndHit = MakeHitAt(DestBuildable, DestConnection);
+	}
 	TrackHologram->SetHologramLocationAndRotation(EndHit);
 	TrackHologram->UpdateHologramPlacement(EndHit);
 	const bool bSnapEnd = TrackHologram->TrySnapToActor(EndHit);

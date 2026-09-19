@@ -2229,12 +2229,17 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 
 		FString SourceBuildableId;
 		FString DestBuildableId;
-		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
-			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		// sourceBuildableId is always required. destBuildableId is OPTIONAL: an
+		// empty/absent dest means a FREE-END build (build to destConnectorPosition,
+		// a landing point over a foundation) - the enabler for track-to-track
+		// chaining of long runs. ConstructRailroadTrack validates that mode
+		// (requires destConnectorPosition).
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty())
 		{
-			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId must be a non-empty string")));
 			return true;
 		}
+		ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId);
 
 		FString RecipeClassPath;
 		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
