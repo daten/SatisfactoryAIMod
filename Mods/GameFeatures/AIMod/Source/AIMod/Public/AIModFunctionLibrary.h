@@ -200,6 +200,78 @@ public:
 	static FString LogWaterVolumesAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.damageVolumes (added 2026-09-19, explicit user request -
+	 * "the game map contains boundaries that actively harm the player
+	 * ... are you able to detect or measure the exact location of those
+	 * boundaries?"). The harmful map boundary is NOT a wall: it is
+	 * level-placed `AFGDamageOverTimeVolume` actors (plain `AVolume`
+	 * brushes) whose `UFGDotComponent` applies a `UFGDamageOverTime` to
+	 * overlapping pawns. Construction never consults them, which is why
+	 * RPC builds outside the border succeed while the player dies there.
+	 * Direct source confirmation: `UFGDamageType::mDestroyVehicles` is
+	 * documented "e.g. world perimeter damage" (FGDamageType.h).
+	 *
+	 * Lists every `AFGDamageOverTimeVolume` with id (path name),
+	 * position, AABB bounds (`GetComponentsBoundingBox()`), the DOT
+	 * class (read via reflection - `UFGDotComponent::mDotClass` is a
+	 * protected UPROPERTY with no public getter), damage interval and
+	 * damage types (via the real public statics
+	 * `UFGDamageOverTime::GetDamageInterval/GetDamageTypes`), plus
+	 * `dotActive`/`collisionEnabled` so SetDamageVolumeEnabled state is
+	 * visible. Root also carries `killZ` (AWorldSettings - the void
+	 * death plane under the map) and the 2D minimap extent from
+	 * `UFGMapFunctionLibrary::GetWorldBounds` for context. Expect this
+	 * to ALSO return non-boundary hazards (poison gas uses the same DOT
+	 * mechanism); edge volumes are distinguishable by enormous size and
+	 * perimeter placement. NOTE: AABBs of rotated brush volumes
+	 * overestimate the true shape - use ProbeHazardAsJson to bisect the
+	 * exact surface where it matters.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogDamageVolumesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.probeHazard - exact point-containment test against every
+	 * `AFGDamageOverTimeVolume` via `EncompassesPoint` (brush-accurate,
+	 * unlike the AABBs above), plus belowKillZ and inside-2D-world-bounds
+	 * checks. Reports containing volume ids and the distance to the
+	 * nearest non-containing volume so a controller can bisect the true
+	 * boundary surface. Caveat flagged for live test: FG overrides
+	 * `EncompassesPoint` for the post-process interface and the .cpp is
+	 * a stub here - if the real implementation ever diverges from brush
+	 * containment this needs a fallback through the brush body instance.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString ProbeHazardAsJson(UObject* WorldContextObject, float X, float Y, float Z);
+
+	/**
+	 * world.setDamageVolumeEnabled - reversible hazard kill-switch.
+	 * Disable order matters: `SetActorEnableCollision(false)` FIRST so
+	 * end-overlap events fire while the `UFGDotComponent` is still
+	 * active and it unregisters the DOT from anyone currently standing
+	 * inside (its `OnActorEndOverlap` path), THEN `Deactivate()` the
+	 * component. Enable reverses that order so begin-overlaps re-register.
+	 * Session-only: level-actor state is not written to the save; the
+	 * volume is live again after save load.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetDamageVolumeEnabled(UObject* WorldContextObject, const FString& VolumeId, bool bEnabled);
+
+	/**
+	 * world.despawnDamageVolume - full `Destroy()` of the volume actor
+	 * (also removes its boundary post-process vignette, which
+	 * SetDamageVolumeEnabled leaves registered). Id must resolve to an
+	 * `AFGDamageOverTimeVolume` specifically - this is NOT a generic
+	 * actor-destroy (Safety and Stability Boundary). Collision is
+	 * disabled first for the same latched-DOT reason as
+	 * SetDamageVolumeEnabled. Session-only, same save caveat: runtime
+	 * destruction of a map-placed actor is not persisted, the volume
+	 * returns on save load.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult DespawnDamageVolume(UObject* WorldContextObject, const FString& VolumeId);
+
+	/**
 	 * Enumerates all placed AFGBuildable actors (PLAN.md Phase 10,
 	 * "buildings"). Tries AFGBuildableSubsystem::GetAllBuildablesRef()
 	 * first (a real public getter exists, per

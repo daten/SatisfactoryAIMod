@@ -1909,6 +1909,63 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Hazard controls (2026-09-19): reversible on/off and session-only
+	// despawn of AFGDamageOverTimeVolume actors (map-edge kill zones, gas).
+	// Ids come from world.damageVolumes; both validate the id resolves to
+	// that class specifically - not a generic actor operation. Two separate
+	// handlers (not a shared aliased one) so gen_rpc_catalog.py doesn't
+	// attribute 'enabled' to despawnDamageVolume.
+	if (Method == TEXT("world.setDamageVolumeEnabled"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString VolumeId;
+		if (!ParamsObject->TryGetStringField(TEXT("volumeId"), VolumeId) || VolumeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.volumeId must be a non-empty string")));
+			return true;
+		}
+
+		bool bEnabled = false;
+		if (!ParamsObject->TryGetBoolField(TEXT("enabled"), bEnabled))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.enabled must be a bool")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetDamageVolumeEnabled(GetGameInstance(), VolumeId, bEnabled);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.despawnDamageVolume"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString VolumeId;
+		if (!ParamsObject->TryGetStringField(TEXT("volumeId"), VolumeId) || VolumeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.volumeId must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::DespawnDamageVolume(GetGameInstance(), VolumeId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
 	// "world.testPowerConnection" (dry run, never touches the save) and
 	// "world.connectPower" (real - see
@@ -2573,6 +2630,31 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.waterVolumes"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogWaterVolumesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.damageVolumes"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogDamageVolumesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.probeHazard"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0, Y = 0.0, Z = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y)
+			|| !ParamsObject->TryGetNumberField(TEXT("z"), Z))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x, y, and z must all be numbers")));
+			return true;
+		}
+
+		MethodResultJson = UAIModFunctionLibrary::ProbeHazardAsJson(GetGameInstance(),
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z));
 	}
 	else if (Method == TEXT("world.buildables") || Method == TEXT("world.connections"))
 	{

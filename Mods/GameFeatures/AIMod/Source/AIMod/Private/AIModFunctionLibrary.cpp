@@ -140,6 +140,12 @@
 #include "Resources/FGWildCardDescriptor.h"
 #include "Buildables/FGBuildablePowerPole.h"
 #include "FGWaterVolume.h"
+#include "FGDamageOverTimeVolume.h"
+#include "FGDotComponent.h"
+#include "FGDamageOverTime.h"
+#include "DamageTypes/FGDamageType.h"
+#include "FGMapFunctionLibrary.h"
+#include "GameFramework/WorldSettings.h"
 #include "Buildables/FGBuildableWaterPump.h"
 #include "Buildables/FGBuildablePoleStackable.h"
 #include "Hologram/FGStackablePoleHologram.h"
@@ -1330,6 +1336,270 @@ FString UAIModFunctionLibrary::LogWaterVolumesAsJson(UObject* WorldContextObject
 	UE_LOG(LogAIModAI, Display, TEXT("LogWaterVolumesAsJson: %d water volume(s)"), VolumesJsonArray.Num());
 
 	return JsonString;
+}
+
+namespace
+{
+	// UFGDotComponent::mDotClass is a protected UPROPERTY with no public
+	// accessor; reflection is the only non-invasive way to read it. This is
+	// internal telemetry sourcing, not an externally-exposed generic
+	// property reader (Safety and Stability Boundary stands).
+	TSubclassOf<UFGDamageOverTime> GetDotClassOfComponent(const UFGDotComponent* DotComponent)
+	{
+		if (!DotComponent)
+		{
+			return nullptr;
+		}
+		const FClassProperty* DotClassProperty = FindFProperty<FClassProperty>(UFGDotComponent::StaticClass(), TEXT("mDotClass"));
+		if (!DotClassProperty)
+		{
+			return nullptr;
+		}
+		return Cast<UClass>(DotClassProperty->GetPropertyValue_InContainer(DotComponent));
+	}
+
+	AFGDamageOverTimeVolume* FindDamageVolumeById(UWorld* World, const FString& VolumeId)
+	{
+		for (TActorIterator<AFGDamageOverTimeVolume> It(World); It; ++It)
+		{
+			if (IsValid(*It) && (*It)->GetPathName() == VolumeId)
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
+
+	TSharedRef<FJsonObject> MakeVectorJson(const FVector& V)
+	{
+		const TSharedRef<FJsonObject> Object = MakeShared<FJsonObject>();
+		Object->SetNumberField(TEXT("x"), V.X);
+		Object->SetNumberField(TEXT("y"), V.Y);
+		Object->SetNumberField(TEXT("z"), V.Z);
+		return Object;
+	}
+}
+
+FString UAIModFunctionLibrary::LogDamageVolumesAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogDamageVolumesAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> VolumesJsonArray;
+	for (TActorIterator<AFGDamageOverTimeVolume> It(World); It; ++It)
+	{
+		AFGDamageOverTimeVolume* Volume = *It;
+		if (!IsValid(Volume))
+		{
+			continue;
+		}
+
+		const FBox Bounds = Volume->GetComponentsBoundingBox(false);
+		const TSharedRef<FJsonObject> BoundsObject = MakeShared<FJsonObject>();
+		BoundsObject->SetObjectField(TEXT("min"), MakeVectorJson(Bounds.Min));
+		BoundsObject->SetObjectField(TEXT("max"), MakeVectorJson(Bounds.Max));
+		BoundsObject->SetObjectField(TEXT("size"), MakeVectorJson(Bounds.GetSize()));
+
+		const UFGDotComponent* DotComponent = Volume->FindComponentByClass<UFGDotComponent>();
+		const TSubclassOf<UFGDamageOverTime> DotClass = GetDotClassOfComponent(DotComponent);
+
+		TArray<TSharedPtr<FJsonValue>> DamageTypesJsonArray;
+		for (const UFGDamageType* DamageType : UFGDamageOverTime::GetDamageTypes(DotClass))
+		{
+			if (!DamageType)
+			{
+				continue;
+			}
+			const TSharedRef<FJsonObject> DamageTypeObject = MakeShared<FJsonObject>();
+			DamageTypeObject->SetStringField(TEXT("class"), DamageType->GetClass()->GetPathName());
+			DamageTypeObject->SetNumberField(TEXT("damageAmount"), DamageType->mDamageAmount);
+			DamageTypeObject->SetBoolField(TEXT("destroysVehicles"), DamageType->mDestroyVehicles);
+			DamageTypeObject->SetBoolField(TEXT("playerAlwaysVulnerable"), DamageType->mPlayerIsAlwaysVulnerable);
+			DamageTypesJsonArray.Add(MakeShared<FJsonValueObject>(DamageTypeObject));
+		}
+
+		const TSharedRef<FJsonObject> VolumeObject = MakeShared<FJsonObject>();
+		VolumeObject->SetStringField(TEXT("id"), Volume->GetPathName());
+		VolumeObject->SetObjectField(TEXT("position"), MakeVectorJson(Volume->GetActorLocation()));
+		VolumeObject->SetObjectField(TEXT("bounds"), BoundsObject);
+		VolumeObject->SetStringField(TEXT("dotClass"), DotClass ? DotClass->GetPathName() : FString());
+		// -1 when the dot class is unset, per the accessor's own contract.
+		VolumeObject->SetNumberField(TEXT("damageInterval"), UFGDamageOverTime::GetDamageInterval(DotClass));
+		VolumeObject->SetArrayField(TEXT("damageTypes"), DamageTypesJsonArray);
+		VolumeObject->SetBoolField(TEXT("dotActive"), DotComponent ? DotComponent->IsActive() : false);
+		VolumeObject->SetBoolField(TEXT("collisionEnabled"), Volume->GetActorEnableCollision());
+		VolumesJsonArray.Add(MakeShared<FJsonValueObject>(VolumeObject));
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetArrayField(TEXT("damageVolumes"), VolumesJsonArray);
+
+	// The other two boundary mechanisms, for one-call context: the void
+	// death plane and the minimap's 2D extent (informational - the map
+	// extent is not the damage line).
+	if (const AWorldSettings* WorldSettings = World->GetWorldSettings())
+	{
+		RootObject->SetNumberField(TEXT("killZ"), WorldSettings->KillZ);
+	}
+	FVector2D WorldBoundsMin = FVector2D::ZeroVector;
+	FVector2D WorldBoundsMax = FVector2D::ZeroVector;
+	UFGMapFunctionLibrary::GetWorldBounds(World, WorldBoundsMin, WorldBoundsMax);
+	const TSharedRef<FJsonObject> WorldBoundsObject = MakeShared<FJsonObject>();
+	const TSharedRef<FJsonObject> WorldBoundsMinObject = MakeShared<FJsonObject>();
+	WorldBoundsMinObject->SetNumberField(TEXT("x"), WorldBoundsMin.X);
+	WorldBoundsMinObject->SetNumberField(TEXT("y"), WorldBoundsMin.Y);
+	const TSharedRef<FJsonObject> WorldBoundsMaxObject = MakeShared<FJsonObject>();
+	WorldBoundsMaxObject->SetNumberField(TEXT("x"), WorldBoundsMax.X);
+	WorldBoundsMaxObject->SetNumberField(TEXT("y"), WorldBoundsMax.Y);
+	WorldBoundsObject->SetObjectField(TEXT("min"), WorldBoundsMinObject);
+	WorldBoundsObject->SetObjectField(TEXT("max"), WorldBoundsMaxObject);
+	RootObject->SetObjectField(TEXT("worldBounds2D"), WorldBoundsObject);
+
+	const FString JsonString = WriteCondensedJson(RootObject);
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogDamageVolumesAsJson: %d damage volume(s)"), VolumesJsonArray.Num());
+
+	return JsonString;
+}
+
+FString UAIModFunctionLibrary::ProbeHazardAsJson(UObject* WorldContextObject, float X, float Y, float Z)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("ProbeHazardAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	const FVector Point(X, Y, Z);
+	TArray<TSharedPtr<FJsonValue>> ContainingJsonArray;
+	FString NearestVolumeId;
+	double NearestDistance = -1.0;
+	for (TActorIterator<AFGDamageOverTimeVolume> It(World); It; ++It)
+	{
+		AFGDamageOverTimeVolume* Volume = *It;
+		if (!IsValid(Volume))
+		{
+			continue;
+		}
+		float DistanceToPoint = 0.f;
+		if (Volume->EncompassesPoint(Point, 0.f, &DistanceToPoint))
+		{
+			ContainingJsonArray.Add(MakeShared<FJsonValueString>(Volume->GetPathName()));
+		}
+		else if (NearestDistance < 0.0 || DistanceToPoint < NearestDistance)
+		{
+			NearestDistance = DistanceToPoint;
+			NearestVolumeId = Volume->GetPathName();
+		}
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+	RootObject->SetObjectField(TEXT("point"), MakeVectorJson(Point));
+	RootObject->SetBoolField(TEXT("insideDamageVolume"), ContainingJsonArray.Num() > 0);
+	RootObject->SetArrayField(TEXT("containingVolumeIds"), ContainingJsonArray);
+	if (NearestDistance >= 0.0)
+	{
+		RootObject->SetStringField(TEXT("nearestOtherVolumeId"), NearestVolumeId);
+		RootObject->SetNumberField(TEXT("nearestOtherVolumeDistance"), NearestDistance);
+	}
+	if (const AWorldSettings* WorldSettings = World->GetWorldSettings())
+	{
+		RootObject->SetNumberField(TEXT("killZ"), WorldSettings->KillZ);
+		RootObject->SetBoolField(TEXT("belowKillZ"), Point.Z < WorldSettings->KillZ);
+	}
+	FVector2D WorldBoundsMin = FVector2D::ZeroVector;
+	FVector2D WorldBoundsMax = FVector2D::ZeroVector;
+	UFGMapFunctionLibrary::GetWorldBounds(World, WorldBoundsMin, WorldBoundsMax);
+	RootObject->SetBoolField(TEXT("insideWorldBounds2D"),
+		Point.X >= WorldBoundsMin.X && Point.X <= WorldBoundsMax.X &&
+		Point.Y >= WorldBoundsMin.Y && Point.Y <= WorldBoundsMax.Y);
+
+	return WriteCondensedJson(RootObject);
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetDamageVolumeEnabled(UObject* WorldContextObject, const FString& VolumeId, bool bEnabled)
+{
+	FAIModOperationResult Result;
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		Result.ErrorCode = TEXT("NO_WORLD");
+		Result.ErrorMessage = TEXT("No valid world context");
+		return Result;
+	}
+
+	AFGDamageOverTimeVolume* Volume = FindDamageVolumeById(World, VolumeId);
+	if (!Volume)
+	{
+		Result.ErrorCode = TEXT("TARGET_NOT_FOUND");
+		Result.ErrorMessage = FString::Printf(TEXT("No AFGDamageOverTimeVolume exists with id '%s' (ids come from world.damageVolumes)"), *VolumeId);
+		return Result;
+	}
+
+	UFGDotComponent* DotComponent = Volume->FindComponentByClass<UFGDotComponent>();
+	if (!bEnabled)
+	{
+		// Collision off FIRST: the end-overlap events this fires are what
+		// unregister the DOT from actors currently standing inside the
+		// volume, and the component must still be active to process them.
+		Volume->SetActorEnableCollision(false);
+		if (DotComponent)
+		{
+			DotComponent->Deactivate();
+		}
+	}
+	else
+	{
+		if (DotComponent)
+		{
+			DotComponent->Activate(true);
+		}
+		Volume->SetActorEnableCollision(true);
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetDamageVolumeEnabled: %s -> %s"), *VolumeId, bEnabled ? TEXT("enabled") : TEXT("disabled"));
+	Result.bSuccess = true;
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::DespawnDamageVolume(UObject* WorldContextObject, const FString& VolumeId)
+{
+	FAIModOperationResult Result;
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		Result.ErrorCode = TEXT("NO_WORLD");
+		Result.ErrorMessage = TEXT("No valid world context");
+		return Result;
+	}
+
+	AFGDamageOverTimeVolume* Volume = FindDamageVolumeById(World, VolumeId);
+	if (!Volume)
+	{
+		Result.ErrorCode = TEXT("TARGET_NOT_FOUND");
+		Result.ErrorMessage = FString::Printf(TEXT("No AFGDamageOverTimeVolume exists with id '%s' (ids come from world.damageVolumes)"), *VolumeId);
+		return Result;
+	}
+
+	// Same latched-DOT ordering rationale as SetDamageVolumeEnabled.
+	Volume->SetActorEnableCollision(false);
+	if (!Volume->Destroy())
+	{
+		Result.ErrorCode = TEXT("OPERATION_FAILED");
+		Result.ErrorMessage = TEXT("Destroy() refused the volume actor (collision was still disabled - the hazard is inert but the actor remains)");
+		return Result;
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("DespawnDamageVolume: destroyed %s (session-only; the level actor returns on save load)"), *VolumeId);
+	Result.bSuccess = true;
+	return Result;
 }
 
 TArray<FAIModBuildableTelemetry> UAIModFunctionLibrary::GetBuildableTelemetry(UObject* WorldContextObject)

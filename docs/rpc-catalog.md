@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **109 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **113 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -23,6 +23,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
 - **`world.conveyorLiftTiers`** — Lift tiers and their speeds.  
   params: `(none)`
 - **`world.creatures`** — List creatures (state, controller, anim instance) - tells animated vs frozen.  
+  params: `(none)`
+- **`world.damageVolumes`** — List damage-over-time hazard volumes (map-edge kill zones, gas) with bounds/damage info/active state, plus killZ and 2D world bounds.  
   params: `(none)`
 - **`world.droneStations`** — List drone stations (paired id, drone status, fuel, inventories).  
   params: `(none)`
@@ -64,6 +66,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.priorityPowerSwitches`** — List priority power switches and their priorities.  
   params: `(none)`
+- **`world.probeHazard`** — Exact point test: inside any damage volume, below killZ, inside 2D world bounds; reports nearest other volume distance.  
+  params: `x:number, y:number, z:number`
 - **`world.recipeCatalog`** — All recipes (recipeClass, ingredients, products).  
   params: `(none)`
 - **`world.resourceNodes`** — List resource nodes/deposits (type, purity, position, occupied).  
@@ -174,6 +178,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `buildableId:string`
 - **`world.despawnCreature`** — Despawn a creature by id.  
   params: `creatureId:string`
+- **`world.despawnDamageVolume`** — Destroy a damage volume actor (also removes its boundary post-process; session-only, returns on save load).  
+  params: `volumeId:string`
 - **`world.installPowerShard`** — Install power shard(s) into a machine to raise its clock cap.  
   params: `buildableId:string, count:number`
 - **`world.movePortableMinerToInventory`** — Pick a portable miner back up into the player inventory.  
@@ -202,6 +208,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `buildableId:string, yaw:number`
 - **`world.setClockSpeed`** — Set a machine's clock % (range dynamic; install shards for >100).  
   params: `(none)`
+- **`world.setDamageVolumeEnabled`** — Enable/disable a damage volume's DOT+collision (reversible; session-only, resets on save load).  
+  params: `volumeId:string, enabled:bool`
 - **`world.setPowerSwitchOn`** — Turn a power switch on/off.  
   params: `buildableId:string, switchOn:bool`
 - **`world.setPriorityPowerSwitchPriority`** — Set a priority power switch's priority group.  
