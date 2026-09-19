@@ -2019,6 +2019,27 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Lower/raise the orbital station to a survivable altitude (2026-09-19).
+	// Session-only; see SetProjectAssemblyHeight's doc comment.
+	if (Method == TEXT("world.setProjectAssemblyHeight"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		double NewHeight = 0.0;
+		if (!(*ParamsObjectPtr)->TryGetNumberField(TEXT("z"), NewHeight))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.z (world height) must be a number")));
+			return true;
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetProjectAssemblyHeight(GetGameInstance(), static_cast<float>(NewHeight));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
 	// "world.testPowerConnection" (dry run, never touches the save) and
 	// "world.connectPower" (real - see

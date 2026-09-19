@@ -320,6 +320,38 @@ public:
 	static FAIModOperationResult SetProjectAssemblyVisualPhase(UObject* WorldContextObject, int32 PhaseIndex, const FString& PhaseAssetPath);
 
 	/**
+	 * world.setProjectAssemblyHeight (added 2026-09-19, explicit user
+	 * request - lower the orbital station so it can be viewed/reached
+	 * from a survivable altitude, since the player is hard-capped at the
+	 * z~2,440,000 sky boundary - see docs/world-boundary-hazards.md).
+	 * Live-found geometry: the station's XY exactly tracks the Space
+	 * Elevator (it sits directly above it), but its Z is a FIXED absolute
+	 * world height (mProjectAssemblyHeight default 2,350,000), NOT
+	 * relative to the elevator's ground Z (elevator at z=3380, station at
+	 * exactly 2,350,000).
+	 *
+	 * Moves the station to world Z = NewHeight, keeping its current XY.
+	 * Belt-and-suspenders because the position logic is Blueprint-driven
+	 * (the C++ Tick/UpdatePosition_Implementation are empty stubs, so any
+	 * per-tick repositioning is in the BP subclass): (1) set the protected
+	 * mProjectAssemblyHeight via reflection so a BP UpdatePosition that
+	 * reads it uses the new value, (2) SetActorLocation directly, (3)
+	 * invoke UpdatePosition via ProcessEvent to apply. Returns the actual
+	 * resulting actor location so the caller can see whether it held.
+	 *
+	 * Session-only: mProjectAssemblyHeight is EditDefaultsOnly (not
+	 * SaveGame), so this never persists and cannot corrupt a save - a
+	 * reload restores the vanilla 2,350,000.
+	 *
+	 * FLAGGED UNKNOWN for the live test: if the BP subclass's Event Tick
+	 * re-derives location every frame from something other than
+	 * mProjectAssemblyHeight, the station may snap back; the returned
+	 * position (and a follow-up world.projectAssembly) will show it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetProjectAssemblyHeight(UObject* WorldContextObject, float NewHeight);
+
+	/**
 	 * Enumerates all placed AFGBuildable actors (PLAN.md Phase 10,
 	 * "buildings"). Tries AFGBuildableSubsystem::GetAllBuildablesRef()
 	 * first (a real public getter exists, per

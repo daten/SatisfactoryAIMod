@@ -1801,6 +1801,57 @@ FAIModOperationResult UAIModFunctionLibrary::SetProjectAssemblyVisualPhase(UObje
 	return Result;
 }
 
+FAIModOperationResult UAIModFunctionLibrary::SetProjectAssemblyHeight(UObject* WorldContextObject, float NewHeight)
+{
+	FAIModOperationResult Result;
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		Result.ErrorCode = TEXT("NO_WORLD");
+		Result.ErrorMessage = TEXT("No valid world context");
+		return Result;
+	}
+
+	AFGProjectAssembly* Station = FindProjectAssembly(World);
+	if (!Station)
+	{
+		Result.ErrorCode = TEXT("TARGET_NOT_FOUND");
+		Result.ErrorMessage = TEXT("No AFGProjectAssembly actor exists in the world (it may only spawn once the Space Elevator is built)");
+		return Result;
+	}
+
+	// (1) Set the protected resting-height field via reflection, in case
+	// the BP UpdatePosition re-derives location from it.
+	if (const FFloatProperty* HeightProperty = FindFProperty<FFloatProperty>(AFGProjectAssembly::StaticClass(), TEXT("mProjectAssemblyHeight")))
+	{
+		HeightProperty->SetPropertyValue_InContainer(Station, NewHeight);
+	}
+
+	// (2) Move the actor directly, keeping its current XY (which tracks
+	// the Space Elevator). (3) then call the BP UpdatePosition event.
+	const FVector CurrentLocation = Station->GetActorLocation();
+	const FVector NewLocation(CurrentLocation.X, CurrentLocation.Y, NewHeight);
+	Station->SetActorLocation(NewLocation, /*bSweep=*/false, nullptr, ETeleportType::TeleportPhysics);
+
+	if (UFunction* UpdatePositionFunction = Station->FindFunction(FName(TEXT("UpdatePosition"))))
+	{
+		Station->ProcessEvent(UpdatePositionFunction, nullptr);
+	}
+
+	// Report where it actually ended up (a BP tick may have already moved
+	// it back - the caller/live test compares this to NewHeight).
+	const FVector ResultingLocation = Station->GetActorLocation();
+	const TSharedRef<FJsonObject> Detail = MakeShared<FJsonObject>();
+	Detail->SetObjectField(TEXT("position"), MakeVectorJson(ResultingLocation));
+	Detail->SetNumberField(TEXT("requestedHeight"), NewHeight);
+	Result.ResultDetailJson = WriteCondensedJson(Detail);
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetProjectAssemblyHeight: requested z=%.0f, actor now at z=%.0f (session-only; not saved)"),
+		NewHeight, ResultingLocation.Z);
+	Result.bSuccess = true;
+	return Result;
+}
+
 TArray<FAIModBuildableTelemetry> UAIModFunctionLibrary::GetBuildableTelemetry(UObject* WorldContextObject)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;

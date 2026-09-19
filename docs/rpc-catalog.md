@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **115 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **116 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -216,6 +216,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `buildableId:string, switchOn:bool`
 - **`world.setPriorityPowerSwitchPriority`** — Set a priority power switch's priority group.  
   params: `buildableId:string, priority:number`
+- **`world.setProjectAssemblyHeight`** — Move the orbital space station to world height z (keeps its XY over the Space Elevator). Session-only, not saved; returns actual resulting position (a BP tick may snap it back).  
+  params: `(none)`
 - **`world.setProjectAssemblyVisualPhase`** — Drive the space station's VISUAL build phase (by phaseIndex or phaseAssetPath) without touching real progression; visuals snap back on the next real phase change or save load.  
   params: `phaseIndex:number?, phaseAssetPath:string?`
 - **`world.setRecipe`** — Set a machine's recipe (+optional clock).  
