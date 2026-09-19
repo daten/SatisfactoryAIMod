@@ -2,8 +2,57 @@
 
 2026-09-19. Source research + implementation notes for the four hazard RPCs:
 `world.damageVolumes`, `world.probeHazard`, `world.setDamageVolumeEnabled`,
-`world.despawnDamageVolume`. Status: **compiled, NOT yet live-tested** —
-update this line after the next redeploy's live pass.
+`world.despawnDamageVolume`. Status: **ALL FOUR LIVE-TESTED 2026-09-19**
+(same day, post-Alpakit redeploy) — enumeration, 9 probe points, disable →
+re-enable state round-trip, and a real `Destroy()` despawn (15 → 14 volumes)
+all confirmed. The one thing still untested is damage actually stopping for a
+player ALREADY standing inside a volume at the moment it is disabled
+(unknown #3 below); everything else is verified.
+
+## LIVE RESULTS — the real map boundary (GameLevel01, measured)
+
+15 `AFGDamageOverTimeVolume` actors, a **two-tier design**: thin "warning"
+volumes dealing 1 damage / 0.2 s where the border experience starts, backed by
+1000 damage / 0.2 s instant-kill slabs further out. Every one uses
+`BP_PointDamageType_WorldBounds_C` with `destroysVehicles=true` and
+`playerAlwaysVulnerable=true` (god mode does not negate the border). Dot
+classes name their role outright: `BP_DoTWorldPerimeter_C`,
+`BP_DoTWorldBottom_C`, `BP_DoTWorldTop_C`.
+
+Playable envelope in world units (damage begins past the warning face;
+lethal = the 1000-dmg slab face):
+
+| Direction | Warning begins | Lethal begins |
+|---|---|---|
+| West (−X) | −341,430 | −391,740 |
+| East (+X) | +450,090 | +499,210 |
+| South (−Y) | −370,000 | −430,825 |
+| North (+Y) | +334,875 | +385,205 |
+| Up (+Z) | +200,000 (2 km) | +250,000 (2.5 km) |
+| Down (−Z) | −24,400 | −34,400 |
+
+Plus three diagonal corner wedges (rotated brushes: Volume17 NE, Volume67 NW,
+Volume18_UAID SW) — their AABBs hugely overestimate; probeHazard resolves the
+true diagonal (verified: a playable-land point inside Volume17's AABB probes
+`inside=false`).
+
+Surprises worth knowing:
+
+- **The sky above z = +450,000 (4.5 km) is hazard-free in vanilla** — the top
+  warning layer spans 2–4 km and the lethal layer 2.5–4.5 km; above that,
+  nothing until engine limits.
+- **A free void layer exists under the map**: the bottom lethal slab ends at
+  z = −434,400 (−4.34 km); from there down to `KillZ` there is no hazard.
+- **`KillZ` = −1,048,575** — exactly the UE engine default
+  (−`UE_OLD_HALF_WORLD_MAX1`); the map does NOT set its own. The death plane,
+  not a DOT volume, is what kills below −10.49 km.
+- `worldBounds2D` (minimap): x −324,698..+425,302, y −375,000..+375,000 —
+  sits inside the warning faces, as expected.
+
+**Id stability caveat**: volume ids are World Partition generated-cell paths
+(`.../Persistent_Level/_Generated_/<HASH>.Persistent_Level:PersistentLevel.
+FGDamageOverTimeVolume86`). Do not persist them across sessions — re-fetch
+from `world.damageVolumes` each session before disabling/despawning.
 
 ## What the boundary actually is
 
@@ -57,32 +106,30 @@ placement. Two other boundary mechanisms exist and are reported alongside:
   (internal telemetry sourcing only; no generic property access is exposed
   through the protocol).
 
-## Flagged unknowns for the live test
+## Flagged unknowns — live-test outcomes (2026-09-19)
 
-1. Whether the map-edge volumes are literally `AFGDamageOverTimeVolume` or a
-   Blueprint subclass of it (`TActorIterator` on the base class catches
-   subclasses either way — but an EMPTY result means the boundary uses some
-   other mechanism entirely and this doc's premise needs revisiting).
-2. Whether `EncompassesPoint`'s real (stub-sourced here) implementation is
-   brush containment — cross-check `probeHazard` against a volume's own AABB
-   interior before trusting bisection results.
-3. Whether damage stops IMMEDIATELY for a player already standing inside a
-   volume when it is disabled/despawned (the end-overlap unregister theory).
-   Test exactly that: stand in the border zone, disable, watch health.
-4. Whether `Destroy()` succeeds on these level brush actors (it should — the
-   failure path returns `OPERATION_FAILED` and leaves the volume inert with
-   collision off, which is a safe residual state).
+1. ~~Are the edge volumes literally `AFGDamageOverTimeVolume`?~~ **YES** —
+   15 found by the base-class iterator, names/dot classes explicitly
+   World-Perimeter/Bottom/Top.
+2. ~~Is `EncompassesPoint` brush containment?~~ **YES, brush-accurate** —
+   a playable point inside rotated Volume17's AABB correctly probed
+   `inside=false`; the diagonal corner wedges resolve properly.
+3. Does damage stop IMMEDIATELY for a player already standing inside when
+   the volume is disabled/despawned (end-overlap unregister theory)?
+   **STILL UNTESTED** — needs the player physically in the border zone;
+   test: stand in a warning band, disable, watch health, re-enable.
+4. ~~Does `Destroy()` succeed on level brush actors?~~ **YES** — Volume61
+   (the 2.5–4.5 km lethal top slab) despawned cleanly, enumeration dropped
+   15 → 14. (Left despawned for that session; returns on save load.)
 
-## Live-test recipe (safe)
+## Remaining live test (needs the player in the zone)
 
-1. `world.damageVolumes` → pick the giant perimeter volume nearest a map edge;
-   note its AABB.
-2. `world.probeHazard` at a point just inside that AABB and just outside it —
-   sanity-check containment agrees with geometry.
-3. Save the game first (standing discipline). Teleport to solid ground just
-   OUTSIDE the volume, walk in briefly to confirm damage ticks, back out.
-4. `world.setDamageVolumeEnabled(enabled=false)` → walk in → confirm no
-   damage → re-enable → confirm damage returns.
-5. `world.despawnDamageVolume` → confirm volume gone from `world.damageVolumes`
-   and the boundary vignette no longer appears; walk the same spot unharmed.
-6. Reload the save → confirm the volume is back (session-only expectation).
+Everything RPC-side is verified; what's left is the in-zone damage-stop
+confirmation (unknown #3). Recipe: save first (standing discipline); teleport
+to solid ground just outside the east warning band (x ≈ 445,000, terrain
+permitting), walk east past x = 450,090 until damage ticks, back out;
+`world.setDamageVolumeEnabled(Volume6, false)` (+ Volume17, which overlaps
+there) → walk in again → confirm no damage WHILE STANDING INSIDE when it is
+toggled off; re-enable → confirm damage resumes; reload the save → confirm
+volumes are live again (session-only expectation). The despawned-volume
+half of that check also confirms the boundary vignette disappears.
