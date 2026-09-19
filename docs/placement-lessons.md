@@ -2503,3 +2503,34 @@ already been closed for the day. First priority next session: rebuild
 the house's roof with `ignoreGroundTrace`, and re-run the wall perimeter
 without the 100-unit nudge, to confirm this actually resolves both
 issues before relying on it for new builds.
+
+## 2026-09-19 — Belt tornado: free-floating pole+belt structures (LIVE)
+
+Built a 157-pole / 158-belt Mk1 conveyor helix ("tornado", save
+`belt-tornado`) at (27200, 280000): r=1400 base loop, +320u radius and
++624u z per revolution for 12 revolutions, topping out ~85m up at
+r≈5240. Machine-free belt placement lessons, all live-verified:
+
+- **Conveyor poles FLOAT.** `placeBuilding` with `ignoreGroundTrace` +
+  `ignoreInvalidFloor` places `Recipe_ConveyorPole` at the EXACT z
+  requested (no foundation needed). Add `ignoreAimLocation` +
+  `ignorePlayerEncroachment` routinely, and `gridSnapSize: 0` (default
+  snap shifted a pole 12u sideways).
+- **Belt shape rule at pole endpoints**: the DEST pole's SnapOnly
+  connector normal must face back toward the incoming belt; source pole
+  orientation is forgiving (verified: toward, away, and 30°-off all
+  build). Recipe: yaw every pole toward its predecessor along the chain.
+- **A pole's snap point hosts BOTH an incoming and outgoing belt** —
+  continuous pole-to-pole chains work.
+- **The pole's belt connector rides exactly +100z above placement.**
+  (belt_route.py's calibration TODO — this is that number.)
+- **Failure modes are overwhelmingly transient**: ~13% of belts failed
+  first-pass with NONSENSE disqualifiers ("too long" on a 770u span,
+  "too steep" at 4°, contradictory combos). None were real geometry.
+  All 20 healed via patient retries — teleport the player near the span
+  midpoint, wait 1-2s between attempts, alternate player spots, try the
+  reversed direction, and as a last resort subdivide with a midpoint
+  helper pole (helper yaw facing the first pole). "Too long" on a short
+  span specifically = player-too-far symptom (seen at ~5600u even
+  post-fix). The stuck spans also healed spontaneously after building
+  elsewhere — same smell as the old connectPower stuck-hologram state.
