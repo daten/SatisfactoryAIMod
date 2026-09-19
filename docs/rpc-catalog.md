@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **113 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **115 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -68,6 +68,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.probeHazard`** — Exact point test: inside any damage volume, below killZ, inside 2D world bounds; reports nearest other volume distance.  
   params: `x:number, y:number, z:number`
+- **`world.projectAssembly`** — Orbital space station (Project Assembly) state: position, launch-sequence/movement state, phase->visual-stage map, all game phase assets (phaseIndex order), current/target phase.  
+  params: `(none)`
 - **`world.recipeCatalog`** — All recipes (recipeClass, ingredients, products).  
   params: `(none)`
 - **`world.resourceNodes`** — List resource nodes/deposits (type, purity, position, occupied).  
@@ -214,6 +216,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `buildableId:string, switchOn:bool`
 - **`world.setPriorityPowerSwitchPriority`** — Set a priority power switch's priority group.  
   params: `buildableId:string, priority:number`
+- **`world.setProjectAssemblyVisualPhase`** — Drive the space station's VISUAL build phase (by phaseIndex or phaseAssetPath) without touching real progression; visuals snap back on the next real phase change or save load.  
+  params: `phaseIndex:number?, phaseAssetPath:string?`
 - **`world.setRecipe`** — Set a machine's recipe (+optional clock).  
   params: `(none)`
 - **`world.setSplitterSortRules`** — Set a programmable splitter's per-output sort rules.  

@@ -146,6 +146,9 @@
 #include "DamageTypes/FGDamageType.h"
 #include "FGMapFunctionLibrary.h"
 #include "GameFramework/WorldSettings.h"
+#include "FGProjectAssembly.h"
+#include "FGGamePhase.h"
+#include "FGGamePhaseManager.h"
 #include "Buildables/FGBuildableWaterPump.h"
 #include "Buildables/FGBuildablePoleStackable.h"
 #include "Hologram/FGStackablePoleHologram.h"
@@ -1598,6 +1601,202 @@ FAIModOperationResult UAIModFunctionLibrary::DespawnDamageVolume(UObject* WorldC
 	}
 
 	UE_LOG(LogAIModAI, Display, TEXT("DespawnDamageVolume: destroyed %s (session-only; the level actor returns on save load)"), *VolumeId);
+	Result.bSuccess = true;
+	return Result;
+}
+
+namespace
+{
+	AFGProjectAssembly* FindProjectAssembly(UWorld* World)
+	{
+		for (TActorIterator<AFGProjectAssembly> It(World); It; ++It)
+		{
+			if (IsValid(*It))
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
+
+	TSharedRef<FJsonObject> MakeGamePhaseJson(UFGGamePhase* Phase)
+	{
+		const TSharedRef<FJsonObject> PhaseObject = MakeShared<FJsonObject>();
+		if (Phase)
+		{
+			PhaseObject->SetStringField(TEXT("assetPath"), Phase->GetPathName());
+			PhaseObject->SetStringField(TEXT("displayName"), Phase->mDisplayName.ToString());
+			PhaseObject->SetNumberField(TEXT("lastTierOfPhase"), Phase->mLastTierOfPhase);
+			PhaseObject->SetNumberField(TEXT("gamePhaseEnum"), static_cast<int32>(Phase->mGamePhase.GetValue()));
+		}
+		return PhaseObject;
+	}
+}
+
+FString UAIModFunctionLibrary::LogProjectAssemblyAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogProjectAssemblyAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	const TSharedRef<FJsonObject> RootObject = MakeShared<FJsonObject>();
+	RootObject->SetNumberField(TEXT("protocolVersion"), 1);
+
+	// Phase catalog first - valid even if the station actor doesn't exist
+	// yet. Array order IS the phaseIndex contract for
+	// SetProjectAssemblyVisualPhase.
+	TArray<UFGGamePhase*> AllPhases = UFGGamePhase::GetAllGamePhaseAssetsSorted();
+	TArray<TSharedPtr<FJsonValue>> PhasesJsonArray;
+	for (int32 Index = 0; Index < AllPhases.Num(); ++Index)
+	{
+		const TSharedRef<FJsonObject> PhaseObject = MakeGamePhaseJson(AllPhases[Index]);
+		PhaseObject->SetNumberField(TEXT("phaseIndex"), Index);
+		PhasesJsonArray.Add(MakeShared<FJsonValueObject>(PhaseObject));
+	}
+	RootObject->SetArrayField(TEXT("allPhases"), PhasesJsonArray);
+
+	if (AFGGamePhaseManager* PhaseManager = AFGGamePhaseManager::Get(World))
+	{
+		RootObject->SetObjectField(TEXT("currentGamePhase"), MakeGamePhaseJson(PhaseManager->GetCurrentGamePhase()));
+		RootObject->SetObjectField(TEXT("targetGamePhase"), MakeGamePhaseJson(PhaseManager->GetTargetGamePhase()));
+	}
+
+	AFGProjectAssembly* Station = FindProjectAssembly(World);
+	RootObject->SetBoolField(TEXT("found"), Station != nullptr);
+	if (Station)
+	{
+		RootObject->SetStringField(TEXT("id"), Station->GetPathName());
+		RootObject->SetObjectField(TEXT("position"), MakeVectorJson(Station->GetActorLocation()));
+		RootObject->SetBoolField(TEXT("isPlayingLaunchSequence"), Station->IsPlayingLaunchSequence());
+
+		// Protected UPROPERTYs - reflection-read for telemetry only.
+		if (const FBoolProperty* MovingProperty = FindFProperty<FBoolProperty>(AFGProjectAssembly::StaticClass(), TEXT("mIsMovingToTarget")))
+		{
+			RootObject->SetBoolField(TEXT("isMovingToTarget"), MovingProperty->GetPropertyValue_InContainer(Station));
+		}
+		if (const FStructProperty* TargetProperty = FindFProperty<FStructProperty>(AFGProjectAssembly::StaticClass(), TEXT("mTargetLocation")))
+		{
+			RootObject->SetObjectField(TEXT("targetLocation"), MakeVectorJson(*TargetProperty->ContainerPtrToValuePtr<FVector>(Station)));
+		}
+		if (const FFloatProperty* SpeedProperty = FindFProperty<FFloatProperty>(AFGProjectAssembly::StaticClass(), TEXT("mMovementSpeed")))
+		{
+			RootObject->SetNumberField(TEXT("movementSpeed"), SpeedProperty->GetPropertyValue_InContainer(Station));
+		}
+		if (const FFloatProperty* HeightProperty = FindFProperty<FFloatProperty>(AFGProjectAssembly::StaticClass(), TEXT("mProjectAssemblyHeight")))
+		{
+			RootObject->SetNumberField(TEXT("projectAssemblyHeight"), HeightProperty->GetPropertyValue_InContainer(Station));
+		}
+
+		// mGamePhaseMap: phase class -> visual stage index ("from start(0)
+		// to end") - the station's own notion of its build stages.
+		TArray<TSharedPtr<FJsonValue>> StageMapJsonArray;
+		if (const FMapProperty* MapProperty = FindFProperty<FMapProperty>(AFGProjectAssembly::StaticClass(), TEXT("mGamePhaseMap")))
+		{
+			FScriptMapHelper MapHelper(MapProperty, MapProperty->ContainerPtrToValuePtr<void>(Station));
+			const FClassProperty* KeyProperty = CastField<FClassProperty>(MapProperty->KeyProp);
+			const FIntProperty* ValueProperty = CastField<FIntProperty>(MapProperty->ValueProp);
+			if (KeyProperty && ValueProperty)
+			{
+				for (FScriptMapHelper::FIterator MapIt(MapHelper); MapIt; ++MapIt)
+				{
+					const UClass* PhaseClass = Cast<UClass>(KeyProperty->GetPropertyValue(MapHelper.GetKeyPtr(*MapIt)));
+					const int32 StageIndex = ValueProperty->GetPropertyValue(MapHelper.GetValuePtr(*MapIt));
+					const TSharedRef<FJsonObject> EntryObject = MakeShared<FJsonObject>();
+					EntryObject->SetStringField(TEXT("phaseClass"), PhaseClass ? PhaseClass->GetPathName() : FString());
+					EntryObject->SetNumberField(TEXT("visualStage"), StageIndex);
+					StageMapJsonArray.Add(MakeShared<FJsonValueObject>(EntryObject));
+				}
+			}
+		}
+		RootObject->SetArrayField(TEXT("phaseStageMap"), StageMapJsonArray);
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("LogProjectAssemblyAsJson: station %s, %d phase asset(s)"),
+		Station ? TEXT("found") : TEXT("NOT found"), AllPhases.Num());
+
+	return WriteCondensedJson(RootObject);
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetProjectAssemblyVisualPhase(UObject* WorldContextObject, int32 PhaseIndex, const FString& PhaseAssetPath)
+{
+	FAIModOperationResult Result;
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		Result.ErrorCode = TEXT("NO_WORLD");
+		Result.ErrorMessage = TEXT("No valid world context");
+		return Result;
+	}
+
+	AFGProjectAssembly* Station = FindProjectAssembly(World);
+	if (!Station)
+	{
+		Result.ErrorCode = TEXT("TARGET_NOT_FOUND");
+		Result.ErrorMessage = TEXT("No AFGProjectAssembly actor exists in the world (it may only spawn once the Space Elevator is built)");
+		return Result;
+	}
+
+	TArray<UFGGamePhase*> AllPhases = UFGGamePhase::GetAllGamePhaseAssetsSorted();
+	UFGGamePhase* Phase = nullptr;
+	if (!PhaseAssetPath.IsEmpty())
+	{
+		for (UFGGamePhase* Candidate : AllPhases)
+		{
+			if (Candidate && Candidate->GetPathName() == PhaseAssetPath)
+			{
+				Phase = Candidate;
+				break;
+			}
+		}
+		if (!Phase)
+		{
+			Result.ErrorCode = TEXT("INVALID_PHASE");
+			Result.ErrorMessage = FString::Printf(TEXT("No game phase asset with path '%s' (paths come from world.projectAssembly allPhases)"), *PhaseAssetPath);
+			return Result;
+		}
+	}
+	else if (PhaseIndex >= 0)
+	{
+		if (!AllPhases.IsValidIndex(PhaseIndex))
+		{
+			Result.ErrorCode = TEXT("INVALID_PHASE");
+			Result.ErrorMessage = FString::Printf(TEXT("phaseIndex %d out of range (0..%d, per world.projectAssembly allPhases)"), PhaseIndex, AllPhases.Num() - 1);
+			return Result;
+		}
+		Phase = AllPhases[PhaseIndex];
+	}
+	else
+	{
+		Result.ErrorCode = TEXT("INVALID_REQUEST");
+		Result.ErrorMessage = TEXT("Provide phaseIndex or phaseAssetPath");
+		return Result;
+	}
+
+	// OnGamePhaseChanged is a protected BlueprintNativeEvent; ProcessEvent
+	// on the event UFunction dispatches to the BP override that owns the
+	// station visuals. This deliberately bypasses OnGamePhaseChangedInternal
+	// and the phase manager: no narrative messages, no progression change.
+	UFunction* PhaseChangedFunction = Station->FindFunction(FName(TEXT("OnGamePhaseChanged")));
+	if (!PhaseChangedFunction)
+	{
+		Result.ErrorCode = TEXT("OPERATION_FAILED");
+		Result.ErrorMessage = TEXT("AFGProjectAssembly has no OnGamePhaseChanged function (FactoryGame API changed?)");
+		return Result;
+	}
+
+	struct FPhaseChangedParams
+	{
+		UFGGamePhase* currentGamePhase = nullptr;
+	};
+	FPhaseChangedParams Params;
+	Params.currentGamePhase = Phase;
+	Station->ProcessEvent(PhaseChangedFunction, &Params);
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetProjectAssemblyVisualPhase: fired OnGamePhaseChanged with '%s' (visual-only; real phase untouched)"),
+		Phase ? *Phase->GetPathName() : TEXT("null"));
 	Result.bSuccess = true;
 	return Result;
 }

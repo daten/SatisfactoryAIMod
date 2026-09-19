@@ -44,6 +44,8 @@ SUMMARIES = {
  "world.probeHazard":"Exact point test: inside any damage volume, below killZ, inside 2D world bounds; reports nearest other volume distance.",
  "world.setDamageVolumeEnabled":"Enable/disable a damage volume's DOT+collision (reversible; session-only, resets on save load).",
  "world.despawnDamageVolume":"Destroy a damage volume actor (also removes its boundary post-process; session-only, returns on save load).",
+ "world.projectAssembly":"Orbital space station (Project Assembly) state: position, launch-sequence/movement state, phase->visual-stage map, all game phase assets (phaseIndex order), current/target phase.",
+ "world.setProjectAssemblyVisualPhase":"Drive the space station's VISUAL build phase (by phaseIndex or phaseAssetPath) without touching real progression; visuals snap back on the next real phase change or save load.",
  "world.groundHeight":"Ground Z at an (x,y) via trace; may hit the mod's own buildables.",
  "world.terrainHeightGrid":"Batched terrain-height survey over a grid (minX/minY/maxX/maxY/stepSize).",
  "world.recipeCatalog":"All recipes (recipeClass, ingredients, products).",

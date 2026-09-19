@@ -272,6 +272,54 @@ public:
 	static FAIModOperationResult DespawnDamageVolume(UObject* WorldContextObject, const FString& VolumeId);
 
 	/**
+	 * world.projectAssembly (added 2026-09-19, explicit user request -
+	 * manipulate the orbital space station's build phases "independently
+	 * of the milestones for visual effect"). The station is
+	 * `AFGProjectAssembly` (FGProjectAssembly.h), a sky actor at
+	 * mProjectAssemblyHeight (2,350,000 units - inside the hazard-free
+	 * sky above the 4.5km kill ceiling, see docs/world-boundary-hazards.md).
+	 * Its visuals react to ONE input: the OnGamePhaseChanged
+	 * BlueprintNativeEvent carrying a UFGGamePhase asset; the BP subclass
+	 * maps phase -> visual stage via the protected mGamePhaseMap
+	 * (TMap<TSubclassOf<UFGGamePhase>,int32>, "from start(0) to end").
+	 *
+	 * Reports: station id/position, IsPlayingLaunchSequence (real public
+	 * getter), mIsMovingToTarget/mTargetLocation/mMovementSpeed/
+	 * mProjectAssemblyHeight/mGamePhaseMap (protected UPROPERTYs, read
+	 * via reflection - internal telemetry sourcing only), plus the phase
+	 * catalog from UFGGamePhase::GetAllGamePhaseAssetsSorted() (index in
+	 * that sorted order = the phaseIndex accepted by
+	 * SetProjectAssemblyVisualPhase) and the manager's current/target
+	 * phase. found=false (not an error) when no station actor exists -
+	 * unverified whether it spawns before the Space Elevator is built.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogProjectAssemblyAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setProjectAssemblyVisualPhase - drives the station's visual
+	 * build state WITHOUT touching real progression: invokes the
+	 * station's OnGamePhaseChanged BlueprintNativeEvent directly via
+	 * FindFunction/ProcessEvent (it's a protected UFUNCTION; ProcessEvent
+	 * dispatches to the BP override, which owns the visuals) with an
+	 * arbitrary UFGGamePhase. Bypasses AFGGamePhaseManager and the
+	 * narrative path (OnGamePhaseChangedInternal) entirely - milestones,
+	 * schematics and the real phase are untouched, and the next REAL
+	 * phase change (or save reload) snaps visuals back to truth.
+	 *
+	 * Phase selected by PhaseIndex (into the GetAllGamePhaseAssetsSorted
+	 * order reported by world.projectAssembly; pass -1 for unused) or by
+	 * PhaseAssetPath (exact asset path from the same report).
+	 *
+	 * FLAGGED UNKNOWN for live test: the BP implementation is opaque
+	 * from source - if it re-reads the phase manager instead of trusting
+	 * the event parameter, this no-ops (returns success but nothing
+	 * visibly changes; that outcome = the finding, not a code bug).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetProjectAssemblyVisualPhase(UObject* WorldContextObject, int32 PhaseIndex, const FString& PhaseAssetPath);
+
+	/**
 	 * Enumerates all placed AFGBuildable actors (PLAN.md Phase 10,
 	 * "buildings"). Tries AFGBuildableSubsystem::GetAllBuildablesRef()
 	 * first (a real public getter exists, per

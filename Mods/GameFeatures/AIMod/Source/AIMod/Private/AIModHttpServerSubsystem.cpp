@@ -1966,6 +1966,35 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Visual-only override of the orbital space station's build phase
+	// (2026-09-19). Real progression is never touched - see
+	// SetProjectAssemblyVisualPhase's doc comment.
+	if (Method == TEXT("world.setProjectAssemblyVisualPhase"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double PhaseIndexValue = -1.0;
+		FString PhaseAssetPath;
+		const bool bHasIndex = ParamsObject->TryGetNumberField(TEXT("phaseIndex"), PhaseIndexValue);
+		const bool bHasPath = ParamsObject->TryGetStringField(TEXT("phaseAssetPath"), PhaseAssetPath) && !PhaseAssetPath.IsEmpty();
+		if (!bHasIndex && !bHasPath)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Provide params.phaseIndex (number) or params.phaseAssetPath (string) - see world.projectAssembly allPhases")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetProjectAssemblyVisualPhase(GetGameInstance(),
+			bHasIndex ? static_cast<int32>(PhaseIndexValue) : -1, bHasPath ? PhaseAssetPath : FString());
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
 	// "world.testPowerConnection" (dry run, never touches the save) and
 	// "world.connectPower" (real - see
@@ -2634,6 +2663,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.damageVolumes"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogDamageVolumesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.projectAssembly"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogProjectAssemblyAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.probeHazard"))
 	{
