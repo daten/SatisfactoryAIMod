@@ -224,11 +224,11 @@ loco `/Game/…/Vehicle/Train/Recipe_Locomotive.Recipe_Locomotive_C`.
   `setTrainSelfDriving(false)` → delete loco → delete stations (integrated track
   cascades) → delete arc `RailroadTrack` pieces.
 
-**STILL BLOCKED — freight-platform attach (needs a snap-based construct, NOT a
-bypass).** `placeBuilding` of `Recipe_TrainDockingStation` fails hard **"This
-must be placed inline with another train platform!"**, and a disqualifier-bypass
-is the WRONG fix: the game code shows freight platforms are **snap-to-connection
-buildings, not free placements** —
+### Freight platforms — `world.constructTrainPlatform` (2026-09-18, WORKS)
+
+`placeBuilding` of `Recipe_TrainDockingStation` fails hard **"This must be placed
+inline with another train platform!"** because freight platforms are
+**snap-to-connection buildings, not free placements** —
 `AFGBuildableTrainPlatform` has `mPlatformConnection0/1` (`UFGTrainPlatformConnection`,
 each tied to a `UFGRailroadTrackConnectionComponent`) + its own `mRailroadTrack`,
 and `AFGTrainPlatformHologram` has `mRequireSnapToPlatform`, `TrySnapToActor()`,
@@ -236,15 +236,33 @@ and `AFGTrainPlatformHologram` has `mRequireSnapToPlatform`, `TrySnapToActor()`,
 and owns a **child rail-track hologram** (`mRailroadTrackHologram`). Force-placing
 past the disqualifier would leave `mConnectedPlatformComponents` + the child track
 UNLINKED → a dead, non-loading platform (same class of bug as the old force-linked
-rail joints). The RIGHT fix is a dedicated construct that **mirrors
-`constructRailroadTrack`**: spawn `AFGTrainPlatformHologram`, position it at the
-target station/platform's platform connection, drive `TrySnapToActor` /
-`SnapToConnection` so `mConnectedPlatformComponents` + the child track link, then
-`Construct()`. Reference geometry (from the base): platforms sit **1600u apart
-along the track axis**, platform yaw = `station_yaw + 180`. Until that construct
-exists, validate station direction by the arrows / the train circulating and add
-freight platforms in-game. Also unsolved: multi-vehicle **coupling** (a station
-platform holds one vehicle).
+rail joints). So `world.constructTrainPlatform` (+ `world.testTrainPlatform`
+dry-run) drives the **real snap** and never bypasses it: it finds the target's
+free `UFGTrainPlatformConnection`, feeds the platform hologram a hit aimed at that
+connection until `UFGCDMustAttachToTrainPlatform` clears (= genuine snap),
+constructs, then verifies the connection reports connected (else
+`SNAP_UNCONFIRMED`, nothing placed). It ignores only floating-build environment
+gates (invalid aim / uneven surface / clearance), never the snap.
+
+**Usage:** `world.constructTrainPlatform(targetBuildableId, recipeClass,
+connectorPosition?)` — recipe `Recipe_TrainDockingStation_C` (freight) or
+`Recipe_TrainPlatformEmpty_C`; `construct_train_platform()` in `vehicles.py`.
+Notes: a freshly-`placeBuilding`'d station needs **~5s** to init its platform
+connections before it accepts a platform. The platform attaches to the station's
+tail (`ETPC_Out`) = its **local +X** side (yaw 0→+X, 90→+Y, 180→-X, 270→-Y),
+1600u along the track axis, adding a new free rail end; `connectorPosition` picks
+which free end when chaining several.
+
+**Loop-with-platforms recipe (live-verified: 4 stations + 4 platforms + 4 arcs,
+train laps at NoError, save `train-loop-freight`):** place 4 stations (CW yaws
+N=0/E=270/S=180/W=90, R≈11000) → wait ~6s → attach one platform to each → build
+the quarter-arcs to the **free** rail ends (each platform's far end to the next
+station's back end), NOT station-to-station, since the platform occupies the tail
+rail end. All 4 then share one `trackGraphId`; power + loco + timetable +
+self-driving and it circulates. Because the platform side (`ETPC_Out`) is coupled
+to the station yaw, correct clockwise facing puts every platform on the consistent
+rear/tail automatically. Still unsolved: multi-vehicle **coupling** (a station
+platform track holds one vehicle; wagons need adjacent plain track + coupling).
 
 ---
 
