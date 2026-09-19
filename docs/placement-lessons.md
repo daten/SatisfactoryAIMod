@@ -2534,3 +2534,21 @@ r≈5240. Machine-free belt placement lessons, all live-verified:
   span specifically = player-too-far symptom (seen at ~5600u even
   post-fix). The stuck spans also healed spontaneously after building
   elsewhere — same smell as the old connectPower stuck-hologram state.
+
+### Same day — tornado extended 4.5x: the PERCH technique (LIVE)
+
+Extended to **582 poles / 581 Mk1 belts, one unbroken chain** — z 400 to
+19,120 (191m), top radius 13,400 (268m diameter), save `belt-tornado-big`.
+The unlock for building far above ground: **perch platforms**. Belts above
+~9km altitude fail from ground-level player positions, so: place a floating
+8x1 foundation (`ignoreClearance` on) just inside the ring at span z-300,
+teleport the player onto it with `ignoreGroundTrace` + exact z (foundation
+top + ~170) — the pawn lands and stands STABLE on the instanced mesh (the
+old fall-through deaths were the teleport's own ground-SNAP trace missing
+instanced meshes; exact-z placement + normal collision is safe — validate
+at low altitude first anyway). Hop a fresh perch every ~3 spans, delete all
+perches when done (teleport the player to ground FIRST). Failure rate with
+perches: 2 transient failures in 423 spans (<0.5%) vs ~13% building from
+the ground — player proximity was virtually the whole failure story.
+Adaptive waypoint spacing (chord ~2400u) keeps belts well under the 5600
+spline cap as the radius grows.
