@@ -352,6 +352,34 @@ public:
 	static FAIModOperationResult SetProjectAssemblyHeight(UObject* WorldContextObject, float NewHeight);
 
 	/**
+	 * world.setVehicleEngineParams (added 2026-09-19, explicit user
+	 * request - raise a manually-driven vehicle's top speed to traverse
+	 * the moon-scale space station). Targets an AFGWheeledVehicle (the
+	 * Explorer/Tractor/Truck) and adjusts its Chaos movement via the
+	 * runtime setters that apply WITHOUT a physics rebuild:
+	 *   - SetMaxEngineTorque (more torque -> higher top speed + accel)
+	 *   - SetDragCoefficient (LOWER drag -> much higher top speed; top
+	 *     speed is where available thrust equals aero drag)
+	 * These are real UChaosWheeledVehicleMovementComponent setters (the
+	 * FG component derives from it). MaxRPM/gear-ratio changes are NOT
+	 * done here - they need a full SetupVehicle/physics re-init that is
+	 * risky from stub-sourced headers; torque+drag are the safe,
+	 * purpose-built runtime levers.
+	 *
+	 * Target selection: VehicleId (path name from world.vehicles) if
+	 * given; otherwise the nearest AFGWheeledVehicle to the local player.
+	 * Pass a negative value for either param to leave it unchanged.
+	 * Per-instance and session-only (does not touch the CDO/defaults).
+	 *
+	 * NOT YET LIVE-TESTED: Chaos runtime handling at very high top speed
+	 * is unpredictable (wheelspin, launching off terrain, instability);
+	 * tune gradually. The FG movement .cpp is a stub here, so verify the
+	 * setters actually move top speed live before relying on values.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetVehicleEngineParams(UObject* WorldContextObject, const FString& VehicleId, float MaxEngineTorque, float DragCoefficient);
+
+	/**
 	 * Enumerates all placed AFGBuildable actors (PLAN.md Phase 10,
 	 * "buildings"). Tries AFGBuildableSubsystem::GetAllBuildablesRef()
 	 * first (a real public getter exists, per

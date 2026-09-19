@@ -22,7 +22,7 @@ public class AIMod : ModuleRules
 			//"OnlineSubsystem", "OnlineSubsystemUtils", "OnlineSubsystemNull",
 			//"SignificanceManager",
 			"GeometryCollectionEngine",
-			//"ChaosVehiclesCore", "ChaosVehicles", "ChaosSolverEngine",
+			"ChaosVehicles", //"ChaosVehiclesCore", "ChaosSolverEngine",
 			"AnimGraphRuntime",
 			//"AkAudio",
 			"AssetRegistry",

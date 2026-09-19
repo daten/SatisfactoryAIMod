@@ -2040,6 +2040,31 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Raise a manually-driven wheeled vehicle's top speed (2026-09-19).
+	// See SetVehicleEngineParams' doc comment. Negative = leave unchanged.
+	if (Method == TEXT("world.setVehicleEngineParams"))
+	{
+		FString VehicleId;
+		double MaxEngineTorque = -1.0;
+		double DragCoefficient = -1.0;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetStringField(TEXT("vehicleId"), VehicleId);
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("maxEngineTorque"), MaxEngineTorque);
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("dragCoefficient"), DragCoefficient);
+		}
+		if (MaxEngineTorque < 0.0 && DragCoefficient < 0.0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Provide params.maxEngineTorque and/or params.dragCoefficient (>=0)")));
+			return true;
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetVehicleEngineParams(GetGameInstance(), VehicleId,
+			static_cast<float>(MaxEngineTorque), static_cast<float>(DragCoefficient));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
 	// "world.testPowerConnection" (dry run, never touches the save) and
 	// "world.connectPower" (real - see

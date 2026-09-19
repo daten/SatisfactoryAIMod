@@ -125,6 +125,8 @@
 #include "FGDroneStationInfo.h"
 #include "Buildables/FGBuildableDockingStation.h"
 #include "WheeledVehicles/FGWheeledVehicle.h"
+#include "WheeledVehicles/FGWheeledVehicleMovementComponent.h"
+#include "ChaosWheeledVehicleMovementComponent.h"
 #include "WheeledVehicles/FGWheeledVehicleIdentifier.h"
 #include "WheeledVehicles/FGVehicleAutopilotComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -1848,6 +1850,105 @@ FAIModOperationResult UAIModFunctionLibrary::SetProjectAssemblyHeight(UObject* W
 
 	UE_LOG(LogAIModAI, Display, TEXT("SetProjectAssemblyHeight: requested z=%.0f, actor now at z=%.0f (session-only; not saved)"),
 		NewHeight, ResultingLocation.Z);
+	Result.bSuccess = true;
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetVehicleEngineParams(UObject* WorldContextObject, const FString& VehicleId, float MaxEngineTorque, float DragCoefficient)
+{
+	FAIModOperationResult Result;
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		Result.ErrorCode = TEXT("NO_WORLD");
+		Result.ErrorMessage = TEXT("No valid world context");
+		return Result;
+	}
+
+	// Target: explicit id, else nearest wheeled vehicle to the local player.
+	AFGWheeledVehicle* Target = nullptr;
+	if (!VehicleId.IsEmpty())
+	{
+		for (TActorIterator<AFGWheeledVehicle> It(World); It; ++It)
+		{
+			if (IsValid(*It) && (*It)->GetPathName() == VehicleId)
+			{
+				Target = *It;
+				break;
+			}
+		}
+		if (!Target)
+		{
+			Result.ErrorCode = TEXT("TARGET_NOT_FOUND");
+			Result.ErrorMessage = FString::Printf(TEXT("No AFGWheeledVehicle with id '%s' (ids from world.vehicles)"), *VehicleId);
+			return Result;
+		}
+	}
+	else
+	{
+		FVector PlayerLocation = FVector::ZeroVector;
+		if (const APawn* PlayerPawn = UGameplayStatics::GetPlayerPawn(World, 0))
+		{
+			PlayerLocation = PlayerPawn->GetActorLocation();
+		}
+		double BestDistSq = -1.0;
+		for (TActorIterator<AFGWheeledVehicle> It(World); It; ++It)
+		{
+			if (!IsValid(*It))
+			{
+				continue;
+			}
+			const double DistSq = FVector::DistSquared((*It)->GetActorLocation(), PlayerLocation);
+			if (BestDistSq < 0.0 || DistSq < BestDistSq)
+			{
+				BestDistSq = DistSq;
+				Target = *It;
+			}
+		}
+		if (!Target)
+		{
+			Result.ErrorCode = TEXT("TARGET_NOT_FOUND");
+			Result.ErrorMessage = TEXT("No AFGWheeledVehicle found in the world");
+			return Result;
+		}
+	}
+
+	UFGWheeledVehicleMovementComponent* Movement = Target->GetVehicleMovementComponent();
+	if (!Movement)
+	{
+		Result.ErrorCode = TEXT("OPERATION_FAILED");
+		Result.ErrorMessage = TEXT("Target vehicle has no movement component");
+		return Result;
+	}
+
+	// UFGWheeledVehicleMovementComponent derives from
+	// UChaosWheeledVehicleMovementComponent; these are its real runtime
+	// setters (apply to the live physics vehicle, no rebuild needed).
+	bool bAppliedTorque = false;
+	bool bAppliedDrag = false;
+	if (MaxEngineTorque >= 0.0f)
+	{
+		Movement->SetMaxEngineTorque(MaxEngineTorque);
+		bAppliedTorque = true;
+	}
+	if (DragCoefficient >= 0.0f)
+	{
+		Movement->SetDragCoefficient(DragCoefficient);
+		bAppliedDrag = true;
+	}
+
+	const TSharedRef<FJsonObject> Detail = MakeShared<FJsonObject>();
+	Detail->SetStringField(TEXT("vehicleId"), Target->GetPathName());
+	Detail->SetBoolField(TEXT("appliedTorque"), bAppliedTorque);
+	if (bAppliedTorque) Detail->SetNumberField(TEXT("maxEngineTorque"), MaxEngineTorque);
+	Detail->SetBoolField(TEXT("appliedDrag"), bAppliedDrag);
+	if (bAppliedDrag) Detail->SetNumberField(TEXT("dragCoefficient"), DragCoefficient);
+	Result.ResultDetailJson = WriteCondensedJson(Detail);
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetVehicleEngineParams: %s torque=%s drag=%s"),
+		*Target->GetPathName(),
+		bAppliedTorque ? *FString::SanitizeFloat(MaxEngineTorque) : TEXT("(unchanged)"),
+		bAppliedDrag ? *FString::SanitizeFloat(DragCoefficient) : TEXT("(unchanged)"));
 	Result.bSuccess = true;
 	return Result;
 }

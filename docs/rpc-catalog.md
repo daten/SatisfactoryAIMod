@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **116 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **117 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -232,6 +232,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `trainId:string, stops:array`
 - **`world.setTruckAutopilot`** — Arm a truck's autopilot with a station route (+fuel); returns rich diagnostics.  
   params: `vehicleId:string, enabled:bool, stationIds:array?, fuelItemClass:string?, fuelAmount:number?`
+- **`world.setVehicleEngineParams`** — Adjust a wheeled vehicle's Chaos movement at runtime for higher top speed: maxEngineTorque and/or dragCoefficient (lower drag = faster). Targets vehicleId or nearest to player; negative = unchanged. Session-only, per-instance.  
+  params: `(none)`
 - **`world.simulatedCraft`** — Simulate crafting a HANDHELD/equipment recipe (ingredient check); not factory recipes.  
   params: `recipeClass:string`
 - **`world.spawnCreature`** — Spawn a creature (gated by the AllowCreatureSpawning mod setting).  

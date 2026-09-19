@@ -47,6 +47,7 @@ SUMMARIES = {
  "world.projectAssembly":"Orbital space station (Project Assembly) state: position, launch-sequence/movement state, phase->visual-stage map, all game phase assets (phaseIndex order), current/target phase.",
  "world.setProjectAssemblyVisualPhase":"Drive the space station's VISUAL build phase (by phaseIndex or phaseAssetPath) without touching real progression; visuals snap back on the next real phase change or save load.",
  "world.setProjectAssemblyHeight":"Move the orbital space station to world height z (keeps its XY over the Space Elevator). Session-only, not saved; returns actual resulting position (a BP tick may snap it back).",
+ "world.setVehicleEngineParams":"Adjust a wheeled vehicle's Chaos movement at runtime for higher top speed: maxEngineTorque and/or dragCoefficient (lower drag = faster). Targets vehicleId or nearest to player; negative = unchanged. Session-only, per-instance.",
  "world.groundHeight":"Ground Z at an (x,y) via trace; may hit the mod's own buildables.",
  "world.terrainHeightGrid":"Batched terrain-height survey over a grid (minX/minY/maxX/maxY/stepSize).",
  "world.recipeCatalog":"All recipes (recipeClass, ingredients, products).",
