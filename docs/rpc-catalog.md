@@ -81,7 +81,7 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
 - **`world.targetedManufacturer`** — Telemetry for the machine the player is currently aiming at.  
   params: `(none)`
 - **`world.terrainHeightGrid`** — Batched terrain-height survey over a grid (minX/minY/maxX/maxY/stepSize).  
-  params: `minX:number, minY:number, maxX:number, maxY:number, stepSize:number, z:number?`
+  params: `minX:number, minY:number, maxX:number, maxY:number, stepSize:number, z:number?, method:string?, success:bool?, result:object?, error:object?`
 - **`world.timeOfDay`** — Current in-game time (hour/minute/isDay).  
   params: `(none)`
 - **`world.trainCargoPlatforms`** — List train cargo/freight platforms.  
@@ -176,8 +176,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `schematicClass:string`
 - **`world.connections`** — List factory (belt/pipe) connection components and their connected state.  
   params: `(none)`
-- **`world.deleteBuilding`** — Dismantle a buildable or vehicle by id.  
-  params: `buildableId:string`
+- **`world.deleteBuilding`** — Dismantle a buildable or vehicle by id. Response is held ~0.75s so an immediate re-place cannot stack on the corpse; inside world.batch that hold is applied once per delete-run, not per op (batched=true is set automatically).  
+  params: `buildableId:string, batched:bool?`
 - **`world.despawnCreature`** — Despawn a creature by id.  
   params: `creatureId:string`
 - **`world.despawnDamageVolume`** — Destroy a damage volume actor (also removes its boundary post-process; session-only, returns on save load).  

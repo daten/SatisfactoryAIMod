@@ -62,6 +62,16 @@ struct FAIModBatchState
 	int32 SucceededCount = 0;
 	bool bAnyFailed = false;
 	TArray<TSharedPtr<FJsonValue>> Results;
+	// True while the most recent successful sub-op was a
+	// world.deleteBuilding whose corpse has NOT yet been settled. Batch
+	// sub-op deletes skip their per-op 0.75s corpse-settle hold (the
+	// batch fast path - see the deleteBuilding handler comment); this
+	// flag makes RunBatchStep re-insert the ONE hold that still matters:
+	// before the next NON-delete op (a place right after a delete must
+	// not race the corpse's instanced collision), and before the final
+	// batch response when the batch ends on deletes (protecting the
+	// caller's next request). Consecutive deletes run back-to-back.
+	bool bUnsettledDelete = false;
 };
 
 namespace
@@ -638,8 +648,22 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		// world.deleteBuilding response is this fix working as intended.
 		// Failures respond immediately (nothing was dismantled, nothing
 		// to wait for).
+		//
+		// BATCH FAST PATH (2026-09-19, explicit user request - a 1163-actor
+		// teardown took ~15 min at 0.75s/op): sub-ops synthesized by
+		// world.batch carry "batched":true; those skip the per-op hold and
+		// RunBatchStep instead applies ONE 0.75s settle at the END of the
+		// whole batch. The timer's purpose is protecting the caller's NEXT
+		// request from the corpse's lingering instanced collision - within
+		// a batch the "next request" is the batch's own subsequent op, and
+		// consecutive deletes don't place anything, so one hold at the end
+		// gives the same guarantee ~100x faster. (A direct caller passing
+		// "batched" only forfeits its own settle protection - loopback-only
+		// API, self-inflicted, and the batch path re-adds the hold.)
+		bool bBatchedSubOp = false;
+		RequestObject->TryGetBoolField(TEXT("batched"), bBatchedSubOp);
 		UWorld* DeleteWorld = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
-		if (!Result.bSuccess || !DeleteWorld)
+		if (!Result.bSuccess || !DeleteWorld || bBatchedSubOp)
 		{
 			OnComplete(MakeOperationResponse(Result, RequestId));
 			return true;
@@ -3091,6 +3115,23 @@ void UAIModHttpServerSubsystem::RunBatchStep(TSharedRef<FAIModBatchState> State,
 		Root->SetObjectField(TEXT("result"), ResultObject);
 		UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server: world.batch %s finished - %d/%d succeeded%s"),
 			*ParentRequestId, State->SucceededCount, State->Ops.Num(), bHalted ? TEXT(" (halted on first failure)") : TEXT(""));
+		// Batch fast path's other half: sub-op deletes skipped their per-op
+		// corpse-settle hold, so apply the SINGLE 0.75s hold here (also on
+		// the halted path - the caller may place right after either way).
+		// No world for the timer -> respond immediately; that only drops
+		// the settle margin, never the results.
+		UWorld* SettleWorld = (State->bUnsettledDelete && GetGameInstance()) ? GetGameInstance()->GetWorld() : nullptr;
+		if (SettleWorld)
+		{
+			TSharedRef<FJsonObject> RootRef = Root;
+			FHttpResultCallback Complete = ParentComplete;
+			FTimerHandle SettleTimerHandle;
+			SettleWorld->GetTimerManager().SetTimer(SettleTimerHandle, FTimerDelegate::CreateLambda([Complete, RootRef]()
+			{
+				Complete(MakeJsonResponse(EHttpServerResponseCodes::Ok, RootRef));
+			}), 0.75f, false);
+			return;
+		}
 		ParentComplete(MakeJsonResponse(EHttpServerResponseCodes::Ok, Root));
 		return;
 	}
@@ -3100,6 +3141,32 @@ void UAIModHttpServerSubsystem::RunBatchStep(TSharedRef<FAIModBatchState> State,
 	FString OpMethod;
 	Op->TryGetStringField(TEXT("method"), OpMethod);
 
+	// Mid-batch settle gate: a non-delete op right after an unsettled
+	// delete must wait out the corpse (the delete-then-place stacking
+	// hazard the per-op hold used to cover). Re-enter this same step
+	// after 0.75s with the flag cleared; delete-after-delete skips this.
+	if (State->bUnsettledDelete && OpMethod != TEXT("world.deleteBuilding"))
+	{
+		State->bUnsettledDelete = false;
+		UWorld* GateWorld = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
+		if (GateWorld)
+		{
+			TWeakObjectPtr<UAIModHttpServerSubsystem> WeakGate(this);
+			FTimerHandle GateTimerHandle;
+			GateWorld->GetTimerManager().SetTimer(GateTimerHandle, FTimerDelegate::CreateLambda(
+				[WeakGate, State, BaseRequest, ParentComplete, ParentRequestId]() mutable
+			{
+				if (UAIModHttpServerSubsystem* Subsystem = WeakGate.Get())
+				{
+					Subsystem->RunBatchStep(State, BaseRequest, ParentComplete, ParentRequestId);
+				}
+			}), 0.75f, false);
+			return;
+		}
+		// No world for a timer: fall through and run the op immediately -
+		// same "drop the margin, never the work" posture as the finalizer.
+	}
+
 	// Synthesize the sub-request: the normal envelope around this op,
 	// re-serialized into a copy of the parent request so PeerAddress -
 	// and therefore the loopback/remote policy - carries over unchanged.
@@ -3107,6 +3174,9 @@ void UAIModHttpServerSubsystem::RunBatchStep(TSharedRef<FAIModBatchState> State,
 	SubEnvelope->SetNumberField(TEXT("protocolVersion"), 1);
 	SubEnvelope->SetStringField(TEXT("requestId"), FString::Printf(TEXT("%s-%d"), *ParentRequestId, OpIndex));
 	SubEnvelope->SetStringField(TEXT("method"), OpMethod);
+	// Marks this as a batch sub-op: deleteBuilding then skips its per-op
+	// corpse-settle hold and the finalizer below settles once instead.
+	SubEnvelope->SetBoolField(TEXT("batched"), true);
 	const TSharedPtr<FJsonObject>* OpParams = nullptr;
 	if (Op->TryGetObjectField(TEXT("params"), OpParams) && OpParams && OpParams->IsValid())
 	{
@@ -3158,6 +3228,10 @@ void UAIModHttpServerSubsystem::RunBatchStep(TSharedRef<FAIModBatchState> State,
 		if (bOpSuccess)
 		{
 			State->SucceededCount++;
+			if (OpMethod == TEXT("world.deleteBuilding"))
+			{
+				State->bUnsettledDelete = true;
+			}
 		}
 		else
 		{

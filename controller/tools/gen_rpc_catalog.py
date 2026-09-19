@@ -134,7 +134,7 @@ SUMMARIES = {
  "world.spawnCreature":"Spawn a creature (gated by the AllowCreatureSpawning mod setting).",
  "world.despawnCreature":"Despawn a creature by id.",
  "world.creatures":"List creatures (state, controller, anim instance) - tells animated vs frozen.",
- "world.deleteBuilding":"Dismantle a buildable or vehicle by id.",
+ "world.deleteBuilding":"Dismantle a buildable or vehicle by id. Response is held ~0.75s so an immediate re-place cannot stack on the corpse; inside world.batch that hold is applied once per delete-run, not per op (batched=true is set automatically).",
  "world.cleanupOrphanedFlowIndicators":"Remove orphaned pipe flow indicators near a position.",
  "world.batch":"Run up to 100 ops in one call (per-op results; proximity still applies).",
  "world.help":"This catalog: every RPC method with params + a one-line summary (runtime self-description).",
