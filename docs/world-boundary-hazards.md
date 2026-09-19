@@ -133,3 +133,25 @@ there) → walk in again → confirm no damage WHILE STANDING INSIDE when it is
 toggled off; re-enable → confirm damage resumes; reload the save → confirm
 volumes are live again (session-only expectation). The despawned-volume
 half of that check also confirms the boundary vignette disappears.
+
+## 2026-09-19 — Player altitude ceiling (teleport snap-down), live-found
+
+Separate from the DOT volumes and KillZ: there is a **hard player ceiling at
+z ≈ 2,440,000** (a "transparent boundary" — blocks the player but NOT
+construction, and blocks visibility/ground traces which read INSIDE-solid at
+2,440,000+). Found while visiting the space station (actor origin z=2,350,000;
+its mesh towers ~90km-scale above that into the sky layer).
+
+Key behavior: `world.teleportPlayer` to any z ABOVE the boundary reports
+success but the engine's TeleportTo collision-sweep **snaps the pawn down to
+~2,440,000** (the boundary top), which is not standable, so the player then
+falls. Verified: requested z=2,445,450 → landed 2,440,304 → fell. This is the
+true cause of the earlier "fell off the 2,750,000 pad" incidents — the pawn
+never reached the high pad; it was snapped to the boundary and dropped.
+Floating foundations/catwalks CAN be built above the boundary (construction
+ignores it), but no player can ever stand on them.
+
+Practical rule: the highest a player can be placed is ~2,439,000 (just under
+the boundary). Pads at 2,365,050 and 2,432,050 worked (below); 2,750,000
+failed (above). For any sky build the player must interact with, keep it below
+z 2,440,000. Rescue from a fall = instant ground teleport (works at any z).
