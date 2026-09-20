@@ -36,12 +36,17 @@ reliable method is **putting the player on its surface and reading the pawn posi
   - renders **invisibly** up close (an "invisible boundary" you stand on),
   - is **flat and drivable** — a wheeled vehicle traverses it.
 
-- **Width (horizontal): half-width ≥ 628,670 units (≥6.29 km), edge not yet reached.**
+- **Width (horizontal): half-width ≥ 955,415 units (≥9.55 km) EAST, edge not yet reached.**
   With the station at origin 50,000, the player drove a straight line EAST from center
-  and at radial distance **628,670** (x=567,369) was still on the top surface. That is
-  already ~1.7× the entire play area's radius (~375,000). User visual estimate: roughly
-  halfway, so the east radius may be ~1.26M units (~12.6 km). **Measurement in progress
-  / paused** — finish by continuing east until the collision surface ends, or by
+  (−61,300, 210,500). Waypoints, all still on the top surface at z=1,008,044:
+  - r = **628,670** (x=567,369) — open flat top (renders invisibly).
+  - r = **955,415** (x=894,038, y=222,632) — outer edge of a **raised opaque section**
+    (a visible structural ring); its top is at the SAME z=1,008,044, i.e. the walkable
+    collision plane is uniform, only the rendering differs. A **lower ring extends
+    further** and the collision may continue past here.
+  The collision top has been **dead flat at z=1,008,044 across the whole 9.5 km run**.
+  955,415 is already ~2.5× the entire play area's radius (~375,000). **Measurement in
+  progress / paused here** — resume by continuing east until collision ends, or by
   edge-sampling (walk probes outward from center, find where z=1,008,044 collision stops).
 
 ## Gotchas
