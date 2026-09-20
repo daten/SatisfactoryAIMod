@@ -141,13 +141,17 @@ have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
   Frame/Aluminum Rod) and `hasReroll` flipped false. Param note: the RPC
   takes `schematicClass` (any currently-offered reward), matching
   RPC_REFERENCE, not the C++ arg name.
-- [ ] **`world.reprocessMilestone`** — 2026-09-20 (creative ON):
+- [x] **`world.reprocessMilestone`** — 2026-09-20 (creative ON):
   mechanics PASS — tier 1 reprocessed 3 real schematics
   (Schematic_1-1/1-2/1-3) and every purchase stayed intact afterward
-  (the "will not revoke unlocks" contract holds). STILL OPEN: whether a
-  Steam achievement actually re-fired (user-observable only — awaiting
-  confirmation; if no pop on tier 1, try a tier with a known milestone
-  achievement before concluding the mechanism doesn't reach Steam).
+  (the "will not revoke unlocks" contract holds). The achievement GOAL
+  it existed for is now CLOSED by a better path: a fresh-save genuine
+  progression run (Tiers 0-8 milestones + elevator Phases 1-4, all via
+  setActiveMilestone/payMilestone/launchShip/upgradeSpaceElevator)
+  **triggered the user's missing Steam achievement — user-confirmed
+  2026-09-20**. Genuine unlock events in a modded session reach Steam.
+  Whether reprocess-of-already-purchased ALSO re-fires remains
+  unproven, but is now moot for the original purpose.
 
 ## Tier 3 — portable miner end-to-end flow
 
