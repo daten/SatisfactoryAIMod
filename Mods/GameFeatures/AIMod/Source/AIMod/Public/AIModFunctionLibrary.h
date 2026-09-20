@@ -2320,6 +2320,28 @@ public:
 	static FString LogActiveEventsAsJson(UObject* WorldContextObject);
 
 	/**
+	 * world.setActiveEvent (added 2026-09-19) - force a seasonal event
+	 * (HUB party mode etc.) on/off-calendar. AFGEventSubsystem activates
+	 * events by real-world date at load; this overrides that for the
+	 * session. Accepts an event by name ("Christmas"/"Anniversary"/
+	 * "CSSBirthday"/"FirstOfApril"/"None"), enum token ("EV_Christmas"),
+	 * or index 0-4. Mirrors setProjectAssemblyVisualPhase: adds the event
+	 * to the public replicated mCurrentEvents (or clears it for None),
+	 * then fires the OnBeginEvent BlueprintImplementableEvent via
+	 * ProcessEvent so the BP spawns the event visuals. Read side:
+	 * world.activeEvents (isActive per event) verifies before/after.
+	 *
+	 * Session-only (real progression/calendar unlocks untouched; reverts
+	 * on reload). FLAGGED UNKNOWNS for live test: (1) whether HUB
+	 * decorations respond to OnBeginEvent alone or also need the
+	 * per-event HubMiniGameClass/GiftRainSpawner/calendar actor spawned;
+	 * (2) None only clears mCurrentEvents - there's no OnEndEvent hook, so
+	 * already-spawned decorations may persist until a reload.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetActiveEvent(UObject* WorldContextObject, const FString& EventNameOrIndex);
+
+	/**
 	 * world.constructionCost (2026-08-28) - the recipe catalog's own
 	 * "ingredients" field is the BASE recipe cost only. Real construction
 	 * (both interactive and via world.placeBuilding) also charges for

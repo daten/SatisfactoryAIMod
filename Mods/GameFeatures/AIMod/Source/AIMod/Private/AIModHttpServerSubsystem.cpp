@@ -2109,6 +2109,35 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Force a seasonal event on/off-calendar (2026-09-19). See SetActiveEvent doc.
+	if (Method == TEXT("world.setActiveEvent"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		FString EventValue;
+		if (!(*ParamsObjectPtr)->TryGetStringField(TEXT("event"), EventValue) || EventValue.IsEmpty())
+		{
+			// Allow a numeric index passed as a number too.
+			double EventIdx = -1.0;
+			if ((*ParamsObjectPtr)->TryGetNumberField(TEXT("event"), EventIdx))
+			{
+				EventValue = FString::FromInt(static_cast<int32>(EventIdx));
+			}
+			else
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.event must be an event name (Christmas/Anniversary/CSSBirthday/FirstOfApril/None) or index 0-4")));
+				return true;
+			}
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetActiveEvent(GetGameInstance(), EventValue);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
 	// "world.testPowerConnection" (dry run, never touches the save) and
 	// "world.connectPower" (real - see

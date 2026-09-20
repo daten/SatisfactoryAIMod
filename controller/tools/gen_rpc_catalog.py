@@ -51,6 +51,7 @@ SUMMARIES = {
  "world.mantas":"List Giant Flying Mantas (AFGManta): id, class, position, currentTime, secondsPerLoop (lap time), tickTransform, spline length. Not creatures - own actor class.",
  "world.setManta":"Manipulate a manta by id: despawn, freeze (stop on its path), secondsPerLoop (lap speed), or currentTime (scrub along route). Session-only.",
  "world.spawnManta":"Spawn another manta sharing an existing manta's spline path, offset by timeOffsetSeconds (a flock on one route). EXPERIMENTAL, session-only.",
+ "world.setActiveEvent":"Force a seasonal event on/off-calendar (HUB party mode etc.) by name (Christmas/Anniversary/CSSBirthday/FirstOfApril/None) or index 0-4. Fires OnBeginEvent visuals. Session-only, reverts on reload. Verify with world.activeEvents.",
  "world.groundHeight":"Ground Z at an (x,y) via trace; may hit the mod's own buildables.",
  "world.terrainHeightGrid":"Batched terrain-height survey over a grid (minX/minY/maxX/maxY/stepSize).",
  "world.recipeCatalog":"All recipes (recipeClass, ingredients, products).",

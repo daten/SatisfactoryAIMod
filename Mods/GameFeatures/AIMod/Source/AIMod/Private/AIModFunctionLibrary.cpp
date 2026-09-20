@@ -10493,6 +10493,95 @@ FString UAIModFunctionLibrary::LogActiveEventsAsJson(UObject* WorldContextObject
 	return JsonString;
 }
 
+namespace
+{
+	// Accepts a display name ("Christmas"/"Anniversary"/"CSSBirthday"/
+	// "FirstOfApril"/"None"), the enum token ("EV_Christmas"), or a
+	// numeric index (0=None,1=Christmas,2=Anniversary,3=CSSBirthday,
+	// 4=FirstOfApril). Returns true on a recognized value.
+	bool StringToEvent(const FString& In, EEvents& OutEvent)
+	{
+		const FString S = In.TrimStartAndEnd();
+		if (S.IsNumeric())
+		{
+			const int32 Idx = FCString::Atoi(*S);
+			if (Idx >= 0 && Idx < static_cast<int32>(EEvents::EV_MAX))
+			{
+				OutEvent = static_cast<EEvents>(Idx);
+				return true;
+			}
+			return false;
+		}
+		const FString L = S.ToLower().Replace(TEXT("ev_"), TEXT(""));
+		if (L == TEXT("none")) { OutEvent = EEvents::EV_None; return true; }
+		if (L == TEXT("christmas")) { OutEvent = EEvents::EV_Christmas; return true; }
+		if (L == TEXT("anniversary") || L == TEXT("birthday")) { OutEvent = EEvents::EV_Birthday; return true; }
+		if (L == TEXT("cssbirthday")) { OutEvent = EEvents::EV_CSSBirthday; return true; }
+		if (L == TEXT("firstofapril") || L == TEXT("aprilfools")) { OutEvent = EEvents::EV_FirstOfApril; return true; }
+		return false;
+	}
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetActiveEvent(UObject* WorldContextObject, const FString& EventNameOrIndex)
+{
+	FAIModOperationResult Result;
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	AFGEventSubsystem* EventSubsystem = World ? AFGEventSubsystem::Get(World) : nullptr;
+	if (!EventSubsystem)
+	{
+		Result.ErrorCode = TEXT("NO_WORLD");
+		Result.ErrorMessage = TEXT("No valid world context or AFGEventSubsystem");
+		return Result;
+	}
+
+	EEvents Event = EEvents::EV_None;
+	if (!StringToEvent(EventNameOrIndex, Event))
+	{
+		Result.ErrorCode = TEXT("INVALID_EVENT");
+		Result.ErrorMessage = FString::Printf(TEXT("Unknown event '%s' (use None/Christmas/Anniversary/CSSBirthday/FirstOfApril or index 0-4)"), *EventNameOrIndex);
+		return Result;
+	}
+
+	// mCurrentEvents is a public replicated TArray<EEvents> - modify
+	// directly (server authority replicates it). This mirrors
+	// setProjectAssemblyVisualPhase: change state, then fire the BP
+	// visual hook. Real progression/calendar unlocks untouched.
+	if (Event == EEvents::EV_None)
+	{
+		// Clear all forced events. NOTE: there is no OnEndEvent hook in
+		// the API, so already-spawned HUB decorations may persist until a
+		// reload; clearing only stops IsEventActive returning true.
+		EventSubsystem->mCurrentEvents.Empty();
+	}
+	else
+	{
+		EventSubsystem->mCurrentEvents.AddUnique(Event);
+		// OnBeginEvent is the BlueprintImplementableEvent the BP subclass
+		// uses to spawn event visuals (same path BeginPlay uses per active
+		// event). Fire it via ProcessEvent. (OnBeginEvent_Native is
+		// protected AND not a UFUNCTION, so it can't be invoked here.)
+		if (UFunction* BeginFn = EventSubsystem->FindFunction(FName(TEXT("OnBeginEvent"))))
+		{
+			struct FBeginEventParams { EEvents event; };
+			FBeginEventParams P; P.event = Event;
+			EventSubsystem->ProcessEvent(BeginFn, &P);
+		}
+	}
+
+	const TSharedRef<FJsonObject> Detail = MakeShared<FJsonObject>();
+	Detail->SetStringField(TEXT("event"), EventToString(Event));
+	TArray<TSharedPtr<FJsonValue>> ActiveNow;
+	for (const EEvents E : EventSubsystem->GetCurrentEvents())
+	{
+		ActiveNow.Add(MakeShared<FJsonValueString>(EventToString(E)));
+	}
+	Detail->SetArrayField(TEXT("activeEvents"), ActiveNow);
+	Result.ResultDetailJson = WriteCondensedJson(Detail);
+	UE_LOG(LogAIModAI, Display, TEXT("SetActiveEvent: %s (session-only; reverts on reload)"), *EventToString(Event));
+	Result.bSuccess = true;
+	return Result;
+}
+
 FString UAIModFunctionLibrary::LogConstructionCostAsJson(UObject* WorldContextObject, const FString& RecipeClassPath)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;

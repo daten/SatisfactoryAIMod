@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **120 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **121 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -204,6 +204,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.sendChatMessage`** — Post a chat message (local).  
   params: `message:string, sender:string?`
+- **`world.setActiveEvent`** — Force a seasonal event on/off-calendar (HUB party mode etc.) by name (Christmas/Anniversary/CSSBirthday/FirstOfApril/None) or index 0-4. Fires OnBeginEvent visuals. Session-only, reverts on reload. Verify with world.activeEvents.  
+  params: `(none)`
 - **`world.setBeamLength`** — Set a placed beam's length.  
   params: `buildableId:string, newLength:number`
 - **`world.setBuildableColor`** — Recolor a buildable (machines only; fails on lightweight foundations).  
