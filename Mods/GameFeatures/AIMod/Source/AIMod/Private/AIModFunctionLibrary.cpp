@@ -151,6 +151,7 @@
 #include "FGProjectAssembly.h"
 #include "FGGamePhase.h"
 #include "FGGamePhaseManager.h"
+#include "FGManta.h"
 #include "Buildables/FGBuildableWaterPump.h"
 #include "Buildables/FGBuildablePoleStackable.h"
 #include "Hologram/FGStackablePoleHologram.h"
@@ -1949,6 +1950,226 @@ FAIModOperationResult UAIModFunctionLibrary::SetVehicleEngineParams(UObject* Wor
 		*Target->GetPathName(),
 		bAppliedTorque ? *FString::SanitizeFloat(MaxEngineTorque) : TEXT("(unchanged)"),
 		bAppliedDrag ? *FString::SanitizeFloat(DragCoefficient) : TEXT("(unchanged)"));
+	Result.bSuccess = true;
+	return Result;
+}
+
+namespace
+{
+	AFGManta* FindMantaById(UWorld* World, const FString& MantaId)
+	{
+		for (TActorIterator<AFGManta> It(World); It; ++It)
+		{
+			if (IsValid(*It) && (*It)->GetPathName() == MantaId)
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
+
+	// AFGManta's tuning fields are private UPROPERTYs with no setters;
+	// reflection is the only non-invasive access. Scoped to AFGManta only.
+	float GetMantaFloat(const AFGManta* Manta, const TCHAR* PropName, float Fallback = 0.0f)
+	{
+		if (const FFloatProperty* Prop = FindFProperty<FFloatProperty>(AFGManta::StaticClass(), PropName))
+		{
+			return Prop->GetPropertyValue_InContainer(Manta);
+		}
+		return Fallback;
+	}
+	void SetMantaFloat(AFGManta* Manta, const TCHAR* PropName, float Value)
+	{
+		if (const FFloatProperty* Prop = FindFProperty<FFloatProperty>(AFGManta::StaticClass(), PropName))
+		{
+			Prop->SetPropertyValue_InContainer(Manta, Value);
+		}
+	}
+	bool GetMantaBool(const AFGManta* Manta, const TCHAR* PropName, bool Fallback = false)
+	{
+		if (const FBoolProperty* Prop = FindFProperty<FBoolProperty>(AFGManta::StaticClass(), PropName))
+		{
+			return Prop->GetPropertyValue_InContainer(Manta);
+		}
+		return Fallback;
+	}
+	void SetMantaBool(AFGManta* Manta, const TCHAR* PropName, bool Value)
+	{
+		if (const FBoolProperty* Prop = FindFProperty<FBoolProperty>(AFGManta::StaticClass(), PropName))
+		{
+			Prop->SetPropertyValue_InContainer(Manta, Value);
+		}
+	}
+}
+
+FString UAIModFunctionLibrary::LogMantasAsJson(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("LogMantasAsJson: no valid world context"));
+		return TEXT("{}");
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Arr;
+	for (TActorIterator<AFGManta> It(World); It; ++It)
+	{
+		AFGManta* M = *It;
+		if (!IsValid(M)) { continue; }
+		const TSharedRef<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("id"), M->GetPathName());
+		Obj->SetStringField(TEXT("class"), M->GetClass()->GetPathName());
+		Obj->SetObjectField(TEXT("position"), MakeVectorJson(M->GetActorLocation()));
+		Obj->SetNumberField(TEXT("currentTime"), M->GetCurrentTime());
+		Obj->SetNumberField(TEXT("secondsPerLoop"), GetMantaFloat(M, TEXT("mSecondsPerLoop")));
+		Obj->SetNumberField(TEXT("offsetMagnitude"), GetMantaFloat(M, TEXT("mOffsetMagnitude")));
+		Obj->SetBoolField(TEXT("tickTransform"), GetMantaBool(M, TEXT("mTickTransform")));
+		Obj->SetBoolField(TEXT("isClosedSplineLoop"), GetMantaBool(M, TEXT("mIsClosedSplineLoop")));
+		if (USplineComponent* Spline = M->GetSpline())
+		{
+			Obj->SetBoolField(TEXT("hasSpline"), true);
+			Obj->SetNumberField(TEXT("splineLength"), Spline->GetSplineLength());
+		}
+		else
+		{
+			Obj->SetBoolField(TEXT("hasSpline"), false);
+		}
+		Arr.Add(MakeShared<FJsonValueObject>(Obj));
+	}
+
+	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetNumberField(TEXT("protocolVersion"), 1);
+	Root->SetArrayField(TEXT("mantas"), Arr);
+	UE_LOG(LogAIModAI, Display, TEXT("LogMantasAsJson: %d manta(s)"), Arr.Num());
+	return WriteCondensedJson(Root);
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetManta(UObject* WorldContextObject, const FString& MantaId, bool bDespawn, bool bHasFreeze, bool bFreeze, float SecondsPerLoop, float CurrentTime)
+{
+	FAIModOperationResult Result;
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		Result.ErrorCode = TEXT("NO_WORLD");
+		Result.ErrorMessage = TEXT("No valid world context");
+		return Result;
+	}
+
+	AFGManta* Manta = FindMantaById(World, MantaId);
+	if (!Manta)
+	{
+		Result.ErrorCode = TEXT("TARGET_NOT_FOUND");
+		Result.ErrorMessage = FString::Printf(TEXT("No AFGManta with id '%s' (ids from world.mantas)"), *MantaId);
+		return Result;
+	}
+
+	if (bDespawn)
+	{
+		const FString Id = Manta->GetPathName();
+		Manta->Destroy();
+		UE_LOG(LogAIModAI, Display, TEXT("SetManta: despawned %s (session-only; returns on reload)"), *Id);
+		Result.bSuccess = true;
+		return Result;
+	}
+
+	if (bHasFreeze)
+	{
+		// mTickTransform true = advances along spline; false = frozen.
+		SetMantaBool(Manta, TEXT("mTickTransform"), !bFreeze);
+	}
+	if (SecondsPerLoop > 0.0f)
+	{
+		SetMantaFloat(Manta, TEXT("mSecondsPerLoop"), SecondsPerLoop);
+	}
+	if (CurrentTime >= 0.0f)
+	{
+		SetMantaFloat(Manta, TEXT("mCurrentTime"), CurrentTime);
+	}
+
+	const TSharedRef<FJsonObject> Detail = MakeShared<FJsonObject>();
+	Detail->SetStringField(TEXT("mantaId"), Manta->GetPathName());
+	Detail->SetBoolField(TEXT("tickTransform"), GetMantaBool(Manta, TEXT("mTickTransform")));
+	Detail->SetNumberField(TEXT("secondsPerLoop"), GetMantaFloat(Manta, TEXT("mSecondsPerLoop")));
+	Detail->SetNumberField(TEXT("currentTime"), Manta->GetCurrentTime());
+	Result.ResultDetailJson = WriteCondensedJson(Detail);
+	UE_LOG(LogAIModAI, Display, TEXT("SetManta: %s updated"), *Manta->GetPathName());
+	Result.bSuccess = true;
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SpawnManta(UObject* WorldContextObject, const FString& SourceMantaId, float TimeOffsetSeconds)
+{
+	FAIModOperationResult Result;
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		Result.ErrorCode = TEXT("NO_WORLD");
+		Result.ErrorMessage = TEXT("No valid world context");
+		return Result;
+	}
+
+	// Source manta: explicit id, else the first one in the world.
+	AFGManta* Source = nullptr;
+	if (!SourceMantaId.IsEmpty())
+	{
+		Source = FindMantaById(World, SourceMantaId);
+	}
+	else
+	{
+		for (TActorIterator<AFGManta> It(World); It; ++It)
+		{
+			if (IsValid(*It)) { Source = *It; break; }
+		}
+	}
+	if (!Source)
+	{
+		Result.ErrorCode = TEXT("TARGET_NOT_FOUND");
+		Result.ErrorMessage = TEXT("No source AFGManta to copy a spline path from (need an existing manta)");
+		return Result;
+	}
+
+	// Copy the spline-path object ref via reflection so the new manta
+	// flies the SAME route.
+	const FObjectProperty* SplinePathProp = FindFProperty<FObjectProperty>(AFGManta::StaticClass(), TEXT("mSplinePath"));
+	UObject* SplinePath = SplinePathProp ? SplinePathProp->GetObjectPropertyValue_InContainer(Source) : nullptr;
+	if (!SplinePath)
+	{
+		Result.ErrorCode = TEXT("OPERATION_FAILED");
+		Result.ErrorMessage = TEXT("Source manta has no mSplinePath to share (cannot spawn a routeless manta)");
+		return Result;
+	}
+
+	// Deferred spawn of the source's OWN class (its BP subclass carries
+	// the mesh) so we can set mSplinePath BEFORE BeginPlay caches it.
+	const FTransform SpawnTransform(Source->GetActorRotation(), Source->GetActorLocation());
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AFGManta* NewManta = World->SpawnActorDeferred<AFGManta>(Source->GetClass(), SpawnTransform,
+		nullptr, nullptr, ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (!NewManta)
+	{
+		Result.ErrorCode = TEXT("OPERATION_FAILED");
+		Result.ErrorMessage = TEXT("SpawnActorDeferred returned null");
+		return Result;
+	}
+	if (SplinePathProp)
+	{
+		SplinePathProp->SetObjectPropertyValue_InContainer(NewManta, SplinePath);
+	}
+	SetMantaFloat(NewManta, TEXT("mSecondsPerLoop"), GetMantaFloat(Source, TEXT("mSecondsPerLoop")));
+	const float Loop = FMath::Max(1.0f, GetMantaFloat(Source, TEXT("mSecondsPerLoop"), 900.0f));
+	float NewTime = Source->GetCurrentTime() + TimeOffsetSeconds;
+	NewTime = FMath::Fmod(FMath::Max(0.0f, NewTime), Loop);
+	SetMantaFloat(NewManta, TEXT("mCurrentTime"), NewTime);
+	UGameplayStatics::FinishSpawningActor(NewManta, SpawnTransform);
+
+	const TSharedRef<FJsonObject> Detail = MakeShared<FJsonObject>();
+	Detail->SetStringField(TEXT("sourceMantaId"), Source->GetPathName());
+	Detail->SetNumberField(TEXT("timeOffsetSeconds"), TimeOffsetSeconds);
+	Result.ResultDetailJson = WriteCondensedJson(Detail);
+	Result.ResultBuildableId = NewManta->GetPathName();
+	UE_LOG(LogAIModAI, Display, TEXT("SpawnManta: spawned %s sharing %s's spline (EXPERIMENTAL; session-only)"),
+		*NewManta->GetPathName(), *Source->GetPathName());
 	Result.bSuccess = true;
 	return Result;
 }

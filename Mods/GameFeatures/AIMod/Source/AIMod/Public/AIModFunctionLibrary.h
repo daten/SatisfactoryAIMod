@@ -380,6 +380,51 @@ public:
 	static FAIModOperationResult SetVehicleEngineParams(UObject* WorldContextObject, const FString& VehicleId, float MaxEngineTorque, float DragCoefficient);
 
 	/**
+	 * world.mantas (added 2026-09-19, explicit user request) - the Giant
+	 * Flying Manta is `AFGManta` (FGManta.h): a plain AActor (NOT an
+	 * AFGCreature, which is why world.creatures never saw it) that flies a
+	 * spline path (mSplinePath/mCachedSpline) advanced by a replicated
+	 * timer mCurrentTime looping every mSecondsPerLoop (default 900s = a
+	 * 15-min circuit); UpdateManta() repositions it each tick. Enumerable
+	 * via TActorIterator<AFGManta>. Reports id/class/position, currentTime
+	 * (public getter), and secondsPerLoop/offsetMagnitude/tickTransform/
+	 * isClosedSplineLoop (private UPROPERTYs read via reflection) plus
+	 * spline length (GetSpline()).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMantasAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setManta - manipulate an existing Giant Flying Manta by id:
+	 *   - despawn: Destroy() the actor (session-only, returns on reload)
+	 *   - freeze: toggle mTickTransform (false = stop advancing along the
+	 *     spline, so it holds position; true = resume)
+	 *   - secondsPerLoop: change lap time (smaller = faster; <=0 = unchanged)
+	 *   - currentTime: scrub it to a point on its route (0..secondsPerLoop;
+	 *     <0 = unchanged)
+	 * All non-despawn edits are private-UPROPERTY writes via reflection,
+	 * scoped to AFGManta only (not generic actor manipulation).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetManta(UObject* WorldContextObject, const FString& MantaId, bool bDespawn, bool bHasFreeze, bool bFreeze, float SecondsPerLoop, float CurrentTime);
+
+	/**
+	 * world.spawnManta - spawn another manta that shares an EXISTING
+	 * manta's spline path (a whole flock on the same route). Spawns an
+	 * actor of the source manta's own class (its BP subclass, which
+	 * carries the mesh) via deferred spawn so mSplinePath is set BEFORE
+	 * BeginPlay caches the spline, copies mSecondsPerLoop, and offsets
+	 * mCurrentTime by TimeOffsetSeconds so it trails/leads the original.
+	 * EXPERIMENTAL / NOT-LIVE-TESTED: BeginPlay/UpdateManta are BP-driven
+	 * (C++ stubs here), so whether a deferred-spawned copy correctly
+	 * caches the shared spline and flies needs live verification. Spawning
+	 * on a brand-new path is NOT supported (would need creating an
+	 * AFGSplinePath). Session-only.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SpawnManta(UObject* WorldContextObject, const FString& SourceMantaId, float TimeOffsetSeconds);
+
+	/**
 	 * Enumerates all placed AFGBuildable actors (PLAN.md Phase 10,
 	 * "buildings"). Tries AFGBuildableSubsystem::GetAllBuildablesRef()
 	 * first (a real public getter exists, per

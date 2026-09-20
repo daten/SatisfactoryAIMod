@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **117 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **120 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -35,6 +35,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
 - **`world.itemCatalog`** — All item descriptors.  
   params: `(none)`
 - **`world.mamStatus`** — M.A.M. research status (ongoing/completed/hard drives).  
+  params: `(none)`
+- **`world.mantas`** — List Giant Flying Mantas (AFGManta): id, class, position, currentTime, secondsPerLoop (lap time), tickTransform, spline length. Not creatures - own actor class.  
   params: `(none)`
 - **`world.manufacturers`** — List production machines with recipe, clock, and inventories.  
   params: `(none)`
@@ -212,6 +214,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.setDamageVolumeEnabled`** — Enable/disable a damage volume's DOT+collision (reversible; session-only, resets on save load).  
   params: `volumeId:string, enabled:bool`
+- **`world.setManta`** — Manipulate a manta by id: despawn, freeze (stop on its path), secondsPerLoop (lap speed), or currentTime (scrub along route). Session-only.  
+  params: `mantaId:string, despawn:bool?, freeze:bool?, secondsPerLoop:number?, currentTime:number?`
 - **`world.setPowerSwitchOn`** — Turn a power switch on/off.  
   params: `buildableId:string, switchOn:bool`
 - **`world.setPriorityPowerSwitchPriority`** — Set a priority power switch's priority group.  
@@ -238,6 +242,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `recipeClass:string`
 - **`world.spawnCreature`** — Spawn a creature (gated by the AllowCreatureSpawning mod setting).  
   params: `creatureClass:string, distanceFromPlayer:number?, scale:number?`
+- **`world.spawnManta`** — Spawn another manta sharing an existing manta's spline path, offset by timeOffsetSeconds (a flock on one route). EXPERIMENTAL, session-only.  
+  params: `(none)`
 - **`world.startMamResearch`** — Start a M.A.M. research node.  
   params: `schematicClass:string, researchTreeClass:string, dryRun:bool?`
 - **`world.teleportPlayer`** — Teleport the local player to (x,y,z) (+optional yaw). Use to satisfy camera-distance-sensitive connect/place calls.  

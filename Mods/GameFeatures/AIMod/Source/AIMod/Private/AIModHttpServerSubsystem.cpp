@@ -2065,6 +2065,50 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Giant Flying Manta control (2026-09-19). See SetManta/SpawnManta docs.
+	if (Method == TEXT("world.setManta"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+		FString MantaId;
+		if (!ParamsObject->TryGetStringField(TEXT("mantaId"), MantaId) || MantaId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.mantaId must be a non-empty string (from world.mantas)")));
+			return true;
+		}
+		bool bDespawn = false;
+		ParamsObject->TryGetBoolField(TEXT("despawn"), bDespawn);
+		bool bFreeze = false;
+		const bool bHasFreeze = ParamsObject->TryGetBoolField(TEXT("freeze"), bFreeze);
+		double SecondsPerLoop = -1.0, CurrentTime = -1.0;
+		ParamsObject->TryGetNumberField(TEXT("secondsPerLoop"), SecondsPerLoop);
+		ParamsObject->TryGetNumberField(TEXT("currentTime"), CurrentTime);
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetManta(GetGameInstance(), MantaId,
+			bDespawn, bHasFreeze, bFreeze, static_cast<float>(SecondsPerLoop), static_cast<float>(CurrentTime));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.spawnManta"))
+	{
+		FString SourceMantaId;
+		double TimeOffsetSeconds = 0.0;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetStringField(TEXT("sourceMantaId"), SourceMantaId);
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("timeOffsetSeconds"), TimeOffsetSeconds);
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SpawnManta(GetGameInstance(), SourceMantaId, static_cast<float>(TimeOffsetSeconds));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
 	// "world.testPowerConnection" (dry run, never touches the save) and
 	// "world.connectPower" (real - see
@@ -2737,6 +2781,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	else if (Method == TEXT("world.projectAssembly"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogProjectAssemblyAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.mantas"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMantasAsJson(GetGameInstance());
 	}
 	else if (Method == TEXT("world.probeHazard"))
 	{
