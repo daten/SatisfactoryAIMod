@@ -107,7 +107,7 @@ no `params` at all — noted where one does.
 ```
 Local player character's position/rotation.
 
-### `world.teleportPlayer` — `{ "x": float, "y": float, "z"?: float, "ignoreGroundTrace"?: bool, "yaw"?: float }`, **NOT YET LIVE-TESTED**
+### `world.teleportPlayer` — `{ "x": float, "y": float, "z"?: float, "ignoreGroundTrace"?: bool, "yaw"?: float }`, live-verified 2026-09-07
 ```json
 { "success": true }
 ```
@@ -148,7 +148,7 @@ picked a genuinely clear spot rather than that separate mechanism.
 { "protocolVersion": 1, "hour": 10, "minute": 30, "daySeconds": 37800.0, "isDay": true }
 ```
 
-### `world.mapMarkerIcons` — no params, **NOT YET LIVE-TESTED**
+### `world.mapMarkerIcons` — no params, live-verified 2026-09-07
 ```json
 { "protocolVersion": 1, "icons": [ { "iconId": 0, "name": "...", "animated": false } ] }
 ```
@@ -174,7 +174,7 @@ has an explicit async-initialization step (`IsInitialized()`/
 by the time this call is likely to be made (well after a save has
 loaded).
 
-### `world.mapMarkers` — no params, **NOT YET LIVE-TESTED**
+### `world.mapMarkers` — no params, live-verified 2026-09-07
 ```json
 { "protocolVersion": 1, "markers": [ { "id": "...", "name": "...", "categoryName": "", "iconId": 0, "mapMarkerType": "RT_Default", "position": {"x":0,"y":0,"z":0}, "color": {"r":1,"g":1,"b":1}, "scale": 1.0, "compassViewDistance": "Off" } ] }
 ```
@@ -187,7 +187,7 @@ has 22 real values (`FGActorRepresentation.h`), and transcribing all of
 them by hand is real transcription-error risk for no benefit over the
 engine's own reflection data.
 
-### `world.placeMapMarker` — `{ "x": float, "y": float, "iconId": int, "z"?: float, "ignoreGroundTrace"?: bool, "name"?: string, "colorR"?: float, "colorG"?: float, "colorB"?: float, "scale"?: float, "compassViewDistance"?: string }`, **NOT YET LIVE-TESTED**
+### `world.placeMapMarker` — `{ "x": float, "y": float, "iconId": int, "z"?: float, "ignoreGroundTrace"?: bool, "name"?: string, "colorR"?: float, "colorG"?: float, "colorB"?: float, "scale"?: float, "compassViewDistance"?: string }`, live-verified 2026-09-07
 ```json
 { "success": true, "result": { "detail": { "markerId": "..." } } }
 ```
@@ -229,7 +229,7 @@ mainly useful for a caller that only knows `x`/`y`, so the marker still
 gets a sensible elevation for 3D compass-ping rendering (a map marker
 has no collision to avoid, unlike a teleport destination).
 
-### `world.removeMapMarker` — `{ "markerId": string }`, **NOT YET LIVE-TESTED**
+### `world.removeMapMarker` — `{ "markerId": string }`, live-verified 2026-09-07
 ```json
 { "success": true }
 ```
@@ -411,7 +411,7 @@ Same shape as `conveyorBeltTiers`, for `Recipe_ConveyorLiftMk1`..`Mk6`.
 ```
 Flat object (only one power line tier exists), all lengths in cm.
 
-### `world.powerPoles` — no params, **NOT YET LIVE-TESTED**
+### `world.powerPoles` — no params, live-verified 2026-09-07
 ```json
 { "protocolVersion": 1, "powerPoles": [ { "id": "...", "buildableClass": "...", "powerPoleType": "PowerTower", "hasPower": true, "powerTowerWireMaxLength": 30000.0, "connections": [ { "powerConnectionType": "PowerTower", "numFreeConnections": 1 }, { "powerConnectionType": "Default", "numFreeConnections": 1 } ] } ] }
 ```
@@ -435,7 +435,7 @@ expected to report TWO entries here** (one `PowerTower`, one
 `GetPowerTowerWireMaxLength()` — reported as `0` for non-Tower poles,
 where it isn't meaningful.
 
-### `world.priorityPowerSwitches` — no params, **NOT YET LIVE-TESTED**
+### `world.priorityPowerSwitches` — no params, live-verified 2026-09-07 (config round-trips; actual load-shedding under a real power shortage not yet observed — see `docs/test-backlog.md`)
 ```json
 { "protocolVersion": 1, "prioritySwitches": [ { "id": "...", "buildableClass": "...", "priority": 0, "isSwitchOn": true, "isSwitchConnected": true, "hasBuildingTag": false, "buildingTag": "", "switchName": "", "circuitGroupID0": 3, "circuitGroupID1": 7 } ] }
 ```
@@ -462,7 +462,7 @@ Blueprint of its own — almost certainly just the source art used by
 `Build_PriorityPowerSwitch`, not a distinct buildable. Treat "Smart"
 and "Priority" Power Switch as the same real thing.
 
-### `world.setPowerSwitchOn` — `{"buildableId", "switchOn"}`, **NOT YET LIVE-TESTED**
+### `world.setPowerSwitchOn` — `{"buildableId", "switchOn"}`, live-verified 2026-09-07
 ```json
 { "success": true, "result": { "detail": { "wasOn": true, "isOn": false } } }
 ```
@@ -476,7 +476,7 @@ Priority Power Switch's on/off control genuinely is
 `AFGBuildableCircuitSwitch::SetSwitchOn` with no priority-specific
 override.
 
-### `world.setPriorityPowerSwitchPriority` — `{"buildableId", "priority"}`, **NOT YET LIVE-TESTED**
+### `world.setPriorityPowerSwitchPriority` — `{"buildableId", "priority"}`, live-verified 2026-09-07
 ```json
 { "success": true, "result": { "detail": { "oldPriority": 0, "newPriority": 5 } } }
 ```
@@ -500,7 +500,7 @@ throughput cap regardless of how many pumps are attached; exceeding it
 needs genuinely parallel pipes (see `required_parallel_pipes` in
 `controller/satisfactory_ai/pipes.py`).
 
-### `world.pipelinePumpTiers` — no params, **NOT YET LIVE-TESTED**
+### `world.pipelinePumpTiers` — no params, live-verified 2026-09-07
 ```json
 { "protocolVersion": 1, "tiers": [ { "kind": "Pump", "recipeClass": "...Recipe_PipelinePump_C", "buildableClass": "...", "maxHeadLift": 0.0, "designHeadLift": 0.0, "defaultFlowLimit": 0.0 } ] }
 ```
@@ -533,7 +533,7 @@ setters on the same class, a natural next addition if throttling a real
 build becomes relevant). All fields come from real public
 `BlueprintPure` getters — no reflection needed.
 
-### `world.pipeReservoirTiers` — no params, **NOT YET LIVE-TESTED**
+### `world.pipeReservoirTiers` — no params, live-verified 2026-09-07
 ```json
 { "protocolVersion": 1, "tiers": [ { "recipeClass": "...Recipe_PipeStorageTank_C", "buildableClass": "...", "maxContentM3": 0.0, "flowLimit": 0.0 } ] }
 ```
@@ -570,8 +570,9 @@ this** — confirmed from source: gas has a fully separate physics path
 elevation/pressure-group tracking equivalent at all.
 
 `controller/satisfactory_ai/pipes.py` has four new deterministic
-calculators for this (2026-08-31, NOT YET LIVE-TESTED but unit-checked
-with sample values): `required_parallel_pipes` (flow budget — how many
+calculators for this (2026-08-31, unit-checked with sample values and
+since exercised on real pump→tank runs; only the steep-vertical-run
+case remains open — see `docs/test-backlog.md`): `required_parallel_pipes` (flow budget — how many
 parallel pipes to carry a total rate through one tier),
 `max_producers_per_pipe` (inverse — how many equal-rate producers, e.g.
 identical Water Extractors, can share one pipe before it needs to
@@ -582,7 +583,7 @@ elevation gain). All are pure toolkit functions on already-known
 numbers — same "answers one question, doesn't plan a route" posture as
 the rest of the module — and explicitly do NOT apply to gas.
 
-### `world.trainCargoPlatforms` — no params, **NOT YET LIVE-TESTED**
+### `world.trainCargoPlatforms` — no params, live-verified 2026-09-18 (`inflowRate`/`outflowRate` never yet observed on an actively-loading platform — see `docs/test-backlog.md`)
 ```json
 { "protocolVersion": 1, "platforms": [ { "id": "...", "buildableClass": "...", "freightCargoType": "Liquid", "outflowRate": 0.0, "inflowRate": 0.0, "isInLoadMode": false, "isLoadUnloading": false, "isFullLoad": false, "isFullUnload": false, "dockedVehicleId": "" } ] }
 ```
@@ -629,7 +630,7 @@ fallback, 2026-08-29). A genuinely open, separate future addition for
 freight wagons specifically (their own cargo type, inventory contents,
 fluid stack size) — not done here.
 
-### `world.truckStations` — no params, **NOT YET LIVE-TESTED**
+### `world.truckStations` — no params, live-verified 2026-08-31 (Solid stations; the `resourceForm: "Liquid"` case is still untested — see `docs/test-backlog.md`)
 ```json
 { "protocolVersion": 1, "truckStations": [ { "id": "...", "buildableClass": "...", "resourceForm": "Liquid", "currentFluidDescriptor": "", "isInLoadMode": true, "isLoadUnloading": false, "loadUnloadCycleProgress": 0.0, "loadUnloadCycleLength": 10.0, "vehicleFuelConsumptionRate": 0.0, "itemTransferRate": 0.0, "maximumStackTransferRate": 0.0, "dockedVehicleId": "", "dockedVehicleClass": "" } ] }
 ```
@@ -685,7 +686,7 @@ yet). Fluid-truck-specific inventory (tank slot capacity per vehicle,
 not yet exposed — same posture as freight-wagon-level telemetry being
 deferred for `world.trainCargoPlatforms`.
 
-### `world.pipeFluidBoxes` — no params, **NOT YET LIVE-TESTED**
+### `world.pipeFluidBoxes` — no params, live-verified 2026-09-07
 ```json
 { "protocolVersion": 1, "pipes": [ { "id": "...", "lengthCm": 0.0, "contentM3": 0.0, "maxContentM3": 0.0, "fillPct": 0.0, "maxOverfillPct": 0.4, "flowThrough": 0.0, "flowFill": 0.0, "flowDrain": 0.0, "flowLimit": 0.0, "pressureColumn": 0.0, "elevationPressureColumn": 0.0, "addedPressure": 0.0, "pressureGroup": -1, "z": 0.0 } ] }
 ```
@@ -740,7 +741,7 @@ for Smart/Programmable Splitter — see `world.splitterSortRules`/
 `world.setSplitterSortRules` below, added 2026-08-31, for the actual
 read/write support that line used to say didn't exist yet.
 
-### `world.splitterSortRules` — no params, **NOT YET LIVE-TESTED**
+### `world.splitterSortRules` — no params, live-verified 2026-09-07
 ```json
 { "protocolVersion": 1, "splitters": [ { "id": "...", "buildableClass": "...", "maxNumSortRules": 3, "sortRules": [ { "outputIndex": 0, "itemClass": "...Desc_IronPlate_C", "itemName": "Iron Plate", "isWildcard": false }, { "outputIndex": 1, "itemClass": "...UFGWildCardDescriptor", "itemName": "", "isWildcard": true } ] } ] }
 ```
@@ -763,7 +764,7 @@ may want either signal. `FSplitterSortRule` only has `ItemClass`/
 `OutputIndex` in source — no separate "Overflow"/"None" concept exists
 in the data model beyond that pairing.
 
-### `world.setSplitterSortRules` — `{"buildableId", "rules": [{"outputIndex", "itemClass"}]}`, **NOT YET LIVE-TESTED**
+### `world.setSplitterSortRules` — `{"buildableId", "rules": [{"outputIndex", "itemClass"}]}`, live-verified 2026-09-07 (see `docs/splitter-port-control-test.md`)
 ```json
 { "success": true, "result": { "detail": { "numRules": 2 } } }
 ```
@@ -888,7 +889,7 @@ including any active customization cost. `isAvailable`/`relevantEvents`
 buildable (e.g. a FICSMAS tree/wreath) is still listed here year-round
 with `isAvailable: false` outside its event.
 
-### `world.activeEvents` — no params, **NOT YET LIVE-TESTED**
+### `world.activeEvents` — no params, live-verified 2026-09-07
 ```json
 { "protocolVersion": 1, "events": [ { "event": "Christmas", "isActive": false }, { "event": "Anniversary", "isActive": false }, { "event": "CSSBirthday", "isActive": false }, { "event": "FirstOfApril", "isActive": false } ] }
 ```
@@ -1124,12 +1125,11 @@ fit) and `newMaxPotentialPercent` (the new overclock ceiling after
 insertion — re-check this, or `world.setClockSpeed`'s own valid-range
 error text, rather than assuming a fixed percent per shard).
 
-**Not yet live-tested.** The real default shard-slot count per building
-(when `world.buildableCatalog`'s `overridesShardSlotCount` is `false`,
-which is the normal case) and the exact overclock percent granted per
-shard are both real values this project hasn't confirmed live yet —
-confirm both before relying on a specific shard count/clock ceiling for
-a real build.
+Live-verified 2026-09-07 — shard insertion works, and it confirmed that
+`world.setClockSpeed`'s >100% ceiling really is shard-gated. Still
+re-check `newMaxPotentialPercent` (or `world.setClockSpeed`'s own
+valid-range error text) after inserting rather than assuming a fixed
+percent per shard or a fixed slot count per building.
 
 ### `world.setRecipe`
 `params: {"buildableId", "recipeClass"}`. Errors: `TARGET_NOT_FOUND`,
@@ -1243,12 +1243,12 @@ likely `Static` component mobility applied once a buildable is placed,
 silently refusing runtime rotation — the warning for this is typically
 compiled out of Shipping builds, which is why nothing showed in the
 log). Use `world.connectConveyorLift`'s `freeEndRotationSteps` param
-instead for lifts. This RPC's real behavior on OTHER buildable types
-(especially ones without a hologram-only rotation constraint) is
-unconfirmed — don't assume it works elsewhere just because it failed
-here.
+instead for lifts. On other buildable types (live-verified 2026-09-07):
+works on plain machines, but **fails on lightweight buildables**
+(foundations etc.) — same limitation as `world.setBuildableColor`. A
+lift with one CONNECTED end is still untested (see `docs/test-backlog.md`).
 
-### `world.setBuildableColor` — **NOT YET LIVE-TESTED**
+### `world.setBuildableColor` — live-verified 2026-09-07 (**fails on lightweight buildables** — foundations etc.)
 `params: {"buildableId", "primaryR", "primaryG", "primaryB", "secondaryR" (optional), "secondaryG" (optional), "secondaryB" (optional)}`.
 Sets a buildable's paint color directly, bypassing the normal
 swatch-picker UI — works on any `AFGBuildable`, not just pipes, added
@@ -1282,11 +1282,11 @@ choice, only the color.
 
 Validates `GetCanBeColored_Native()` first and refuses with
 `NOT_COLORABLE` if false, rather than calling the setter on something
-the game itself says shouldn't be painted. **Real open question, not
-yet confirmed live**: whether setting `ColorSlot=INDEX_CUSTOM_COLOR_SLOT`
-is really sufficient on its own for the visual change to actually
-appear (vs. needing some other field combination) — inferred from the
-constant's own doc comment, not observed live.
+the game itself says shouldn't be painted. Confirmed live 2026-09-07:
+setting `ColorSlot=INDEX_CUSTOM_COLOR_SLOT` is sufficient on its own for
+the visual change to appear on normal `AFGBuildable`s. Lightweight
+buildables (foundations etc.) are the exception — the call does not
+take effect on them.
 
 ### `world.setTimeOfDay`
 `params: {"hour" (0-23, required), "minute" (0-59, optional, default 0)}`.
@@ -1307,7 +1307,7 @@ recipe's own resolved buildable class (matching the lightweight-
 buildable branch, which always did this); an unresolvable class falls
 back to the old any-class behavior with a warning in the log. The same
 fix applies to `world.placeExtractor` (extractor-class filter). Fixed
-in source, NOT yet live-tested.
+in source and live-confirmed in subsequent builds.
 
 `params`:
 - `recipeClass` (required) — a real building recipe path.
@@ -1342,7 +1342,8 @@ in source, NOT yet live-tested.
   embedded into whichever foundation height was under them (user-visible
   "machines embedded inside foundations"). Under `ignoreGroundTrace` the
   hologram is now forced back to the exact `(x,y,z)` every tick, so a
-  flat platform built at a single z really is flat. NOT YET LIVE-TESTED. The ground trace is unreliable
+  flat platform built at a single z really is flat — live-confirmed in
+  every flat-platform build since. The ground trace is unreliable
   in two confirmed ways this exists to route around: at an exact
   foundation-tile edge it can non-deterministically find either the real
   top surface or unrelated lower terrain, and above open interior space
@@ -1389,7 +1390,7 @@ for it to find. See `world.waterVolumes`/
 `world.constructWaterPumpNearReference` below for real water pump
 support.
 
-### `world.waterVolumes` — no params, **NOT YET LIVE-TESTED**
+### `world.waterVolumes` — no params, live-verified 2026-09-07
 ```json
 { "protocolVersion": 1, "waterVolumes": [ { "id": "...", "position": {"x":0,"y":0,"z":0}, "bounds": { "min": {"x":0,"y":0,"z":0}, "max": {"x":0,"y":0,"z":0}, "size": {"x":0,"y":0,"z":0} }, "isOccupied": false, "canBecomeOccupied": true, "canPlaceResourceExtractor": true, "hasAnyResources": true, "resourceClass": "...Desc_Water_C" } ] }
 ```
@@ -1554,9 +1555,9 @@ a public function but is not yet exposed here) before it will fly a route
 instead of `world.placeBuilding`), `TARGET_NOT_FOUND` (bad
 `droneStationId`), `HOLOGRAM_SPAWN_FAILED` (recipe did not actually
 resolve to a vehicle), `CANNOT_CONSTRUCT`, `CONSTRUCTION_UNCONFIRMED`,
-`MISSING_REFERENCE_Z`. **Not yet live-tested** — implemented from source
-research (hologram class hierarchy, disqualifier classes), not confirmed
-against a real build.
+`MISSING_REFERENCE_Z`. Live-verified 2026-09-07 (drone construction and
+station-pairing PoC); trucks and train rolling stock have been built
+via RPC since.
 
 ### `world.placePortableMiner` — asynchronous, `result.buildableId` on success
 `params: {"nodeId" (required, must be a real solid ore node, not a
@@ -1744,8 +1745,10 @@ joint decision over both buildables — an exact `powerConnectionType`
 match is tried first (so two Towers in range of each other correctly
 pair their `PowerTower` connectors, and everything else pairs `Default`
 to `Default`), falling back to any pairing where at least one side is
-the real `Any` wildcard type. **Not yet live-tested** — the bug itself
-was found and fixed from source, not reproduced live first.
+the real `Any` wildcard type. Tower↔Tower and Default↔Default pairings
+have been live-verified in factory builds since; the mixed cases
+(Tower→ordinary pole on the short-range side, machine against a tower)
+remain unverified — see `docs/test-backlog.md`.
 
 **Two separate real length limits for a tower-to-tower connection**:
 `world.powerLineLimits`' `maxPowerTowerLength` (a property of the
@@ -2058,7 +2061,8 @@ existing track segment's open end). Real numeric limits from source
 grade 25°. Deliberately point-to-point only — switches (3+ track pieces
 meeting at one point) and signals are out of scope; the disqualifiers for
 too-long/too-short/too-steep/too-sharp-a-turn are never bypassed by this
-call. **Not yet live-tested.**
+call. Live-verified 2026-09-18 — a full RPC-built circular track now runs
+a self-driving train loop (see `docs/vehicle-placement-guide.md` §3).
 
 ### `world.constructVehiclePathSegment` — asynchronous, `result.buildableId` on success
 `params: {"recipeClass" (required), "startX"/"startY" (required numbers),
@@ -2073,13 +2077,11 @@ Passing a point within ~8 m of an existing path node/segment lets it snap
 into that network instead of creating a new one. Recipe paths live under
 `Content/FactoryGame/Buildable/Vehicle/{Explorer,Golfcart,Tractor,Truck}/`
 per vehicle type, plus a universal variant — query `world.recipeCatalog`
-for the exact path. Does **not** cover assigning a built vehicle to
-auto-drive a route over the segments you build — that's a separate,
-not-yet-exposed capability (real source API exists:
-`AFGWheeledVehicleIdentifier::SetVehicleRoute`/`AddWaypoint`/
-`SetAutopilotEnabled`). **Not yet live-tested.**
+for the exact path. Assigning a built vehicle to auto-drive a route over
+the segments is a separate call, `world.setTruckAutopilot` (added
+2026-09-19 — see `world.help`). Both live-verified 2026-09-19.
 
-### `world.constructBeam` — asynchronous, **NOT YET LIVE-TESTED**
+### `world.constructBeam` — asynchronous, live-verified 2026-09-07
 `params: {"recipeClass" (required), "startX"/"startY"/"endX"/"endY"
 (required numbers), "startZ"/"endZ" (optional), "ignoreGroundTrace"
 (optional bool), "freeformMode" (optional bool, default false),
@@ -2132,7 +2134,7 @@ the hologram to the recipe's real max length (not independently
 validated here — a too-long request should surface as a real construct
 disqualifier).
 
-### `world.constructStackableSupport` — asynchronous, `result.buildableId` on success, **NOT YET LIVE-TESTED**
+### `world.constructStackableSupport` — asynchronous, `result.buildableId` on success, live-verified 2026-08-31 (single placements; the `stackCount >= 2` single-call Zoop path is still untested — see `docs/test-backlog.md`)
 `params: {"recipeClass" (required), "x"/"y" (required numbers), "z" (optional), "ignoreGroundTrace" (optional bool), "stackCount" (optional, default 0)}`
 
 Added 2026-08-31 per explicit user follow-up ("if we don't already
@@ -2251,7 +2253,7 @@ delete+rebuild at the same spot) — cross-check
 `result.detail.buildableIds` or a before/after `world.buildables` diff
 rather than trusting `buildableId` alone in a dense column.
 
-### `world.setBeamLength` — `{"buildableId", "newLength"}`, **NOT YET LIVE-TESTED**
+### `world.setBeamLength` — `{"buildableId", "newLength"}`, live-verified 2026-09-07 (save/reload persistence of the changed length not yet checked — see `docs/test-backlog.md`)
 ```json
 { "success": true, "result": { "detail": { "oldLength": 800.0, "newLength": 1600.0, "maxLength": 2400.0 } } }
 ```
