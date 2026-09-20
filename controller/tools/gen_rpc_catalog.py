@@ -186,15 +186,32 @@ def parse():
                 methods[nm] = {"method": nm, "category": cat, "params": list(params.values())}
     return dict(sorted(methods.items()))
 
+# Methods gated behind the "Allow Creative Features" mod setting (off by
+# default) - see UAIModHttpServerSubsystem::HandleRpcRequest's creative gate.
+# Kept in sync with the CreativeMethods set there. world.help flags these so a
+# source-less agent knows they return CREATIVE_DISABLED unless the player opts in.
+CREATIVE_METHODS = {
+    "world.addItemsToPlayerInventory", "world.addItemsToInventory",
+    "world.reprocessMilestone", "world.setActiveEvent",
+    "world.setProjectAssemblyHeight", "world.setProjectAssemblyVisualPhase",
+    "world.spawnManta", "world.setManta",
+    "world.setDamageVolumeEnabled", "world.despawnDamageVolume",
+    "world.setVehicleEngineParams",
+}
+
 def build_catalog(methods):
     entries = []
     for nm, info in methods.items():
-        entries.append({
+        summary = SUMMARIES.get(nm, "")
+        entry = {
             "method": nm,
             "category": info["category"],
-            "summary": SUMMARIES.get(nm, ""),
+            "summary": summary + (" [creative: requires the 'Allow Creative Features' mod setting]" if nm in CREATIVE_METHODS else ""),
             "params": info["params"],
-        })
+        }
+        if nm in CREATIVE_METHODS:
+            entry["creative"] = True
+        entries.append(entry)
     return {"protocolVersion": 1, "methodCount": len(entries), "methods": entries}
 
 def emit_cpp(cat):

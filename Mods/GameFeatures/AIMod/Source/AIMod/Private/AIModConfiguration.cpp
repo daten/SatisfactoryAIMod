@@ -189,4 +189,27 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	AllowSpawningAlienArtifacts->DefaultValue = false;
 	AllowSpawningAlienArtifacts->Value = false;
 	Section->SectionProperties.Add(TEXT("AllowSpawningAlienArtifacts"), AllowSpawningAlienArtifacts);
+
+	// Creative-features master switch (2026-09-20, public-release safety).
+	// Off by default: gates the RPCs with no legitimate in-game equivalent
+	// - free item injection, milestone-achievement re-fire, seasonal-event
+	// forcing, and world/entity manipulation (space station height/phase,
+	// Giant Flying Mantas, map hazard volumes, vehicle engine tuning). A
+	// default install is telemetry + real-material-cost construction only,
+	// so it doesn't hand players a cheat menu they didn't ask for. Enforced
+	// centrally in UAIModHttpServerSubsystem::HandleRpcRequest (covers
+	// batched sub-ops too). An external RPC caller can never enable this;
+	// only the player, here. NOTE: this mod still affects achievement/save
+	// integrity in general - disclose that on the mod page regardless.
+	UConfigPropertyBool* AllowCreativeFeatures = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("AllowCreativeFeatures"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
+	AllowCreativeFeatures->DisplayName = FText::FromString(TEXT("Allow Creative Features (cheats)"));
+	AllowCreativeFeatures->Tooltip = FText::FromString(TEXT(
+		"Off by default. Enables the RPC commands that have no normal in-game equivalent and act as cheats: "
+		"injecting items for free, re-firing milestone achievements, forcing seasonal (HUB party) events, and "
+		"manipulating the world (moving/rebuilding the space station, spawning/controlling Giant Flying Mantas, "
+		"disabling map boundary hazards, boosting vehicle speed). Using these can affect achievements and save "
+		"integrity. Telemetry and normal, material-cost construction do NOT require this."));
+	AllowCreativeFeatures->DefaultValue = false;
+	AllowCreativeFeatures->Value = false;
+	Section->SectionProperties.Add(TEXT("AllowCreativeFeatures"), AllowCreativeFeatures);
 }

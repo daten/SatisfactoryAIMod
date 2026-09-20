@@ -496,6 +496,38 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Creative-features gate (2026-09-20, public-release safety). These
+	// RPCs have no legitimate in-game equivalent - free item injection,
+	// milestone-achievement re-fire, seasonal-event forcing, and
+	// world/entity manipulation (space station, mantas, map hazards,
+	// vehicle tuning). They're blocked unless the player has turned on
+	// "Allow Creative Features" in AIMod's mod settings (off by default,
+	// AIModConfiguration.cpp). A default install is telemetry +
+	// real-material-cost construction only. Checked here, before dispatch,
+	// so batched sub-ops (which re-enter this handler) are gated too.
+	// spawnCreature / alien-artifact fabrication keep their OWN existing
+	// dedicated toggles (AllowCreatureSpawning / AllowSpawningAlienArtifacts).
+	static const TSet<FString> CreativeMethods = {
+		TEXT("world.addItemsToPlayerInventory"),
+		TEXT("world.addItemsToInventory"),
+		TEXT("world.reprocessMilestone"),
+		TEXT("world.setActiveEvent"),
+		TEXT("world.setProjectAssemblyHeight"),
+		TEXT("world.setProjectAssemblyVisualPhase"),
+		TEXT("world.spawnManta"),
+		TEXT("world.setManta"),
+		TEXT("world.setDamageVolumeEnabled"),
+		TEXT("world.despawnDamageVolume"),
+		TEXT("world.setVehicleEngineParams"),
+	};
+	if (CreativeMethods.Contains(Method)
+		&& !UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowCreativeFeatures"), false))
+	{
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::Forbidden, RequestId, TEXT("CREATIVE_DISABLED"),
+			FString::Printf(TEXT("'%s' is a creative/cheat feature disabled by default - enable 'Allow Creative Features' in AIMod's mod settings to use it"), *Method)));
+		return true;
+	}
+
 	// world.batch (2026-09-02, docs/build-efficiency-plan.md 2b):
 	// sequential sub-op dispatch through this same handler. Placed
 	// before every other method branch; the loopback/size checks above

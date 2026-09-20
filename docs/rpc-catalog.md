@@ -164,9 +164,9 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
 
 ## command
 
-- **`world.addItemsToInventory`** — Inject items into a buildable inventory (storage/chest, drone input/output/fuel [arms drone fuel], truck-station fuel).  
+- **`world.addItemsToInventory`** — Inject items into a buildable inventory (storage/chest, drone input/output/fuel [arms drone fuel], truck-station fuel). [creative: requires the 'Allow Creative Features' mod setting]  
   params: `buildableId:string, itemClass:string, inventoryRole:string?, amount:number`
-- **`world.addItemsToPlayerInventory`** — Inject items into the local player's inventory (creative; e.g. a portable-miner item, fuel). Respects slot/stack limits.  
+- **`world.addItemsToPlayerInventory`** — Inject items into the local player's inventory (creative; e.g. a portable-miner item, fuel). Respects slot/stack limits. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `itemClass:string, amount:number`
 - **`world.batch`** — Run up to 100 ops in one call (per-op results; proximity still applies).  
   params: `(none)`
@@ -182,7 +182,7 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `buildableId:string, batched:bool?`
 - **`world.despawnCreature`** — Despawn a creature by id.  
   params: `creatureId:string`
-- **`world.despawnDamageVolume`** — Destroy a damage volume actor (also removes its boundary post-process; session-only, returns on save load).  
+- **`world.despawnDamageVolume`** — Destroy a damage volume actor (also removes its boundary post-process; session-only, returns on save load). [creative: requires the 'Allow Creative Features' mod setting]  
   params: `volumeId:string`
 - **`world.installPowerShard`** — Install power shard(s) into a machine to raise its clock cap.  
   params: `buildableId:string, count:number`
@@ -196,7 +196,7 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `buildableId:string, itemClass:string, inventoryRole:string?, amount:number`
 - **`world.removeMapMarker`** — Remove a map marker by id.  
   params: `markerId:string`
-- **`world.reprocessMilestone`** — Re-fire milestone achievements: reset+re-give already-purchased HUB schematics (keeps unlocks) so the unlock flow re-runs. Target schematicClass, tier (>=0), or allTiers. Session-only; test one tier first.  
+- **`world.reprocessMilestone`** — Re-fire milestone achievements: reset+re-give already-purchased HUB schematics (keeps unlocks) so the unlock flow re-runs. Target schematicClass, tier (>=0), or allTiers. Session-only; test one tier first. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `(none)`
 - **`world.rerollMamHardDrive`** — Reroll a hard-drive's offered rewards.  
   params: `schematicClass:string`
@@ -206,7 +206,7 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.sendChatMessage`** — Post a chat message (local).  
   params: `message:string, sender:string?`
-- **`world.setActiveEvent`** — Force a seasonal event on/off-calendar (HUB party mode etc.) by name (Christmas/Anniversary/CSSBirthday/FirstOfApril/None) or index 0-4. Fires OnBeginEvent visuals. Session-only, reverts on reload. Verify with world.activeEvents.  
+- **`world.setActiveEvent`** — Force a seasonal event on/off-calendar (HUB party mode etc.) by name (Christmas/Anniversary/CSSBirthday/FirstOfApril/None) or index 0-4. Fires OnBeginEvent visuals. Session-only, reverts on reload. Verify with world.activeEvents. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `(none)`
 - **`world.setBeamLength`** — Set a placed beam's length.  
   params: `buildableId:string, newLength:number`
@@ -216,17 +216,17 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `buildableId:string, yaw:number`
 - **`world.setClockSpeed`** — Set a machine's clock % (range dynamic; install shards for >100).  
   params: `(none)`
-- **`world.setDamageVolumeEnabled`** — Enable/disable a damage volume's DOT+collision (reversible; session-only, resets on save load).  
+- **`world.setDamageVolumeEnabled`** — Enable/disable a damage volume's DOT+collision (reversible; session-only, resets on save load). [creative: requires the 'Allow Creative Features' mod setting]  
   params: `volumeId:string, enabled:bool`
-- **`world.setManta`** — Manipulate a manta by id: despawn, freeze (stop on its path), secondsPerLoop (lap speed), or currentTime (scrub along route). Session-only.  
+- **`world.setManta`** — Manipulate a manta by id: despawn, freeze (stop on its path), secondsPerLoop (lap speed), or currentTime (scrub along route). Session-only. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `mantaId:string, despawn:bool?, freeze:bool?, secondsPerLoop:number?, currentTime:number?`
 - **`world.setPowerSwitchOn`** — Turn a power switch on/off.  
   params: `buildableId:string, switchOn:bool`
 - **`world.setPriorityPowerSwitchPriority`** — Set a priority power switch's priority group.  
   params: `buildableId:string, priority:number`
-- **`world.setProjectAssemblyHeight`** — Move the orbital space station to world height z (keeps its XY over the Space Elevator). Session-only, not saved; returns actual resulting position (a BP tick may snap it back).  
+- **`world.setProjectAssemblyHeight`** — Move the orbital space station to world height z (keeps its XY over the Space Elevator). Session-only, not saved; returns actual resulting position (a BP tick may snap it back). [creative: requires the 'Allow Creative Features' mod setting]  
   params: `(none)`
-- **`world.setProjectAssemblyVisualPhase`** — Drive the space station's VISUAL build phase (by phaseIndex or phaseAssetPath) without touching real progression; visuals snap back on the next real phase change or save load.  
+- **`world.setProjectAssemblyVisualPhase`** — Drive the space station's VISUAL build phase (by phaseIndex or phaseAssetPath) without touching real progression; visuals snap back on the next real phase change or save load. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `phaseIndex:number?, phaseAssetPath:string?`
 - **`world.setRecipe`** — Set a machine's recipe (+optional clock).  
   params: `(none)`
@@ -240,13 +240,13 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `trainId:string, stops:array`
 - **`world.setTruckAutopilot`** — Arm a truck's autopilot with a station route (+fuel); returns rich diagnostics.  
   params: `vehicleId:string, enabled:bool, stationIds:array?, fuelItemClass:string?, fuelAmount:number?`
-- **`world.setVehicleEngineParams`** — Adjust a wheeled vehicle's Chaos movement at runtime for higher top speed: maxEngineTorque and/or dragCoefficient (lower drag = faster). Targets vehicleId or nearest to player; negative = unchanged. Session-only, per-instance.  
+- **`world.setVehicleEngineParams`** — Adjust a wheeled vehicle's Chaos movement at runtime for higher top speed: maxEngineTorque and/or dragCoefficient (lower drag = faster). Targets vehicleId or nearest to player; negative = unchanged. Session-only, per-instance. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `(none)`
 - **`world.simulatedCraft`** — Simulate crafting a HANDHELD/equipment recipe (ingredient check); not factory recipes.  
   params: `recipeClass:string`
 - **`world.spawnCreature`** — Spawn a creature (gated by the AllowCreatureSpawning mod setting).  
   params: `creatureClass:string, distanceFromPlayer:number?, scale:number?`
-- **`world.spawnManta`** — Spawn another manta sharing an existing manta's spline path, offset by timeOffsetSeconds (a flock on one route). EXPERIMENTAL, session-only.  
+- **`world.spawnManta`** — Spawn another manta sharing an existing manta's spline path, offset by timeOffsetSeconds (a flock on one route). EXPERIMENTAL, session-only. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `(none)`
 - **`world.startMamResearch`** — Start a M.A.M. research node.  
   params: `schematicClass:string, researchTreeClass:string, dryRun:bool?`
