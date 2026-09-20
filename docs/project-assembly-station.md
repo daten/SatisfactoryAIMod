@@ -17,6 +17,16 @@ actor that assembles above the Space Elevator as project phases complete.
   4 Propulsion Systems, 5 Assembly (assembled, pre-launch), 6 Launch (departure),
   7 Completed (empty). The reflected `phaseStageMap` reads empty yet visuals still
   respond, so the BP drives its visuals off the phase asset directly.
+  **Full-reassembly recipe (from a post-game/launched station, live-verified 2026-09-19):**
+  the visual builds CUMULATIVELY — jumping straight to phase 5 only draws phase 5's layer on
+  the empty station. To rebuild the whole ship, walk phases **0→5 IN ORDER**, one at a time,
+  letting each phase's cinematic (loud mechanical docking SFX, tens of seconds) fully finish
+  before sending the next — 3-second gaps were too short and left it incomplete; visual
+  confirmation between phases worked. Layers stack on the station actor, so they appear at
+  whatever height it's moved to. Result at phase 5: three completed ship sections in the dock.
+  Phase **6 (Launch)** joins AND departs them in one cinematic (back to empty), so **stop at
+  5** for "assembled ship present." All visual-only (real phase untouched) and **session-only
+  — reverts to the empty Completed station on any reload.**
 - **`world.setProjectAssemblyHeight(z)`** (write, commit da4f7a39b0): moves the
   station to any world Z. **Session-only** — `mProjectAssemblyHeight` is not a
   SaveGame field, so a reload restores the default. Holds against the BP tick (no
