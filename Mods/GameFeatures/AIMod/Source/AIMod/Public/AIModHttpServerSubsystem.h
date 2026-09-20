@@ -16,10 +16,10 @@ struct FActorsInitializedParams;
  * Localhost-only JSON RPC transport for the AIMod AI interface.
  *
  * Full RPC method reference lives in RPC_REFERENCE.md at the repo root,
- * not here. This comment used to enumerate every method inline and grew
- * past a UHT/MSVC string length limit, breaking the build entirely.
- * Add new methods to RPC_REFERENCE.md and the relevant function doc
- * comment in AIModFunctionLibrary, not to this class comment.
+ * not here - an inline enumeration of every method exceeds the UHT/MSVC
+ * string length limit and breaks the build. Add new methods to
+ * RPC_REFERENCE.md and the relevant function doc comment in
+ * AIModFunctionLibrary, not to this class comment.
  *
  * Binds to 127.0.0.1 only. Enforced two ways: the per-port
  * ListenerOverrides entry in Config/DefaultEngine.ini, and defense in
@@ -55,7 +55,7 @@ private:
 	bool HandleRpcRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete);
 
 	/**
-	 * world.batch (2026-09-02, docs/build-efficiency-plan.md 2b): runs an
+	 * world.batch (docs/build-efficiency-plan.md 2b): runs an
 	 * ordered list of sub-operations SEQUENTIALLY - each sub-op is a
 	 * normal {method, params} pair dispatched back through
 	 * HandleRpcRequest with a synthesized request that keeps the parent's
@@ -69,8 +69,8 @@ private:
 	void RunBatchStep(TSharedRef<struct FAIModBatchState> State, FHttpServerRequest BaseRequest, FHttpResultCallback ParentComplete, FString ParentRequestId);
 
 	/**
-	 * Instant chat acknowledgment (2026-08-28, per explicit user request):
-	 * binds to AFGChatManager::OnChatMessageAdded so a real player-typed
+	 * Instant chat acknowledgment: binds to
+	 * AFGChatManager::OnChatMessageAdded so a real player-typed
 	 * chat message gets an immediate "seen" reply, independent of - and
 	 * much faster than - any external polling loop (an external agent
 	 * watching via world.chatHistory has an inherent latency floor of at
@@ -89,7 +89,7 @@ private:
 	 */
 	void TryBindChatManagerDelegate();
 
-	/** Re-triggers TryBindChatManagerDelegate on real game world init - see this class's header doc comment ("Fixed 2026-08-28"). */
+	/** Re-triggers TryBindChatManagerDelegate on real game world init - see TryBindChatManagerDelegate's doc comment. */
 	void OnWorldInitializedActorsForChat(const FActorsInitializedParams& Params);
 	void OnPostLoadMapWithWorldForChat(UWorld* World);
 	void RebindChatManagerForWorld(UWorld* World);
@@ -113,10 +113,10 @@ private:
 	int32 LastSeenChatMessageCount = 0;
 
 	/**
-	 * Duplicate-submission guard (2026-08-28) - see
-	 * HandlePlayerChatMessageAdded's doc comment. Confirmed live that the
-	 * game's own chat system can submit the same literal player message
-	 * dozens of times for a single keystroke; suppresses re-acking the
+	 * Duplicate-submission guard - see
+	 * HandlePlayerChatMessageAdded's doc comment. The game's own chat
+	 * system can submit the same literal player message dozens of times
+	 * for a single keystroke; this suppresses re-acking the
 	 * same text within half a second, without touching the upstream
 	 * cause (which isn't in this file).
 	 */

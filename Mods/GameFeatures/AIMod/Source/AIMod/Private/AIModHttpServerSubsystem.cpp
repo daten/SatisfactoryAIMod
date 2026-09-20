@@ -25,15 +25,15 @@
 namespace
 {
 	// Defense-in-depth: don't rely solely on the socket-level
-	// Config/DefaultEngine.ini ListenerOverrides loopback binding. Found
-	// live (2026-08-24) that it does NOT take effect in the actual
-	// Steam-launched (packaged Shipping) game - netstat showed
-	// 0.0.0.0:51902 LISTENING, not 127.0.0.1:51902 - because that ini
-	// override lives in this dev workspace's project-level
+	// Config/DefaultEngine.ini ListenerOverrides loopback
+	// binding: it does NOT take effect in the actual Steam-launched
+	// (packaged Shipping) game - the socket ends up bound to
+	// 0.0.0.0:51902, not 127.0.0.1:51902 - because that ini override
+	// lives in this dev workspace's project-level
 	// Config/DefaultEngine.ini, which only applies to Development Editor
 	// sessions run from here, not the separately-deployed Alpakit
-	// package. Until the packaging-side fix is in place, this check is
-	// the only thing actually enforcing "loopback only" for real players.
+	// package. This check is what actually enforces "loopback only" for
+	// real players.
 	bool IsLoopbackPeer(const FHttpServerRequest& Request)
 	{
 		if (!Request.PeerAddress.IsValid())
@@ -50,7 +50,7 @@ namespace
 }
 
 /**
- * world.batch bookkeeping (2026-09-02) - shared across the chained
+ * world.batch bookkeeping - shared across the chained
  * sub-op completion callbacks. File scope (not the anonymous namespace)
  * because the header forward-declares it for RunBatchStep's signature.
  */
@@ -157,9 +157,9 @@ void UAIModHttpServerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	// Registers AIMod's player-facing mod settings (AIModConfiguration.h)
 	// so they show up in SML's normal mod settings menu, load from/save to
 	// disk, and are readable via UAIModFunctionLibrary::GetAIModConfigBool/
-	// GetAIModConfigFloat elsewhere in this module. Added 2026-08-27 per
-	// explicit user request for player-controlled safety/capability
-	// toggles instead of hardcoded defaults or per-call opt-in flags.
+	// GetAIModConfigFloat elsewhere in this module. Gives player-controlled
+	// safety/capability toggles instead of hardcoded defaults or per-call
+	// opt-in flags.
 	if (UConfigManager* ConfigManager = GetGameInstance() ? GetGameInstance()->GetSubsystem<UConfigManager>() : nullptr)
 	{
 		ConfigManager->RegisterModConfiguration(UAIModConfiguration::StaticClass());
@@ -169,13 +169,12 @@ void UAIModHttpServerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		UE_LOG(LogAIModAI, Warning, TEXT("AIMod HTTP server: no UConfigManager found - mod settings (remote connections, unlimited resources, build distance limit) will use their off-by-default values and won't be player-editable this session"));
 	}
 
-	// SOCKET-LEVEL loopback binding (2026-09-20, release hardening).
-	// Root cause of the old 0.0.0.0 bind: the project
-	// Config/DefaultEngine.ini sets [HTTPServer.Listeners]
+	// SOCKET-LEVEL loopback binding (release hardening).
+	// The project Config/DefaultEngine.ini sets [HTTPServer.Listeners]
 	// DefaultBindAddress=any, so a listener with no per-port override binds
-	// all interfaces. The per-port .ini override does NOT reliably reach
-	// the Alpakit-packaged build (verified 2026-08-24: netstat showed
-	// 0.0.0.0). So force it into GConfig at RUNTIME instead:
+	// all interfaces, and the per-port .ini override does NOT reliably reach
+	// the Alpakit-packaged build (the socket ends up on 0.0.0.0). So force
+	// it into GConfig at RUNTIME instead:
 	// FHttpListener::StartListening reads
 	// FHttpServerConfig::GetListenerConfig() from GConfig
 	// [HTTPServer.Listeners]/ListenerOverrides (GEngineIni) at bind time -
@@ -218,7 +217,7 @@ void UAIModHttpServerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 	TryBindChatManagerDelegate();
 
-	// See this class's header doc comment ("Fixed 2026-08-28") - Initialize()
+	// See TryBindChatManagerDelegate's doc comment - Initialize()
 	// alone runs too early (often at the main menu, before the player's
 	// save has finished loading into its real world), so also rebind on
 	// every real game world's init, mirroring FAIModModule::RunPerWorldSetup's
@@ -304,11 +303,11 @@ void UAIModHttpServerSubsystem::TryBindChatManagerDelegate()
 	ChatManager->GetReceivedChatMessages(ExistingMessages);
 	LastSeenChatMessageCount = ExistingMessages.Num();
 
-	// RemoveDynamic before AddDynamic makes this idempotent - confirmed
-	// live (2026-08-28) that without this, TryBindChatManagerDelegate
-	// ending up bound more than once (exact cause unconfirmed - possibly
-	// this being called again in some world-reload scenario without an
-	// intervening Deinitialize) turned a single real chat message into
+	// RemoveDynamic before AddDynamic makes this idempotent. Without it,
+	// TryBindChatManagerDelegate ending up bound more than once (exact
+	// cause unconfirmed - possibly this being called again in some
+	// world-reload scenario without an intervening Deinitialize) turns a
+	// single real chat message into
 	// dozens of duplicate "received, thinking..." acks: a multicast
 	// delegate bound N times fires the handler N times per broadcast, and
 	// since SendChatMessage's AddChatMessageToReceived re-triggers this
@@ -332,8 +331,8 @@ void UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded()
 	TArray<FChatMessageStruct> Messages;
 	ChatManager->GetReceivedChatMessages(Messages);
 
-	// Bulk-load guard, added 2026-08-28: confirmed live, twice, that a
-	// burst of dozens of messages can appear between one broadcast and
+	// Bulk-load guard: a burst of dozens of messages can appear between one
+	// broadcast and
 	// the next - a save actually finishing its load into the real world
 	// restores its persisted chat history in one go, and (whether due to
 	// lossy type/sender persistence or some other restore-path quirk not
@@ -365,18 +364,14 @@ void UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded()
 		const FChatMessageStruct Message = Messages[LastSeenChatMessageCount];
 		++LastSeenChatMessageCount;
 
-		// Diagnostic logging, added 2026-08-28: two prior fix attempts
-		// (idempotent binding, world-rebind, bulk-load guard) have not
-		// stopped a live-confirmed burst of dozens of acks per real
-		// keystroke, and the burst turned out to be dozens of SEPARATE
-		// sequential broadcasts (not one batch), so the bulk-load guard
-		// never even triggers. This logs every message's real content as
-		// it's processed, to settle definitively whether the repeated
-		// entries are literally the same player text re-added many times
-		// (pointing to an upstream chat-submission bug outside AIMod) or
-		// old historical entries somehow being replayed with corrupted
-		// type/sender metadata (pointing to a save-restore issue) -
-		// needed before attempting another fix blind.
+		// Diagnostic logging: a real keystroke can produce a burst of dozens
+		// of acks via dozens of SEPARATE sequential broadcasts (not one
+		// batch, so the bulk-load guard above does not trigger). This logs
+		// every message's real content as it's processed, to distinguish the
+		// same player text being re-added many times (an upstream
+		// chat-submission bug outside AIMod) from old historical entries
+		// being replayed with corrupted type/sender metadata (a save-restore
+		// issue).
 		UE_LOG(LogAIModAI, Display, TEXT("HandlePlayerChatMessageAdded: index=%d sender=\"%s\" text=\"%s\" type=%d isLocal=%s"),
 			LastSeenChatMessageCount - 1, *Message.MessageSender.ToString(), *Message.MessageText.ToString(),
 			static_cast<int32>(Message.MessageType), Message.bIsLocalPlayerMessage ? TEXT("true") : TEXT("false"));
@@ -387,7 +382,7 @@ void UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded()
 		// System/Ada/Custom messages, which includes AIMod's own acks -
 		// without this a real ack would count as "new" too.
 		//
-		// Multiplayer safety (2026-09-02): bIsLocalPlayerMessage identifies
+		// Multiplayer safety: bIsLocalPlayerMessage identifies
 		// the HOST player's own messages in this (host-side) process -
 		// remote clients' messages replicate in without the flag. By
 		// default only the host is acknowledged, mirroring
@@ -402,17 +397,14 @@ void UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded()
 			(bIsRemotePlayerMessage && UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowNonHostChatMessages"), false));
 		if (bAckThisMessage)
 		{
-			// Duplicate-submission guard, added 2026-08-28: root-caused
-			// live via the diagnostic logging above - confirmed the
-			// game's own chat system can submit the SAME literal message
-			// dozens of times for a single keystroke (seen once, for the
-			// first message of a session: 49 back-to-back identical
-			// "first" entries, same millisecond). That's upstream of
-			// AIMod entirely (nothing here adds player-typed messages),
-			// not something fixable from this file, but acking each
-			// duplicate individually floods chat regardless of the root
-			// cause. A real human retyping the exact same text takes far
-			// longer than this - suppress only when the same text repeats
+			// Duplicate-submission guard: the game's own chat system can
+			// submit the SAME literal message dozens of times for a single
+			// keystroke (observed as dozens of back-to-back identical
+			// entries in the same millisecond). That's upstream of AIMod
+			// entirely (nothing here adds player-typed messages) and not
+			// fixable from this file, but acking each duplicate individually
+			// floods chat. A real human retyping the exact same text takes
+			// far longer than this - suppress only when the same text repeats
 			// within half a second of the last ack.
 			const FString MessageText = Message.MessageText.ToString();
 			const double NowSeconds = FPlatformTime::Seconds();
@@ -438,7 +430,7 @@ void UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded()
 
 bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
 {
-	// AllowRemoteConnections (2026-08-27) - a player-controlled mod
+	// AllowRemoteConnections - a player-controlled mod
 	// setting (AIModConfiguration.h), off by default: this defense-in-depth
 	// check still runs unconditionally otherwise, per this class's header
 	// doc comment ("bind only to loopback by default... design the
@@ -496,7 +488,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// Creative-features gate (2026-09-20, public-release safety). These
+	// Creative-features gate (public-release safety). These
 	// RPCs have no legitimate in-game equivalent - free item injection,
 	// milestone-achievement re-fire, seasonal-event forcing, and
 	// world/entity manipulation (space station, mantas, map hazards,
@@ -528,7 +520,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// world.batch (2026-09-02, docs/build-efficiency-plan.md 2b):
+	// world.batch (docs/build-efficiency-plan.md 2b):
 	// sequential sub-op dispatch through this same handler. Placed
 	// before every other method branch; the loopback/size checks above
 	// already ran for the whole batch request, and each synthesized
@@ -661,11 +653,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// The dismantle itself is synchronous (no build gun/hologram
-	// involved, unlike construction), but since 2026-09-01 the RESPONSE
-	// is deferred two real ticks - see the comment at the response site
-	// below. Added 2026-08-25 so live testing (e.g. rotation calibration)
-	// can clean up stray test buildables instead of accumulating them -
-	// see DismantleBuildable's doc comment.
+	// involved, unlike construction), but the RESPONSE is deferred - see
+	// the comment at the response site below. Lets callers clean up stray
+	// test buildables instead of accumulating them - see
+	// DismantleBuildable's doc comment.
 	if (Method == TEXT("world.deleteBuilding"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -685,35 +676,27 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 
 		const FAIModOperationResult Result = UAIModFunctionLibrary::DismantleBuildable(GetGameInstance(), BuildableId);
 
-		// Deferred response, v4 of the delete read-after-write fix
-		// (2026-09-01). Full history, each step live-retested:
-		// - v1/v2 forced the dying actor inert (collision off/hidden)
-		//   right after Execute_Dismantle - BOTH failed: a new attachment
-		//   placed immediately after a delete still stacked on the corpse
-		//   at +300 z (v1 additionally had an IsValid()-on-pending-kill
-		//   guard bug). Root cause: splitter/merger-class buildables
-		//   carry their traceable collision in FactoryGame's
-		//   instanced-mesh system (AbstractInstanceManager), which
-		//   actor-level calls cannot touch.
-		// - v3 deferred this response by TWO ticks - ALSO failed: the
-		//   instanced-collision cleanup is far slower than actor
-		//   destruction. Measured live with delete-then-place probes at
-		//   increasing delays: a probe at ~250ms after the (deferred)
-		//   response still STACKED on the corpse; ~400ms and up landed
-		//   clean at floor height every time. During the intermediate
-		//   window the corpse can also corrupt the ground trace into a
-		//   spurious "Surface is too uneven!" failure instead of a stack.
-		// v4: hold the response on a real-time 0.75s timer (measured
-		// threshold ~250-400ms, plus margin for cleanup-queue jitter) -
-		// the caller's next request can then only run after the corpse,
-		// actor AND instanced collision, is genuinely gone. The slower
+		// Deferred response: the delete read-after-write fix. A new
+		// attachment placed immediately after a delete otherwise stacks on
+		// the deleted buildable's corpse. Root cause: splitter/merger-class
+		// buildables carry their traceable collision in FactoryGame's
+		// instanced-mesh system (AbstractInstanceManager), which actor-level
+		// calls cannot touch, and that instanced-collision cleanup is far
+		// slower than actor destruction (~250-400ms measured; a place at
+		// ~250ms still stacks, ~400ms+ lands clean at floor height). During
+		// the intermediate window the corpse can also corrupt the ground
+		// trace into a spurious "Surface is too uneven!" failure instead of
+		// a stack. So hold the response on a real-time 0.75s timer (measured
+		// threshold ~250-400ms, plus margin for cleanup-queue jitter) - the
+		// caller's next request can then only run after the corpse, actor
+		// AND instanced collision, is genuinely gone. The slower
 		// world.deleteBuilding response is this fix working as intended.
 		// Failures respond immediately (nothing was dismantled, nothing
 		// to wait for).
 		//
-		// BATCH FAST PATH (2026-09-19, explicit user request - a 1163-actor
-		// teardown took ~15 min at 0.75s/op): sub-ops synthesized by
-		// world.batch carry "batched":true; those skip the per-op hold and
+		// BATCH FAST PATH: at 0.75s/op a large teardown is very slow, so
+		// sub-ops synthesized by world.batch carry "batched":true; those
+		// skip the per-op hold and
 		// RunBatchStep instead applies ONE 0.75s settle at the END of the
 		// whole batch. The timer's purpose is protecting the caller's NEXT
 		// request from the corpse's lingering instanced collision - within
@@ -807,8 +790,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 
 	// world.setPowerSwitchOn/world.setPriorityPowerSwitchPriority - see
 	// SetPowerSwitchOn's/SetPriorityPowerSwitchPriority's doc comments.
-	// Added 2026-08-31 per explicit user request ("add support for
-	// configuring and controlling priority power switches").
+	// Configures and controls priority power switches.
 	if (Method == TEXT("world.setPowerSwitchOn"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -867,8 +849,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// world.setSplitterSortRules - see SetSplitterSortRules's doc
-	// comment. Added 2026-08-31 per explicit user request ("add support
-	// for configuring smart splitters and programmable splitters").
+	// comment. Configures smart splitters and programmable splitters.
 	if (Method == TEXT("world.setSplitterSortRules"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -906,10 +887,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// Synchronous - direct AActor::TeleportTo() call, no build gun/hologram
-	// involved. Added 2026-08-31 per explicit user request ("move the
-	// player position... mostly for building-purposes, if specific
-	// situations or tests require a change in the player location") - see
-	// TeleportPlayer's doc comment for the real TeleportTo/
+	// involved. Moves the player position, mostly for building purposes -
+	// see TeleportPlayer's doc comment for the real TeleportTo/
 	// StopMovementImmediately sourcing.
 	if (Method == TEXT("world.teleportPlayer"))
 	{
@@ -1028,10 +1007,9 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// Synchronous - direct AFGTimeOfDaySubsystem::SetDaySeconds() call, no
-	// build gun/hologram involved. Added 2026-08-27 per explicit user
-	// request so live testing/observation isn't blocked by the day/night
-	// cycle going dark - see SetTimeOfDay's doc comment for why this
-	// doesn't go through UFGCheatManager.
+	// build gun/hologram involved. Lets testing/observation not be blocked
+	// by the day/night cycle going dark - see SetTimeOfDay's doc comment for
+	// why this doesn't go through UFGCheatManager.
 	if (Method == TEXT("world.setTimeOfDay"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -1058,10 +1036,9 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// Synchronous - AFGChatManager::AddChatMessageToReceived(), no build
-	// gun/hologram involved. Added 2026-08-27 per explicit user request
-	// for optional two-way chat with the player - see SendChatMessage's
-	// doc comment for why this doesn't use BroadcastChatMessage's
-	// NetMulticast RPC.
+	// gun/hologram involved. Optional two-way chat with the player - see
+	// SendChatMessage's doc comment for why this doesn't use
+	// BroadcastChatMessage's NetMulticast RPC.
 	if (Method == TEXT("world.sendChatMessage"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -1150,10 +1127,9 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		double RotationScrollDelta = 0.0;
 		ParamsObject->TryGetNumberField(TEXT("rotationScrollDelta"), RotationScrollDelta);
 
-		// Optional, defaults to 100 (1m) - snap-to-grid-by-default per
-		// explicit project direction (2026-08-25), so callers get tidy
-		// coordinates without having to opt in every time. Pass 0
-		// explicitly to disable.
+		// Optional, defaults to 100 (1m) - snap-to-grid by default, so
+		// callers get tidy coordinates without having to opt in every time.
+		// Pass 0 explicitly to disable.
 		double GridSnapSize = 100.0;
 		ParamsObject->TryGetNumberField(TEXT("gridSnapSize"), GridSnapSize);
 
@@ -1175,9 +1151,9 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 
 		// Optional, all default false (today's strict behavior) - see
 		// ConstructBuildingAtPosition's doc comment. Named, scoped
-		// bypasses of specific UX-only disqualifiers, per explicit user
-		// direction that these gates don't scale for large autonomous
-		// layouts and the user accepts the resulting collision risk.
+		// bypasses of specific UX-only disqualifiers that don't scale for
+		// large autonomous layouts; the caller accepts the resulting
+		// collision risk.
 		bool bIgnoreAimLocation = false;
 		ParamsObject->TryGetBoolField(TEXT("ignoreAimLocation"), bIgnoreAimLocation);
 		bool bIgnorePlayerEncroachment = false;
@@ -1235,21 +1211,19 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 			return true;
 		}
 
-		// Optional, defaults to Mk1 (prior hardcoded behavior) - any
-		// extractor recipe now works (2026-08-27, per explicit user
-		// request to support Resource Well Pressurizers/Extractors):
+		// Optional, defaults to Mk1 - any extractor recipe works
+		// (Resource Well Pressurizers/Extractors included):
 		// Recipe_MinerMk1..Mk3, Recipe_OilPump, Recipe_FrackingSmasher,
 		// Recipe_FrackingExtractor - see ConstructExtractorOnNode's doc
 		// comment for the node-type gating (Pressurizer needs a Fracking
 		// Core node, Extractor needs an ACTIVATED Fracking Satellite
-		// node). CORRECTION (2026-08-31): Recipe_WaterPump was
-		// PREVIOUSLY (incorrectly) listed here as supported - it never
-		// was. ConstructExtractorOnNode only ever searches
-		// AFGResourceNodeBase, and a water body is an AFGWaterVolume
-		// (APhysicsVolume), not an AFGResourceNodeBase - there is no
-		// "node" for a water pump to target via this method at all. Use
+		// node). Recipe_WaterPump is NOT supported here:
+		// ConstructExtractorOnNode only searches AFGResourceNodeBase, and a
+		// water body is an AFGWaterVolume (APhysicsVolume), not an
+		// AFGResourceNodeBase - there is no "node" for a water pump to
+		// target via this method at all. Use
 		// world.constructWaterPumpNearReference instead - see its doc
-		// comment for the real reason this needed a different mechanism.
+		// comment for the real reason this needs a different mechanism.
 		FString RecipeClassPath;
 		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
 		{
@@ -1265,9 +1239,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// world.constructWaterPumpNearReference - see
-	// ConstructWaterPumpNearReference's doc comment. Added 2026-08-31 per
-	// explicit user request ("if the player places a reference pump and
-	// then requests additional pumps next to it this should be easier").
+	// ConstructWaterPumpNearReference's doc comment. Places additional
+	// pumps next to a player-placed reference pump.
 	if (Method == TEXT("world.constructWaterPumpNearReference"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -1312,8 +1285,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// world.constructWaterPumpAtPosition - see
-	// ConstructWaterPumpAtPosition's doc comment. Added 2026-08-31, the
-	// from-scratch counterpart for seeding the first pump in a field.
+	// ConstructWaterPumpAtPosition's doc comment. The from-scratch
+	// counterpart for seeding the first pump in a field.
 	if (Method == TEXT("world.constructWaterPumpAtPosition"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -1397,7 +1370,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	// construction method above - the Portable Miner is equipment, not a
 	// buildable/hologram. See ConstructPortableMinerOnNode's doc comment
 	// for the full flow (real hotbar-equip path + reflection-invoked
-	// protected Server RPC). Added 2026-08-27 per explicit user request.
+	// protected Server RPC).
 	if (Method == TEXT("world.placePortableMiner"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -1512,7 +1485,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// Re-fire milestone achievements by reprocessing already-purchased
-	// schematics (2026-09-20). See ReprocessMilestone doc.
+	// schematics. See ReprocessMilestone doc.
 	if (Method == TEXT("world.reprocessMilestone"))
 	{
 		FString SchematicClassPath;
@@ -2024,7 +1997,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// Hazard controls (2026-09-19): reversible on/off and session-only
+	// Hazard controls: reversible on/off and session-only
 	// despawn of AFGDamageOverTimeVolume actors (map-edge kill zones, gas).
 	// Ids come from world.damageVolumes; both validate the id resolves to
 	// that class specifically - not a generic actor operation. Two separate
@@ -2081,8 +2054,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// Visual-only override of the orbital space station's build phase
-	// (2026-09-19). Real progression is never touched - see
+	// Visual-only override of the orbital space station's build phase.
+	// Real progression is never touched - see
 	// SetProjectAssemblyVisualPhase's doc comment.
 	if (Method == TEXT("world.setProjectAssemblyVisualPhase"))
 	{
@@ -2110,7 +2083,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// Lower/raise the orbital station to a survivable altitude (2026-09-19).
+	// Lower/raise the orbital station to a survivable altitude.
 	// Session-only; see SetProjectAssemblyHeight's doc comment.
 	if (Method == TEXT("world.setProjectAssemblyHeight"))
 	{
@@ -2131,7 +2104,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// Raise a manually-driven wheeled vehicle's top speed (2026-09-19).
+	// Raise a manually-driven wheeled vehicle's top speed.
 	// See SetVehicleEngineParams' doc comment. Negative = leave unchanged.
 	if (Method == TEXT("world.setVehicleEngineParams"))
 	{
@@ -2156,7 +2129,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// Giant Flying Manta control (2026-09-19). See SetManta/SpawnManta docs.
+	// Giant Flying Manta control. See SetManta/SpawnManta docs.
 	if (Method == TEXT("world.setManta"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2200,7 +2173,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// Force a seasonal event on/off-calendar (2026-09-19). See SetActiveEvent doc.
+	// Force a seasonal event on/off-calendar. See SetActiveEvent doc.
 	if (Method == TEXT("world.setActiveEvent"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2268,7 +2241,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		bool bIgnoreWireLength = false;
 		ParamsObject->TryGetBoolField(TEXT("ignoreWireLength"), bIgnoreWireLength);
 
-		// Optional connector pins (2026-09-02) - {"x","y","z"} objects,
+		// Optional connector pins - {"x","y","z"} objects,
 		// same shape/semantics as connectConveyor's
 		// sourceConnectorPosition/destConnectorPosition: deterministic
 		// per-port selection (Power Tower dual connectors etc).
@@ -2349,7 +2322,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		FString InstigatorStrategy;
 		ParamsObject->TryGetStringField(TEXT("instigatorStrategy"), InstigatorStrategy);
 
-		// Optional {"x","y","z"} objects (2026-08-30) - see
+		// Optional {"x","y","z"} objects - see
 		// ConstructConveyorBelt's doc comment. Lets the caller target one
 		// specific connector by its real world position (e.g. read from a
 		// prior world.connections call) instead of "the first free one of
@@ -2385,9 +2358,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	// "world.connectConveyor" above. "world.testConveyorLift" (dry run)
 	// and "world.connectConveyorLift" (real) share UAIModFunctionLibrary::
 	// ConstructConveyorLift, differing only in the bDryRun argument.
-	// Vertical conveyor groundwork (2026-08-25, per explicit user
-	// request) - NOT YET LIVE-TESTED, see ConstructConveyorLift's doc
-	// comment.
+	// Vertical conveyor groundwork - not yet verified at runtime, see
+	// ConstructConveyorLift's doc comment.
 	if (Method == TEXT("world.testConveyorLift") || Method == TEXT("world.connectConveyorLift"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2425,7 +2397,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 			FreeEndRotationSteps = static_cast<int32>(FreeEndRotationStepsRaw);
 		}
 
-		// Optional connector pinning (2026-09-01), same shape and purpose
+		// Optional connector pinning, same shape and purpose
 		// as world.connectConveyor's - forces the specific output/input
 		// connectors so a stacked-attachment riser gets a clean vertical
 		// lift instead of "first free" picking non-coaxial side connectors.
@@ -2459,7 +2431,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	// "world.connectConveyor" above. "world.testPipe" (dry run) and
 	// "world.connectPipe" (real) share UAIModFunctionLibrary::
 	// ConstructPipe, differing only in the bDryRun argument. Pipe
-	// groundwork (2026-08-25) - NOT YET LIVE-TESTED, see ConstructPipe's
+	// groundwork - not yet verified at runtime, see ConstructPipe's
 	// doc comment for the open questions (no GetAnyConnectedBuildables()
 	// on the shared hologram base, no standalone pole recipe found on
 	// disk).
@@ -2536,7 +2508,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	// "world.testRailroadTrack" (dry run) and "world.constructRailroadTrack"
 	// (real) share UAIModFunctionLibrary::ConstructRailroadTrack, same
 	// shape as world.testPipe/world.connectPipe above. See
-	// ConstructRailroadTrack's doc comment - NOT YET LIVE-TESTED.
+	// ConstructRailroadTrack's doc comment - not yet verified at runtime.
 	if (Method == TEXT("world.testRailroadTrack") || Method == TEXT("world.constructRailroadTrack"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2592,7 +2564,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		const bool bHasSrcConnPos = ParseConnPos(TEXT("sourceConnectorPosition"), SrcConnPos);
 		const bool bHasDstConnPos = ParseConnPos(TEXT("destConnectorPosition"), DstConnPos);
 
-		// Optional (2026-09-08, docs/train-drivable-joint-research.md experiment
+		// Optional (docs/train-drivable-joint-research.md experiment
 		// 2): drive the engine's real build-gun PrimaryFire path instead of the
 		// manual DoMultiStepPlacement + InternalConstructHologram, so the joint is
 		// actually drivable (default false = the proven straight-build path).
@@ -2663,7 +2635,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// world.constructVehiclePathSegment - see ConstructVehiclePathSegment's
-	// doc comment. NOT YET LIVE-TESTED.
+	// doc comment. Not yet verified at runtime.
 	if (Method == TEXT("world.constructVehiclePathSegment"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2707,8 +2679,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// world.constructBeam - see ConstructBeam's doc comment. NOT YET
-	// LIVE-TESTED.
+	// world.constructBeam - see ConstructBeam's doc comment. Not yet
+	// verified at runtime.
 	if (Method == TEXT("world.constructBeam"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2760,9 +2732,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// world.constructStackableSupport - see ConstructStackableSupport's
-	// doc comment. Added 2026-08-31 per explicit user follow-up ("if we
-	// don't already support the stackables, we should add that now
-	// because that provides a dense way to bring back multiple pipes").
+	// doc comment. Stackables provide a dense way to bring back multiple
+	// pipes.
 	if (Method == TEXT("world.constructStackableSupport"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2808,8 +2779,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// world.constructStackableSupportOnTop - see
-	// ConstructStackableSupportOnTop's doc comment. Added 2026-08-31,
-	// same explicit user follow-up clarifying mixed pipe+belt dense
+	// ConstructStackableSupportOnTop's doc comment. Mixed pipe+belt dense
 	// routing is normally built as separate stacked attachments.
 	if (Method == TEXT("world.constructStackableSupportOnTop"))
 	{
@@ -2843,8 +2813,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
-	// world.setBeamLength - see SetBeamLength's doc comment. NOT YET
-	// LIVE-TESTED.
+	// world.setBeamLength - see SetBeamLength's doc comment. Not yet
+	// verified at runtime.
 	if (Method == TEXT("world.setBeamLength"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2929,10 +2899,10 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 	else if (Method == TEXT("world.buildables") || Method == TEXT("world.connections"))
 	{
-		// Optional filters (2026-09-02, docs/build-efficiency-plan.md 2a):
+		// Optional filters (docs/build-efficiency-plan.md 2a):
 		// params.ids = array of id substrings (OR), params.minX/minY/
 		// maxX/maxY (+ optional minZ/maxZ) = position box (AND with ids).
-		// No params = the unfiltered full dump, exactly as before.
+		// No params = the unfiltered full dump.
 		TArray<FString> IdSubstrings;
 		bool bBoundsSet = false;
 		FVector BoundsMin = FVector::ZeroVector;
@@ -3018,8 +2988,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 	else if (Method == TEXT("world.connectorLayout"))
 	{
-		// Class-defaults connector layout (2026-09-02, build-efficiency
-		// plan 2c) - params.buildableClass is the Build_*_C class path
+		// Class-defaults connector layout (docs/build-efficiency-plan.md
+		// 2c) - params.buildableClass is the Build_*_C class path
 		// (from world.buildables rows or world.buildableCatalog).
 		const TSharedPtr<FJsonObject>* LayoutParamsPtr = nullptr;
 		FString BuildableClassPath;

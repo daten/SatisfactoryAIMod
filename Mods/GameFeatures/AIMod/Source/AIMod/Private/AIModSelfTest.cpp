@@ -40,11 +40,10 @@ namespace AIModSelfTest
 			return FJsonSerializer::Deserialize(Reader, Parsed) && Parsed.IsValid();
 		}
 
-		// The Detail message must depend on the actual result - a bug
-		// caught on the first real run against a save (2026-08-24): all
-		// four .json checks previously passed the same hardcoded
-		// "did not parse as JSON" string as Detail regardless of
-		// bPassed, so a PASS line read as if it had failed.
+		// The Detail message must depend on the actual result: a check
+		// that passes the same hardcoded "did not parse as JSON" string as
+		// Detail regardless of bPassed makes a PASS line read as if it had
+		// failed.
 		void RecordJsonValid(const FString& Name, const FString& Json)
 		{
 			const bool bValid = IsValidJson(Json);

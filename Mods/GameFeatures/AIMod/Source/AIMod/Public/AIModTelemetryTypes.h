@@ -55,9 +55,9 @@ struct FAIModResourceNodeTelemetry
 	 * here), "FrackingCore" (a Resource Well Pressurizer's real target -
 	 * Recipe_FrackingSmasher), "FrackingSatellite" (a Resource Well
 	 * Extractor's target - Recipe_FrackingExtractor), "Geyser", "Deposit",
-	 * or "Invalid" (EResourceNodeType). Added 2026-08-27 alongside CoreId/
-	 * SatelliteState, per explicit user request to support Resource Well
-	 * Pressurizers/Extractors - see docs/resource-well-research.md.
+	 * or "Invalid" (EResourceNodeType). Works with CoreId/SatelliteState to
+	 * support Resource Well Pressurizers/Extractors - see
+	 * docs/resource-well-research.md.
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "AIMod|Telemetry")
 	FString NodeType = TEXT("Node");
@@ -114,11 +114,11 @@ struct FAIModBuildableTelemetry
 
 	/**
 	 * World-space axis-aligned bounding box of this buildable's clearance
-	 * footprint (2026-09-03: added so lightweight buildables -
-	 * foundations/walls/catwalks/ramps - expose real geometry, not just a
-	 * pivot; catches overhang/overlap/spacing and reveals a ramp's rise via
-	 * the Z extent, all without a human eyeballing the game). Derived from
-	 * the class CDO's FFGClearanceData transformed by the instance transform.
+	 * footprint - so lightweight buildables (foundations/walls/catwalks/ramps)
+	 * expose real geometry, not just a pivot; catches overhang/overlap/spacing
+	 * and reveals a ramp's rise via the Z extent, all without a human
+	 * eyeballing the game. Derived from the class CDO's FFGClearanceData
+	 * transformed by the instance transform.
 	 * bHasBounds is false when the class has no clearance data (e.g.
 	 * conveyors/beams whose clearance is computed per-instance and is empty
 	 * on the CDO) - callers must check it before trusting Min/Max.
@@ -235,14 +235,10 @@ struct FAIModFactoryConnectionTelemetry
 
 	/**
 	 * The connector's real world position (UFGFactoryConnectionComponent::
-	 * GetConnectorLocation(), no clearance offset). Added 2026-08-25 after
-	 * a live belt-routing investigation (docs/demo-production-chain.md)
-	 * needed this exact data ad hoc, via one-off diagnostic UE_LOG calls,
-	 * to explain a "belt geometrically impossible" failure - this should
-	 * be ordinary queryable telemetry, not something re-derived per
-	 * experiment. Without it, an external planner has no way to know
-	 * where a machine's connectors actually are relative to its own
-	 * placement position/rotation.
+	 * GetConnectorLocation(), no clearance offset). Ordinary queryable
+	 * telemetry for belt-routing (docs/demo-production-chain.md): without it,
+	 * an external planner has no way to know where a machine's connectors
+	 * actually are relative to its own placement position/rotation.
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "AIMod|Telemetry")
 	FVector Position = FVector::ZeroVector;
@@ -253,12 +249,12 @@ struct FAIModFactoryConnectionTelemetry
 	 * Output connection, items leave moving in this direction; for an
 	 * Input connection, items must arrive moving in the OPPOSITE
 	 * direction (approaching from outside, along +Normal, then entering
-	 * the building along -Normal) - confirmed live: this is exactly what
-	 * made a straight Smelter(output, faces +Y)-to-Constructor(input,
-	 * faced -Y at the time) belt geometrically infeasible even though
-	 * both connectors snapped correctly. An external planner needs this
-	 * to choose a target position/orientation where two connectors'
-	 * normals are compatible before ever calling world.placeBuilding.
+	 * the building along -Normal) - e.g. a straight belt from a Smelter
+	 * (output, faces +Y) to a Constructor (input, faces -Y) is
+	 * geometrically infeasible even though both connectors snap correctly.
+	 * An external planner needs this to choose a target position/orientation
+	 * where two connectors' normals are compatible before ever calling
+	 * world.placeBuilding.
 	 */
 	UPROPERTY(BlueprintReadOnly, Category = "AIMod|Telemetry")
 	FVector Normal = FVector::ZeroVector;
@@ -266,8 +262,7 @@ struct FAIModFactoryConnectionTelemetry
 
 /**
  * Same shape/purpose as FAIModFactoryConnectionTelemetry, for pipes
- * (UFGPipeConnectionComponentBase) - added 2026-08-27 after discovering
- * live that "world.connections" only ever covered
+ * (UFGPipeConnectionComponentBase). "world.connections" only covers
  * UFGFactoryConnectionComponent (belts/machines/splitters), leaving no
  * way to read a fluid pipe's or hypertube's real connector
  * position/normal/facing - the exact information needed to plan a
@@ -276,7 +271,7 @@ struct FAIModFactoryConnectionTelemetry
  * belts. Pipes and hypertubes share this one struct/RPC method rather
  * than getting separate ones, since they share the same real component
  * base class (UFGPipeConnectionComponentHyper adds no members of its own -
- * see docs/hypertube-research.md) - BIsHypertube distinguishes them.
+ * see docs/hypertube-research.md) - bIsHypertube distinguishes them.
  */
 USTRUCT(BlueprintType)
 struct FAIModPipeConnectionTelemetry
@@ -325,12 +320,11 @@ struct FAIModPipeConnectionTelemetry
  * Phase 13/14). Exists specifically so RPC-driven placement
  * (ConstructBuildingAtPosition/"world.placeBuilding") has a real
  * reference point to place buildings near - an arbitrary existing
- * buildable's position is NOT a safe substitute, found live
- * (2026-08-25): the world can span thousands of units of elevation
- * across its map, and a buildable far from the player will make
- * ConstructBuildingAtPosition's ground trace (which searches only
- * within the PLAYER's current +/-1000 unit Z range) miss real terrain
- * entirely.
+ * buildable's position is NOT a safe substitute: the world can span
+ * thousands of units of elevation across its map, and a buildable far
+ * from the player will make ConstructBuildingAtPosition's ground trace
+ * (which searches only within the PLAYER's current +/-1000 unit Z range)
+ * miss real terrain entirely.
  */
 USTRUCT(BlueprintType)
 struct FAIModPlayerTelemetry

@@ -22,17 +22,15 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	// their Blueprint subclasses under
 	// Mods/SML/Content/Interface/UI/Menu/Mods/ConfigProperties/
 	// (BP_ConfigPropertySection, BP_ConfigPropertyBool,
-	// BP_ConfigPropertyFloat). Constructing the raw C++ classes (as this
-	// file originally did) produces properties that are structurally
-	// correct - HasResettableChildProperty() still works, RPC reads via
-	// GetAIModConfigBool still work - but render as a completely blank
-	// page in the Mods settings UI: no checkboxes, no descriptions, since
-	// CreateEditorWidget always returns NULL. Confirmed live (2026-08-28):
-	// the AIMod config page showed a "Reset to Default" button (pure
-	// C++ data logic, unrelated to widget creation) but zero visible
-	// property rows. Fix: resolve the real Blueprint classes here via
-	// ConstructorHelpers::FClassFinder and construct instances of THOSE
-	// instead, via the raw (non-template) UObject::CreateDefaultSubobject
+	// BP_ConfigPropertyFloat). Constructing the raw C++ classes produces
+	// properties that are structurally correct - HasResettableChildProperty()
+	// still works, RPC reads via GetAIModConfigBool still work - but render
+	// as a completely blank page in the Mods settings UI: no checkboxes, no
+	// descriptions, since CreateEditorWidget always returns NULL (the page
+	// still shows a "Reset to Default" button, which is pure C++ data logic
+	// unrelated to widget creation). Fix: resolve the real Blueprint classes
+	// here via ConstructorHelpers::FClassFinder and construct instances of
+	// THOSE instead, via the raw (non-template) UObject::CreateDefaultSubobject
 	// overload that accepts an explicit runtime UClass (Object.h) - falls
 	// back to the C++ base class if the Blueprint asset can't be found,
 	// so a missing/renamed asset degrades to the old (data-only) behavior
@@ -57,18 +55,16 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	// is created as a subobject of the SECTION (via ObjectInitializer's
 	// explicit-Outer overload) rather than of this configuration. See the
 	// header's constructor doc comment for why that parenting is required
-	// for config persistence to work at all - previously these used the
-	// plain CreateDefaultSubobject (Outer = this configuration), which is
-	// exactly what broke save-on-change.
+	// for config persistence to work at all - parenting the properties to
+	// the configuration object instead breaks save-on-change.
 	UConfigPropertySection* Section = CastChecked<UConfigPropertySection>(ObjectInitializer.CreateDefaultSubobject(this, TEXT("RootSection"), UConfigPropertySection::StaticClass(), SectionClass, true, false));
 	RootSection = Section;
 
 	// BP_ConfigPropertySection derives from UCP_Section (CP_Section.h),
 	// which adds a WidgetType enum controlling Horizontal-with-scrollbar
-	// vs Vertical layout for its child rows - defaults to Horizontal.
-	// Confirmed live (2026-08-28): the six AIMod toggles rendered in a
-	// horizontal scrolling row by default; force Vertical instead, since
-	// that's the layout every other section in this settings menu uses.
+	// vs Vertical layout for its child rows - defaults to Horizontal, which
+	// renders these toggles in a horizontal scrolling row. Force Vertical
+	// instead, the layout every other section in this settings menu uses.
 	if (UCP_Section* SectionExtended = Cast<UCP_Section>(Section))
 	{
 		SectionExtended->WidgetType = ECP_SectionWidgetType::CPS_Vertical;
@@ -105,8 +101,7 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	Section->SectionProperties.Add(TEXT("LimitBuildDistance"), LimitBuildDistance);
 
 	// Default 8000 units ~= 10 standard 8m foundation tiles (800 units
-	// each), per the user's own "10 foundations away" framing when this
-	// setting was requested.
+	// each).
 	UConfigPropertyFloat* MaxBuildDistance = CastChecked<UConfigPropertyFloat>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("MaxBuildDistance"), UConfigPropertyFloat::StaticClass(), FloatClass, true, false));
 	MaxBuildDistance->DisplayName = FText::FromString(TEXT("Max Build Distance (cm)"));
 	MaxBuildDistance->Tooltip = FText::FromString(TEXT(
@@ -118,8 +113,7 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 
 	// Default ON (unlike the four safety/capability toggles above, which
 	// default off to preserve prior behavior) - this is a pure UX
-	// nicety, not a security or gameplay-balance trade-off, and is the
-	// literal feature being requested when this was added. See
+	// nicety, not a security or gameplay-balance trade-off. See
 	// UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded.
 	UConfigPropertyBool* AutoAcknowledgeChatMessages = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("AutoAcknowledgeChatMessages"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	AutoAcknowledgeChatMessages->DisplayName = FText::FromString(TEXT("Auto-Acknowledge Chat Messages"));
@@ -131,12 +125,11 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	AutoAcknowledgeChatMessages->Value = true;
 	Section->SectionProperties.Add(TEXT("AutoAcknowledgeChatMessages"), AutoAcknowledgeChatMessages);
 
-	// A sixth property, added 2026-08-28 - back to the "off by default,
-	// player-opt-in-only" character of the original four. There is no
-	// existing in-game equivalent of "a player spawns a creature", so
-	// this is treated the same as bUnlimitedResources: a capability an
-	// external AI controller can never enable itself, only the player
-	// from this settings menu. See UAIModFunctionLibrary::SpawnCreatureNearPlayer.
+	// Off by default, player-opt-in only. There is no existing in-game
+	// equivalent of "a player spawns a creature", so this is treated the
+	// same as bUnlimitedResources: a capability an external AI controller
+	// can never enable itself, only the player from this settings menu.
+	// See UAIModFunctionLibrary::SpawnCreatureNearPlayer.
 	UConfigPropertyBool* AllowCreatureSpawning = CastChecked<UConfigPropertyBool>(ObjectInitializer.CreateDefaultSubobject(Section, TEXT("AllowCreatureSpawning"), UConfigPropertyBool::StaticClass(), BoolClass, true, false));
 	AllowCreatureSpawning->DisplayName = FText::FromString(TEXT("Allow Creature Spawning"));
 	AllowCreatureSpawning->Tooltip = FText::FromString(TEXT(
@@ -146,9 +139,9 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	AllowCreatureSpawning->Value = false;
 	Section->SectionProperties.Add(TEXT("AllowCreatureSpawning"), AllowCreatureSpawning);
 
-	// A seventh property, added 2026-09-02 - multiplayer chat safety, same
-	// off-by-default player-opt-in character as bUnlimitedResources /
-	// bAllowCreatureSpawning. By default, world.chatHistory suppresses
+	// Multiplayer chat safety, off-by-default player-opt-in, same character
+	// as bUnlimitedResources / bAllowCreatureSpawning. By default,
+	// world.chatHistory suppresses
 	// chat messages typed by anyone OTHER than the host player (the game's
 	// own FChatMessageStruct::bIsLocalPlayerMessage identifies the host's
 	// messages in the host process, where AIMod runs), and the instant
@@ -169,8 +162,8 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	AllowNonHostChatMessages->Value = false;
 	Section->SectionProperties.Add(TEXT("AllowNonHostChatMessages"), AllowNonHostChatMessages);
 
-	// An eighth property, added 2026-09-09 - protects the deliberately-scarce
-	// alien artifacts (Somersloop = Desc_WAT1, Mercer Sphere = Desc_WAT2, the
+	// Protects the deliberately-scarce alien artifacts (Somersloop =
+	// Desc_WAT1, Mercer Sphere = Desc_WAT2, the
 	// "/Prototype/WAT/" family). AIMod's item-injection RPCs create items from
 	// nothing, so without a gate they could fabricate unlimited Somersloops /
 	// Mercer Spheres, trivializing production amplification and the tech that
@@ -190,7 +183,7 @@ UAIModConfiguration::UAIModConfiguration(const FObjectInitializer& ObjectInitial
 	AllowSpawningAlienArtifacts->Value = false;
 	Section->SectionProperties.Add(TEXT("AllowSpawningAlienArtifacts"), AllowSpawningAlienArtifacts);
 
-	// Creative-features master switch (2026-09-20, public-release safety).
+	// Creative-features master switch, public-release safety.
 	// Off by default: gates the RPCs with no legitimate in-game equivalent
 	// - free item injection, milestone-achievement re-fire, seasonal-event
 	// forcing, and world/entity manipulation (space station height/phase,

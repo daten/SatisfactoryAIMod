@@ -158,34 +158,32 @@
 
 namespace
 {
-	// Forward declaration - real definition lives further down (originally
-	// written for use only after that point in the file); ConstructBuildingAtPosition's
-	// faceBuildableId support (2026-08-27) needs to call it earlier than that.
+	// Forward declaration - the real definition lives further down;
+	// ConstructBuildingAtPosition's faceBuildableId support needs to call it
+	// earlier than that.
 	// Anonymous namespaces in the same translation unit all merge into one,
 	// so this and the later definition refer to the same function - only
 	// textual order (declare before use) matters here.
 	AFGBuildable* FindBuildableById(UWorld* World, const FString& BuildableId);
 	FString WriteCondensedJson(const TSharedRef<FJsonObject>& RootObject);
 
-	// "RealCharacter" instigator strategy (2026-08-30) - the ORIGINAL,
-	// proven-working ConstructConveyorBelt body, preserved verbatim as a
-	// fallback/comparison strategy alongside the newer decoy-instigator
-	// strategies (see ConstructConveyorBelt's own doc comment). Drives
-	// the REAL player's BuildGun - reliable belt construction, but visibly
-	// moves the real camera, which is exactly what the decoy strategies
-	// are trying to avoid. Kept selectable via params.instigatorStrategy
-	// so multiple competing fixes for the decoy path can be tried without
-	// a fresh compile each time, per explicit user request.
+	// "RealCharacter" instigator strategy - the proven-working
+	// ConstructConveyorBelt body, kept as a fallback/comparison strategy
+	// alongside the decoy-instigator strategies (see ConstructConveyorBelt's
+	// own doc comment). Drives the REAL player's BuildGun - reliable belt
+	// construction, but visibly moves the real camera, which is exactly what
+	// the decoy strategies are trying to avoid. Kept selectable via
+	// params.instigatorStrategy so competing fixes for the decoy path can be
+	// tried without a fresh compile each time.
 	void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
-	 * Shared ground-trace logic (2026-08-27), factored out of
-	 * ConstructBuildingAtPosition so world.groundHeight can expose the
-	 * exact same real trace as a standalone, read-only query - added per
-	 * explicit user request to make placement Z deterministic without
+	 * Shared ground-trace logic, factored out of ConstructBuildingAtPosition
+	 * so world.groundHeight can expose the exact same real trace as a
+	 * standalone, read-only query - makes placement Z deterministic without
 	 * requiring the caller to already know that "z" is a +/-1000-unit
 	 * search center, not a literal height (see docs/placement-lessons.md).
-	 * A caller can now query the real ground Z at an X/Y first, then pass
+	 * A caller can query the real ground Z at an X/Y first, then pass
 	 * that exact value back in as ReferenceZ - no more guess-and-iterate.
 	 */
 	struct FGroundTraceResult
@@ -233,11 +231,10 @@ namespace
 
 	// GetResourcePurityText() looked like a plain display string but is
 	// actually Slate rich-text markup meant for on-screen UI (its own doc
-	// comment says "For UI") - confirmed against a real save, it returned
-	// literal "<Bold>(Normal)</>" instead of "Normal", caught by
-	// AIModSelfTest on its first real run. Use the raw enum
-	// (GetResourcePurity(), also "For UI" per its comment but returns the
-	// actual EResourcePurity value) and map it ourselves, consistent with
+	// comment says "For UI") - it returns literal "<Bold>(Normal)</>"
+	// instead of "Normal". Use the raw enum (GetResourcePurity(), also
+	// "For UI" per its comment but returns the actual EResourcePurity value)
+	// and map it ourselves, consistent with
 	// ProductionStatusToString/FactoryConnectionDirectionToString below.
 	FString ResourcePurityToString(EResourcePurity Purity)
 	{
@@ -277,14 +274,13 @@ namespace
 		}
 	}
 
-	// AFGResourceNodeBase (2026-08-27, was AFGResourceNode) - widened
-	// alongside ConstructExtractorOnNode to also cover
+	// Takes AFGResourceNodeBase so it also covers
 	// AFGResourceNodeFrackingCore (a Resource Well Pressurizer's real
 	// target, NOT an AFGResourceNode - see that function's doc comment).
-	// GetResourcePurity() only exists on AFGResourceNode (confirmed from
-	// source - FGResourceNode.h, not declared on the shared
-	// AFGResourceNodeBase), so it's read conditionally here; a Fracking
-	// Core has no meaningful purity of its own.
+	// GetResourcePurity() only exists on AFGResourceNode (per source -
+	// FGResourceNode.h, not declared on the shared AFGResourceNodeBase),
+	// so it's read conditionally here; a Fracking Core has no meaningful
+	// purity of its own.
 	FAIModResourceNodeTelemetry MakeResourceNodeTelemetry(AFGResourceNodeBase* Node)
 	{
 		const TSubclassOf<UFGResourceDescriptor> ResourceClass = Node->GetResourceClass();
@@ -371,16 +367,15 @@ namespace
 	const TCHAR* LightweightIdPrefix = TEXT("lightweight:");
 
 	/**
-	 * Lightweight buildables (2026-08-25 discovery - see
-	 * docs/lightweight-buildable-research.md) are NOT AFGBuildable actors
-	 * at all - they're stored as FRuntimeBuildableInstanceData in
-	 * AFGLightweightBuildableSubsystem, for performance at scale
-	 * (thousands of foundation/wall pieces would be expensive as full
-	 * actors). Confirmed live: placing a foundation via
-	 * ConstructBuildingAtPosition reported success and the piece was
-	 * visually confirmed in-game, but it appeared in neither the
+	 * Lightweight buildables (see docs/lightweight-buildable-research.md)
+	 * are NOT AFGBuildable actors at all - they're stored as
+	 * FRuntimeBuildableInstanceData in AFGLightweightBuildableSubsystem,
+	 * for performance at scale (thousands of foundation/wall pieces would
+	 * be expensive as full actors). Placing a foundation via
+	 * ConstructBuildingAtPosition reports success and the piece is
+	 * visible in-game, but it appears in neither the
 	 * proximity-based buildableId lookup nor the full world.buildables
-	 * list (still exactly 10121 real AFGBuildable actors before and
+	 * list (the real AFGBuildable actor count is unchanged before and
 	 * after). GetPathName() is meaningless here - there's no actor - so
 	 * these use "lightweight:<BuildableClassPath>|<Index>" instead,
 	 * identity being (class, array index) into
@@ -463,7 +458,7 @@ namespace
 		return UFGBuildingDescriptor::GetBuildableClass(BuildingDescriptorClass);
 	}
 
-	// Vehicles (2026-08-29) - UFGVehicleDescriptor is a SIBLING of
+	// Vehicles - UFGVehicleDescriptor is a SIBLING of
 	// UFGBuildingDescriptor (both derive from UFGBuildDescriptor
 	// separately, confirmed from source), so a vehicle recipe's product
 	// is never a UFGBuildingDescriptor and ResolveBuildableClassForRecipe
@@ -506,7 +501,7 @@ namespace
 	}
 
 	// Same pattern as ResolveConveyorBeltHologramClassForRecipe, for
-	// pipelines (2026-08-25 pipe groundwork). AFGPipelineHologram is a
+	// pipelines. AFGPipelineHologram is a
 	// sibling of AFGConveyorBeltHologram - both derive directly from
 	// AFGSplineHologram - confirmed from source, not assumed.
 	TSubclassOf<AFGPipelineHologram> ResolvePipelineHologramClassForRecipe(const FString& RecipeClassPath)
@@ -545,8 +540,8 @@ namespace
 
 	// Fluid pipe machines with a genuine producer/consumer distinction
 	// (Refineries, Pumps, Blenders, etc.) match via FindFreePipeConnection's
-	// exact PCT_PRODUCER/PCT_CONSUMER filter above. But confirmed live
-	// 2026-08-27 that several real, common fluid-pipe buildables -
+	// exact PCT_PRODUCER/PCT_CONSUMER filter above. But several real,
+	// common fluid-pipe buildables -
 	// Storage Tanks (Recipe_PipeStorageTank) and Pipeline Junctions
 	// (Cross/T) - have ONLY PCT_ANY connectors (a fresh Storage Tank's 2
 	// connectors and a Cross Junction's 4 were all "Any", none
@@ -579,7 +574,7 @@ namespace
 	}
 
 	// Hypertube connectors are a different shape than fluid pipe connectors
-	// (research 2026-08-27, docs/hypertube-research.md): they're all
+	// (see docs/hypertube-research.md): they're all
 	// UFGPipeConnectionComponentHyper (a plain type-tag subclass of
 	// UFGPipeConnectionComponentBase - confirmed no added members from
 	// source) and their mPipeConnectionType stays the CDO default
@@ -606,7 +601,7 @@ namespace
 		return nullptr;
 	}
 
-	// Railroad tracks (2026-08-29) - UFGRailroadTrackConnectionComponent
+	// Railroad tracks - UFGRailroadTrackConnectionComponent
 	// is a real UFGConnectionComponent subclass with the same
 	// GetConnectorLocation/GetConnectorNormal/IsConnected shape belt/pipe
 	// connectors already use (confirmed from source), so this mirrors
@@ -635,7 +630,7 @@ namespace
 	// The FREE railroad connection on a buildable closest to a world position -
 	// lets a caller pick WHICH end of a multi-connector track (e.g. a station's
 	// two ends) to join, so a loop's two curves join matching sides instead of
-	// whatever "first free" happens to return (2026-09-05).
+	// whatever "first free" happens to return.
 	UFGRailroadTrackConnectionComponent* FindFreeRailroadConnectionNearest(AFGBuildable* Buildable, const FVector& WorldPos)
 	{
 		TArray<UFGRailroadTrackConnectionComponent*> Connections;
@@ -728,13 +723,12 @@ namespace
 				// A removed instance's slot has Handles.Num()==0 &&
 				// BuiltWithRecipe==nullptr (matches Clear()'s real body in
 				// FGLightweightBuildableSubsystem.h) - IsValid() below skips
-				// it. CORRECTION (2026-08-25, docs/lightweight-buildable-
-				// research.md "Index stability"): this does NOT mean
-				// (class, index) identity is stable over time - live
-				// evidence showed a whole batch of indices shift after
-				// unrelated deletes (a periodic compaction, not a pure
-				// tombstone) - always re-resolve an id by position before
-				// trusting an old one.
+				// it. Note (see docs/lightweight-buildable-research.md
+				// "Index stability"): this does NOT mean (class, index)
+				// identity is stable over time - a whole batch of indices
+				// can shift after unrelated deletes (a periodic compaction,
+				// not a pure tombstone) - always re-resolve an id by
+				// position before trusting an old one.
 				if (!InstanceData.IsValid())
 				{
 					continue;
@@ -892,22 +886,17 @@ namespace
 
 		// Discover UFGFactoryConnectionComponents generically via
 		// AActor::GetComponents<>() rather than maintaining a per-class-
-		// hierarchy enumeration list. Found the hard way, twice, live
-		// (2026-08-24): AFGBuildableFactory (machines), AFGBuildableConveyorBase
-		// (belts/lifts, via named GetConnection0()/GetConnection1()), and
+		// hierarchy enumeration list. AFGBuildableFactory (machines),
+		// AFGBuildableConveyorBase (belts/lifts, via named
+		// GetConnection0()/GetConnection1()), and
 		// AFGBuildableConveyorAttachment (splitters/mergers, via protected
 		// mInputs/mOutputs arrays with no public getter at all) are THREE
 		// separate sibling hierarchies, none deriving from another, each
-		// with its own connection storage and accessor (or none). The
-		// first fix (adding AFGBuildableConveyorBase) only dropped the
-		// self-test's reciprocity failure from 435/1265 to a still-broken
-		// 920/6791 - every remaining unmatched peer was a
-		// Build_ConveyorAttachmentMerger/Splitter (confirmed by pulling
-		// live world.connections/world.buildables data and cross-
-		// referencing peer buildableClass). Generic component discovery
-		// is robust against any other sibling hierarchy not yet found,
-		// since UFGFactoryConnectionComponent is always a component on
-		// the owning AFGBuildable regardless of which subclass it is.
+		// with its own connection storage and accessor (or none). Generic
+		// component discovery is robust against any other sibling hierarchy
+		// not yet found, since UFGFactoryConnectionComponent is always a
+		// component on the owning AFGBuildable regardless of which subclass
+		// it is.
 		for (TActorIterator<AFGBuildable> It(World); It; ++It)
 		{
 			AFGBuildable* Buildable = *It;
@@ -973,12 +962,11 @@ namespace
 
 	// Same generic-discovery pattern as CollectFactoryConnectionTelemetry -
 	// see that function's comment for why (three separate sibling
-	// hierarchies were found the hard way for factory connections; pipes
+	// hierarchies for factory connections; pipes
 	// are a fourth, entirely separate type hierarchy - UFGPipeConnectionComponentBase,
 	// not UFGFactoryConnectionComponent - covering both fluid pipes and
 	// hypertubes, since UFGPipeConnectionComponentHyper is a subclass of
-	// the same base, added 2026-08-27 after discovering live that no
-	// telemetry existed for either.
+	// the same base.
 	TArray<FAIModPipeConnectionTelemetry> CollectPipeConnectionTelemetry(UWorld* World)
 	{
 		TArray<FAIModPipeConnectionTelemetry> Result;
@@ -2322,9 +2310,8 @@ FString UAIModFunctionLibrary::LogBuildablesAsJsonFiltered(UObject* WorldContext
 	return JsonString;
 }
 
-// world.vehicles (2026-08-29) - discovered live during unattended vehicle
-// testing: AFGVehicle is not an AFGBuildable (AFGDriveablePawn, a separate
-// hierarchy), so a constructed vehicle is completely invisible to
+// world.vehicles - AFGVehicle is not an AFGBuildable (AFGDriveablePawn, a
+// separate hierarchy), so a constructed vehicle is completely invisible to
 // world.buildables - there was no way at all to read back a vehicle
 // world.constructVehicle just built. Minimal id/class/position/rotation,
 // same shape as world.buildables, via a real TActorIterator<AFGVehicle>
@@ -2640,7 +2627,7 @@ FAIModOperationResult UAIModFunctionLibrary::AddItemsToInventory(UObject* WorldC
 
 	// When fuel is loaded into a drone station we must also fire the station's
 	// OnFuelItemAdded handler afterwards (a raw AddStack does not arm the active
-	// fuel type; found live 2026-09-07) - ResolveBuildableRoleInventory reports
+	// fuel type) - ResolveBuildableRoleInventory reports
 	// that case via DroneStationToArmFuel.
 	FString ResolvedRoleDesc;
 	AFGBuildableDroneStation* DroneStationToArmFuel = nullptr;
@@ -3131,9 +3118,9 @@ FString UAIModFunctionLibrary::LogConnectorLayoutAsJson(UObject* WorldContextObj
 
 	RootObject->SetArrayField(TEXT("connectors"), Rows);
 
-	// Walkway/catwalk orientation data (2026-09-03): catwalks (and walkways)
-	// are AFGBuildableWalkway, which stores exactly the facts we otherwise had
-	// to calibrate against the user's eyes - mSize (footprint side), mElevation
+	// Walkway/catwalk orientation data: catwalks (and walkways)
+	// are AFGBuildableWalkway, which stores exactly the orientation facts a
+	// caller needs - mSize (footprint side), mElevation
 	// (ramp rise; per FGBuildableWalkway.h the ramp goes UP toward LOCAL +X),
 	// and mDisableSnapOn (the sides with snapping disabled == the RAILED/closed
 	// sides). Emitting the railed sides as LOCAL-frame normals lets a caller
@@ -3142,8 +3129,8 @@ FString UAIModFunctionLibrary::LogConnectorLayoutAsJson(UObject* WorldContextObj
 	// a Cross none). Local side->normal: Front=+X, Back=-X, Right=+Y, Left=-Y.
 	// Use the untyped CDO + Cast<> (returns null on mismatch). The templated
 	// GetDefaultObject<AFGBuildableWalkway>() does a CastChecked internally and
-	// hard-asserts (crash) for any non-walkway class - it took down the game
-	// live 2026-09-07 when connectorLayout was queried for a drone station.
+	// hard-asserts (crash) for any non-walkway class - it takes down the game
+	// when connectorLayout is queried for a non-walkway (e.g. a drone station).
 	if (const AFGBuildableWalkway* WalkwayCDO = Cast<AFGBuildableWalkway>(BuildableClass->GetDefaultObject()))
 	{
 		const TSharedRef<FJsonObject> WalkwayObject = MakeShared<FJsonObject>();
@@ -3735,7 +3722,7 @@ FString UAIModFunctionLibrary::LogChatHistoryAsJson(UObject* WorldContextObject)
 	TArray<FChatMessageStruct> Messages;
 	ChatManager->GetReceivedChatMessages(Messages);
 
-	// Multiplayer safety (2026-09-02): by default, suppress chat messages
+	// Multiplayer safety: by default, suppress chat messages
 	// typed by anyone OTHER than the host player, so a guest in a
 	// multiplayer session cannot issue instructions to an external AI
 	// controller that naively treats every PlayerMessage in this history
@@ -3822,7 +3809,7 @@ FAIModOperationResult UAIModFunctionLibrary::SendChatMessage(UObject* WorldConte
 	// AddChatMessageToReceived's own doc comment: "Helper function to add
 	// a chat message to the LOCAL received messages" - silent bookkeeping
 	// only, queryable via GetReceivedChatMessages/world.chatHistory but
-	// confirmed live (2026-08-28) NOT visible in the actual in-game chat
+	// NOT visible in the actual in-game chat
 	// UI. BroadcastChatMessage ("Broadcasts a chat message to all
 	// connected players") is the real public entry point - it calls the
 	// NetMulticast Multicast_BroadcastChatMessage internally, which is
@@ -3875,15 +3862,14 @@ FAIModOperationResult UAIModFunctionLibrary::SetManufacturerClockSpeed(UObject* 
 		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
 	}
 
-	// Widened 2026-08-30 (was AFGBuildableManufacturer-only, via
-	// FindManufacturerById) - GetCanChangePotential/GetCurrentMinPotential/
-	// GetCurrentMaxPotential/SetPendingPotential are all declared on the
-	// shared AFGBuildableFactory base, confirmed from source
-	// (AFGBuildableResourceExtractorBase, a Miner's real base class, IS an
-	// AFGBuildableFactory) - found live while planning an overclocked
-	// Miner test that needed this to work on a Miner, not just
-	// Smelters/Constructors. FindBuildableById + Cast, not
-	// FindManufacturerById, so this now covers both.
+	// Uses AFGBuildableFactory, not AFGBuildableManufacturer, so this covers
+	// both manufacturers and extractors:
+	// GetCanChangePotential/GetCurrentMinPotential/GetCurrentMaxPotential/
+	// SetPendingPotential are all declared on the shared AFGBuildableFactory
+	// base (per source - AFGBuildableResourceExtractorBase, a Miner's real
+	// base class, IS an AFGBuildableFactory), so overclocking works on a
+	// Miner as well as Smelters/Constructors. FindBuildableById + Cast, not
+	// FindManufacturerById.
 	AFGBuildableFactory* Factory = Cast<AFGBuildableFactory>(FindBuildableById(World, BuildableId));
 	if (!Factory)
 	{
@@ -4076,14 +4062,12 @@ FAIModResourceNodeTelemetry UAIModFunctionLibrary::GetTargetedResourceNode(UObje
 		return FAIModResourceNodeTelemetry();
 	}
 
-	// Corrected 2026-08-24: an earlier pass here used a hand-rolled
-	// view-angle-cone heuristic based on a research gap - searched for
-	// "IFGUsableInterface" (zero hits) and concluded resource nodes have
-	// no usable interface at all. FactoryGame actually spells it
-	// "IFGUseableInterface", and AFGResourceNodeBase (FGResourceNodeBase.h:93)
-	// does implement it - confirmed live: the same GetBestUsableActor()
-	// GetTargetedManufacturer already trusts also finds resource nodes,
-	// exactly matching the game's own "Press E to start mining" prompt.
+	// FactoryGame spells the interface "IFGUseableInterface" (NOT
+	// "IFGUsableInterface" - grep both spellings), and AFGResourceNodeBase
+	// (FGResourceNodeBase.h:93) implements it, so the same
+	// GetBestUsableActor() GetTargetedManufacturer trusts also finds
+	// resource nodes, exactly matching the game's own "Press E to start
+	// mining" prompt. Preferred over a hand-rolled view-angle-cone heuristic.
 	AFGResourceNode* Node = Cast<AFGResourceNode>(Character->GetBestUsableActor());
 	if (!Node)
 	{
@@ -4152,16 +4136,15 @@ FAIModOperationResult UAIModFunctionLibrary::DebugCheckExtractorPlacementOnTarge
 	// which AFGResourceNodeBase implements - same interface IsOccupied()
 	// above already calls) exposes a node-level "can an extractor even go
 	// here" check, independent of the hologram's own clearance system
-	// (already confirmed working - see the clearanceDetector diagnostic
-	// added earlier). If this reports false, the real answer is here, not
-	// in anything hologram-related.
+	// (see the clearanceDetector diagnostic). If this reports false, the
+	// real answer is here, not in anything hologram-related.
 	UE_LOG(LogAIModAI, Display, TEXT("DebugCheckExtractorPlacementOnTargetedNode: node diagnostics - CanPlaceResourceExtractor=%s HasAnyResources=%s CanBecomeOccupied=%s"),
 		TargetNode->CanPlaceResourceExtractor() ? TEXT("true") : TEXT("false"),
 		TargetNode->HasAnyResources() ? TEXT("true") : TEXT("false"),
 		TargetNode->CanBecomeOccupied() ? TEXT("true") : TEXT("false"));
 
-	// Verified to exist as a real asset in Content/FactoryGame/Recipes/Buildings/
-	// (not guessed from memory - see docs/extractor-placement-research.md).
+	// A real asset in Content/FactoryGame/Recipes/Buildings/
+	// (see docs/extractor-placement-research.md).
 	// This is the building's BUILD-COST recipe (what it costs to
 	// construct), not a production recipe - Miner Mk1 has no production
 	// recipe, it extracts automatically based on the node's purity.
@@ -4230,9 +4213,9 @@ FAIModOperationResult UAIModFunctionLibrary::DebugCheckExtractorPlacementOnTarge
 	// separately.
 	Hologram->UpdateHologramPlacement(SyntheticHit);
 
-	// Found live (2026-08-24): checking CanConstruct() immediately, and
-	// even after 5 manually-invoked Hologram->Tick(0.1f) calls, both
-	// reported a hard UFGCDInitializing ("Initializing") disqualifier.
+	// Checking CanConstruct() immediately, and even after several
+	// manually-invoked Hologram->Tick(0.1f) calls, both
+	// report a hard UFGCDInitializing ("Initializing") disqualifier.
 	// FGHologram.h's InitializeClearanceData()/PostInitializeClearanceData()
 	// split (:535-536) suggests clearance checking kicks off a world
 	// query - most plausibly an async overlap - that doesn't resolve
@@ -4291,8 +4274,8 @@ FAIModOperationResult UAIModFunctionLibrary::DebugCheckExtractorPlacementOnTarge
 		const FString DisqualifierSummary = DisqualifierTexts.IsEmpty() ? TEXT("<none>") : FString::Join(DisqualifierTexts, TEXT("; "));
 
 		// Diagnostic only, both public on AFGHologram (FGHologram.h:363,370)
-		// - testing the hypothesis that UFGCDInitializing never clearing
-		// (three attempts, docs/extractor-placement-research.md) is
+		// - checks whether UFGCDInitializing never clearing
+		// (see docs/extractor-placement-research.md) is
 		// because the protected SetupClearanceDetector() (:540), which the
 		// real AFGBuildGun explicitly calls after spawning a hologram
 		// (paired with its own CleanupHologramClearanceDetection()), never
@@ -4414,9 +4397,9 @@ FAIModOperationResult UAIModFunctionLibrary::DebugCheckExtractorPlacementViaBuil
 	}
 
 	// Feed our synthetic hit result through the build gun's own mutable
-	// GetHitResult() reference. NOTE, found live (2026-08-24, see
-	// ConstructBuildingNearPlayer's matching fix and
-	// docs/buildgun-driven-placement-research.md): setting this ONCE is
+	// GetHitResult() reference. NOTE (see ConstructBuildingNearPlayer's
+	// matching fix and docs/buildgun-driven-placement-research.md): setting
+	// this ONCE is
 	// not enough - UFGBuildGunStateBuild::TickState_Implementation runs
 	// its own real TraceForBuilding() every tick and overwrites this with
 	// the player's live aim. Set it here anyway (harmless, and covers the
@@ -4800,7 +4783,7 @@ FAIModOperationResult UAIModFunctionLibrary::ConstructBuildingNearPlayer(UObject
 	}
 
 	// See DebugCheckExtractorPlacementViaBuildGun's matching comment -
-	// confirmed live (2026-08-24) that setting this once is not enough:
+	// setting this once is not enough:
 	// UFGBuildGunStateBuild::TickState_Implementation runs its own real
 	// TraceForBuilding() every tick and overwrites GetHitResult() with
 	// the player's live aim, silently discarding whatever we set here.
@@ -4980,8 +4963,8 @@ FAIModOperationResult UAIModFunctionLibrary::SpawnCreatureNearPlayer(UObject* Wo
 	// "Begin..." naming mirrors AFGBuildableSubsystem::BeginSpawnBuildable,
 	// whose doc comment is explicit: "you need to call FinishSpawning...
 	// to finalize the spawning" - a standard Unreal deferred-actor-spawn
-	// pattern (AActor::FinishSpawning, Actor.h). Confirmed live
-	// (2026-08-28): without this call the creature spawned but was frozen
+	// pattern (AActor::FinishSpawning, Actor.h). Without this call the
+	// creature spawns but stays frozen
 	// (no animation, no movement, no AI) - Actor.h's own comment on why:
 	// "Whether FinishSpawning has been called for this Actor. If it has
 	// not, the Actor is in a malformed state."
@@ -5029,15 +5012,14 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		return;
 	}
 
-	// LimitBuildDistance (2026-08-27) - a NEW synthetic restriction, not a
-	// real FactoryGame disqualifier: grepping FGConstructDisqualifier.h
-	// found no "too far from player" class at all, and this codebase has
-	// built at 100,000+ unit distances all session with nothing ever
-	// rejecting it (unlike a real player's Build Gun, which has a real
-	// reach limit). Added per explicit user request ("simulate a build
-	// distance limit... so structures cannot be built clear on the other
-	// side of the map") as a player-controlled mod setting - off by
-	// default, preserving today's unrestricted behavior. 2D distance
+	// LimitBuildDistance - a synthetic restriction, not a
+	// real FactoryGame disqualifier: FGConstructDisqualifier.h has no
+	// "too far from player" class at all, and this codebase builds at
+	// 100,000+ unit distances with nothing ever rejecting it (unlike a
+	// real player's Build Gun, which has a real reach limit). Simulates a
+	// build distance limit (so structures can't be built clear on the
+	// other side of the map) as a player-controlled mod setting - off by
+	// default, preserving unrestricted behavior. 2D distance
 	// only (X/Y) - Z isn't resolved yet at this point (ground trace
 	// hasn't run), and "how far away" is naturally a horizontal notion
 	// for this use case anyway. Checked here, before any hologram/poll
@@ -5065,12 +5047,11 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 	}
 	const TSubclassOf<UFGRecipe> RecipeClass = ResolvedClass;
 
-	// Safety guard (2026-08-27, added after a live game CRASH, not just a
-	// bad result): this generic single-step placement path must never be
-	// used for extractor recipes (Miners, Water/Oil Pumps, Fracking
-	// buildings) - confirmed live that placing Recipe_MinerMk2 through
-	// here (no real resource node under it) resolved canConstruct=true
-	// (unlike Recipe_MinerMk1 moments earlier at a different location,
+	// Safety guard (a real game CRASH, not just a bad result): this generic
+	// single-step placement path must never be used for extractor recipes
+	// (Miners, Water/Oil Pumps, Fracking buildings) - placing Recipe_MinerMk2
+	// through here (no real resource node under it) resolves canConstruct=true
+	// (unlike Recipe_MinerMk1 at a different location,
 	// which correctly refused with "Must be placed on a Resource Node!" -
 	// the disqualifier is evidently not reliably present for every
 	// extractor/location combination) and proceeded into
@@ -5092,7 +5073,7 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		return;
 	}
 
-	// Vehicles (2026-08-29) - same conservative posture as the extractor
+	// Vehicles - same conservative posture as the extractor
 	// refusal above, by structural analogy rather than a confirmed crash:
 	// a Drone hologram has a mandatory mSnappedStation reference (see
 	// UFGCDMustSnapStation in FGConstructDisqualifier.h) this generic
@@ -5109,11 +5090,11 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		return;
 	}
 
-	// Spline-snapped buildables (2026-08-29) - CONFIRMED LIVE CRASH, not
-	// just a structural analogy this time: a real unattended test run
-	// placed Build_ConveyorMonitor through this exact generic path and
-	// crashed the whole game process (EXCEPTION_ACCESS_VIOLATION reading
-	// address 0x10). Root-caused from source, not guessed:
+	// Spline-snapped buildables - a CONFIRMED CRASH, not
+	// just a structural analogy: placing Build_ConveyorMonitor through this
+	// exact generic path crashes the whole game process
+	// (EXCEPTION_ACCESS_VIOLATION reading address 0x10). Root-caused from
+	// source:
 	// AFGBuildableSplineSnappedBase::SetSnappedSplineBuildable() (the
 	// base class's own real, non-stub inline implementation, confirmed
 	// in FGBuildableSplineSnappedBase.h) unconditionally calls
@@ -5154,9 +5135,9 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 	// that function's header comment for why this stays simple rather
 	// than a real "solve valid placement" algorithm.
 	//
-	// ZSearchCenter (2026-08-25): the vertical search range for the
+	// ZSearchCenter: the vertical search range for the
 	// ground trace defaults to the PLAYER's current Z +/-1000 units -
-	// found live to be a real reliability problem, not just a
+	// a real reliability problem, not just a
 	// theoretical one: placing a building far from the player's current
 	// elevation (e.g. player standing on top of another building, or on
 	// an unrelated walkway) can make the trace miss real terrain
@@ -5167,8 +5148,8 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 	// caller anchor the search to a KNOWN, FIXED point instead (e.g. an
 	// existing buildable's own Z from world.buildables) - deterministic
 	// regardless of where the player happens to be standing at call
-	// time, matching this session's broader push toward intentional,
-	// planned placement rather than player-relative guessing. Sentinel
+	// time, for intentional, planned placement rather than player-relative
+	// guessing. Sentinel
 	// -1000000 (an unrealistic in-game Z) means "not provided" and
 	// preserves the prior player-Z-anchored behavior.
 	const bool bHasReferenceZ = ReferenceZ > -1000000.0f;
@@ -5210,12 +5191,11 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 	UE_LOG(LogAIModAI, Display, TEXT("ConstructBuildingAtPosition: recipe=%s ignoreGroundTrace=%s groundTraceHit=%s location=%s"),
 		*RecipeClassPath, bIgnoreGroundTrace ? TEXT("true") : TEXT("false"), bGroundTraceFound ? TEXT("true") : TEXT("false"), *SyntheticHit.Location.ToString());
 
-	// faceBuildableId (2026-08-27) - computes TargetYawDegrees from the
+	// faceBuildableId - computes TargetYawDegrees from the
 	// REAL placement location and an existing buildable's REAL position,
 	// instead of requiring the caller to fetch both separately and do
 	// this vector math themselves externally (the exact manual dance
-	// this project's own placement work has repeated all session for
-	// splitters/mergers/hypertube entrances - see
+	// otherwise repeated for splitters/mergers/hypertube entrances - see
 	// docs/placement-lessons.md). Takes priority over an explicit
 	// bHasTargetYaw/TargetYawDegrees if both are somehow provided, since
 	// a resolved real target is more specific than a raw number.
@@ -5234,9 +5214,8 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		UE_LOG(LogAIModAI, Display, TEXT("ConstructBuildingAtPosition: faceBuildableId=%s resolved yaw=%.1f"), *FaceBuildableId, TargetYawDegrees);
 	}
 
-	// Live investigation (2026-08-25): "Invalid aim location!" was found
-	// to persist even at ~100 units distance, directly along the
-	// character's own capsule-facing direction, with a confirmed-valid
+	// "Invalid aim location!" persists even at ~100 units distance, directly
+	// along the character's own capsule-facing direction, with a valid
 	// ground trace hit - ruling out both distance and horizontal capsule
 	// yaw as the cause. world.player/AFGCharacterPlayer::GetActorRotation()
 	// only reflects capsule yaw, not the actual camera pitch/yaw
@@ -5257,23 +5236,22 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 	{
 		const FRotator LookAtTarget = (SyntheticHit.Location - Character->GetActorLocation()).Rotation();
 
-		// Fix (2026-08-26): only LookAtTarget's PITCH was ever load-bearing
-		// for the "Invalid aim location!" fix above - the YAW was not. But
+		// Only LookAtTarget's PITCH is load-bearing for the "Invalid aim
+		// location!" fix above - the YAW is not. But
 		// AFGHologram::UpdateHologramPlacement() (called every poll tick
 		// below, stub source / unreadable) evidently re-derives the
 		// hologram's own default (pre-Scroll) facing from the controller's
-		// CURRENT yaw each tick. Confirmed live this session: the exact
-		// same RotationScrollDelta produced a DIFFERENT resolved yaw
-		// depending only on where the player character happened to be
+		// CURRENT yaw each tick: the exact
+		// same RotationScrollDelta produces a DIFFERENT resolved yaw
+		// depending only on where the player character happens to be
 		// standing relative to the target - including a "yaw=0 expected"
 		// case with the player nowhere near the target, and even a
 		// completely isolated placement far from all other geometry. The
-		// resolved (pre-scroll) yaw was consistently just the compass
+		// resolved (pre-scroll) yaw is consistently just the compass
 		// bearing FROM the player's position TO the target, i.e. exactly
-		// what LookAtTarget.Yaw computes here. This made every automated,
-		// multi-building layout this session non-deterministic and was the
-		// root cause of the "chaotic" scattered/misrotated result the user
-		// found live via screenshots - not terrain, not gridSnapSize, not
+		// what LookAtTarget.Yaw computes here. This makes automated
+		// multi-building layouts non-deterministic (scattered/misrotated),
+		// not terrain, not gridSnapSize, not
 		// per-building randomness. Pinning yaw to a fixed 0 baseline here
 		// (independent of player position) makes RotationScrollDelta
 		// finally reproducible: delta=0 is always due north, and each
@@ -5313,9 +5291,9 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 
 	BuildGun->GetHitResult() = SyntheticHit;
 
-	// Calibration (2026-08-25, revised): a single Scroll(N) call with
-	// |N|>1 was found live to behave identically to Scroll(1) - delta=1,2,3
-	// all produced the same resolved yaw, and delta=-1,-2 produced the
+	// Calibration: a single Scroll(N) call with
+	// |N|>1 behaves identically to Scroll(1) - delta=1,2,3
+	// all produce the same resolved yaw, and delta=-1,-2 produce the
 	// SAME (positive) result as +1,+2, not a negative rotation - the
 	// signature of a per-call clamped/smoothed input handler built for
 	// one mouse-wheel notch per call, not an arbitrary-magnitude delta
@@ -5397,8 +5375,7 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 			return;
 		}
 
-		// Re-assert every tick, not just once before the loop (2026-08-26):
-		// live-diagnosed with the user hovering on a jetpack at the time -
+		// Re-assert every tick, not just once before the loop:
 		// the one-time SetControlRotation() before this poll loop starts
 		// can get overridden by the game's own ongoing camera/flight input
 		// before a LATER tick's UpdateHologramPlacement() call reads it,
@@ -5421,18 +5398,18 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 
 		PollHologram->UpdateHologramPlacement(PollState->SyntheticHit);
 
-		// COMPOSITE HOLOGRAM CHILD RE-SYNC (2026-09-08, fixes RPC-built train
+		// COMPOSITE HOLOGRAM CHILD RE-SYNC (needed for RPC-built train
 		// loops). A train station/platform hologram (AFGTrainPlatformHologram)
 		// owns a CHILD AFGRailroadTrackHologram - the integrated platform track
 		// that carries the station's rail connectors. UpdateHologramPlacement()
-		// just synced that child to the parent's CURRENT transform, but the
+		// above synced that child to the parent's CURRENT transform, but the
 		// location-pin and target-yaw re-assert below move/rotate ONLY the
 		// parent actor (they do not re-run OnHologramTransformUpdated, which is
 		// what repositions the children). Result: a station placed with a yaw
 		// kept its integrated track - and every rail connector - pointing world
 		// +X, so constructRailroadTrack between two stations could only ever
 		// produce a straight east-west line and a curved/closed rail LOOP was
-		// impossible to build (proven live via world.splineGeometry). Capture
+		// impossible to build (verifiable via world.splineGeometry). Capture
 		// each child's transform RELATIVE to the parent now (while correctly
 		// synced) so we can re-apply it against the parent's pinned/rotated
 		// transform after the two calls below. Only needed when we move the
@@ -5454,7 +5431,7 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		}
 
 		// Pin the literal requested position when the caller asked for
-		// ignoreGroundTrace (2026-09-01, real user-visible bug: machines
+		// ignoreGroundTrace (guards a real bug: machines
 		// and foundations embedding into each other on a supposedly-flat
 		// platform). ignoreGroundTrace promises a literal (x, y, z)
 		// placement, but UpdateHologramPlacement() STILL runs the
@@ -5520,14 +5497,13 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		// ourselves via the same GetIsSoftDisqualifier() query used for
 		// logging everywhere else in this file, skipping specific
 		// disqualifier classes the caller explicitly opted to ignore.
-		// Added 2026-08-25 per explicit user direction: player-proximity/
-		// camera-direction/clearance gates don't scale for large,
-		// autonomous, multi-building layouts, and the user explicitly
-		// accepts the risk of invalid terrain collisions in exchange.
+		// Player-proximity/camera-direction/clearance gates don't scale for
+		// large, autonomous, multi-building layouts; ignoring them accepts
+		// the risk of invalid terrain collisions in exchange.
 		// This does NOT bypass FactoryGame's OWN validation inside
 		// InternalConstructHologram() itself (unknown/unverified from
 		// source) - only AIMod's decision to attempt construction.
-		// UnlimitedResources (2026-08-27) - a player-controlled mod
+		// UnlimitedResources - a player-controlled mod
 		// setting (AIModConfiguration.h), NOT another bIgnore* request
 		// param like the flags above - the caller can't opt into this,
 		// only the player can via the settings menu. Computed once per
@@ -5588,9 +5564,9 @@ void UAIModFunctionLibrary::ConstructBuildingAtPosition(UObject* WorldContextObj
 		// we just built - InternalConstructHologram is void and there's
 		// no direct return value.
 		//
-		// CLASS FILTER (2026-09-01, real bug found live during the copper
-		// factory build): "nearest buildable of ANY class within 200
-		// units" is wrong on a dense site - a foundation placed directly
+		// CLASS FILTER (guards a real bug): "nearest buildable of ANY class
+		// within 200 units" is wrong on a dense site - a foundation placed
+		// directly
 		// under an existing merger returned the MERGER's id as
 		// result.buildableId (the merger's actor origin was ~15 units
 		// from the foundation's center; the foundation's own origin was
@@ -5696,43 +5672,34 @@ namespace
 		return nullptr;
 	}
 
-	// Fix (2026-08-31, real correctness bug found while investigating a
-	// user question about Power Tower support, not a regression - this
-	// was wrong from the day it was written): the OLD version of this
-	// helper picked the FIRST free UFGPowerConnectionComponent on a
-	// buildable, completely ignoring EPowerConnectionType
+	// Power connector selection must be EPowerConnectionType-aware
 	// (FGPowerConnectionComponent.h: "Power connections of different
 	// types are incompatible", real PCT_Default/PCT_PowerTower/PCT_Any
 	// enum). A Power Tower (AFGBuildablePowerPole with
-	// mPowerPoleType==PPT_TOWER - confirmed from source that
-	// AFGBuildablePowerTower, a separate near-empty class, is unused
-	// anywhere else in the header tree and is NOT the real buildable)
-	// genuinely has TWO power connectors: one PCT_PowerTower (the real,
-	// per-instance-configurable long-range link to another tower -
-	// AFGBuildablePowerPole::GetPowerTowerWireMaxLength(), distinct from
-	// AFGBuildableWire::mMaxPowerTowerLength on the wire recipe itself)
-	// and one PCT_Default (short range, for a nearby pole/machine, same
-	// type ordinary poles/machines use). Called independently per
-	// buildable, the old function had no way to know WHICH of a tower's
-	// two connectors the other side actually needed - it just returned
-	// whichever GetComponents<>() happened to enumerate first, which is
-	// not a meaningful/stable order. This could silently pick a tower's
-	// short-range connector for what should be a long-range tower-to-
-	// tower link (or vice versa), either failing outright (type
+	// mPowerPoleType==PPT_TOWER - per source, AFGBuildablePowerTower is a
+	// separate near-empty class, unused anywhere else in the header tree
+	// and NOT the real buildable) genuinely has TWO power connectors: one
+	// PCT_PowerTower (the real, per-instance-configurable long-range link
+	// to another tower - AFGBuildablePowerPole::GetPowerTowerWireMaxLength(),
+	// distinct from AFGBuildableWire::mMaxPowerTowerLength on the wire
+	// recipe itself) and one PCT_Default (short range, for a nearby
+	// pole/machine, same type ordinary poles/machines use). Picking the
+	// first free connector per buildable independently can silently pair a
+	// tower's short-range connector for what should be a long-range
+	// tower-to-tower link (or vice versa), either failing outright (type
 	// mismatch) or succeeding against the wrong distance limit.
 	//
-	// Fixed by making connector selection a joint decision over BOTH
+	// So connector selection is a joint decision over BOTH
 	// buildables at once: pass 1 requires an EXACT GetPowerConnectionType()
 	// match on both sides (so two Power Towers pick their PCT_PowerTower
 	// connectors, and everything else - poles, machines, a tower's own
 	// short-range side - pairs PCT_Default to PCT_Default); pass 2 falls
 	// back to any pairing where at least one side is the real PCT_Any
 	// wildcard type, per the enum's own "incompatible" doc comment
-	// implying Any is the one documented exception. NOT YET LIVE-TESTED
-	// - no game running this session - but this is a real, source-
-	// grounded fix to logic that was never type-aware, not a guess.
-	// Optional connector pinning added 2026-09-02 (docs/build-efficiency-
-	// plan.md 2d): like connectConveyor's sourceConnectorPosition, a pin
+	// implying Any is the one documented exception. Source-grounded but
+	// not yet verified at runtime.
+	// Optional connector pinning (docs/build-efficiency-plan.md 2d):
+	// like connectConveyor's sourceConnectorPosition, a pin
 	// restricts that side's candidates to connections within
 	// PinTolerance of the given world position - deterministic per-port
 	// selection on multi-connector buildables (a Power Tower's dual
@@ -5793,16 +5760,14 @@ namespace
 	// snap-target experiment - matches the given direction (Output for
 	// the belt's start point) and isn't already connected.
 	//
-	// SnapOnly fallback (2026-08-30, correcting a real misconception, not
-	// a regression - see docs/placement-lessons.md's "Conveyor walls are
-	// real connectors" section): conveyor walls/poles expose exactly one
-	// UFGFactoryConnectionComponent with GetDirection()==FCD_SNAP_ONLY,
-	// confirmed both live (world.connections on a player-built wall-lift-
-	// wall structure) and from source (FGFactoryConnectionComponent.h:
-	// "Special case for conveyor poles"). The strict `== Direction` match
-	// above always skipped these, so ConstructConveyorLift/ConnectConveyor
-	// could never target a wall at all - confirmed live, reproduced the
-	// exact NO_FACTORY_CONNECTION error before this fix. SnapOnly's
+	// SnapOnly fallback (see docs/placement-lessons.md's "Conveyor walls
+	// are real connectors" section): conveyor walls/poles expose exactly
+	// one UFGFactoryConnectionComponent with GetDirection()==FCD_SNAP_ONLY
+	// (per world.connections on a wall-lift-wall structure and source -
+	// FGFactoryConnectionComponent.h: "Special case for conveyor poles").
+	// The strict `== Direction` match above always skips these, so without
+	// this fallback ConstructConveyorLift/ConnectConveyor could never
+	// target a wall at all (NO_FACTORY_CONNECTION). SnapOnly's
 	// IsConnected() is ALWAYS false by engine design (see the header's
 	// IsConnected() doc comment: "Always false if attached to hologram,
 	// snap only..."), so it can't be used to test whether a SnapOnly point
@@ -5836,10 +5801,10 @@ namespace
 		return SnapOnlyFallback;
 	}
 
-	// Position-targeted variant (2026-08-30, explicit user requirement:
-	// deterministic selection of ONE SPECIFIC connector on a multi-port
-	// buildable like a splitter/merger, by its real world position - never
-	// "first free"/"nearest"/component-array-order). The caller (Python
+	// Position-targeted variant: deterministic selection of ONE SPECIFIC
+	// connector on a multi-port buildable like a splitter/merger, by its
+	// real world position - never
+	// "first free"/"nearest"/component-array-order. The caller (Python
 	// controller side) is expected to have already queried world.connections
 	// for the real connector position it wants (e.g. via
 	// satisfactory_ai.splitters.get_splitter_output_facing(), which
@@ -5854,7 +5819,7 @@ namespace
 	// possible at all; FindFreeFactoryConnection above has no direction-
 	// vs-position awareness and was never meant to guarantee which of
 	// several free connectors of the same Direction gets picked.
-	// SnapOnly fallback (2026-08-30): same reasoning as FindFreeFactoryConnection
+	// SnapOnly fallback: same reasoning as FindFreeFactoryConnection
 	// above - a free exact-direction match wins if one is within tolerance,
 	// otherwise the nearest SnapOnly connector (wall/pole) within tolerance
 	// is used, without gating on IsConnected() since that's always false
@@ -5888,13 +5853,11 @@ namespace
 		return Best ? Best : SnapOnlyBest;
 	}
 
-	// Hypothesis #9a, generalized (2026-09-01): populate the camera-ray
-	// fields (TraceStart/TraceEnd/Distance/Time) a real build-gun trace
-	// ALWAYS carries and every synthetic hit in this file historically
-	// left at zero-vectors. Proven load-bearing for the conveyor lift's
-	// free-end height (see ConstructConveyorLift's doc comment, hypothesis
-	// #9 - live-verified fixed 2026-09-01), and the prime suspect for the
-	// belt-path player-distance failures root-caused the same day: the
+	// Populate the camera-ray fields (TraceStart/TraceEnd/Distance/Time) a
+	// real build-gun trace ALWAYS carries and a bare synthetic hit would
+	// otherwise leave at zero-vectors. Load-bearing for the conveyor lift's
+	// free-end height (see ConstructConveyorLift's doc comment), and the
+	// prime suspect for the belt-path player-distance failures: the
 	// identical world.connectConveyor call fails "Conveyor Belt is too
 	// long!" when the real player stands beyond ~5000 units from the
 	// connection and succeeds after nothing but a teleport closer
@@ -5904,8 +5867,8 @@ namespace
 	// ray here mimics a player standing a short distance back from the
 	// connector, slightly above it, aiming at it - fully determined by
 	// the connector itself, independent of where the real player is.
-	// NOT YET LIVE-TESTED whether this alone removes the player-distance
-	// dependence - until confirmed, keep teleporting the player near belt
+	// Not yet confirmed whether this alone removes the player-distance
+	// dependence - until then, keep teleporting the player near belt
 	// connections (see RPC_REFERENCE.md).
 	void PopulateSyntheticTraceRay(FHitResult& Hit)
 	{
@@ -5926,7 +5889,7 @@ namespace
 	// Restores a previously-saved build gun mBuildDistanceMax (protected
 	// float UPROPERTY, accessed by reflection). A sentinel SavedRange < 0
 	// means "nothing to restore" and this is a no-op. Its former companion
-	// setter was removed 2026-09-01: raising the clamp to fix far belts
+	// setter was removed: raising the clamp to fix far belts
 	// did NOT work (the real limit is the camera AIM, addressed by the
 	// auto-teleport in ConstructConveyorBelt_RealCharacterStrategy) and
 	// actively REGRESSED near belts - an effectively-unlimited trace made
@@ -6003,9 +5966,8 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 		Buildable = FindBuildableById(World, BuildableId);
 	}
 
-	// Vehicles (2026-08-29, discovered live during unattended vehicle
-	// testing): world.constructVehicle produces a real AFGVehicle, but
-	// AFGVehicle is not an AFGBuildable (confirmed from source -
+	// Vehicles: world.constructVehicle produces a real AFGVehicle, but
+	// AFGVehicle is not an AFGBuildable (per source -
 	// AFGDriveablePawn, a separate hierarchy - same reason
 	// world.buildables can't see it either), so FindBuildableById above
 	// always misses it, leaving no RPC way to remove a constructed
@@ -6049,8 +6011,7 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	// the real player-driven path (UFGBuildGunStateDismantle) consults it,
 	// but Execute_Dismantle() on the buildable itself does not call it
 	// automatically. Without this, deleting a pipe via world.deleteBuilding
-	// left its fluid-fill indicator floating in place - confirmed live
-	// 2026-08-27, reported directly by the user. Gather while the
+	// leaves its fluid-fill indicator floating in place. Gather while the
 	// buildable is still valid, dismantle each child first, then the
 	// buildable itself.
 	TArray<AActor*> ChildDismantleActors;
@@ -6064,26 +6025,20 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 		}
 	}
 
-	// Real construction-cost refund - added 2026-08-30 after live user
-	// confirmation this was NEVER happening (a real, costly bug: this
-	// function only ever called Execute_Dismantle(), which does not
-	// refund anything itself - GetDismantleRefund() is a SEPARATE
-	// interface function the real player-driven dismantle path
-	// (UFGBuildGunStateDismantle) calls independently, confirmed from
-	// FGDismantleInterface.h's own doc comments. RPC_REFERENCE.md's
-	// long-standing "refunds construction cost" claim for
-	// world.deleteBuilding was therefore never actually true - a
-	// documentation error that cost the user several thousand real Iron
-	// Plates across this session's repeated platform rebuilds before
-	// being caught.
+	// Real construction-cost refund: Execute_Dismantle() does not refund
+	// anything itself - GetDismantleRefund() is a SEPARATE interface
+	// function the real player-driven dismantle path
+	// (UFGBuildGunStateDismantle) calls independently (per
+	// FGDismantleInterface.h's own doc comments). It must be called
+	// explicitly here or world.deleteBuilding refunds nothing.
 	//
 	// Computed BEFORE dismantling (the target must still be valid). The
 	// refund is credited to the player's carried inventory via AddStack, and
 	// anything that DOESN'T fit is dropped as the vanilla dismantle crate at
-	// the buildable's location - never silently destroyed (confirmed live
-	// 2026-09-02: with a full player inventory, AddStack's partial add
-	// silently discarded every refund item that needed a NEW inventory slot,
-	// logging the loss but destroying the items - real Iron Plates etc. gone.
+	// the buildable's location - never silently destroyed. With a full
+	// player inventory, AddStack's partial add silently discards every
+	// refund item that needs a NEW inventory slot, logging the loss but
+	// destroying the items.
 	// Vanilla's own dismantle path (UFGBuildGunStateDismantle) spawns a
 	// ground crate for exactly this overflow via FDismantleHelpers, so we do
 	// the same here instead of relying on partial-add-and-hope).
@@ -6105,41 +6060,28 @@ FAIModOperationResult UAIModFunctionLibrary::DismantleBuildable(UObject* WorldCo
 	// destruction; this is not AActor::Destroy().
 	IFGDismantleInterface::Execute_Dismantle(DismantleTarget);
 
-	// Read-after-write consistency (2026-09-01, found live during the
-	// copper factory build): the actual actor destruction can lag this
-	// call by up to a frame - a merger deleted here still appeared in an
+	// Read-after-write consistency: the actual actor destruction can lag
+	// this call by up to a frame - a merger deleted here still appears in an
 	// immediately-following world.connections read, and worse, a
-	// placeBuilding ground trace moments later STACKED a new attachment
-	// on top of the not-yet-destroyed actor (its collision was still
+	// placeBuilding ground trace moments later can STACK a new attachment
+	// on top of the not-yet-destroyed actor (its collision is still
 	// live). Force the dying actor inert RIGHT NOW so nothing can trace
 	// onto it during its final frame. The one-frame staleness in listing
 	// RPCs (world.connections/world.buildables) can still occur - callers
 	// should allow a tick before treating dependent reads as
-	// authoritative (documented in RPC_REFERENCE.md) - but the
-	// physically-dangerous half (stacking new construction on a deleted
-	// object) is closed here.
+	// authoritative (documented in RPC_REFERENCE.md).
 	//
-	// v2 (2026-09-01, same day - v1 FAILED its live retest, cleanly
-	// reproduced: a merger placed immediately after deleting a splitter
-	// at the same spot still stacked on the corpse at +300 z): v1
-	// guarded this with IsValid(), which returns FALSE for a
-	// pending-kill actor - exactly the state Execute_Dismantle leaves
-	// the actor in when destruction is deferred - so the guard skipped
-	// the one case it existed for while the corpse's collision stayed
-	// live until end of frame. A plain null check is correct here: a
-	// pending-kill actor's memory stays alive until GC, and
-	// SetActorEnableCollision/SetActorHiddenInGame are safe to call on
-	// it - making it un-traceable is the whole point.
+	// A plain null check (not IsValid()) is correct here: Execute_Dismantle
+	// leaves the actor pending-kill, for which IsValid() returns FALSE -
+	// exactly the state we need to act on. A pending-kill actor's memory
+	// stays alive until GC, and SetActorEnableCollision/SetActorHiddenInGame
+	// are safe to call on it - making it un-traceable is the whole point.
 	//
-	// v2 ALSO FAILED its live retest (2026-09-01, deployment verified
-	// by file timestamps before concluding): identical +300 z stacking.
-	// By elimination the corpse's traceable collision isn't on the
-	// actor's own components at all - splitter/merger-class buildables
-	// live in FactoryGame's instanced-mesh system
-	// (AbstractInstanceManager), whose collision actor-level calls
-	// can't touch and whose cleanup rides the deferred destruction.
-	// This block is KEPT as harmless belt-and-braces for plain-actor
-	// buildables, but the REAL fix is v3 in AIModHttpServerSubsystem's
+	// This actor-level block is only belt-and-braces for plain-actor
+	// buildables: splitter/merger-class buildables live in FactoryGame's
+	// instanced-mesh system (AbstractInstanceManager), whose collision
+	// actor-level calls can't touch and whose cleanup rides the deferred
+	// destruction. The REAL fix for those is in AIModHttpServerSubsystem's
 	// world.deleteBuilding handler: the HTTP response is deferred two
 	// real ticks, so a caller's next request always runs after the
 	// engine's own cleanup has finished. Do not rely on this block
@@ -6228,16 +6170,14 @@ FAIModOperationResult UAIModFunctionLibrary::SetBuildableRotation(UObject* World
 	FRotator NewRotation = OldRotation;
 	NewRotation.Yaw = Yaw;
 
-	// Diagnostic (2026-08-31): SetActorRotation() alone reported success
-	// but produced ZERO actual change live (GetActorRotation() read back
-	// identical afterward, in the same process/call - not a replication
-	// issue). Real Unreal buildables commonly mark their root/mesh
-	// components Static for lighting/rendering optimization, which
-	// silently refuses runtime SetWorldRotation() (the warning macros for
-	// this are usually compiled out of Shipping, explaining the total
-	// silence in the log). Testing by forcing every scene component to
-	// Movable first, logging each one's ORIGINAL mobility so this either
-	// confirms the theory or rules it out.
+	// SetActorRotation() alone can report success but produce ZERO actual
+	// change (GetActorRotation() reads back identical afterward, in the same
+	// process/call - not a replication issue). Real Unreal buildables
+	// commonly mark their root/mesh components Static for lighting/rendering
+	// optimization, which silently refuses runtime SetWorldRotation() (the
+	// warning macros for this are usually compiled out of Shipping,
+	// explaining the total silence in the log). Force every scene component
+	// to Movable first, logging each one's ORIGINAL mobility.
 	TArray<USceneComponent*> SceneComponents;
 	Buildable->GetComponents<USceneComponent>(SceneComponents);
 	for (USceneComponent* Component : SceneComponents)
@@ -6322,7 +6262,7 @@ FAIModOperationResult UAIModFunctionLibrary::DebugCheckPowerConnection(UObject* 
 		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *BuildableIdB));
 	}
 
-	// FindPowerConnectionPair (2026-08-31 fix) - a joint, type-aware
+	// FindPowerConnectionPair - a joint, type-aware
 	// selection over both buildables at once, see its own comment for
 	// why a Power Tower's dual PCT_PowerTower/PCT_Default connectors
 	// need this instead of two independent single-buildable lookups.
@@ -6334,9 +6274,9 @@ FAIModOperationResult UAIModFunctionLibrary::DebugCheckPowerConnection(UObject* 
 			FString::Printf(TEXT("No compatible free power connection pair between '%s' and '%s' - connection types (Default/PowerTower/Any) must match, or one side must be Any"), *BuildableIdA, *BuildableIdB));
 	}
 
-	// Verified to exist as a real asset in Content/FactoryGame/Recipes/Buildings/
+	// A real asset in Content/FactoryGame/Recipes/Buildings/
 	// (see docs/conveyor-power-connection-research.md) - the build-cost
-	// recipe for a plain power line/wire, not guessed from memory.
+	// recipe for a plain power line/wire.
 	UClass* PowerLineRecipeClass = LoadObject<UClass>(nullptr, TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PowerLine.Recipe_PowerLine_C"));
 	if (!PowerLineRecipeClass || !PowerLineRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
 	{
@@ -6480,12 +6420,12 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 		return;
 	}
 
-	// AFGResourceNodeBase (2026-08-27, was AFGResourceNode) - a strictly
-	// wider search. AFGResourceNode already covered normal nodes and
-	// Fracking Satellites (AFGResourceNodeFrackingSatellite : AFGResourceNode).
+	// Iterates AFGResourceNodeBase, not AFGResourceNode, for a wider search.
+	// AFGResourceNode covers normal nodes and Fracking Satellites
+	// (AFGResourceNodeFrackingSatellite : AFGResourceNode), but
 	// AFGResourceNodeFrackingCore is NOT an AFGResourceNode - it derives
 	// from AFGResourceNodeBase directly - so a Resource Well Pressurizer's
-	// target node was previously unreachable here at all. See this
+	// target node is only reachable via the base class. See this
 	// function's header doc comment / docs/resource-well-research.md.
 	AFGResourceNodeBase* TargetNode = nullptr;
 	for (TActorIterator<AFGResourceNodeBase> It(World); It; ++It)
@@ -6508,10 +6448,10 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 		return;
 	}
 
-	// LimitBuildDistance (2026-08-27) - see ConstructBuildingAtPosition's
+	// LimitBuildDistance - see ConstructBuildingAtPosition's
 	// identical check/comment for the full rationale (player-controlled
-	// mod setting, off by default, new synthetic restriction that doesn't
-	// exist in the base game or in AIMod's prior behavior).
+	// mod setting, off by default, synthetic restriction that doesn't
+	// exist in the base game).
 	if (UAIModFunctionLibrary::GetAIModConfigBool(World, TEXT("LimitBuildDistance"), false))
 	{
 		const float MaxBuildDistance = UAIModFunctionLibrary::GetAIModConfigFloat(World, TEXT("MaxBuildDistance"), 8000.0f);
@@ -6525,14 +6465,13 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 		}
 	}
 
-	// The RF_SOLID-only gate this function used to enforce manually is
-	// gone (2026-08-27) - see this function's header doc comment for why
-	// (it only ever existed from being written/tested against Miners
-	// first; the real engine-side gating already does this correctly for
-	// every extractor type, including rejecting a mismatched recipe/node
-	// pairing via UFGCDNeedsFrackingCoreNode/UFGCDNeedsFrackingSatelliteNode -
-	// trust CanConstruct() for it the same way this function already does
-	// for every other disqualifier).
+	// This function does NOT manually enforce an RF_SOLID-only gate - see
+	// this function's header doc comment for why. The engine-side gating
+	// already does this correctly for every extractor type, including
+	// rejecting a mismatched recipe/node pairing via
+	// UFGCDNeedsFrackingCoreNode/UFGCDNeedsFrackingSatelliteNode - trust
+	// CanConstruct() for it the same way this function does for every other
+	// disqualifier.
 	UClass* ResolvedRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
 	if (!ResolvedRecipeClass || !ResolvedRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
 	{
@@ -6582,53 +6521,38 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 	{
 		SyntheticHit.Component = NodePrimitive;
 	}
-	// Distance (2026-08-26) - CONFIRMED LIVE root cause of a real
-	// regression: this synthetic hit's Distance field was left at the
-	// FHitResult default (0.f) while every other field (Location,
-	// Normal, Component, HitObjectHandle) was deliberately populated to
-	// look like a real trace result. AFGResourceExtractorHologram's
-	// internal placement validation evidently sanity-checks Distance -
-	// a zero-distance "hit" was rejected with UFGCDNeedsResourceNode
-	// ("Must be placed on a Resource Node!") even though the hit
-	// otherwise correctly identified the target node (confirmed via a
-	// diagnostic pass: GetPlacementLocation()/GetPlacementRotation()
-	// were sane, hologram class was genuinely AFGResourceExtractorHologram -
-	// both ruled out first). A real build-gun trace always has a
-	// positive camera-to-hit distance; this now sets one.
+	// Distance must be non-zero. If this synthetic hit's Distance field is
+	// left at the FHitResult default (0.f) while every other field
+	// (Location, Normal, Component, HitObjectHandle) is populated to look
+	// like a real trace result, AFGResourceExtractorHologram's internal
+	// placement validation sanity-checks Distance and rejects the
+	// zero-distance "hit" with UFGCDNeedsResourceNode ("Must be placed on a
+	// Resource Node!") even though the hit otherwise correctly identifies
+	// the target node. A real build-gun trace always has a positive
+	// camera-to-hit distance; set one.
 	SyntheticHit.Distance = FVector::Dist(Character->GetActorLocation(), PlacementLocation);
 
 	BuildGun->GetHitResult() = SyntheticHit;
 
-	// Player-independence (2026-08-27, applying the same fix already
-	// proven for ConstructConveyorBelt/ConstructConveyorLift/ConstructPipe -
-	// see their comments for the full incident): this function predates
-	// that fix and was never updated - live-confirmed this session it
-	// fails with "Invalid aim location!" even for a fully valid,
-	// unoccupied Fracking Core node. Point the controller at a
-	// deterministic target (the real placement location, never the
-	// player's actual aim), reasserted every poll tick below.
+	// Player-independence (the same fix used in
+	// ConstructConveyorBelt/ConstructConveyorLift/ConstructPipe - see their
+	// comments): without it, placement fails with "Invalid aim location!"
+	// even for a fully valid, unoccupied Fracking Core node. Point the
+	// controller at a deterministic target (the real placement location,
+	// never the player's actual aim), reasserted every poll tick below.
 	const FRotator ExtractorDeterministicLook = (PlacementLocation - Character->GetActorLocation()).Rotation();
 	if (AController* ExtractorController = Character->GetController())
 	{
 		ExtractorController->SetControlRotation(ExtractorDeterministicLook);
 	}
 
-	// TrySnapToActor() call added 2026-08-26 alongside the Distance fix
-	// above while chasing the same live UFGCDNeedsResourceNode failure -
-	// this function previously relied solely on UpdateHologramPlacement()
-	// (called every poll tick below) plus the raw BuildGun->GetHitResult()
-	// assignment, with no explicit snap call, unlike every other
-	// click-driven Construct* function in this file (belts/pipes/lifts),
-	// which all call Hologram->TrySnapToActor(Hit) explicitly.
+	// Explicit TrySnapToActor() call, matching every other click-driven
+	// Construct* function in this file (belts/pipes/lifts).
 	// AFGResourceExtractorHologram's own TrySnapToActor() override calls
-	// TrySnapToExtractableResource() internally (confirmed from source)
-	// to populate mSnappedExtractableResource. NOTE: live-confirmed that
-	// the Distance fix above was the actual fix for the failure this was
-	// added to chase (added in the same redeploy, so this call's own
-	// contribution is unconfirmed) - kept because it matches the
-	// already-proven pattern elsewhere in this file and mSnappedExtractableResource
-	// still needs populating correctly for the extractor to actually
-	// function, not just pass the disqualifier check.
+	// TrySnapToExtractableResource() internally (per source) to populate
+	// mSnappedExtractableResource, which the extractor needs correctly
+	// populated to actually function, not just to pass the disqualifier
+	// check.
 	Hologram->UpdateHologramPlacement(SyntheticHit);
 	Hologram->TrySnapToActor(SyntheticHit);
 
@@ -6696,10 +6620,10 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 			return;
 		}
 
-		// Player-independence (2026-08-27) - same manual disqualifier-ignore
+		// Player-independence - same manual disqualifier-ignore
 		// pattern as ConstructConveyorBelt, replacing the real (opaque)
 		// CanConstruct() this function used to call directly.
-		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// UnlimitedResources - see ConstructBuildingAtPosition's
 		// comment on this being a player-controlled mod setting, not a
 		// per-call flag.
 		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
@@ -6708,12 +6632,12 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -6754,10 +6678,10 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 
 		const FVector ConstructLocation = PollHologram->GetActorLocation();
 
-		// GUARD (2026-09-04): AFGResourceExtractorHologram::ConfigureActor() has
+		// GUARD: AFGResourceExtractorHologram::ConfigureActor() has
 		// a hard check(mSnappedExtractableResource) that CRASHES the game (assert
 		// at FGResourceExtractorHologram.cpp:235) if the extractor hologram never
-		// snapped to an extractable resource - hit live placing a Mk1 miner on an
+		// snapped to an extractable resource - e.g. a Mk1 miner on an
 		// iron resource node whose resource component didn't snap. The disqualifier
 		// pass above does NOT catch this. Read that protected-but-UPROPERTY
 		// TScriptInterface via reflection and abort with a structured error rather
@@ -6791,8 +6715,8 @@ void UAIModFunctionLibrary::ConstructExtractorOnNode(UObject* WorldContextObject
 			for (AFGBuildable* Candidate : BuildableSubsystem->GetAllBuildablesRef())
 			{
 				if (!IsValid(Candidate)) { continue; }
-				// Class filter (2026-09-01) - same wrong-nearest-id bug fixed
-				// in ConstructBuildingAtPosition the same day: only an
+				// Class filter - same wrong-nearest-id guard as
+				// ConstructBuildingAtPosition: only an
 				// extractor can be what this function just constructed, so
 				// never report a nearby belt/pole/attachment id instead.
 				if (!Candidate->IsA(AFGBuildableResourceExtractorBase::StaticClass())) { continue; }
@@ -6857,30 +6781,27 @@ namespace
 	// AFGWaterVolume::EncompassesPoint (IInterface_PostProcessVolume) - a
 	// real, public containment check, not a distance guess.
 	//
-	// CONFIRMED LIVE CRASH (2026-08-31, unattended test session): this
-	// used to fall back to the NEAREST volume by actor-location distance
-	// whenever no volume's EncompassesPoint() matched, on the theory that
-	// a caller shouldn't be forced to hit a boundary exactly. In practice
-	// a literal on-land candidate position (well outside any real water,
-	// e.g. standing on a placed foundation near the shore) still has SOME
-	// nearest ocean volume - the fallback silently accepted it as
-	// TargetVolume anyway. CanPlaceResourceExtractor() is a volume-level
-	// flag (true for the whole ocean), not a check of this specific
-	// point, so it passed too. The hologram was then driven at a
-	// synthetic hit that doesn't correspond to real water geometry -
-	// TrySnapToActor()/TrySnapToExtractableResource() apparently failed
-	// to actually populate mSnappedExtractableResource, but
-	// GetConstructDisqualifiers() did NOT reliably flag this (same
-	// "disqualifier isn't a reliable gate for this precondition" failure
-	// mode already documented above ConstructBuildingAtPosition's
-	// extractor refusal) - bCanConstruct came out true, construction was
+	// EncompassesPoint() is a HARD requirement, not a best-effort
+	// preference, because a best-effort NEAREST-volume fallback is a CRASH.
+	// Falling back to the nearest volume by actor-location distance whenever
+	// no volume's EncompassesPoint() matches accepts a literal on-land
+	// candidate position (well outside any real water, e.g. standing on a
+	// placed foundation near the shore), which still has SOME nearest ocean
+	// volume. CanPlaceResourceExtractor() is a volume-level flag (true for
+	// the whole ocean), not a check of this specific point, so it passes
+	// too. The hologram is then driven at a synthetic hit that doesn't
+	// correspond to real water geometry -
+	// TrySnapToActor()/TrySnapToExtractableResource() fail to populate
+	// mSnappedExtractableResource, but GetConstructDisqualifiers() does NOT
+	// reliably flag this (same "disqualifier isn't a reliable gate for this
+	// precondition" failure mode documented above ConstructBuildingAtPosition's
+	// extractor refusal) - bCanConstruct comes out true, construction is
 	// attempted, and AFGResourceExtractorHologram::ConfigureActor()'s
-	// unconditional mSnappedExtractableResource assert took the whole
-	// game process down (confirmed via the real crash log: Assertion
-	// failed: mSnappedExtractableResource, FGResourceExtractorHologram.cpp:235).
+	// unconditional mSnappedExtractableResource assert takes the whole
+	// game process down (Assertion failed: mSnappedExtractableResource,
+	// FGResourceExtractorHologram.cpp:235).
 	//
-	// Fix: EncompassesPoint() is now a HARD requirement, not a
-	// best-effort preference - a point outside every real water volume's
+	// So a point outside every real water volume's
 	// actual (possibly non-box) collision shape fails cleanly with
 	// NO_WATER_VOLUME_FOUND before any hologram is ever touched, exactly
 	// the same "refuse outright rather than gamble on disqualifiers"
@@ -6976,11 +6897,9 @@ namespace
 	{
 		SyntheticHit.Component = VolumePrimitive;
 	}
-	// Distance fix - same real regression ConstructExtractorOnNode's own
-	// comment documents (a zero-distance synthetic hit was confirmed live
-	// to fail UFGCDNeedsResourceNode for a node target; applying the same
-	// fix preemptively here rather than waiting to rediscover it live for
-	// water specifically).
+	// Non-zero Distance - see ConstructExtractorOnNode's own comment: a
+	// zero-distance synthetic hit fails UFGCDNeedsResourceNode for a node
+	// target, so apply the same fix here for water.
 	SyntheticHit.Distance = FVector::Dist(Character->GetActorLocation(), PlacementLocation);
 
 	BuildGun->GetHitResult() = SyntheticHit;
@@ -7060,12 +6979,12 @@ namespace
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -7291,7 +7210,7 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 	// Rail vehicles (Locomotive/FreightWagon) drive a AFGRailroadVehicleHologram
 	// whose SetHologramLocationAndRotation snaps to a track spline FROM the hit -
 	// a bare free-placement hit (no track referenced) reads as "no track under
-	// it" -> "Not enough space on track!" (live 2026-09-05). Detected here so the
+	// it" -> "Not enough space on track!". Detected here so the
 	// hit-building below can point at the nearest track, and so the target-yaw
 	// override is skipped (rail orientation follows the track, not the caller).
 	const bool bIsRailVehicle = (Cast<AFGRailroadVehicleHologram>(Hologram) != nullptr);
@@ -7302,13 +7221,12 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 		// Drone: snap to the station, same synthetic-hit-at-target-actor
 		// shape ConstructExtractorOnNode uses for resource nodes -
 		// Distance/Component/HitObjectHandle all populated for the same
-		// reason documented there (a zero-distance synthetic hit was
-		// confirmed live to fail a real placement-validation sanity
-		// check).
+		// reason documented there (a zero-distance synthetic hit fails a
+		// real placement-validation sanity check).
 		// Snap the hit at the station's actual DRONE DOCKING location (the port
 		// pad), not the station's base actor origin - AFGBuildableDroneHologram::
-		// TrySnapToActor was found live (2026-09-07) to leave mSnappedStation
-		// null (=> "Must snap to a Drone Port!") when handed a hit at the base.
+		// TrySnapToActor leaves mSnappedStation null (=> "Must snap to a
+		// Drone Port!") when handed a hit at the base.
 		const FVector StationLocation = TargetStation->GetDroneDockingLocation();
 		SyntheticHit.Location = StationLocation;
 		SyntheticHit.ImpactPoint = StationLocation;
@@ -7518,12 +7436,12 @@ void UAIModFunctionLibrary::ConstructVehicle(UObject* WorldContextObject, const 
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -7632,14 +7550,11 @@ namespace
 namespace
 {
 	// Server_SpawnPortableMiner is a protected UFUNCTION(Server, Reliable).
-	// Two prior fixes (2026-08-27, 2026-08-28) called it via
-	// FindFunction+ProcessEvent reflection - confirmed live both times
-	// that the call executes with no error and correct parameters, but no
-	// real AFGPortableMiner ever appears. Root cause (2026-08-28,
-	// confirmed via FactoryGame.log showing "resolved spawn function
-	// 'Server_SpawnPortableMiner'" - the _Implementation UFUNCTION
-	// doesn't exist, since _Implementation methods for Server RPCs are
-	// NOT separately reflected): AActor::ProcessEvent's own net-function
+	// Calling it via FindFunction+ProcessEvent reflection executes with no
+	// error and correct parameters, but no real AFGPortableMiner ever
+	// appears (the _Implementation UFUNCTION doesn't exist, since
+	// _Implementation methods for Server RPCs are NOT separately
+	// reflected): AActor::ProcessEvent's own net-function
 	// interception for FUNC_Net-flagged UFunctions is a DIFFERENT code
 	// path than the UHT-generated call-site thunk a normal
 	// `Dispenser->Server_SpawnPortableMiner(...)` call would use - the
@@ -7738,14 +7653,13 @@ void UAIModFunctionLibrary::ConstructPortableMinerOnNode(UObject* WorldContextOb
 
 	// The ARMS equipment slot is a genuinely SEPARATE small inventory
 	// component (UFGInventoryComponentEquipment), not a view/filter over
-	// the player's general backpack inventory - live-confirmed 2026-08-27
-	// two different ways: (1) an item sitting only in the general
-	// inventory never showed up scanning this component's own stacks,
-	// and (2) once the user manually moved the item into this slot via
-	// the in-game UI, it correctly stopped showing up in the general
-	// inventory's HasItems() check - the two are mutually exclusive
-	// locations, not a view/mirror. So: check the ARMS slot FIRST (covers
-	// "already equipped/slotted" including the user's own manual move),
+	// the player's general backpack inventory, shown two ways: (1) an item
+	// sitting only in the general inventory never shows up scanning this
+	// component's own stacks, and (2) once an item is moved into this slot
+	// via the in-game UI, it stops showing up in the general inventory's
+	// HasItems() check - the two are mutually exclusive locations, not a
+	// view/mirror. So: check the ARMS slot FIRST (covers
+	// "already equipped/slotted" including a manual move),
 	// and only fall back to moving it from the general inventory if it's
 	// not already there.
 	int32 FoundIndex = INDEX_NONE;
@@ -8207,18 +8121,15 @@ FString UAIModFunctionLibrary::LogCentralStorageAsJson(UObject* WorldContextObje
 
 	AFGCentralStorageSubsystem* CentralStorage = AFGCentralStorageSubsystem::Get(World);
 
-	// Real bug found and fixed 2026-08-30: this previously gated the
-	// actual item lookup behind IsCentralStorageBuilt() (which reports
-	// mCentralStorages.Num() > 0, a SEPARATE container-registration
-	// bookkeeping array) - so on a save with real, already-built
-	// AFGCentralStorageContainer buildables (confirmed live via
-	// world.buildables), IsCentralStorageBuilt() still reported false
-	// (registration apparently doesn't reliably re-fire for containers
-	// loaded from a save, not just ones built fresh this session - stub
-	// .cpp source, exact mechanism unconfirmed) and this function never
-	// even attempted the real item lookup, silently reporting an empty
-	// Depot the whole time. GetAllItemsFromCentralStorage() has no
-	// documented precondition and is safe to call unconditionally -
+	// Do NOT gate the item lookup behind IsCentralStorageBuilt() (which
+	// reports mCentralStorages.Num() > 0, a SEPARATE container-registration
+	// bookkeeping array): on a save with real, already-built
+	// AFGCentralStorageContainer buildables, IsCentralStorageBuilt() can
+	// still report false (registration doesn't reliably re-fire for
+	// containers loaded from a save - stub .cpp source, exact mechanism
+	// unconfirmed), which would make this function skip the real item lookup
+	// and silently report an empty Depot. GetAllItemsFromCentralStorage()
+	// has no documented precondition and is safe to call unconditionally -
 	// call it directly instead of trusting the unreliable gate.
 	TArray<FItemAmount> AllItems;
 	if (CentralStorage)
@@ -8264,10 +8175,8 @@ FString UAIModFunctionLibrary::LogPlayerInventoryAsJson(UObject* WorldContextObj
 	// hold the same item split across multiple slots) - reports one
 	// entry per distinct item, not a raw per-slot dump, matching
 	// LogCentralStorageAsJson's shape so both can be summed by callers
-	// wanting a "combined" carried+Depot count (2026-08-30, user
-	// request - verifying a suspected inventory-refund bug needs a
-	// reliable before/after carried count, which no RPC previously
-	// exposed at all; only Depot contents were readable).
+	// wanting a "combined" carried+Depot count (e.g. verifying an
+	// inventory-refund bug needs a reliable before/after carried count).
 	TMap<TSubclassOf<UFGItemDescriptor>, int32> Totals;
 	if (PlayerInventory)
 	{
@@ -8376,8 +8285,8 @@ FAIModOperationResult UAIModFunctionLibrary::WithdrawFromCentralStorage(UObject*
 		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Amount must be greater than 0"));
 	}
 
-	// Same fix as LogCentralStorageAsJson (2026-08-30): don't gate on
-	// IsCentralStorageBuilt() - confirmed live unreliable even with real,
+	// Same as LogCentralStorageAsJson: don't gate on
+	// IsCentralStorageBuilt() - it's unreliable even with real,
 	// already-built AFGCentralStorageContainer buildables in the world.
 	// TryRemoveItemsFromCentralStorage has no documented precondition and
 	// itself safely clamps to whatever is actually available.
@@ -8408,11 +8317,11 @@ FAIModOperationResult UAIModFunctionLibrary::WithdrawFromCentralStorage(UObject*
 	}
 	const TSubclassOf<UFGItemDescriptor> ItemClass = ResolvedClass;
 
-	// Add-to-player BEFORE remove-from-Depot (fixed 2026-09-02). The
+	// Add-to-player BEFORE remove-from-Depot. The
 	// Dimensional Depot has no API to deposit a raw amount back
 	// (UploadItemFromInventoryToCentralStorage needs the item already sitting
-	// in a real inventory slot), so the previous remove-then-add ordering
-	// silently DESTROYED any part of the withdrawal that didn't fit in a full
+	// in a real inventory slot), so a remove-then-add ordering would
+	// silently DESTROY any part of the withdrawal that didn't fit in a full
 	// player inventory. Instead: clamp to what the Depot actually holds, add
 	// only what fits to the player, then remove from the Depot EXACTLY what
 	// landed in the inventory - anything that didn't fit is never removed and
@@ -8510,8 +8419,8 @@ FAIModOperationResult UAIModFunctionLibrary::UploadToCentralStorage(UObject* Wor
 	}
 	const int32 Cap = FMath::Min3(Amount, Have, Room);
 
-	// UploadItemFromInventoryToCentralStorage deposits ONE item per call (found
-	// live 2026-09-08: a single call on a 100-stack moved 1), so loop: each
+	// UploadItemFromInventoryToCentralStorage deposits ONE item per call (a
+	// single call on a 100-stack moves 1), so loop: each
 	// pass find a slot still holding the item and upload once, until we've moved
 	// Cap items or nothing more can move. Delta-measured against the Depot count
 	// so the reported total is exact; a zero-progress call breaks the loop
@@ -8661,7 +8570,7 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 	// correctly reflect that the save's progression hasn't unlocked
 	// direct machine-to-machine wiring yet, not a bug.
 	//
-	// FindPowerConnectionPair (2026-08-31 fix) - a joint, type-aware
+	// FindPowerConnectionPair - a joint, type-aware
 	// selection over both buildables at once, see its own comment for
 	// why a Power Tower's dual PCT_PowerTower/PCT_Default connectors
 	// need this instead of two independent single-buildable lookups.
@@ -8713,15 +8622,15 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 		return;
 	}
 
-	// Stuck-state fix (2026-09-02, docs/build-efficiency-plan.md 2d):
-	// live-diagnosed that UnequipBuildGun() on a FAILED attempt does not
+	// Stuck-state fix (docs/build-efficiency-plan.md 2d):
+	// UnequipBuildGun() on a FAILED attempt does not
 	// destroy the wire hologram - the next HotKeyRecipe hands back the
 	// SAME hologram, still carrying the previous call's SetConnection()
 	// targets, and from then on EVERY connectPower in the session fails
 	// validation ("Must be hooked up to a connection!" - even between
 	// two freshly placed empty poles; sometimes "Already connected with
-	// another wire!") until something else swaps the hologram. The live
-	// workaround was placing and deleting a dummy building (which
+	// another wire!") until something else swaps the hologram. A manual
+	// workaround is placing and deleting a dummy building (which
 	// equips a different recipe's hologram); this detects the stale
 	// state directly - a FRESH wire hologram has both connection slots
 	// null - and forces a clean respawn instead.
@@ -8746,31 +8655,27 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 		}
 	}
 
-	// ConstructPowerConnection (2026-08-25): confirmed live, TWICE, that
-	// this exact SetConnection()-only mechanism (no click/snap step, a
+	// This exact SetConnection()-only mechanism (no click/snap step, a
 	// single GetHitResult() assignment for ConnectionA only) is the only
 	// mechanism that works at all for machine<->machine connections. Two
-	// mechanism deviations were tried and BOTH regressed the
-	// previously-working machine<->machine case live: (1) a click-based
-	// UpdateHologramPlacement()+TrySnapToActor()+DoMultiStepPlacement()
-	// rewrite - TrySnapToActor() never populated GetConnection(0)/(1)
+	// mechanism deviations both regress the machine<->machine case: (1) a
+	// click-based UpdateHologramPlacement()+TrySnapToActor()+DoMultiStepPlacement()
+	// rewrite - TrySnapToActor() never populates GetConnection(0)/(1)
 	// for wires at all; (2) touching BuildGun->GetHitResult() for
-	// ConnectionB too (not just A) before SetConnection(1,...) - broke
-	// the ConnectionA validation somehow. Do not repeat either.
+	// ConnectionB too (not just A) before SetConnection(1,...) - breaks
+	// the ConnectionA validation. Do not repeat either.
 	//
-	// SEPARATELY diagnosed (also 2026-08-25, same mechanism, no code
-	// change): repeated identical dry-run calls against the exact same
-	// pair of buildables returned THREE DIFFERENT disqualifiers across
+	// Separately, repeated identical dry-run calls against the exact same
+	// pair of buildables can return THREE DIFFERENT disqualifiers across
 	// attempts - UFGCDWireSnap, UFGCDWireTooLong (despite real 3D
 	// distance well under the real queried maxLength), and
-	// UFGCDInvalidAimLocation - with success on other attempts, still no
+	// UFGCDInvalidAimLocation - with success on other attempts, no code
 	// change. This is the same class of live-camera-dependent flakiness
-	// already solved for building placement
-	// (ConstructBuildingAtPosition's bIgnoreAimLocation etc.), not a
-	// genuine geometry problem with this function's own logic. See the
-	// poll loop below for the bIgnoreAimLocation/bIgnoreWireSnap
-	// disqualifier-bypass this motivated - NOT YET LIVE-VERIFIED to
-	// resolve it, only diagnosed.
+	// solved for building placement (ConstructBuildingAtPosition's
+	// bIgnoreAimLocation etc.), not a genuine geometry problem with this
+	// function's own logic. See the poll loop below for the
+	// bIgnoreAimLocation/bIgnoreWireSnap disqualifier-bypass this
+	// motivated.
 	FHitResult SyntheticHit;
 	SyntheticHit.Location = ConnectionA->GetComponentLocation();
 	SyntheticHit.ImpactPoint = SyntheticHit.Location;
@@ -8844,9 +8749,9 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 			return;
 		}
 
-		// Live-diagnosed 2026-08-25: repeated identical dry-run calls
+		// Repeated identical dry-run calls
 		// against the exact same pair of buildables (no code or geometry
-		// change between calls) returned THREE DIFFERENT disqualifiers
+		// change between calls) can return THREE DIFFERENT disqualifiers
 		// across attempts - UFGCDWireSnap ("Must be hooked up to a
 		// connection!"), UFGCDWireTooLong ("Wire is too long!" - despite
 		// the real 3D distance being well under the real queried
@@ -8867,19 +8772,19 @@ void UAIModFunctionLibrary::ConstructPowerConnection(UObject* WorldContextObject
 		// FactoryGame's own real validation inside
 		// InternalConstructHologram() itself.
 		//
-		// UFGCDWireTooLong (bIgnoreWireLength, 2026-09-10): the wire's
+		// UFGCDWireTooLong (bIgnoreWireLength): the wire's
 		// mMaxLength cap (10000cm pole / 30000cm tower - see
 		// world.powerLineLimits). Unlike aim/snap flakiness this IS a real,
-		// deterministic geometry check, so it stayed non-ignorable by
+		// deterministic geometry check, so it is non-ignorable by
 		// default. But it is a pure BUILD-TIME gate: FGPowerConnectionComponent
 		// merges the two power circuits logically, with no runtime dependency
-		// on wire length, so a wire built past the cap still delivers power
-		// (live-verified after this change). The caller opts in explicitly to
+		// on wire length, so a wire built past the cap still delivers power.
+		// The caller opts in explicitly to
 		// run a single span across any distance - e.g. powering a remote
 		// mining/smelting outpost kilometres from the main grid without
 		// hand-placing a chain of dozens of poles. The visual spline simply
 		// stretches. Off by default; on only when the caller passes the flag.
-		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// UnlimitedResources - see ConstructBuildingAtPosition's
 		// identical comment on this being a player-controlled mod setting.
 		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
 
@@ -9019,10 +8924,10 @@ FAIModOperationResult UAIModFunctionLibrary::DebugCheckConveyorSnap(UObject* Wor
 	SyntheticHit.HitObjectHandle = FActorInstanceHandle(SourceBuildable);
 	SyntheticHit.bBlockingHit = true;
 
-	// Widened experiment (2026-08-25): calling TrySnapToActor() directly
-	// returned true but left every state indicator unchanged
-	// (step/IsConnectionSnapped/connected count all showed no real
-	// snap) - contradictory evidence. Every other hologram in this
+	// Calling TrySnapToActor() directly can return true but leave every
+	// state indicator unchanged (step/IsConnectionSnapped/connected count
+	// all show no real snap) - contradictory evidence. Every other hologram
+	// in this
 	// project (buildings, wires) is driven through
 	// UpdateHologramPlacement(), not by calling the override method
 	// directly - try that first, matching the proven pattern, before
@@ -9108,12 +9013,12 @@ FString UAIModFunctionLibrary::LogConveyorBeltTiersAsJson(UObject* WorldContextO
 		TierObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
 		TierObject->SetNumberField(TEXT("speed"), BeltCDO->GetSpeed());
 
-		// bendRadius/maxSplineLength (2026-08-25): read off the HOLOGRAM
+		// bendRadius/maxSplineLength: read off the HOLOGRAM
 		// class's CDO (a different descriptor accessor,
 		// UFGBuildDescriptor::GetHologramClass, than the buildable class
 		// above) - both are EditDefaultsOnly Blueprint-configured class
 		// defaults (AFGConveyorBeltHologram.h), so this works without
-		// spawning anything. Added so an agent can tell BEFORE attempting
+		// spawning anything. Lets an agent tell BEFORE attempting
 		// a connection whether two points are too far apart for a single
 		// belt segment, rather than discovering it via a failed
 		// world.testConveyorBelt.
@@ -9436,10 +9341,10 @@ FString UAIModFunctionLibrary::LogPipelineTiersAsJson(UObject* WorldContextObjec
 		// documented unit, unlike belts' ambiguous GetSpeed().
 		TierObject->SetNumberField(TEXT("flowLimit"), PipelineCDO->GetFlowLimit());
 
-		// maxSplineLength/bendRadius/minBendRadius (2026-08-25): ALL
+		// maxSplineLength/bendRadius/minBendRadius: ALL
 		// THREE are private on AFGPipelineHologram with no public
-		// getters (unlike belts, where two of three had public getters)
-		// - confirmed from source, all real UPROPERTY(EditDefaultsOnly)
+		// getters (unlike belts, where two of three have public getters)
+		// - per source, all real UPROPERTY(EditDefaultsOnly)
 		// fields, read via reflection same as belts' mMaxIncline.
 		if (const TSubclassOf<AFGPipelineHologram> HologramClass = ResolvePipelineHologramClassForRecipe(RecipePath))
 		{
@@ -9485,16 +9390,14 @@ FString UAIModFunctionLibrary::LogPipelinePumpTiersAsJson(UObject* WorldContextO
 	// asset filenames on disk, matching the pipe tiers' own naming) are
 	// the two real pump tiers.
 	//
-	// Recipe_Valve (2026-08-31, offline research per explicit user
-	// request) is included here too, NOT a separate tier list - confirmed
-	// directly from the binary asset (Build_Valve.uasset references the
-	// literal class name "FGBuildablePipelinePump", grepped from the
-	// .uasset itself) that the in-game Valve IS a Blueprint variant of
-	// AFGBuildablePipelinePump, not a separate C++ class. This also
-	// explains why AFGBuildablePipelinePump.h's own SetUserFlowLimit()
-	// doc comment already used valve terminology ("Set this to -1 to use
-	// the max limit, i.e. valve is fully opened") before any of this was
-	// investigated - the class was always dual-purpose. A "kind" field
+	// Recipe_Valve is included here too, NOT a separate tier list - the
+	// binary asset (Build_Valve.uasset references the literal class name
+	// "FGBuildablePipelinePump", grepped from the .uasset itself) shows the
+	// in-game Valve IS a Blueprint variant of AFGBuildablePipelinePump, not
+	// a separate C++ class. This also explains why
+	// AFGBuildablePipelinePump.h's own SetUserFlowLimit() doc comment uses
+	// valve terminology ("Set this to -1 to use the max limit, i.e. valve
+	// is fully opened") - the class is dual-purpose. A "kind" field
 	// distinguishes Pump vs Valve entries for the caller since the RPC
 	// name itself still says "pump" tiers.
 	static const TCHAR* PumpTierRecipePaths[] = {
@@ -9574,9 +9477,9 @@ FString UAIModFunctionLibrary::LogPipeFluidBoxesAsJson(UObject* WorldContextObje
 
 	// Scoped to AFGBuildablePipeline (real pipe SEGMENTS) specifically -
 	// IFGFluidIntegrantInterface is also implemented by pumps/storage
-	// tanks/etc, but segments are what the user's own volume/fill
-	// question was about. Widening to other fluid integrants is a real,
-	// separate future addition if needed, not done here.
+	// tanks/etc, but segments are what the volume/fill query is about.
+	// Widening to other fluid integrants is a separate future addition if
+	// needed, not done here.
 	TArray<TSharedPtr<FJsonValue>> BoxJsonArray;
 	for (TActorIterator<AFGBuildablePipeline> It(World); It; ++It)
 	{
@@ -9596,7 +9499,7 @@ FString UAIModFunctionLibrary::LogPipeFluidBoxesAsJson(UObject* WorldContextObje
 		// GetLength() is documented "Length of the pipe in centimeters"
 		// (FGBuildablePipeBase.h) - real unit, paired here with the
 		// fluid box's own real volume for the length-to-volume
-		// relationship the user asked about.
+		// relationship.
 		BoxObject->SetNumberField(TEXT("lengthCm"), Pipe->GetLength());
 		BoxObject->SetNumberField(TEXT("contentM3"), Box->Content);
 		BoxObject->SetNumberField(TEXT("maxContentM3"), Box->MaxContent);
@@ -9696,8 +9599,8 @@ FString UAIModFunctionLibrary::LogTrainCargoPlatformsAsJson(UObject* WorldContex
 		// mFreightCargoType has no public getter on the PLATFORM class
 		// (unlike AFGFreightWagon, which has GetFreightCargoType()) -
 		// read via FindFProperty<FEnumProperty> reflection, the first
-		// enum (not float) field this codebase has read this way. NOT
-		// YET LIVE-VERIFIED that this correctly resolves - if it fails
+		// enum (not float) field this codebase reads this way. Not yet
+		// verified at runtime that this correctly resolves - if it fails
 		// to resolve, "freightCargoType" is simply omitted rather than
 		// erroring the whole call.
 		if (const FEnumProperty* CargoTypeProperty = FindFProperty<FEnumProperty>(Platform->GetClass(), TEXT("mFreightCargoType")))
@@ -9743,9 +9646,9 @@ FString UAIModFunctionLibrary::LogTrainCargoPlatformsAsJson(UObject* WorldContex
 	return JsonString;
 }
 
-// LogConveyorAttachmentCatalogAsJson (2026-08-25, splitter/merger
-// groundwork) - research-confirmed (see docs/conveyor-attachment-research.md)
-// that splitters/mergers use AFGConveyorAttachmentHologram : AFGFactoryHologram
+// LogConveyorAttachmentCatalogAsJson - per
+// docs/conveyor-attachment-research.md,
+// splitters/mergers use AFGConveyorAttachmentHologram : AFGFactoryHologram
 // : AFGBuildableHologram - the SAME simple, single-step hologram lineage
 // already proven for Miners/Smelters/Constructors, NOT the AFGSplineHologram
 // branch belts/pipes needed special multi-click driving for. That means
@@ -9782,15 +9685,13 @@ FString UAIModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(UObject* World
 			continue;
 		}
 
-		// Fix (2026-08-27, live-diagnosed): GetComponents<T>() on a CDO
-		// only finds NATIVE (CreateDefaultSubobject) components - these
+		// GetComponents<T>() on a CDO only finds NATIVE
+		// (CreateDefaultSubobject) components - these
 		// buildables add their connectors via the Blueprint's Simple
 		// Construction Script, which does NOT populate onto the CDO
-		// (SCS-added components only exist on a real spawned instance).
-		// This function had reported inputCount=0/outputCount=0 for
-		// EVERY entry since it was written - never actually caught
-		// because it was flagged "NOT YET LIVE-TESTED" until now.
-		// AFGBuildable::GetDefaultComponents<T>() (FGBuildable.h) is
+		// (SCS-added components only exist on a real spawned instance), so
+		// GetComponents<T>() reports inputCount=0/outputCount=0 for every
+		// entry. AFGBuildable::GetDefaultComponents<T>() (FGBuildable.h) is
 		// FactoryGame's own purpose-built helper for exactly this - walks
 		// the Blueprint inheritance chain's SimpleConstructionScript
 		// nodes (resolving InheritableComponentHandler overrides) in
@@ -9812,7 +9713,7 @@ FString UAIModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(UObject* World
 		EntryObject->SetStringField(TEXT("buildableClass"), BuildableClass->GetPathName());
 		EntryObject->SetNumberField(TEXT("inputCount"), InputCount);
 		EntryObject->SetNumberField(TEXT("outputCount"), OutputCount);
-		// supportsSortRules (2026-08-25): Smart and Programmable
+		// supportsSortRules: Smart and Programmable
 		// splitters share the AFGBuildableSplitterSmart native class -
 		// per-output item-type routing (mSortRules, AddSortRule/
 		// RemoveSortRuleAt/SetSortRuleAt/GetSortRules, confirmed public
@@ -10100,13 +10001,11 @@ namespace
 
 // LogRecipeCatalogAsJson/world.recipeCatalog, LogItemCatalogAsJson/
 // world.itemCatalog, LogBuildableCatalogAsJson/world.buildableCatalog
-// (2026-08-27, per explicit user request to support pre-planning complex
-// builds: "what items can be built, what recipes/alternates build each
-// item, what machines are needed, resource/power requirements, input/
-// output counts and types, rates including power shards/Somersloop,
-// belt/pipe rates"). Belt/pipe rates were already covered by
-// world.conveyorBeltTiers/world.pipelineTiers (2026-08-25) - these three
-// cover the rest.
+// support pre-planning complex builds: what items can be built, what
+// recipes/alternates build each item, what machines are needed,
+// resource/power requirements, input/output counts and types, rates
+// including power shards/Somersloop. Belt/pipe rates are covered by
+// world.conveyorBeltTiers/world.pipelineTiers - these three cover the rest.
 //
 // Enumeration source: AFGRecipeManager::GetAllRecipes()/
 // GetAllItemDescriptors() (FGRecipeManager.h) - confirmed via source
@@ -10373,7 +10272,7 @@ FString UAIModFunctionLibrary::LogBuildableCatalogAsJson(UObject* WorldContextOb
 				//
 				// mPotentialShardSlots is itself gated by
 				// mOverridePotentialShardSlots (EditCondition in its own
-				// UPROPERTY meta) - live-confirmed most buildings
+				// UPROPERTY meta) - most buildings
 				// (Constructor, Miner) report potentialShardSlots=0 with
 				// the override off, even though real instances DO accept
 				// shards. When the override is off, this field's value is
@@ -10697,9 +10596,7 @@ FString UAIModFunctionLibrary::LogConstructionCostAsJson(UObject* WorldContextOb
 namespace
 {
 // "RealCharacter" instigator strategy - see forward declaration's doc
-// comment near the top of this file. Verbatim copy of this function's
-// pre-2026-08-30 body (git commit be42e1595f), just renamed - drives the
-// REAL player's BuildGun exactly as before.
+// comment near the top of this file. Drives the REAL player's BuildGun.
 void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -10729,12 +10626,11 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		return;
 	}
 
-	// Position-targeted selection (2026-08-30) when the caller supplied
+	// Position-targeted selection when the caller supplied
 	// one - see FindFreeFactoryConnectionNear's own comment for why this
-	// exists. Falls back to the old "first free of this direction"
-	// behavior when no position is given, so every pre-existing caller
-	// (manifold-building scripts that only care "connect these two
-	// buildables") keeps working unchanged.
+	// exists. Falls back to "first free of this direction"
+	// when no position is given, so a caller that only cares "connect these
+	// two buildables" (manifold-building scripts) still works.
 	UFGFactoryConnectionComponent* SourceConnection = SourceConnectorPosition.IsSet()
 		? FindFreeFactoryConnectionNear(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT, SourceConnectorPosition.GetValue())
 		: FindFreeFactoryConnection(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT);
@@ -10838,8 +10734,8 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
-		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
-		// doc comment (proven for the lift's height; suspected fix for
+		// See PopulateSyntheticTraceRay's
+		// doc comment (load-bearing for the lift's height; suspected fix for
 		// the belt player-distance "too long" failures).
 		PopulateSyntheticTraceRay(Hit);
 		return Hit;
@@ -10868,28 +10764,25 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		BeltController->SetControlRotation(BeltDeterministicLook);
 	}
 
-	// NOTE (2026-09-01): a previous attempt raised the build gun's
-	// mBuildDistanceMax to 1,000,000 here to fix far belts. It did NOT
-	// fix them (the real limit is the camera AIM, not the clamp - see the
-	// auto-teleport below) and it REGRESSED near belts: with an
+	// Do NOT raise the build gun's mBuildDistanceMax here to fix far belts.
+	// It does NOT fix them (the real limit is the camera AIM, not the clamp
+	// - see the auto-teleport below) and it REGRESSES near belts: with an
 	// effectively-unlimited trace range, the belt's AutoRouteSpline traces
 	// far past the target along the aim and routes an absurdly long spline,
-	// so even a 500-unit level belt failed "too long"/"Missing materials"
-	// unless the player stood almost exactly on it (confirmed live). The
-	// raise is removed; the helper is kept only so the restore calls below
-	// stay valid no-ops (SavedBuildGunRange = -1 makes every
-	// RestoreBuildGunTraceRange a no-op).
+	// so even a 500-unit level belt fails "too long"/"Missing materials"
+	// unless the player stands almost exactly on it. The RestoreBuildGunTraceRange
+	// helper is kept only so the restore calls below stay valid no-ops
+	// (SavedBuildGunRange = -1 makes every RestoreBuildGunTraceRange a no-op).
 	const float SavedBuildGunRange = -1.0f;
 
-	// Auto-teleport the real player next to the connection (2026-09-01,
-	// THE reliable fix for the belt "too long" failures at distance).
+	// Auto-teleport the real player next to the connection - the reliable
+	// fix for the belt "too long" failures at distance.
 	// The RealCharacter strategy fundamentally relies on the real build
 	// gun's real camera trace, which cannot reach the connectors when the
 	// player stands far away: from ~14k units a connector-sized target is
 	// on no camera ray, and neither raising mBuildDistanceMax nor pinning
-	// GetHitResult() fixed it live (both were tried and failed). What
-	// worked every time - in the copper and HMF builds and in isolated
-	// A/B tests - was standing the player next to the work. So do that
+	// GetHitResult() fixes it. What works is standing the player next to
+	// the work. So do that
 	// automatically: teleport to the connection midpoint (a bit above it),
 	// build, and restore the player's real position at every exit so an
 	// interactive player is left where they were. Only moves the player
@@ -10907,24 +10800,23 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		}
 	}
 
-	// Build-gun cached-trace injection for belts (2026-09-01) - the fix
+	// Build-gun cached-trace injection for belts - the fix
 	// for the player-distance-dependent "Conveyor Belt is too steep!"/
-	// "too long!" failures found during the HMF build (see
-	// docs/hmf-factory-plan.md finding #3). PopulateSyntheticTraceRay
-	// (added earlier) fixed pure horizontal "too long" by giving the hit
-	// a real camera ray, but INCLINED belts still failed based only on
-	// how far the real player stood: AFGBuildGun::TraceForBuilding()
+	// "too long!" failures (see docs/hmf-factory-plan.md finding #3).
+	// PopulateSyntheticTraceRay fixes pure horizontal "too long" by giving
+	// the hit a real camera ray, but INCLINED belts still fail based only on
+	// how far the real player stands: AFGBuildGun::TraceForBuilding()
 	// clamps its trace to mBuildDistanceMax, so when the player is far,
 	// any internal read of BuildGun->GetHitResult() (which the belt's
 	// spline routing/incline validation can consult, not just the
 	// hitResult we pass to UpdateHologramPlacement) returns a point
 	// short of the real destination along the aim - producing a spline
 	// whose middle over-inclines. The conveyor LIFT path already writes
-	// its synthetic hit into GetHitResult() for exactly this reason; the
-	// belt path never did. Writing the real target here (and re-asserted
+	// its synthetic hit into GetHitResult() for exactly this reason.
+	// Writing the real target here (and re-asserting it
 	// every poll tick below) makes any such internal read see the true
-	// destination regardless of player distance. NOT YET LIVE-TESTED -
-	// keep teleporting near belt connections until confirmed.
+	// destination regardless of player distance. Not yet verified to remove
+	// the distance dependence alone - keep teleporting near belt connections.
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
 	BuildGun->GetHitResult() = StartHit;
 	BeltHologram->UpdateHologramPlacement(StartHit);
@@ -11024,7 +10916,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 			}
 		}
 
-		// Re-assert the build gun's cached trace every tick (2026-09-01) -
+		// Re-assert the build gun's cached trace every tick -
 		// see the StartHit injection comment in the synchronous section
 		// above. Keeps any internal spline/incline read pinned to the real
 		// destination instead of the player's distance-clamped live trace.
@@ -11033,22 +10925,21 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 			PollBuildGunForHit->GetHitResult() = PollState->EndHit;
 		}
 
-		// Re-assert the end hit every poll tick (2026-08-30) - matching
-		// the fix already proven for point holograms in
+		// Re-assert the end hit every poll tick - matching
+		// the fix for point holograms in
 		// ConstructBuildingNearPlayer/ConstructExtractorOnTargetedNode
 		// (see docs/buildgun-driven-placement-research.md's "§3
 		// correction"). UFGBuildGunStateBuild::TickState_Implementation
 		// runs its own real AFGBuildGun::TraceForBuilding() every tick
 		// from the REAL player's live camera aim and silently overwrites
-		// whatever hit/placement state this function set up - confirmed
-		// there via a ~4000-unit drift and a "Surface is too uneven!"
+		// whatever hit/placement state this function set up - seen there as
+		// a ~4000-unit drift and a "Surface is too uneven!"
 		// failure at a location nowhere near the intended one. This poll
 		// loop already re-asserts rotation every tick for the same
-		// reason but was never given the analogous placement fix -
-		// live-suspected 2026-08-30 as the real explanation for
-		// intermittent "Conveyor Belt is too long!"/"Surface is too
-		// uneven!" failures that couldn't be explained by distance,
-		// AFK state, or leftover geometry alone.
+		// reason; the analogous placement re-assert here is the likely
+		// explanation for intermittent "Conveyor Belt is too long!"/"Surface
+		// is too uneven!" failures that distance, AFK state, or leftover
+		// geometry alone don't explain.
 		PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
 		TArray<TSubclassOf<UFGConstructDisqualifier>> Disqualifiers;
@@ -11068,12 +10959,12 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -11148,17 +11039,14 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 }
 } // namespace
 
-// Decoy-instigator rewrite (2026-08-30, explicit user direction after the
-// original SetControlRotation-based fix below was confirmed live to
-// visibly hijack the REAL player's camera for the full duration of every
-// call - "hijack the player camera for minutes at a time in intermittent
-// bursts" on any multi-belt build). Root cause established by the
-// original fix's own comments: AutoRouteSpline()'s routing (stub source,
-// unverifiable directly) empirically depends on the CONSTRUCTION
-// INSTIGATOR's controller rotation, not just the connector geometry -
-// the previous fix worked around this by forcing the REAL Character's
-// controller rotation every poll tick, which is exactly what was visible
-// to the user. This version spawns the hologram via the real, public,
+// Decoy-instigator strategy: the RealCharacter path forces the REAL
+// player's controller rotation every poll tick, which visibly hijacks the
+// player's camera for the full duration of every call (minutes at a time
+// in intermittent bursts on a multi-belt build). Root cause:
+// AutoRouteSpline()'s routing (stub source, unverifiable directly)
+// empirically depends on the CONSTRUCTION INSTIGATOR's controller
+// rotation, not just the connector geometry. This strategy spawns the
+// hologram via the real, public,
 // non-stub AFGHologram::SpawnHologramFromRecipe() (FGHologram.h) with an
 // explicit throwaway APawn+AController as the CONSTRUCTION INSTIGATOR,
 // instead of implicitly using Character->GetBuildGun()'s real equipped
@@ -11176,14 +11064,11 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 // above), and always ignores UFGCDUnaffordable in the poll loop's
 // disqualifier check (not just when the UnlimitedResources setting is
 // on) since affordability is now handled explicitly, before Construct()
-// is ever called. NOT YET LIVE-VERIFIED - AutoRouteSpline/
+// is ever called. Not yet verified at runtime - AutoRouteSpline/
 // GenerateAndUpdateSpline/ConfigureActor/Construct are all stub source
 // in this SDK, so whether a decoy instigator produces correct routing
-// and a correctly-owned/replicated real belt actor is a live-test
-// question, not something readable from source. If this regresses
-// routing correctness, the previous real-Character-rotation approach is
-// preserved in git history and this comment documents exactly what
-// changed and why, to make reverting fast.
+// and a correctly-owned/replicated real belt actor is a runtime
+// question, not something readable from source.
 // Serialize a belt/spline HOLOGRAM's computed spline to a JSON object string
 // (the predicted mid-span path before construction). The hologram builds a real
 // USplineComponent (AFGSplineHologram::mSplineComponent) during placement; it's
@@ -11192,7 +11077,7 @@ void ConstructConveyorBelt_RealCharacterStrategy(UObject* WorldContextObject, co
 // LogSplineGeometryAsJson (built belts), so callers parse one format. Empty
 // points[] if the component isn't populated yet. Used by world.testConveyorBelt
 // (dry run) to answer "what path will this belt actually take?" without building
-// it - the missing piece for verifying long-span routing (2026-09-09).
+// it - the missing piece for verifying long-span routing.
 static FString SerializeHologramSplineJson(AFGSplineHologram* Hologram)
 {
 	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
@@ -11232,28 +11117,25 @@ static FString SerializeHologramSplineJson(AFGSplineHologram* Hologram)
 
 void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, const FString& InstigatorStrategy, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
-	// Strategy dispatch (2026-08-30, explicit user request: "implement
-	// multiple competing strategies per-compile... so if one test fails,
-	// you can attempt other theories before requiring a fresh build").
-	// "RealCharacter" delegates to the untouched original implementation
-	// (see its own comment) - everything below this point is the newer
+	// Strategy dispatch: multiple competing strategies per-compile, so if
+	// one test fails, other theories can be attempted before requiring a
+	// fresh build. "RealCharacter" delegates to the original implementation
+	// (see its own comment) - everything below this point is the
 	// decoy-instigator path, parameterized only by which controller class
 	// possesses the decoy pawn.
 	//
-	// SourceConnectorPosition/DestConnectorPosition (2026-08-30, explicit
-	// user requirement - see FindFreeFactoryConnectionNear's comment):
-	// when provided, target one SPECIFIC connector by its real world
-	// position instead of "the first free one of the right direction" -
-	// required for deterministic per-port selection on a multi-output
-	// buildable like a splitter. Optional and backward-compatible -
-	// omitting them keeps every existing caller's behavior unchanged.
-	// Default strategy (2026-09-10): "RealCharacter", the ONLY strategy that
+	// SourceConnectorPosition/DestConnectorPosition (see
+	// FindFreeFactoryConnectionNear's comment): when provided, target one
+	// SPECIFIC connector by its real world position instead of "the first
+	// free one of the right direction" - required for deterministic per-port
+	// selection on a multi-output buildable like a splitter. Optional and
+	// backward-compatible - omitting them keeps existing callers unchanged.
+	// Default strategy: "RealCharacter", the ONLY strategy that
 	// clears UFGCDInitializing. The decoy-instigator strategies below
-	// (PlayerController/AIController/LocalPlayer) were an experiment that
+	// (PlayerController/AIController/LocalPlayer) are an experiment that
 	// conclusively, permanently fails on UFGCDInitializing at every location -
-	// a raw caller hitting the old "PlayerController" default got belts that
-	// never build (KL-1 in docs/known-limitations.md; our own Executor always
-	// passed "RealCharacter", which is why the toolkit never saw it). Default
+	// a raw caller hitting a "PlayerController" default gets belts that
+	// never build (KL-1 in docs/known-limitations.md). Default
 	// to the working path so the RPC is correct out of the box; the decoy
 	// strategies remain reachable by explicit opt-in only.
 	const FString Strategy = InstigatorStrategy.IsEmpty() ? TEXT("RealCharacter") : InstigatorStrategy;
@@ -11264,10 +11146,9 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	}
 	const bool bUseAIController = Strategy.Equals(TEXT("AIController"), ESearchCase::IgnoreCase);
 	const bool bUsePlayerController = Strategy.Equals(TEXT("PlayerController"), ESearchCase::IgnoreCase);
-	// "LocalPlayer" (2026-08-30) - NOT YET LIVE-TESTED (written and
-	// compiled while the running game couldn't be redeployed - see this
+	// "LocalPlayer" - not yet verified at runtime (see this
 	// strategy's own comment below, and docs/camera-hijack-and-second-
-	// player-research.md, for the full research this is based on). Spawns
+	// player-research.md, for the research this is based on). Spawns
 	// a GENUINE second ULocalPlayer via UGameInstance::CreateLocalPlayer()
 	// - confirmed-real, non-stub engine mechanism that routes through the
 	// same Login/PostLogin path a real multiplayer join uses - instead of
@@ -11333,8 +11214,7 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		return;
 	}
 
-	// Caller-chosen belt tier (2026-08-25) - was hardcoded to
-	// Recipe_ConveyorBeltMk1 before this; any of Recipe_ConveyorBeltMk1..Mk6
+	// Caller-chosen belt tier - any of Recipe_ConveyorBeltMk1..Mk6
 	// resolve the same way. Same validation posture as
 	// ConstructBuildingAtPosition's RecipeClassPath - not a generic
 	// "load any class" capability, just requires a real UFGRecipe.
@@ -11375,22 +11255,20 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	// Character's actual camera/equipped item. Cleaned up on every exit
 	// path below via CleanupScratch(). Three concrete candidates,
 	// selectable via params.instigatorStrategy without a recompile:
-	// AIController and PlayerController (both live-confirmed, conclusively,
-	// to leave the hologram permanently stuck on UFGCDInitializing -
-	// present immediately after the first click, never clears across the
-	// full 120-tick poll, even though stepComplete/connectedCount both
-	// look correct - controller CLASS is not the variable, ruled out with
-	// both tested back-to-back in one session) and LocalPlayer (below).
+	// AIController and PlayerController (both leave the hologram permanently
+	// stuck on UFGCDInitializing - present immediately after the first
+	// click, never clears across the full 120-tick poll, even though
+	// stepComplete/connectedCount both look correct - so controller CLASS
+	// is not the variable) and LocalPlayer (below).
 	APawn* DecoyPawn = nullptr;
 	AController* DecoyController = nullptr;
 	ULocalPlayer* NewLocalPlayer = nullptr; // only set for the LocalPlayer strategy - drives cleanup below
 
 	if (bUseLocalPlayer)
 	{
-		// GENUINELY LOCAL second player (2026-08-30, NOT YET LIVE-TESTED -
-		// written from source research done while a redeploy wasn't
-		// possible, see docs/camera-hijack-and-second-player-research.md
-		// for the full citations behind every claim in this comment).
+		// GENUINELY LOCAL second player - not yet verified at runtime (see
+		// docs/camera-hijack-and-second-player-research.md for the citations
+		// behind every claim in this comment).
 		// UGameInstance::CreateLocalPlayer() is confirmed-real, non-stub
 		// engine source (Engine\Private\GameInstance.cpp) - with
 		// bSpawnPlayerController=true and NM_Standalone (true for this
@@ -11443,8 +11321,8 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	else
 	{
 		DecoyPawn = World->SpawnActor<APawn>(APawn::StaticClass(), SourceConnection->GetConnectorLocation(), FRotator::ZeroRotator);
-		// Plain AController is abstract in this engine build (live-confirmed:
-		// "SpawnActor failed because class Controller is abstract").
+		// Plain AController is abstract in this engine build (SpawnActor
+		// fails: "class Controller is abstract").
 		DecoyController = bUseAIController
 			? Cast<AController>(World->SpawnActor<AAIController>(AAIController::StaticClass()))
 			: Cast<AController>(World->SpawnActor<APlayerController>(APlayerController::StaticClass()));
@@ -11482,11 +11360,10 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		}
 	};
 
-	// hologramOwner is ALSO the decoy now (2026-08-30, live-confirmed
-	// necessary): passing Character here - even with DecoyPawn already
-	// used as the instigator - still visibly swung the REAL player's
-	// camera (confirmed live: "the player was facing approximately south
-	// when you started, and automatically turned due east"). Something in
+	// hologramOwner is ALSO the decoy: passing Character here - even with
+	// DecoyPawn already used as the instigator - still visibly swings the
+	// REAL player's camera (the player turns to face the connector).
+	// Something in
 	// the hologram's construction/camera-preview logic evidently reads
 	// the OWNER, not just the instigator, for whatever drives that. Fully
 	// decoupling Character from both parameters is the only way to be
@@ -11505,22 +11382,20 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		return;
 	}
 
-	// Live-diagnosed (2026-08-30): a hologram spawned via
-	// SpawnHologramFromRecipe (bypassing the real BuildGun's equip flow)
-	// stayed stuck on UFGCDInitializing indefinitely - CANNOT_CONSTRUCT
-	// "Initializing (hard)" after the full poll window elapsed, unlike
-	// the BuildGun-driven path this replaces, which always cleared it
-	// within a tick or two, for BOTH bare-decoy strategies. Explicitly
-	// enabling tick here is cheap and safe even though it didn't fix that
+	// A hologram spawned via SpawnHologramFromRecipe (bypassing the real
+	// BuildGun's equip flow) stays stuck on UFGCDInitializing indefinitely -
+	// CANNOT_CONSTRUCT "Initializing (hard)" after the full poll window
+	// elapses, unlike the BuildGun-driven path this replaces, which clears
+	// it within a tick or two, for BOTH bare-decoy strategies. Explicitly
+	// enabling tick here is cheap and safe even though it doesn't fix that
 	// on its own.
 	BeltHologram->SetActorTickEnabled(true);
 
-	// RouteMode (2026-08-25, added after live-diagnosing that the 2-click
-	// TrySnapToActor flow fails ("Conveyor Belt is too long!"/"Invalid
-	// placement!") for ANY meaningful direction mismatch between source
-	// and destination connectors). Real, confirmed-on-disk asset paths
-	// (grepped from Holo_ConveyorBelt.uasset's own string table, not
-	// guessed): AFGHologram::SetBuildModeOverride() (public,
+	// RouteMode: the 2-click TrySnapToActor flow fails ("Conveyor Belt is
+	// too long!"/"Invalid placement!") for ANY meaningful direction mismatch
+	// between source and destination connectors. Real, on-disk asset paths
+	// (grepped from Holo_ConveyorBelt.uasset's own string table):
+	// AFGHologram::SetBuildModeOverride() (public,
 	// FGHologram.h) accepts one of
 	// "/Game/FactoryGame/Buildable/Factory/-Shared/BuildGunModes/BuildMode_Default"
 	// (the implicit default when nothing is overridden - what the player
@@ -11528,11 +11403,11 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	// - AFGConveyorBeltHologram exposes exactly two of these via its own
 	// mBuildModeStraight/mBuildModeCurve fields (GetSupportedBuildModes_Implementation).
 	// Empty RouteMode (default) leaves the hologram's own default mode
-	// untouched - matches prior behavior exactly. NOT YET LIVE-VERIFIED
-	// that forcing Curve actually resolves the bend failures above - this
-	// is a well-evidenced hypothesis (AutoRouteSpline's own doc comment:
-	// "routes the spline to the new location, inserting bends and
-	// straights"), not a proven fix, since the private engine logic
+	// untouched. Not yet verified at runtime that forcing Curve actually
+	// resolves the bend failures above - a well-evidenced hypothesis
+	// (AutoRouteSpline's own doc comment: "routes the spline to the new
+	// location, inserting bends and straights"), not a proven fix, since
+	// the private engine logic
 	// behind SetBuildModeOverride()/AutoRouteSpline() is stub-source in
 	// this SDK like everything else - only the public entry point and
 	// real asset paths are confirmed from source/binary inspection.
@@ -11571,12 +11446,12 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	}
 
 	// Using FVector::UpVector for Normal/ImpactNormal here (as an
-	// arbitrary placeholder) previously produced a live
+	// arbitrary placeholder) produces an
 	// "Invalid Conveyor Belt shape! (hard)" CanConstruct() failure even
-	// though both endpoints snapped cleanly (stepComplete/connectedCount
-	// looked correct) - the spline's arrive/leave tangent is evidently
+	// though both endpoints snap cleanly (stepComplete/connectedCount
+	// look correct) - the spline's arrive/leave tangent is evidently
 	// derived from the hit normal, so an UpVector normal on a
-	// horizontally-facing connector produced a degenerate tangent.
+	// horizontally-facing connector produces a degenerate tangent.
 	// UFGFactoryConnectionComponent::GetConnectorNormal() (GetComponentRotation().Vector())
 	// is the connector's real outward-facing direction - use that instead.
 	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection) -> FHitResult
@@ -11588,16 +11463,16 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
-		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
-		// doc comment (proven for the lift's height; suspected fix for
+		// See PopulateSyntheticTraceRay's
+		// doc comment (load-bearing for the lift's height; suspected fix for
 		// the belt player-distance "too long" failures).
 		PopulateSyntheticTraceRay(Hit);
 		return Hit;
 	};
 
-	// Diagnostic evidence-gathering (2026-08-25): the "Invalid aim
+	// Diagnostic evidence-gathering: the "Invalid aim
 	// location! (hard)"/"Invalid Conveyor Belt shape! (hard)"
-	// disqualifiers have been observed to flip depending solely on
+	// disqualifiers can flip depending solely on
 	// Hit.Normal, at fixed player/buildable positions - log everything
 	// relevant to correlate. This block never changes behavior, only logs.
 	auto SummarizeDisqualifiers = [](AFGConveyorBeltHologram* H) -> FString
@@ -11617,7 +11492,7 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(), *SourceConnection->GetConnectorLocation(true).ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString(), *DestConnection->GetConnectorLocation(true).ToString());
 
-	// Player-independence, take 3 (2026-08-30): the underlying dependency
+	// Player-independence: the underlying dependency
 	// (see the function's top comment) is real and still needs a
 	// deterministic rotation hint - but it now targets the DECOY
 	// controller instead of the real Character's, so the real player's
@@ -11626,12 +11501,12 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	const FRotator BeltDeterministicLook = (DestConnection->GetConnectorLocation() - SourceConnection->GetConnectorLocation()).Rotation();
 	DecoyController->SetControlRotation(BeltDeterministicLook);
 
-	// Step 1 of the flow found live via DebugCheckConveyorSnap - fix the
+	// Step 1 of the flow (see DebugCheckConveyorSnap) - fix the
 	// start point on the source's Output connection. UpdateHologramPlacement()
 	// before TrySnapToActor() is not optional: DebugCheckConveyorSnap's
-	// successful trace called both, and omitting it here reproduced a
-	// live "Invalid aim location! (hard)" CanConstruct() failure even
-	// though the snap/step/connectedCount indicators all looked correct -
+	// successful trace calls both, and omitting it here reproduces a
+	// "Invalid aim location! (hard)" CanConstruct() failure even
+	// though the snap/step/connectedCount indicators all look correct -
 	// evidently CanConstruct()'s aim-location disqualifier reads state
 	// that only UpdateHologramPlacement() sets, not TrySnapToActor() alone.
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
@@ -11756,9 +11631,9 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 			PollDecoyController->SetControlRotation(PollState->DeterministicLook);
 		}
 
-		// Live-diagnosed (2026-08-30): UFGCDInitializing never cleared on
-		// its own even with SetActorTickEnabled(true) - it stayed present
-		// for the full 120-tick poll window and the call failed
+		// UFGCDInitializing never clears on its own even with
+		// SetActorTickEnabled(true) - it stays present for the full 120-tick
+		// poll window and the call fails
 		// CANNOT_CONSTRUCT "Initializing (hard)". The real BuildGun-driven
 		// flow calls UpdateHologramPlacement() continuously every frame
 		// while the player aims, not just once per click - reassert it
@@ -11778,7 +11653,7 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 			return;
 		}
 
-		// Player-independence (2026-08-26, explicit user direction): don't
+		// Player-independence: don't
 		// use the real (stub-source, opaque) CanConstruct() here - it has
 		// no way to selectively ignore a disqualifier. Belts/lifts are
 		// always built between two EXPLICIT existing buildables (never
@@ -11789,7 +11664,7 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		// blocks" rule as ConstructBuildingAtPosition's own manual
 		// disqualifier loop.
 		//
-		// UFGCDUnaffordable (2026-08-30, changed): now ALWAYS ignored, not
+		// UFGCDUnaffordable: ALWAYS ignored, not
 		// just under the UnlimitedResources setting - the construction
 		// instigator is the decoy pawn (see top comment), which has no
 		// inventory of its own, so this disqualifier would otherwise fire
@@ -11803,7 +11678,7 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
-				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass()) // see the identical 2026-09-01 addition in the RealCharacter strategy
+				|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass()) // see the identical addition in the RealCharacter strategy
 				|| (DisqualifierClass == UFGCDUnaffordable::StaticClass());
 			const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 			if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -11890,8 +11765,8 @@ void UAIModFunctionLibrary::ConstructConveyorBelt(UObject* WorldContextObject, c
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
 }
 
-// LogSplineGeometryAsJson (2026-08-30) - see header doc comment for the
-// full rationale (added to diagnose world.connectConveyor's unpredictable
+// LogSplineGeometryAsJson - see header doc comment for the
+// full rationale (diagnoses world.connectConveyor's unpredictable
 // curving by comparing its output against a normally-placed belt's real
 // geometry). "found"/"isSplineBuildable" embedded in the payload, not a
 // thrown RPC error - same convention as LogGroundHeightAsJson's "found".
@@ -11961,9 +11836,8 @@ FString UAIModFunctionLibrary::LogSplineGeometryAsJson(UObject* WorldContextObje
 	return JsonString;
 }
 
-// LogConveyorLiftTiersAsJson (2026-08-25, vertical conveyor groundwork,
-// per explicit user request) - mirrors LogConveyorBeltTiersAsJson's
-// structure. Recipe_ConveyorLiftMk1..Mk6 (all six confirmed present on
+// LogConveyorLiftTiersAsJson - mirrors LogConveyorBeltTiersAsJson's
+// structure. Recipe_ConveyorLiftMk1..Mk6 (all six present on
 // disk, same "Mk1..Mk6" naming as belts) resolve to AFGBuildableConveyorLift
 // (AFGBuildableConveyorBase's OTHER direct subclass alongside regular
 // belts - confirmed from source, shares GetSpeed()/GetConnection0()/
@@ -12024,10 +11898,8 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 	return JsonString;
 }
 
-// ConstructConveyorLift (2026-08-25, vertical conveyor groundwork, per
-// explicit user request: "add support for vertical conveyors, these can
-// be used strategically to transition from miners locked to the terrain
-// and raised foundations providing a cleaner build area"). Deliberate
+// ConstructConveyorLift - vertical conveyors, used to transition from
+// terrain-locked miners up to raised foundations. Deliberate
 // near-mirror of ConstructConveyorBelt's two-click TrySnapToActor flow -
 // AFGConveyorLiftHologram is NOT a spline hologram (confirmed from
 // source: AFGConveyorLiftHologram : AFGBuildableHologram directly, NOT
@@ -12042,204 +11914,49 @@ FString UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(UObject* WorldContextO
 // No RouteMode param - lifts are a fixed vertical column, no bend/curve
 // concept applies.
 //
-// CONNECTOR-FINDING: FIXED 2026-08-30 (see FindFreeFactoryConnection/
-// FindFreeFactoryConnectionNear's doc comments above for the full story).
-// A wall/pole's FCD_SNAP_ONLY connector - a real, valid attachment point
-// ("special case for conveyor poles" per FGFactoryConnectionComponent.h)
-// - was never found by either finder, which required an exact
-// Input/Output direction match, so any call targeting a wall failed
-// immediately with NO_FACTORY_CONNECTION. Both finders now fall back to
+// CONNECTOR-FINDING (see FindFreeFactoryConnection/
+// FindFreeFactoryConnectionNear's doc comments above): a wall/pole's
+// FCD_SNAP_ONLY connector is a real, valid attachment point ("special
+// case for conveyor poles" per FGFactoryConnectionComponent.h) but is not
+// an exact Input/Output direction match, so both finders fall back to
 // a free SnapOnly connector when no exact-direction match exists.
 // IsConnected() is documented to always read false for SnapOnly
 // regardless of real attachment state - not a bug, don't use it to judge
 // whether a wall/pole slot is free.
 //
-// HEIGHT: FIXED - hypothesis #9 below, LIVE-VERIFIED 2026-09-01 (dry
-// run + real build on the user's splitter rig: end-click height went
-// 400.0 -> 1000.0 = expectedHeight on the FIRST end-click update, real
-// lift built with both ends connected, geometry byte-identical to the
-// hand-verified reference lift it replaced). The problem it fixed: a
-// single call always landed at a FIXED default offset from the source
-// (real connector data, 2026-08-31/09-01: +300 local-Y, +400 Z)
-// regardless of the real target's distance, where a real player can
-// build an arbitrary height in one piece by wherever their camera is
-// aimed when they click (no scroll wheel - scroll only rotates the
-// destination end's Input/Output, per the user). EIGHT prior
-// hypotheses tried, all with real log evidence, ALL EIGHT RULED OUT
-// (findings from 2026-08-30 and 2026-08-31/09-01, kept here since each
-// cost a full live-test cycle and re-deriving any of them would waste
-// another):
-//   1. Rotation origin point (source connector position vs the player's
-//      real actor location, as the vector origin for the deterministic
-//      look rotation) - no effect either way. Refined further
-//      (2026-08-31, offline research, NOT YET LIVE-TESTED): the
-//      "player's real location" used Character->GetActorLocation() (the
-//      pawn's root/capsule), not AFGCharacterPlayer::
-//      GetCameraComponentWorldLocation() (a real, dedicated accessor for
-//      the actual first-person camera position, offset upward from the
-//      capsule by roughly eye height) - now uses the real camera
-//      position, since any camera-position-based logic (per #6/#7)
-//      would otherwise have a systematic vertical offset error baked in
-//      regardless of whether #6/#7 themselves pan out.
-//   2. Connector type (SnapOnly wall vs a real machine Input/Output pair,
-//      e.g. splitter Output -> merger Input) - identical ~400-unit-stuck
-//      failure regardless, ruling out walls/SnapOnly as a factor.
-//   3. Absolute vs incremental hit updates - 40 repeated IDENTICAL target
-//      hits (no movement, unsurprising) vs a smooth 40-step Lerp sweep
-//      from the start position to the end position (ALSO zero movement
-//      at every single step) - rules out both an absolute-jump model and
-//      a delta/incremental model.
-//   4. Physical surface reference - Hit.Component set to a real
-//      UPrimitiveComponent from the target buildable (previously only
-//      Hit.HitObjectHandle, the actor, was set) - no effect,
-//      TrySnapToActor still returns false either way.
-//   5. Genuinely elapsed real time - held for an EXTRA 60 real ticks
-//      (~500ms, confirmed via real log timestamps) after construction
-//      would otherwise proceed, SetControlRotation+UpdateHologramPlacement
-//      reasserted every tick, height logged every 10 ticks - stayed at
-//      EXACTLY 400.0 the entire time. Retested hands-off (a possible
-//      mouse bump was flagged on the first run) - identical result.
-//   6. RULED OUT (live-tested 2026-08-31/09-01 - no effect, same fixed
-//      offset as every other hypothesis): all five hypotheses above
-//      modified the FHitResult passed directly
-//      into LiftHologram->UpdateHologramPlacement()/TrySnapToActor() -
-//      but AFGBuildGun owns its OWN separate cached trace
-//      (FHitResult& GetHitResult(), a MUTABLE reference getter - a
-//      strong signal external code is meant to write to it, not just
-//      read it; TraceForBuilding() refreshes it from the REAL camera
-//      every AFGBuildGun::Tick()). If height is read from
-//      BuildGun->GetHitResult() internally rather than from whatever
-//      this mod passes into UpdateHologramPlacement() directly, none of
-//      hypotheses 1-5 could ever have worked, since none of them touched
-//      that member at all. Now writes directly into
-//      BuildGun->GetHitResult() before each click, reasserted every poll
-//      tick alongside the existing rotation/hit reassertion. WEAKENED
-//      by further header research the same day (see #7) - FGHologram.h
-//      documents SetHologramLocationAndRotation as taking hitResult by
-//      EXPLICIT PARAMETER, not silently reading a BuildGun member - but
-//      kept and tested anyway since it's cheap and something else in the
-//      per-frame orchestration might still read it.
-//   7. RULED OUT (live-tested 2026-08-31/09-01 - no effect, same fixed
-//      offset as every other hypothesis). Found via FGHologram.h's doc
-//      comments rather than trial-and-error:
-//      TrySnapToActor()'s doc comment says returning true means "no
-//      further location and rotation will be updated this frame by the
-//      build gun" - implying SetHologramLocationAndRotation() (which
-//      almost certainly does the real height computation for lifts,
-//      via the private UpdateTopTransform()) is called AUTOMATICALLY,
-//      ONLY when TrySnapToActor() returns false, as part of
-//      UpdateHologramPlacement()'s OWN internal orchestration - not
-//      something this function needs to trigger separately at all. This
-//      function calls UpdateHologramPlacement(hit) AND THEN a separate,
-//      explicit LiftHologram->TrySnapToActor(hit) (kept for its own
-//      return value, used in the diagnostic log) - if a failed
-//      TrySnapToActor() resets height/transform state in preparation
-//      for a fresh attempt, this REDUNDANT second call could be undoing
-//      a correct height UpdateHologramPlacement() already computed
-//      internally, on the very same line, one call earlier. Now logs
-//      GetHeight() immediately after UpdateHologramPlacement(), BEFORE
-//      the explicit TrySnapToActor() call, for both StartHit and EndHit
-//      - if that log ever shows a non-400 height that then reverts to
-//      400.0 by the very next log line, this is confirmed and the fix
-//      is simply deleting the redundant explicit TrySnapToActor() calls.
-//   8. RULED OUT (live-tested 2026-08-31/09-01 - no effect, same fixed
-//      offset as every other hypothesis) - a STRONGER, more literal
-//      reading of the SAME doc comments that
-//      motivated #7, and probably the more likely of the two: "no
-//      further location and rotation will be updated this frame BY THE
-//      BUILD GUN" names the BUILD GUN, not the hologram itself, as the
-//      thing that calls SetHologramLocationAndRotation() when
-//      TrySnapToActor() fails - meaning that call may live inside
-//      UFGBuildGunStateBuild::TickState_Implementation() (part of the
-//      REAL per-frame build gun tick this function bypasses entirely by
-//      calling hologram functions directly), NOT inside
-//      UpdateHologramPlacement() itself as #7 assumed. If so,
-//      UpdateHologramPlacement() genuinely never calls
-//      SetHologramLocationAndRotation() on its own, TrySnapToActor()
-//      returning false is a dead end with nothing following up, and
-//      NOTHING in this function's code path has EVER called
-//      SetHologramLocationAndRotation() at all, in any of the five
-//      already-ruled-out hypotheses either - which would explain the
-//      100%-consistent stuck-at-400 result far more directly than #7's
-//      "redundant reset" theory does. Now calls
-//      LiftHologram->SetHologramLocationAndRotation(hit) explicitly,
-//      immediately after a failed TrySnapToActor(), matching the
-//      documented precondition exactly ("will only be called if we have
-//      a valid hit result and did not snap") - logs height right after,
-//      for both StartHit and EndHit.
+// HEIGHT: the top step of a lift ignores Hit.Location and derives its
+// height from the trace RAY, not the hit point - which matches real
+// gameplay: you place the bottom by pointing AT a thing, but you set the
+// height by aiming INTO THE AIR, where there is often no blocking hit at
+// all. A synthetic hit that leaves FHitResult::TraceStart/TraceEnd at
+// zero-vectors is a degenerate ray, which clamps the lift to its 400-unit
+// minimum height every time. So the synthetic hits here MUST populate a
+// real trace ray (PopulateSyntheticTraceRay): the end click gets a
+// HORIZONTAL ray at exactly the dest connector's Z through the connector
+// toward the lift column, chosen so every plausible ray-based height
+// computation (ray-vs-axis closest point, ray-vs-plane intersection,
+// blocking-hit location) agrees on the dest height. The end click is also
+// deferred ONE REAL TICK with the deterministic look re-asserted first, so
+// the live camera POV (PlayerCameraManager lags SetControlRotation by a
+// frame) is current by click time.
 //
-//   9. CONFIRMED - THE FIX (live-verified 2026-09-01 after redeploy)
-//      - two coordinated changes derived from re-reading the ruled-out
-//      evidence rather than the hit/rotation data flow itself. The
-//      decisive observation from the 2026-08-31/09-01 logs: on the END
-//      click, hitValid=true snapped=false EVERY time, so the explicit
-//      SetHologramLocationAndRotation(EndHit) from #8 genuinely RAN and
-//      still left height at exactly 400.0 - while the BOTTOM click's
-//      SetHologramLocationAndRotation consumed the same synthetic-hit
-//      shape fine (the input connector really attaches). So the top step
-//      ignores Hit.Location specifically - which matches real gameplay:
-//      you place the bottom by pointing AT a thing, but you set the
-//      height by aiming INTO THE AIR, where there is often no blocking
-//      hit at all. Only two data channels can drive height in that case:
-//      (a) the trace ray itself - FHitResult::TraceStart/TraceEnd, which
-//      a real build-gun trace ALWAYS populates and which every synthetic
-//      hit through hypotheses #1-#8 left at zero-vectors (a degenerate
-//      ray -> clamped to the 400 minimum, 100% consistently); or (b) the
-//      LIVE camera POV read directly (PlayerCameraManager lags
-//      SetControlRotation by a frame, and both clicks used to fire
-//      synchronously in ONE frame, so the POV was always stale). #9a
-//      populates TraceStart/TraceEnd/Distance/Time on both hits - the
-//      end click gets a HORIZONTAL ray at exactly the dest connector's
-//      Z through the connector toward the lift column, chosen so every
-//      plausible ray-based height computation (ray-vs-axis closest
-//      point, ray-vs-plane intersection, blocking-hit location) agrees
-//      on the dest height. #9b defers the end click ONE REAL TICK and
-//      re-asserts the deterministic look first, so the live POV has
-//      genuinely consumed it by click time. VERIFIED RESULT 2026-09-01:
-//      height was already correct (1000.0) immediately after
-//      UpdateHologramPlacement(EndHit) - but since that update now runs
-//      inside the deferred tick with trace fields already populated,
-//      #9a-vs-#9b attribution can't be separated from this run. If a
-//      future cleanup wants the minimal fix, remove #9b first and
-//      retest; #9a's trace-ray fields are the theoretically-load-
-//      bearing half.
+// Validate test placements for connector FACING, not just position: a
+// lift arm docks 300 units along the dest connector's facing normal
+// (column at destConnectorLoc + 300 * destNormal, opposite-facing
+// normals, exactly 300 apart on the working reference lift), so a dest
+// connector whose normal faces AWAY from the lift column can never fully
+// dock regardless of height logic.
 //
-// ALSO FOUND 2026-09-01, re-checking the 2026-08-31/09-01 "aligned"
-// container test's geometry: that rig was geometrically unsatisfiable
-// for FULL DOCKING regardless of height logic - the dest container's
-// free Input connector (y=-201900, normal -Y) faced AWAY from the lift
-// column (y=-200900), and a lift arm docks 300 units along its facing
-// normal (verified from the working reference lift's real connector
-// data: column at destConnectorLoc + 300 * destNormal, opposite-facing
-// normals, exactly 300 apart). Height-tracking to ~850 SHOULD still
-// have happened (players raise lifts aiming at nothing), so the stuck-
-// at-400 bug is real either way - but "validate test placements"
-// extends to connector FACING, not just position: the post-fix
-// verification must target a connector whose normal points back toward
-// the lift column. The splitter rig near the player (built by the user,
-// 2026-09-01: source splitter output z=-599, dest splitter input z=+401,
-// facing each other across the column - a real lift already bridges
-// them at exactly 1000 units rise) is the first known-satisfiable test
-// target.
+// A lift travels straight up/down only, X/Y locked to SourceConnection's
+// real position - if the real destination isn't directly above/below the
+// source, a separate ConstructConveyorBelt call is still needed to bridge
+// the horizontal gap.
 //
-// The old design-heights-as-multiples-of-400 workaround is no longer
-// required now that #9 is verified; RPC_REFERENCE.md keeps it
-// documented in case of regression.
-//
-// Still true regardless of the above: a lift travels straight up/down
-// only, X/Y locked to SourceConnection's real position - if the real
-// destination isn't directly above/below the source, a separate
-// ConstructConveyorBelt call is still needed to bridge the horizontal
-// gap.
-//
-// NEW, SEPARATE, UNEXPLAINED (found 2026-08-31/09-01 during the #6/#7/#8
-// retest, NOT root-caused): a duplicate Storage Container (identical
-// class, identical position to the real source) appeared in
+// UNEXPLAINED (not root-caused): a duplicate Storage Container (identical
+// class, identical position to the real source) has been seen in
 // world.buildables after a connectConveyorLift call, stable across
-// repeated queries, never explicitly constructed by anything in that
-// test session. Might be this function's own snap/connector logic,
-// might be unrelated - genuinely unknown. Flagged for dedicated
-// follow-up investigation, not fixed here.
+// repeated queries, never explicitly constructed. Might be this function's
+// own snap/connector logic, might be unrelated - genuinely unknown.
 void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -12269,15 +11986,13 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		return;
 	}
 
-	// Connector pinning (2026-09-01, refinement from the HMF build's
-	// finding #6): connectConveyorLift used to always pick "first free
-	// output/input", which on a stacked splitter/merger riser repeatedly
-	// chose non-coaxial SIDE connectors and built a lift whose top landed
-	// nowhere near the dest. Belts already accept
-	// sourceConnectorPosition/destConnectorPosition for exactly this;
-	// lifts now do too, so a caller can force the specific connectors
-	// whose X/Y line up for a clean vertical column. Falls back to the
-	// old first-free behavior when no position is supplied.
+	// Connector pinning: picking "first free output/input" on a stacked
+	// splitter/merger riser can choose non-coaxial SIDE connectors and build
+	// a lift whose top lands nowhere near the dest. Belts accept
+	// sourceConnectorPosition/destConnectorPosition for exactly this; lifts
+	// do too, so a caller can force the specific connectors whose X/Y line
+	// up for a clean vertical column. Falls back to first-free behavior when
+	// no position is supplied.
 	UFGFactoryConnectionComponent* SourceConnection = SourceConnectorPosition.IsSet()
 		? FindFreeFactoryConnectionNear(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT, SourceConnectorPosition.GetValue())
 		: FindFreeFactoryConnection(SourceBuildable, EFactoryConnectionDirection::FCD_OUTPUT);
@@ -12338,19 +12053,16 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		return;
 	}
 
-	// Sets Hit.Component to a real UPrimitiveComponent (hypothesis #4 in
-	// this function's doc comment - ruled out, kept since it's harmless
-	// and matches what a real trace would populate anyway).
+	// Sets Hit.Component to a real UPrimitiveComponent (matches what a real
+	// trace would populate).
 	//
-	// Hypothesis #9a (2026-09-01): also populates TraceStart/TraceEnd/
-	// Distance/Time - the camera ray fields a real build-gun trace ALWAYS
-	// carries and that every synthetic hit before this change left at
-	// zero-vectors. See the doc comment's #9 entry for why the free end's
-	// height is very likely computed from this ray (a real player raises
-	// the top by aiming INTO THE AIR, where there is no blocking hit at
-	// all - the view ray is the only geometric data that can drive height
-	// in that case), which would explain the 100%-consistent stuck-at-400
-	// result across hypotheses #1-#8, none of which ever set these fields.
+	// Also populates TraceStart/TraceEnd/Distance/Time - the camera ray
+	// fields a real build-gun trace ALWAYS carries and that a bare synthetic
+	// hit leaves at zero-vectors. See this function's doc comment (HEIGHT)
+	// for why the free end's height is computed from this ray (a real player
+	// raises the top by aiming INTO THE AIR, where there is no blocking hit
+	// at all - the view ray is the only geometric data that can drive height
+	// in that case); a degenerate ray clamps it to the 400-unit minimum.
 	auto MakeHitAt = [](AFGBuildable* Buildable, UFGFactoryConnectionComponent* Connection, const FVector& TraceStart, const FVector& TraceEnd) -> FHitResult
 	{
 		FHitResult Hit;
@@ -12389,68 +12101,51 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString());
 
-	// Player-independence rotation (hypothesis #1 in this function's doc
-	// comment - ruled out on its own, kept since a deterministic look
-	// direction is still needed for general player-independence, matching
-	// ConstructConveyorBelt's identical pattern). Computed from the
-	// PLAYER's real location, not the source connector's - see hypothesis
-	// #1's writeup for why that distinction mattered.
-	//
-	// Take 4 (2026-08-31, found during offline research, NOT YET
-	// LIVE-TESTED): take 3 used Character->GetActorLocation(), the
-	// pawn's root/capsule position - NOT the same as the camera. Found
-	// AFGCharacterPlayer::GetCameraComponentWorldLocation(), a real,
-	// dedicated accessor for the actual first-person camera position,
-	// which is offset upward from the capsule root by roughly eye
-	// height. If any camera-position-based logic is involved in height/
-	// placement (per hypotheses #6/#7's reasoning), using the capsule
-	// root instead of the real eye position bakes in a systematic
-	// vertical error on top of whatever #6/#7 do or don't fix - using
-	// the real camera location now regardless.
+	// Player-independence rotation: a deterministic look direction is needed
+	// for player-independence, matching ConstructConveyorBelt's identical
+	// pattern. Computed from the real CAMERA location
+	// (AFGCharacterPlayer::GetCameraComponentWorldLocation(), the actual
+	// first-person camera position, offset upward from the capsule root by
+	// roughly eye height), NOT Character->GetActorLocation() (the capsule
+	// root): any camera-position-based placement logic reading the capsule
+	// root instead of the real eye position bakes in a systematic vertical
+	// error.
 	const FRotator LiftDeterministicLook = (DestConnection->GetConnectorLocation() - Character->GetCameraComponentWorldLocation()).Rotation();
 	if (AController* LiftController = Character->GetController())
 	{
 		LiftController->SetControlRotation(LiftDeterministicLook);
 	}
 
-	// Hypothesis #9a: the start click gets a realistic camera->connector
-	// ray (the bottom placement already worked from Hit.Location alone,
-	// so this is completeness, not the fix itself - the fix targets the
-	// END click below).
+	// The start click gets a realistic camera->connector ray (the bottom
+	// placement works from Hit.Location alone, so this is completeness, not
+	// the fix itself - the height fix targets the END click below).
 	const FVector StartConnectorLoc = SourceConnection->GetConnectorLocation();
 	const FVector StartTraceStart = Character->GetCameraComponentWorldLocation();
 	const FVector StartTraceEnd = StartConnectorLoc + (StartConnectorLoc - StartTraceStart).GetSafeNormal() * 1000.0f;
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection, StartTraceStart, StartTraceEnd);
 	const bool bStartHitValid = LiftHologram->IsValidHitResult(StartHit);
 	LiftHologram->UpdateHologramPlacement(StartHit);
-	// Hypothesis #7 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
-	// function's doc comment. UpdateHologramPlacement() is documented to
-	// already call TrySnapToActor()/SetHologramLocationAndRotation()
-	// internally with whatever hit it's given - the explicit, SEPARATE
-	// TrySnapToActor() call below (kept for its own return value, used
-	// in the diagnostic log) may be redundant, and if a failed
-	// TrySnapToActor() resets height/transform state in preparation for
-	// a fresh attempt, this redundant second call could be undoing a
+	// UpdateHologramPlacement() is documented to already call
+	// TrySnapToActor()/SetHologramLocationAndRotation() internally with
+	// whatever hit it's given - the explicit, SEPARATE TrySnapToActor()
+	// call below (kept for its own return value, used in the diagnostic
+	// log) may be redundant, and if a failed TrySnapToActor() resets
+	// height/transform state, this redundant second call could undo a
 	// correct height UpdateHologramPlacement() just computed internally.
-	// Logging height BEFORE the explicit call to check.
+	// Log height BEFORE the explicit call to check.
 	UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height immediately after UpdateHologramPlacement(StartHit), before explicit TrySnapToActor=%.1f"), LiftHologram->GetHeight());
-	// Hypothesis #6 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
-	// function's doc comment. Injects the same hit directly into the
-	// build gun's own cached trace, in case height is read from there
-	// rather than from whatever's passed into UpdateHologramPlacement().
+	// Also inject the same hit into the build gun's own cached trace, in
+	// case height is read from there rather than from whatever's passed into
+	// UpdateHologramPlacement() (belt-and-braces).
 	BuildGun->GetHitResult() = StartHit;
 	const bool bStartSnapped = LiftHologram->TrySnapToActor(StartHit);
-	// Hypothesis #8 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
-	// function's doc comment. TrySnapToActor()'s doc comment names "the
-	// build gun" (not the hologram itself) as whatever calls
-	// SetHologramLocationAndRotation() when snapping fails - meaning
-	// UpdateHologramPlacement() may NOT call it internally after all
-	// (weakening #7's "redundant call" theory), and since this function
-	// bypasses the real build gun's TickState_Implementation entirely,
-	// NOTHING may ever call SetHologramLocationAndRotation() in this
-	// code path at all. Calling it explicitly here, matching the
-	// documented precondition exactly ("only be called if we have a
-	// valid hit result and did not snap").
+	// TrySnapToActor()'s doc comment names "the build gun" (not the hologram
+	// itself) as whatever calls SetHologramLocationAndRotation() when
+	// snapping fails - and since this function bypasses the real build gun's
+	// TickState_Implementation entirely, nothing may otherwise call
+	// SetHologramLocationAndRotation() in this code path at all. Call it
+	// explicitly here, matching the documented precondition exactly ("only
+	// be called if we have a valid hit result and did not snap").
 	if (bStartHitValid && !bStartSnapped)
 	{
 		LiftHologram->SetHologramLocationAndRotation(StartHit);
@@ -12468,19 +12163,17 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		return;
 	}
 
-	// Hypothesis #9b (2026-09-01, NOT YET LIVE-TESTED): the end click is
-	// deferred ONE REAL TICK instead of firing synchronously in the same
-	// frame as the start click. Two reasons: (1) if the lift's top-step
-	// height reads the LIVE camera POV (PlayerCameraManager) rather than
-	// the hit, the POV only consumes SetControlRotation() during its own
-	// per-frame update - a same-frame synchronous click would read the
-	// STALE aim (wherever the player actually looks - typically level ->
-	// minimum height), which fits the stuck-at-400 evidence exactly as
-	// well as #9a does; (2) it matches the real click cadence (a player's
-	// two clicks are always frames apart), removing a whole class of
-	// same-frame-state doubts at once. The deterministic look set in
-	// phase 1 above is re-asserted inside the deferred phase before the
-	// click.
+	// The end click is deferred ONE REAL TICK instead of firing
+	// synchronously in the same frame as the start click. Two reasons: (1)
+	// if the lift's top-step height reads the LIVE camera POV
+	// (PlayerCameraManager) rather than the hit, the POV only consumes
+	// SetControlRotation() during its own per-frame update - a same-frame
+	// synchronous click would read the STALE aim (wherever the player
+	// actually looks - typically level -> minimum height); (2) it matches
+	// the real click cadence (a player's two clicks are always frames
+	// apart), removing a class of same-frame-state doubts. The deterministic
+	// look set in phase 1 above is re-asserted inside the deferred phase
+	// before the click.
 	struct FLiftEndClickState
 	{
 		TWeakObjectPtr<AFGConveyorLiftHologram> Hologram;
@@ -12539,13 +12232,13 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		// Re-assert the deterministic look now that a real tick has
 		// elapsed - the camera manager has had its per-frame update since
 		// phase 1 set it, so by this point the LIVE camera POV genuinely
-		// points at the destination too (hypothesis #9b's whole purpose).
+		// points at the destination too (the whole purpose of the one-tick defer).
 		if (AController* LiftController = Character->GetController())
 		{
 			LiftController->SetControlRotation(LiftDeterministicLook);
 		}
 
-		// Hypothesis #9a end-click ray (2026-09-01, NOT YET LIVE-TESTED):
+		// End-click ray:
 		// a HORIZONTAL synthetic camera ray at EXACTLY the destination
 		// connector's Z, passing through the connector and continuing
 		// toward/past the lift column. Direction: the dest connector's
@@ -12577,42 +12270,36 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		const FHitResult EndHit = MakeHitAt(DestBuildable, DestConnection, EndTraceStart, EndTraceEnd);
 		const bool bEndHitValid = LiftHologram->IsValidHitResult(EndHit);
 		LiftHologram->UpdateHologramPlacement(EndHit);
-		// Hypothesis #7 (2026-08-31) - same check as on StartHit above.
+		// Log height before the explicit TrySnapToActor - same check as on StartHit above.
 		UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height immediately after UpdateHologramPlacement(EndHit), before explicit TrySnapToActor=%.1f"), LiftHologram->GetHeight());
-		// Hypothesis #6 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
-		// function's doc comment and the identical injection on StartHit
-		// above.
+		// Also inject the hit into the build gun's cached trace - identical
+		// injection to StartHit above.
 		BuildGun->GetHitResult() = EndHit;
 		const bool bEndSnapped = LiftHologram->TrySnapToActor(EndHit);
-		// Hypothesis #8 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - same as on
-		// StartHit above, see this function's doc comment.
+		// Explicit SetHologramLocationAndRotation after a failed snap - same
+		// as on StartHit above.
 		if (bEndHitValid && !bEndSnapped)
 		{
 			LiftHologram->SetHologramLocationAndRotation(EndHit);
 			UE_LOG(LogAIModAI, Display, TEXT("ConstructConveyorLift: height after explicit SetHologramLocationAndRotation(EndHit)=%.1f"), LiftHologram->GetHeight());
 		}
 
-		// FreeEndRotationSteps (2026-08-31): rotates the still-unconnected
-		// end in 90-degree increments via ScrollRotate() BEFORE the final
-		// click, mirroring ConstructBuildingAtPosition's established
-		// Scroll()-called-N-times-per-notch pattern (see its comment) - a
-		// real player can only do this while the hologram is still being
-		// placed, per the user, matching why world.setBuildableRotation
-		// failed silently on an already-built lift.
+		// FreeEndRotationSteps: rotates the still-unconnected end in
+		// 90-degree increments via ScrollRotate() BEFORE the final click,
+		// mirroring ConstructBuildingAtPosition's Scroll()-called-N-times-per-notch
+		// pattern (see its comment) - this can only be done while the
+		// hologram is still being placed, which is why world.setBuildableRotation
+		// fails silently on an already-built lift.
 		//
-		// Explicit zero-reset FIRST, unconditionally (2026-08-31, per the
-		// user's own description: a fresh lift's free-end orientation "may
-		// default to the orientation of the last-placed lift" - if
-		// mScrollRotation is a value that persists/carries forward across
-		// hologram instances rather than resetting per-spawn, ScrollRotate()
-		// calls here would land on top of an unpredictable inherited
-		// baseline, not a clean zero - defeating the whole point of exposing
-		// this as a deterministic RPC param. SetScrollRotateValue(0) forces a
-		// known starting point every call, whether or not rotation was
-		// requested, so the NO-rotation-requested default also becomes
-		// deterministic instead of inheriting whatever a previous build left
-		// behind. NOT YET LIVE-TESTED - including whether 0 is really the
-		// hologram's own "natural"/unrotated baseline value.
+		// Explicit zero-reset FIRST, unconditionally: a fresh lift's free-end
+		// orientation may default to the orientation of the last-placed lift -
+		// if mScrollRotation persists/carries forward across hologram
+		// instances rather than resetting per-spawn, ScrollRotate() calls here
+		// would land on top of an unpredictable inherited baseline, not a
+		// clean zero. SetScrollRotateValue(0) forces a known starting point
+		// every call, whether or not rotation was requested, so the
+		// no-rotation default is deterministic too. Not yet verified at
+		// runtime whether 0 is really the hologram's own unrotated baseline.
 		LiftHologram->SetScrollRotateValue(0);
 		if (FreeEndRotationSteps != 0)
 		{
@@ -12642,7 +12329,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 		{
 			TWeakObjectPtr<AFGConveyorLiftHologram> Hologram;
 			TWeakObjectPtr<AFGCharacterPlayer> Character;
-			TWeakObjectPtr<AFGBuildGun> BuildGun; // hypothesis #6, see below
+			TWeakObjectPtr<AFGBuildGun> BuildGun; // build gun cached-trace injection, see below
 			TWeakObjectPtr<UWorld> World;
 			FString SourceBuildableId;
 			FString DestBuildableId;
@@ -12692,15 +12379,14 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 				}
 			}
 
-			// Re-assert the end hit every poll tick (2026-08-30) - same fix
+			// Re-assert the end hit every poll tick - same fix
 			// as ConstructConveyorBelt_RealCharacterStrategy, applied here
 			// for the same reason (see that function's comment for the full
 			// TickState_Implementation live-camera-trace rationale).
 			PollHologram->UpdateHologramPlacement(PollState->EndHit);
 
-			// Hypothesis #6 (2026-08-31, RULED OUT, live-tested 2026-08-31/09-01, no effect) - see this
-			// function's doc comment. Reasserted every tick alongside the
-			// above, same rationale.
+			// Re-assert the build gun's cached trace every tick alongside the
+			// above, same rationale (belt-and-braces).
 			if (AFGBuildGun* PollBuildGun = PollState->BuildGun.Get())
 			{
 				PollBuildGun->GetHitResult() = PollState->EndHit;
@@ -12721,7 +12407,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 
 			// Player-independence fix - same rationale as ConstructConveyorBelt's
 			// identical block above.
-			// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+			// UnlimitedResources - see ConstructBuildingAtPosition's
 			// comment on this being a player-controlled mod setting, not a
 			// per-call flag.
 			const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
@@ -12731,7 +12417,7 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 			for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 			{
 				const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
-					|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass()) // see the identical 2026-09-01 addition in ConstructConveyorBelt's RealCharacter strategy
+					|| (DisqualifierClass == UFGCDEncroachingPlayer::StaticClass()) // see the identical addition in ConstructConveyorBelt's RealCharacter strategy
 					|| (bUnlimitedResources && DisqualifierClass == UFGCDUnaffordable::StaticClass());
 				const bool bIsSoft = UFGConstructDisqualifier::GetIsSoftDisqualifier(DisqualifierClass);
 				if (!bIgnoredForPlayerIndependence && !bIsSoft)
@@ -12794,19 +12480,17 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 	}));
 }
 
-// ConstructPipe (2026-08-25 pipe groundwork) - deliberate near-exact
-// mirror of ConstructConveyorBelt above, same mechanism, different
-// types: AFGPipelineHologram is a sibling of AFGConveyorBeltHologram
-// (both derive directly from AFGSplineHologram - confirmed from
-// source), and UFGPipeConnectionComponentBase/EPipeConnectionType is
+// ConstructPipe - deliberate near-exact mirror of ConstructConveyorBelt
+// above, same mechanism, different types: AFGPipelineHologram is a sibling
+// of AFGConveyorBeltHologram (both derive directly from AFGSplineHologram -
+// per source), and UFGPipeConnectionComponentBase/EPipeConnectionType is
 // pipes' own parallel connection-type hierarchy, NOT
 // UFGFactoryConnectionComponent/EFactoryConnectionDirection. Applies
-// every fix discovered live for belts up front rather than
-// rediscovering them - UpdateHologramPlacement() before
-// TrySnapToActor() at each click, and the connector's REAL
-// GetConnectorNormal() (not a placeholder UpVector) in the synthetic
-// hit. NOT YET LIVE-TESTED - unlike ConstructConveyorBelt, none of
-// this has been run against a real game session. Two known
+// every belt fix up front rather than rediscovering them -
+// UpdateHologramPlacement() before TrySnapToActor() at each click, and the
+// connector's REAL GetConnectorNormal() (not a placeholder UpVector) in the
+// synthetic hit. Not yet verified at runtime - unlike ConstructConveyorBelt,
+// none of this has been run against a real game session. Two known
 // pipe-specific unknowns going in: (1) AFGSplineHologram (the shared
 // base) has no GetAnyConnectedBuildables() - only
 // AFGConveyorBeltHologram declares that method - so this uses
@@ -12908,8 +12592,8 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
-		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
-		// doc comment (proven for the lift's height; suspected fix for
+		// See PopulateSyntheticTraceRay's
+		// doc comment (load-bearing for the lift's height; suspected fix for
 		// the belt player-distance "too long" failures).
 		PopulateSyntheticTraceRay(Hit);
 		return Hit;
@@ -12932,12 +12616,11 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 		*SourceConnection->GetConnectorLocation().ToString(), *SourceConnection->GetConnectorNormal().ToString(), *SourceConnection->GetConnectorLocation(true).ToString(),
 		*DestConnection->GetConnectorLocation().ToString(), *DestConnection->GetConnectorNormal().ToString(), *DestConnection->GetConnectorLocation(true).ToString());
 
-	// Player-independence (2026-08-27, applying the same fix already
-	// proven for ConstructConveyorBelt/ConstructConveyorLift - see their
-	// comments for the full incident): this function predates that fix
-	// and was never updated - live-confirmed this session it fails with
-	// "Invalid aim location!" the same way belts used to, even for a
-	// completely valid connector pair with a real Distance apart. Point
+	// Player-independence (the same fix used in
+	// ConstructConveyorBelt/ConstructConveyorLift - see their comments):
+	// without it, placement fails with "Invalid aim location!" the same way
+	// belts do, even for a completely valid connector pair with a real
+	// Distance apart. Point
 	// the controller at a deterministic target computed from the two
 	// connectors themselves (never the player's real aim), reasserted
 	// every poll tick below.
@@ -13032,7 +12715,7 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 			}
 		}
 
-		// Re-assert the end hit every poll tick (2026-08-30) - same fix
+		// Re-assert the end hit every poll tick - same fix
 		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
 		// for the same reason.
 		PollHologram->UpdateHologramPlacement(PollState->EndHit);
@@ -13048,10 +12731,10 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 			return;
 		}
 
-		// Player-independence (2026-08-27) - same manual disqualifier-ignore
+		// Player-independence - same manual disqualifier-ignore
 		// pattern as ConstructConveyorBelt, replacing the real (opaque)
 		// CanConstruct() this function used to call directly.
-		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// UnlimitedResources - see ConstructBuildingAtPosition's
 		// comment on this being a player-controlled mod setting, not a
 		// per-call flag.
 		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
@@ -13060,12 +12743,12 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -13129,9 +12812,9 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
 }
 
-// ConstructHypertube (2026-08-27, per explicit user request to test/add
-// hypertube support alongside longer pipe runs). Research finding (full
-// detail in docs/hypertube-research.md): despite the separate-looking
+// ConstructHypertube - hypertube support alongside longer pipe runs.
+// Research finding (full detail in docs/hypertube-research.md): despite
+// the separate-looking
 // "Recipe_HyperTube*" family in the catalog (Junction/TJunction/
 // WallSupport/WallHole - those are ATTACHMENTS, not the tube), the actual
 // connecting tube is `Recipe_PipeHyper` -> AFGBuildablePipeHyper, and its
@@ -13140,7 +12823,7 @@ void UAIModFunctionLibrary::ConstructPipe(UObject* WorldContextObject, const FSt
 // the hologram BP's own uasset name table. This is deliberately a
 // near-mirror of ConstructPipe (same two-click TrySnapToActor +
 // DoMultiStepPlacement flow, same deferred poll/disqualifier-ignore/
-// deterministic-look pattern established this session), differing only
+// deterministic-look pattern), differing only
 // in: (1) hardcoded to Recipe_PipeHyper - no tiers exist, unlike
 // Recipe_Pipeline/PipelineMK2, so no recipeClass param; (2) connector
 // lookup via FindFreeHyperPipeConnection instead of FindFreePipeConnection,
@@ -13238,8 +12921,8 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 		Hit.ImpactNormal = Hit.Normal;
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
-		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
-		// doc comment (proven for the lift's height; suspected fix for
+		// See PopulateSyntheticTraceRay's
+		// doc comment (load-bearing for the lift's height; suspected fix for
 		// the belt player-distance "too long" failures).
 		PopulateSyntheticTraceRay(Hit);
 		return Hit;
@@ -13353,7 +13036,7 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 			}
 		}
 
-		// Re-assert the end hit every poll tick (2026-08-30) - same fix
+		// Re-assert the end hit every poll tick - same fix
 		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
 		// for the same reason.
 		PollHologram->UpdateHologramPlacement(PollState->EndHit);
@@ -13369,7 +13052,7 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 			return;
 		}
 
-		// UnlimitedResources (2026-08-27) - see ConstructBuildingAtPosition's
+		// UnlimitedResources - see ConstructBuildingAtPosition's
 		// comment on this being a player-controlled mod setting, not a
 		// per-call flag.
 		const bool bUnlimitedResources = UAIModFunctionLibrary::GetAIModConfigBool(PollWorld, TEXT("UnlimitedResources"), false);
@@ -13378,12 +13061,12 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -13447,7 +13130,7 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
 }
 
-// Railroad tracks (2026-08-29) - researched from source before
+// Railroad tracks - researched from source before
 // implementing: AFGRailroadTrackHologram : AFGSplineHologram, the exact
 // same base ConstructPipe/ConstructConveyorBelt already drive
 // (GetConstructDisqualifiers/CanConstruct/TrySnapToActor/
@@ -13482,7 +13165,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		OnComplete(FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"), FString::Printf(TEXT("No buildable found with id '%s'"), *SourceBuildableId)));
 		return;
 	}
-	// FREE-END mode (2026-09-19): an empty destBuildableId means "build this
+	// FREE-END mode: an empty destBuildableId means "build this
 	// segment to a free landing point" (destConnectorPosition) rather than onto a
 	// dest buildable's connector - the enabler for laying long multi-segment runs
 	// track-to-track. The free END must land on a solid surface (a foundation),
@@ -13575,8 +13258,8 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		Hit.HitObjectHandle = FActorInstanceHandle(Buildable);
 		Hit.bBlockingHit = true;
 		// Rail TrySnapToActor may key off the hit's Component (belts/pipes
-		// tolerated a null Component; the rail hologram's start step never
-		// advanced without one - 2026-09-05). The connection is a
+		// tolerate a null Component; the rail hologram's start step never
+		// advances without one). The connection is a
 		// USceneComponent, not a primitive, so point the hit at the
 		// buildable's root primitive instead.
 		if (Buildable)
@@ -13586,8 +13269,8 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 				Hit.Component = RootPrim;
 			}
 		}
-		// Hypothesis #9a generalized - see PopulateSyntheticTraceRay's
-		// doc comment (proven for the lift's height; suspected fix for
+		// See PopulateSyntheticTraceRay's
+		// doc comment (load-bearing for the lift's height; suspected fix for
 		// the belt player-distance "too long" failures).
 		PopulateSyntheticTraceRay(Hit);
 		return Hit;
@@ -13627,7 +13310,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		}
 	};
 
-	// Snap verification helper (2026-09-07): the drivable-joint fix hinges on
+	// Snap verification helper: the drivable-joint fix hinges on
 	// the hologram actually snapping its endpoint onto a station connector.
 	// GetSnappedConnectionComponents() (public) returns the connectors the
 	// hologram snapped to; if it contains our source/dest connection, the
@@ -13643,11 +13326,11 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		return false;
 	};
 
-	// ==== EXPERIMENT 2 (2026-09-08, docs/train-drivable-joint-research.md):
+	// ==== Alternate PrimaryFire path (see docs/train-drivable-joint-research.md):
 	// drive the engine's REAL build-gun PrimaryFire path instead of the manual
 	// DoMultiStepPlacement + InternalConstructHologram below. The manual path
-	// graph-merges the track but leaves the JOINT non-traversable (loco reports
-	// StationUnreachable and never moves - verified live for straight AND curved
+	// graph-merges the track but can leave the JOINT non-traversable (loco reports
+	// StationUnreachable and never moves - seen for straight AND curved
 	// track, even both-ends-snapped and powered). Theory: the binary's
 	// ConfigureComponents (opaque stub in the workspace) wires a drivable joint
 	// only when the hologram is in the exact state the interactive player build
@@ -13802,14 +13485,14 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		return;
 	}
 
-	// ---- START click. Instrumented (2026-09-05): the rail hologram's
-	// start step never advanced past FindStart with the belt/pipe pattern.
-	// Capture every state signal (returned verbatim in the error) and, if
-	// the "release/tap" input didn't advance the step, retry as a "press".
-	// 2026-09-07: also drive the rail-specific SetHologramLocationAndRotation
-	// (the override that runs TryFindAndSnapToOverlappingConnection) so the
-	// endpoint actually snaps to the station connector - UpdateHologramPlacement
-	// alone never set IsConnectionSnapped.
+	// ---- START click. The rail hologram's start step never advances past
+	// FindStart with the belt/pipe pattern. Capture every state signal
+	// (returned verbatim in the error) and, if the "release/tap" input
+	// didn't advance the step, retry as a "press". Also drive the
+	// rail-specific SetHologramLocationAndRotation (the override that runs
+	// TryFindAndSnapToOverlappingConnection) so the endpoint actually snaps
+	// to the station connector - UpdateHologramPlacement alone never sets
+	// IsConnectionSnapped.
 	const FHitResult StartHit = MakeHitAt(SourceBuildable, SourceConnection);
 	TrackHologram->SetHologramLocationAndRotation(StartHit);
 	TrackHologram->UpdateHologramPlacement(StartHit);
@@ -13907,7 +13590,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		FHitResult EndHit; // re-asserted every poll tick, see below
 		// The source/dest rail connections to force-link the new track to
 		// (the hologram builds the spline but IsConnectionSnapped stays
-		// false -> isolated track -> trains can't path; live 2026-09-05).
+		// false -> isolated track -> trains can't path).
 		TWeakObjectPtr<UFGRailroadTrackConnectionComponent> SourceConn;
 		TWeakObjectPtr<UFGRailroadTrackConnectionComponent> DestConn;
 		// When the hologram genuinely snapped BOTH endpoints onto the station
@@ -13958,7 +13641,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 			}
 		}
 
-		// Re-assert the end hit every poll tick (2026-08-30) - same fix
+		// Re-assert the end hit every poll tick - same fix
 		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
 		// for the same reason.
 		PollHologram->UpdateHologramPlacement(PollState->EndHit);
@@ -13986,12 +13669,12 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -14044,9 +13727,9 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack (deferred, resolved after %d real tick(s)): construction attempted via InternalConstructHologram - source=%s dest=%s"),
 			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId);
 
-		// GRAPH-LINK FIX (2026-09-05): the hologram builds the track spline but
-		// never snaps to the rail connections (IsConnectionSnapped stayed false
-		// in every live build), so the new track is isolated and trains can't
+		// GRAPH-LINK FIX: the hologram builds the track spline but
+		// never snaps to the rail connections (IsConnectionSnapped stays false),
+		// so the new track is isolated and trains can't
 		// path over it (selfDrivingError StationUnreachable). The new track's
 		// end connections are co-located with the source/dest connections we
 		// aimed at but are NOT graph-linked. Explicitly link them via the public
@@ -14107,10 +13790,10 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 			// placement, so ConfigureComponents already LINKED the connections
 			// (An->IsConnected() is true both ends). That is NOT enough on its
 			// own: a snapped track still reads StationUnreachable because the
-			// railroad SUBSYSTEM's pathfinding graph never merged it in (live
-			// 2026-09-08 - my earlier "skip the graph surgery when snapped"
-			// assumption was wrong; the loco sat between two stations on a
-			// fully-snapped joint and still could not path to either). So fall
+			// railroad SUBSYSTEM's pathfinding graph never merged it in:
+			// a loco between two stations on a fully-snapped joint still can't
+			// path to either, so skipping the graph surgery when snapped is
+			// NOT safe. So fall
 			// through into the same RemoveTrack/AddTrack re-registration below,
 			// which IS what merges the graphs. ForceLink there is a safe no-op
 			// when a connection is already snapped (it early-returns the peer's
@@ -14124,7 +13807,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 			// (IsConnectionSnapped stayed false), and AddConnection alone
 			// doesn't reach the railroad SUBSYSTEM's pathfinding graph - trains
 			// read StationUnreachable even across a straight, fully component-
-			// connected join (live 2026-09-06). Correct sequence per
+			// connected join. Correct sequence per
 			// AFGRailroadSubsystem::AddTrack ("Track must have its connections
 			// set up"): find the new track, RemoveTrack it (drops it from its
 			// isolated graph), (re)link BOTH ends to the source/dest station
@@ -14175,12 +13858,12 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 				UE_LOG(LogAIModAI, Warning, TEXT("ConstructRailroadTrack: no new track resolved for subsystem re-registration (RailSub=%s)"), RailSub ? TEXT("ok") : TEXT("null"));
 			}
 
-			// DRIVABLE-JOINT REPAIR (2026-09-09, docs/train-drivable-joint-research.md).
+			// DRIVABLE-JOINT REPAIR (docs/train-drivable-joint-research.md).
 			// RemoveTrack/AddTrack above graph-MERGES the track (same trackGraphID)
 			// but the joint is still not a drivable track-POSITION edge - a loco
-			// reads StationUnreachable and never moves. The user observed that a
-			// single HUMAN in-game connection to RPC-built track repairs it, which
-			// means the engine has a fixup path we just weren't invoking. Two PUBLIC
+			// reads StationUnreachable and never moves. A single HUMAN in-game
+			// connection to RPC-built track repairs it, so the engine has a fixup
+			// path to invoke. Two PUBLIC
 			// AFGRailroadSubsystem entry points do exactly that global repair:
 			//   - ValidateAndFixupAllRailroadConnections(): "goes through every
 			//     railroad track buildable and fixes up their connections. Removing
@@ -14210,7 +13893,7 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
 }
 
-// Train freight/empty platforms (2026-09-18) - a train platform
+// Train freight/empty platforms - a train platform
 // (AFGBuildableTrainPlatform: Freight/Empty/Liquid docking platform) is NOT a
 // free-placed building. AFGTrainPlatformHologram has mRequireSnapToPlatform and
 // SNAPS its near-end UFGTrainPlatformConnection onto an existing station/platform's
@@ -14521,7 +14204,7 @@ void UAIModFunctionLibrary::ConstructTrainPlatform(UObject* WorldContextObject, 
 	World->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
 }
 
-// Vehicle path segments (2026-08-29) - researched from source before
+// Vehicle path segments - researched from source before
 // implementing: AFGVehiclePathSegmentHologram : AFGBuildableHologram
 // directly (NOT AFGSplineHologram, unlike belts/pipes/tracks), but
 // implements the identical TrySnapToActor+DoMultiStepPlacement two-click
@@ -14711,7 +14394,7 @@ void UAIModFunctionLibrary::ConstructVehiclePathSegment(UObject* WorldContextObj
 			}
 		}
 
-		// Re-assert the end hit every poll tick (2026-08-30) - same fix
+		// Re-assert the end hit every poll tick - same fix
 		// as ConstructConveyorBelt_RealCharacterStrategy, applied here
 		// for the same reason.
 		PollHologram->UpdateHologramPlacement(PollState->EndHit);
@@ -14733,12 +14416,12 @@ void UAIModFunctionLibrary::ConstructVehiclePathSegment(UObject* WorldContextObj
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -15036,12 +14719,12 @@ void UAIModFunctionLibrary::ConstructBeam(UObject* WorldContextObject, const FSt
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -15287,12 +14970,12 @@ namespace
 		TArray<FString> DisqualifierTexts;
 		for (const TSubclassOf<UFGConstructDisqualifier>& DisqualifierClass : Disqualifiers)
 		{
-			// UFGCDEncroachingPlayer added 2026-09-01: "A player is in the
+			// UFGCDEncroachingPlayer: "A player is in the
 			// way!" is exactly as player-dependent as aim location for an
 			// autonomous RPC build - the idle real character standing
 			// somewhere near a remote build site blocked real placements
-			// during the copper factory build (found live, worked around
-			// with world.teleportPlayer at the time). Same accepted risk
+			// (worked around
+			// with world.teleportPlayer). Same accepted risk
 			// as ignoring aim location: the build may intersect the
 			// player's capsule.
 			const bool bIgnoredForPlayerIndependence = (DisqualifierClass == UFGCDInvalidAimLocation::StaticClass())
@@ -15433,9 +15116,8 @@ void UAIModFunctionLibrary::ConstructStackableSupport(UObject* WorldContextObjec
 // See ConstructStackableSupportOnTop's doc comment in the header - the
 // "snap a (possibly different) support onto an existing one's real top"
 // counterpart to ConstructStackableSupport's literal-position/StackCount
-// mode, per the user's own clarification that mixed pipe+belt dense
-// routing is normally built as separate stacked attachments, not one
-// uniform Zoop placement.
+// mode - mixed pipe+belt dense routing is normally built as separate
+// stacked attachments, not one uniform Zoop placement.
 void UAIModFunctionLibrary::ConstructStackableSupportOnTop(UObject* WorldContextObject, const FString& ReferenceBuildableId, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
@@ -15463,13 +15145,11 @@ void UAIModFunctionLibrary::ConstructStackableSupportOnTop(UObject* WorldContext
 	}
 
 	// GetStackHeight() is real, public (FGBuildablePoleStackable.h), but
-	// CONFIRMED LIVE (2026-08-31) to read back as 0 for at least
-	// Recipe_PipeSupportStackable's buildable class - reproduced directly
-	// by constructing a second pole at literally the same Z as a real
-	// placed reference (dz=0), which fails with the exact same
-	// "An identical buildable is already built there!" this function hit
-	// live before this fix. A modest literal offset (empirically
-	// confirmed live: dz=50 through dz=400 all land correctly in the same
+	// reads back as 0 for at least
+	// Recipe_PipeSupportStackable's buildable class - constructing a second
+	// pole at literally the same Z as a real placed reference (dz=0) fails
+	// with "An identical buildable is already built there!". A modest
+	// literal offset (dz=50 through dz=400 all land correctly in the same
 	// real column) is all TrySnapToActor (inside the shared helper below)
 	// needs to find the true next slot - the real engine's own snap logic
 	// resolves the exact final position regardless of small input error,
@@ -15754,7 +15434,7 @@ FAIModOperationResult UAIModFunctionLibrary::PayOffMilestone(UObject* WorldConte
 	// WithdrawFromCentralStorage first if the needed items are in the Depot.
 	const TArray<FItemAmount> RemainingCost = SchematicManager->GetRemainingCostFor(SchematicClass);
 
-	// fromDepot (2026-09-20): auto-withdraw the shortfall from the
+	// fromDepot: auto-withdraw the shortfall from the
 	// Dimensional Depot into the carried inventory before submitting, so a
 	// produce->upload->pay loop is one call. Same conservative add-then-
 	// remove pattern as WithdrawFromCentralStorage (never conjure items).

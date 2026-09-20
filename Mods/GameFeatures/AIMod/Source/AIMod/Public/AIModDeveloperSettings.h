@@ -15,11 +15,10 @@
  * no rebuild needed either way, unlike changing the old hardcoded
  * EKeys::F11 constant.
  *
- * Default changed from F11 to F6 after a real conflict was found:
- * Config/DefaultInput.ini has bF11TogglesFullscreen=True, an
- * engine-level shortcut that intercepts F11 before Enhanced Input
- * gameplay bindings ever see it - not something bindable around, only
- * avoidable by picking a different key.
+ * Default is F6, not F11: Config/DefaultInput.ini has
+ * bF11TogglesFullscreen=True, an engine-level shortcut that intercepts F11
+ * before Enhanced Input gameplay bindings ever see it - not something
+ * bindable around, only avoidable by picking a different key.
  */
 UCLASS(config = AIMod, defaultconfig, meta = (DisplayName = "AIMod"))
 class AIMOD_API UAIModDeveloperSettings : public UDeveloperSettings

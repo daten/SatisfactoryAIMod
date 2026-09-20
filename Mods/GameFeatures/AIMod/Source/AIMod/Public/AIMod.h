@@ -22,10 +22,9 @@ private:
 #if !UE_BUILD_SHIPPING
 	/**
 	 * Two delegates feed RunPerWorldSetup: FWorldDelegates::OnWorldInitializedActors
-	 * alone was found, live (2026-08-24), to not fire for every world-load
-	 * path - a save-load via ProcessServerTravel produced no self-test/
-	 * hotkey output at all, while a fresh "New Game" load worked fine in
-	 * an earlier session. FCoreUObjectDelegates::PostLoadMapWithWorld
+	 * alone does not fire for every world-load path - a save-load via
+	 * ProcessServerTravel produces no self-test/hotkey output at all, while
+	 * a fresh "New Game" load works fine. FCoreUObjectDelegates::PostLoadMapWithWorld
 	 * (fires after LoadMap completes) covers the gap. Both can fire for
 	 * the same world, so RunPerWorldSetup de-duplicates via LastSetupWorld.
 	 */

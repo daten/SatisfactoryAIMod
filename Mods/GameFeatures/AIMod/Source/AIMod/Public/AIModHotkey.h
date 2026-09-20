@@ -17,12 +17,11 @@
  * SML's own chat commands use, reached directly since there's no
  * UCommandSender for a keypress).
  *
- * Default is F6, not F11 - F11 was tried first and found (in actual
- * play) to collide with the engine's own bF11TogglesFullscreen setting
- * (Config/DefaultInput.ini), which intercepts the key before Enhanced
- * Input gameplay bindings ever see it. Made configurable specifically
- * because of that collision, in case F6 turns out to collide with
- * something else too.
+ * Default is F6, not F11 - F11 collides with the engine's own
+ * bF11TogglesFullscreen setting (Config/DefaultInput.ini), which intercepts
+ * the key before Enhanced Input gameplay bindings ever see it. Made
+ * configurable specifically because of that collision, in case F6 turns out
+ * to collide with something else too.
  *
  * THIS PERFORMS A REAL MUTATION, not a dry run - only bind this while
  * testing against a disposable save (see docs/manual-verification.md).
