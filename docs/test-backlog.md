@@ -23,26 +23,31 @@ form, cargo platform flow rates).
 
 ## Tier 1 — pending-redeploy items and quick, high-value checks
 
-- [ ] **NEW `world.setActiveMilestone` + `world.launchShip`** (added
-  2026-09-20, this session): the two missing HUB-terminal steps that
-  turn a world.payMilestone deposit into a completed milestone (select
-  active → pay → launch → purchased flips at freighter return). Both
-  ungated (real player actions, real material cost). After redeploy:
-  in the fresh test save, setActiveMilestone(Logistics — already fully
-  pre-paid) → launchShip → poll milestoneProgress until purchased=true;
-  also confirm launchShip's NOT_PAID_OFF guard on an unpaid milestone.
+- [x] **NEW `world.setActiveMilestone` + `world.launchShip`** — **DONE
+  2026-09-20, ALL PASS after redeploy.** NOT_PAID_OFF guard fired
+  correctly on the unpaid active milestone (with remaining cost in
+  detail); setActiveMilestone switched Base Building → Logistics with
+  verified previous/new detail; launchShip on pre-paid Logistics
+  launched the freighter (timeUntilShipReturn 240, shipAtTradingPost
+  false) and `purchased` flipped TRUE — full RPC milestone flow
+  (setActive → pay → launch → purchased) closed end to end. Nuance:
+  purchased flipped BEFORE the 240s ship return elapsed — completion
+  appears to land at/shortly after launch; the return is cosmetic.
+  Bonus: the pre-paid deposit SURVIVED save/reload (mPaidOffSchematic
+  is SaveGame).
 
-- [ ] **Post-refactor smoke test** — the 3-stage file split
-  (`864eb66b7d`..`d39ed45f51`, include-hub extraction + shared helpers +
-  domain `.cpp` split) has compiled but never run live. After the next
-  Alpakit redeploy: `world.help` (expect full method catalog), then one
-  cheap RPC per domain file (a read, a construction dry run, a
-  connect dry run, an inventory op) to prove the split didn't drop or
-  break any handler wiring.
-- [ ] **`world.batch` delete fast-path** — the settle-once-per-delete-run
-  fix is committed but PENDING REDEPLOY (never run live). Batch-delete a
-  disposable row of foundations and confirm: one settle wait for the whole
-  run (fast), refunds correct, no dangling-belt regressions.
+- [x] **Post-refactor smoke test** — **DONE 2026-09-20, PASS** on the
+  redeployed build: `world.help` returned the full 124-method catalog and
+  the session exercised RPCs across every domain file (reads, placeBuilding,
+  deleteBuilding via batch, teleport, inventory injection, milestone/MAM
+  writes, the two brand-new RPCs) with no missing-handler or wiring
+  failures.
+- [x] **`world.batch` delete fast-path** — **DONE 2026-09-20, PASS**:
+  batch-deleted 3 disposable foundations in 0.78 s wall total — the old
+  path settled 0.75 s PER delete (would have been ≥2.25 s), confirming
+  one settle per delete-run. All refund paths returned success.
+  (No belts involved — the dangling-belt repair path wasn't re-exercised,
+  but it was unchanged by the fix.)
 - [ ] **`world.setVehicleEngineParams`** — 2026-09-20 (creative ON):
   RPC-level PASS — `dragCoefficient: 0.05` applied to the real Explorer
   (`appliedDrag: true`, torque correctly left unchanged when omitted).
