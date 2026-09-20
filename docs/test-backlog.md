@@ -34,11 +34,12 @@ form, cargo platform flow rates).
   fix is committed but PENDING REDEPLOY (never run live). Batch-delete a
   disposable row of foundations and confirm: one settle wait for the whole
   run (fast), refunds correct, no dangling-belt regressions.
-- [ ] **`world.setVehicleEngineParams`** — 2026-09-20: now gated behind
-  "Allow Creative Features" (CREATIVE_DISABLED; gate negative-path
-  verified). Real test still pending: enable the toggle, lower an
-  Explorer's drag, confirm an actual top-speed change while driving.
-  Tune gradually (Chaos instability warning in the header).
+- [ ] **`world.setVehicleEngineParams`** — 2026-09-20 (creative ON):
+  RPC-level PASS — `dragCoefficient: 0.05` applied to the real Explorer
+  (`appliedDrag: true`, torque correctly left unchanged when omitted).
+  Remaining: the physical confirmation — drive the Explorer and feel/
+  measure whether top speed actually rose (Chaos setters are stub-source;
+  only a drive proves them).
 - [x] **Hazard unknown #3: damage stops for a player already inside** —
   **DONE, user-confirmed live 2026-09-20** ("we've live tested ...
   hazard removal"). Session note: the doc's east-border recipe is not
@@ -83,23 +84,32 @@ have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
   Frame/Aluminum Rod) and `hasReroll` flipped false. Param note: the RPC
   takes `schematicClass` (any currently-offered reward), matching
   RPC_REFERENCE, not the C++ arg name.
-- [ ] **`world.reprocessMilestone`** — 2026-09-20: gated behind "Allow
-  Creative Features" (CREATIVE_DISABLED; gate negative-path verified).
-  Real test pending the in-game toggle: ONE tier first, watch for the
-  Steam pop before sweeping all tiers.
+- [ ] **`world.reprocessMilestone`** — 2026-09-20 (creative ON):
+  mechanics PASS — tier 1 reprocessed 3 real schematics
+  (Schematic_1-1/1-2/1-3) and every purchase stayed intact afterward
+  (the "will not revoke unlocks" contract holds). STILL OPEN: whether a
+  Steam achievement actually re-fired (user-observable only — awaiting
+  confirmation; if no pop on tier 1, try a tier with a known milestone
+  achievement before concluding the mechanism doesn't reach Steam).
 
 ## Tier 3 — portable miner end-to-end flow
 
-- [ ] **`world.placePortableMiner` → `world.retrievePortableMinerInventory`
-  → `world.movePortableMinerToInventory`** — input validation passed
-  2026-09-07 but the full flow is UNVERIFIED. 2026-09-20: now ALSO
-  blocked on the "Allow Creative Features" toggle
-  (`world.addItemsToPlayerInventory` returns CREATIVE_DISABLED). Once
-  enabled: seed the miner item (verify the descriptor class), then place
-  on a real `BP_ResourceNode` — 490 real nodes enumerable; nearest free
-  iron node to the base is `BP_ResourceNode577` (~9.6 km, Impure) —
-  retrieve, move back. Note terrain-streaming limit: hop-teleport with
-  groundHeight gating per hop.
+- [x] **`world.placePortableMiner` → `world.retrievePortableMinerInventory`
+  → `world.movePortableMinerToInventory`** — **DONE 2026-09-20 (creative
+  ON), flow PASS.** Seeded via `world.addItemsToPlayerInventory` with
+  descriptor class `BP_ItemDescriptorPortableMiner_C` (confirmed — the
+  creative-ON positive path for that RPC too). Placed on real iron node
+  `BP_ResourceNode577`: miner spawned, `isProducing: true`. Retrieve
+  emptied the output into the player with an exact +12 Iron Ore delta.
+  `movePortableMinerToInventory`: the header confirms it is the
+  ARMS-equipment-slot→backpack transfer; its documented success-no-op
+  (nothing equipped) verified. Its POSITIVE path needs a miner equipped
+  in ARMS — trivial manual step, left open only as a footnote. Doc debt:
+  the `world.help` summary ("Pick a portable miner back up") misdescribes
+  it. Cleanup note: the placed miner is NOT reachable by
+  `world.deleteBuilding` (TARGET_NOT_FOUND — not a buildable/vehicle);
+  it was left mining on the node for manual pickup (which also feeds the
+  ARMS positive-path test).
 
 ## Tier 4 — packaging / release verification (ficsit.app prep blockers)
 
