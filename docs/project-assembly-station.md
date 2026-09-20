@@ -7,8 +7,16 @@ actor that assembles above the Space Elevator as project phases complete.
 
 - **`world.projectAssembly`** (read): position, launch-sequence/movement state,
   phase→visual-stage map, all game-phase assets, current/target phase.
-- **`world.setProjectAssemblyVisualPhase`** (write, commit da4f7a39b0 era): drives
-  the visual build phase without touching real progression (session-only).
+- **`world.setProjectAssemblyVisualPhase`** (write): drives the visual build phase
+  without touching real progression (session-only). **LIVE-VERIFIED 2026-09-19:** on a
+  POST-GAME station (real phase "Completed", ship already launched organically), setting
+  phaseIndex=5 ("Assembly") **re-materialized the fully-assembled ship on screen, playing
+  the build animation** — the post-launch "ship gone" state is NOT hard-latched; a phase
+  change restores it visually while `currentGamePhase` still reads "Completed". Phases:
+  0 Onboarding, 1 Distribution Platform, 2 Construction Dock, 3 Main Body,
+  4 Propulsion Systems, 5 Assembly (assembled, pre-launch), 6 Launch (departure),
+  7 Completed (empty). The reflected `phaseStageMap` reads empty yet visuals still
+  respond, so the BP drives its visuals off the phase asset directly.
 - **`world.setProjectAssemblyHeight(z)`** (write, commit da4f7a39b0): moves the
   station to any world Z. **Session-only** — `mProjectAssemblyHeight` is not a
   SaveGame field, so a reload restores the default. Holds against the BP tick (no
