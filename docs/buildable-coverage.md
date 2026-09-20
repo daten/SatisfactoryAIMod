@@ -31,13 +31,10 @@ memory of what "should" be in the game.
 - ⚠️ **Telemetry only** — read-only visibility exists; no construction
   or control RPC.
 
-Everything in this file inherits the project's standing caveat: **NONE
-of this session's newer additions (2026-08-31: teleportPlayer, map
-markers, active events, beams, priority power switches) have been
-live-tested against a running game yet** — "✅ Supported" means "a real
-RPC exists and is believed correct from source research," not
-"confirmed working in practice." Check `RPC_REFERENCE.md` entries for
-individual "NOT YET LIVE-TESTED" flags.
+The 2026-08-31 additions (teleportPlayer, map markers, active events,
+beams, priority power switches) were live-verified in the 2026-09-07
+sweep. For the current list of genuinely-untested items, see
+`docs/test-backlog.md`.
 
 ## Generic single-hologram buildables — ✅ via `world.placeBuilding`
 
@@ -84,8 +81,8 @@ confirmed to cover every extractor type in the game:
 | Truck, Tractor, Explorer, Cyber Wagon, Golf Cart | ✅ |
 | Drone (requires a placed, unoccupied Drone Station) | ✅ |
 | Locomotive, Freight Wagon (assembling into a **train consist** — coupling multiple vehicles together) | ❌ Not supported — `world.constructVehicle` places one vehicle; coupling logic is separate, unresearched |
-| Vehicle Path segments (the road network drones/trucks follow) | ✅ `world.constructVehiclePathSegment` — **not yet live-tested** |
-| Assigning a built vehicle's autopilot route over path segments | ❌ Not supported — real source API identified (`AFGWheeledVehicleIdentifier::SetVehicleRoute`/`AddWaypoint`/`SetAutopilotEnabled`) but needs its own path-node-GUID telemetry layer that doesn't exist yet |
+| Vehicle Path segments (the road network drones/trucks follow) | ✅ `world.constructVehiclePathSegment` — live-verified 2026-09-19 |
+| Assigning a built vehicle's autopilot route over path segments | ✅ `world.setTruckAutopilot` — added and live-verified 2026-09-19 (resolves docking-station ids to path-node GUIDs internally) |
 
 ## Spline / multi-step / connector-driven construction
 
@@ -98,9 +95,9 @@ none can go through the generic single-click flow:
 | Conveyor Lift Mk1–Mk6 | `world.connectConveyorLift` | 🟡 Real, long-standing gap: cannot reliably reproduce arbitrary custom lift heights a player can achieve by hand (regression, 3 hypotheses tried and not yet confirmed working); free-end rotation (`freeEndRotationSteps`) added but not live-tested |
 | Pipeline / Pipeline Mk2 | `world.connectPipe` | ✅ |
 | Hypertube tube segment | `world.connectHypertube` | ✅ |
-| Railroad track | `world.constructRailroadTrack` | ✅ — not yet live-tested |
+| Railroad track | `world.constructRailroadTrack` | ✅ — live-verified 2026-09-18 (RPC-built self-driving loop) |
 | Power line (the wire between two poles) | `world.connectPower` | ✅ |
-| Architecture Beam (all Beam/Beam_Support/Beam_Cross/Beam_H/etc variants) | `world.constructBeam` | ✅ — added 2026-08-31, not yet live-tested. Length control on an already-placed beam: `world.setBeamLength` |
+| Architecture Beam (all Beam/Beam_Support/Beam_Cross/Beam_H/etc variants) | `world.constructBeam` | ✅ — added 2026-08-31, live-verified 2026-09-07. Length control on an already-placed beam: `world.setBeamLength` |
 
 ## Explicitly NOT yet supported — real, open gaps
 
@@ -161,9 +158,8 @@ none can go through the generic single-click flow:
 - **2026-08-31**: Document created. Baseline snapshot reflects the state
   after `world.constructBeam`/`world.setBeamLength` were added (this
   session's most recent additions). Everything added 2026-08-31
-  specifically (teleportPlayer, map markers, active events, beams) is
-  real but **not yet live-tested** — see `project_satisfactory_ai_interface.md`
-  memory for the full backlog.
+  specifically (teleportPlayer, map markers, active events, beams) was
+  subsequently live-verified in the 2026-09-07 sweep.
 - **2026-08-31 (later)**: Added Priority Power Switch config/control
   (`world.priorityPowerSwitches`/`world.setPowerSwitchOn`/
   `world.setPriorityPowerSwitchPriority`). Real finding while

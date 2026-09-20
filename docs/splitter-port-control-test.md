@@ -62,7 +62,7 @@ no way to USE that specific one over the other two free outputs - a real
 violation of the test spec's core requirement ("Do not use: nearest
 connection, first connection, available connection, connection[0]").
 
-**Fixed** (compiled 2026-08-30, not yet live-tested): `world.connectConveyor`
+**Fixed** (compiled 2026-08-30; live-verified by the 48/48 matrix pass below): `world.connectConveyor`
 now accepts optional `sourceConnectorPosition`/`destConnectorPosition`
 (`{x,y,z}`, real world coordinates read from a prior `world.connections`
 call). When given, `FindFreeFactoryConnectionNear` (new C++ helper)
@@ -218,10 +218,9 @@ stores the computed `EndHit` in `FPollState` and calls
 `PollHologram->UpdateHologramPlacement(PollState->EndHit)` every poll
 tick, immediately before checking disqualifiers - the same pattern
 already proven for point holograms, now applied to this spline
-hologram. Rebuild triggered; **not yet live-verified** - next step is
-re-running `controller/splitter_matrix_test.py` after redeploy to
-confirm this actually resolves the matrix-test failures before treating
-Phases 6-9 as unblocked.
+hologram. Rebuild triggered; live-verified by re-running
+`controller/splitter_matrix_test.py` after redeploy — the fix resolved
+the matrix-test failures (48/48 pass, next section).
 
 ## Phases 6-9 PASS, 48/48, live-verified (2026-08-30, after redeploy)
 

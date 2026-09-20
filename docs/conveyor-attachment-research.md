@@ -132,11 +132,8 @@ agent doesn't assume otherwise.
 
 ## Live verification
 
-NOT YET LIVE-TESTED as of this doc's initial commit — the C++ above
-compiles clean; the next live session should place a real Splitter near
-the existing demo site, connect two of its three outputs to two
-temporary Constructors (or similar), and confirm via `world.connections`
-that `FindFreeFactoryConnection` really does hand out a *different* free
-output on each successive `world.connectConveyor` call rather than
-re-using the same one. Low risk given the placement/connection mechanism
-itself is identical to the already-proven Miner/Smelter/Constructor path.
+Live-verified 2026-08-30 — see `docs/splitter-port-control-test.md`:
+the full splitter port-selection matrix passed 48/48, including
+deterministic per-port selection via the `sourceConnectorPosition`/
+`destConnectorPosition` params added during that test. Splitters and
+mergers have been in routine factory-build use since.

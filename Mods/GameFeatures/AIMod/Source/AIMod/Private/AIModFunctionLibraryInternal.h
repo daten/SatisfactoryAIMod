@@ -1403,8 +1403,10 @@ inline bool IsProtectedAlienArtifactClass(const FString& ItemClassPath)
 	// short-range side - pairs PCT_Default to PCT_Default); pass 2 falls
 	// back to any pairing where at least one side is the real PCT_Any
 	// wildcard type, per the enum's own "incompatible" doc comment
-	// implying Any is the one documented exception. Source-grounded but
-	// not yet verified at runtime.
+	// implying Any is the one documented exception. Tower-Tower and
+	// Default-Default pairings live-verified in factory builds; the
+	// mixed tower/pole short-range cases remain unverified (see
+	// docs/test-backlog.md).
 	// Optional connector pinning (docs/build-efficiency-plan.md 2d):
 	// like connectConveyor's sourceConnectorPosition, a pin
 	// restricts that side's candidates to connections within

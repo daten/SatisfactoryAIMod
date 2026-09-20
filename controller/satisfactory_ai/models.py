@@ -268,8 +268,8 @@ class PowerLineLimits:
 @dataclass(frozen=True)
 class PipelineTier:
     """Mirrors one entry of "world.pipelineTiers" (added 2026-08-25,
-    pipe groundwork - NOT YET LIVE-TESTED, see ConstructPipe's C++ doc
-    comment for open questions).
+    live-verified since on real pipe runs - see ConstructPipe's C++ doc
+    comment).
 
     flow_limit is AFGBuildablePipeline::GetFlowLimit(), a documented-unit
     value ("[m^3/s]" per FGBuildablePipeline.h) - unlike
@@ -305,8 +305,8 @@ class PipelineTier:
 @dataclass(frozen=True)
 class PipelinePumpTier:
     """Mirrors one entry of "world.pipelinePumpTiers" (added 2026-08-31,
-    offline pipe-network research/prep - NOT YET LIVE-TESTED, see
-    LogPipelinePumpTiersAsJson's C++ doc comment).
+    live-verified 2026-09-07 - see LogPipelinePumpTiersAsJson's C++ doc
+    comment).
 
     Unlike PipelineTier's max_spline_length/bend_radius/min_bend_radius
     (private fields read via reflection), all three fields here come
@@ -348,7 +348,7 @@ class PipelinePumpTier:
 @dataclass(frozen=True)
 class ConveyorAttachmentInfo:
     """Mirrors one entry of "world.conveyorAttachments" (added
-    2026-08-25, splitter/merger groundwork - NOT YET LIVE-TESTED). See
+    2026-08-25, live-verified in factory builds since). See
     docs/conveyor-attachment-research.md: splitters/mergers use the same
     simple, single-step hologram lineage already proven for Miners/
     Smelters/Constructors, NOT the spline branch belts/pipes needed -

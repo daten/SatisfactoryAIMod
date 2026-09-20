@@ -24,9 +24,9 @@ be machines (belts themselves expose the same UFGFactoryConnectionComponent
 type), so a real Recipe_ConveyorPole (confirmed present on disk,
 `/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorPole.Recipe_ConveyorPole_C`)
 placed at each waypoint via world.placeBuilding, then a
-world.connectConveyor call between each consecutive pair, should work
-- NOT yet live-verified (only machine-to-machine single-segment
-connections have been tested so far).
+world.connectConveyor call between each consecutive pair, works -
+live-proven at scale in the copper/HMF factory builds (pole-and-
+short-span lane routing; see belt_route.py).
 satisfactory_ai.layout.compute_waypoint_positions() (re-exported here)
 computes candidate waypoint positions for this pattern; it does not
 place anything. See satisfactory_ai.power for the equivalent pattern

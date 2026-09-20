@@ -49,16 +49,17 @@ contains:
   (a documented-`"[cm]"`-unit value, unlike belt `speed` - directly
   comparable to a computed 3D distance, no conversion caveat). Chaining
   through a real power pole (`Recipe_PowerPoleMk1`/`Mk2`/`Mk3`,
-  confirmed on disk) should already work with the existing
-  `world.connectPower` (its source/dest were already generic, not
-  machine-only) - not yet live-tested.
+  confirmed on disk) works with the existing `world.connectPower`
+  (its source/dest were already generic, not machine-only) -
+  live-proven at scale in the copper/HMF factory builds.
 - `satisfactory_ai/layout.py`'s `compute_waypoint_positions()` (moved
   here 2026-08-25 from `conveyors.py` since it's generic geometry, not
   belt-specific) computes evenly-spaced anchor points between two
   positions respecting a max segment length - shared by
   `conveyors.py`, `power.py`, and now `pipes.py`'s chaining patterns.
-- `satisfactory_ai/pipes.py` - pipe groundwork (added 2026-08-25,
-  NOT YET LIVE-TESTED), same toolkit posture as `conveyors.py`/
+- `satisfactory_ai/pipes.py` - pipe toolkit (added 2026-08-25,
+  live-verified since on real pump/tank runs; steep vertical runs
+  still pending - see `docs/test-backlog.md`), same toolkit posture as `conveyors.py`/
   `power.py`: `select_cheapest_sufficient_tier()` picks the cheapest
   `PipelineTier` meeting a minimum `flow_limit` (a documented-`[m^3/s]`
   value, unlike belt `speed` - no unit caveat);
@@ -76,7 +77,7 @@ contains:
 
 - `satisfactory_ai/models.py`'s `ConveyorAttachmentInfo` /
   `satisfactory_ai/protocol.py`'s `parse_conveyor_attachment_catalog_telemetry`
-  (added 2026-08-25, splitter/merger groundwork, NOT YET LIVE-TESTED) -
+  (added 2026-08-25, live-verified in factory builds since) -
   mirrors `world.conveyorAttachments`' real recipe catalog for
   Splitter/Smart Splitter/Programmable Splitter/Merger/Priority Merger,
   each with real `input_count`/`output_count`/`supports_sort_rules`. No

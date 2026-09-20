@@ -119,7 +119,7 @@ the raw asset file — not inference from headers or localization alone):
   two real pump tiers, tagged `"kind": "Valve"` so callers can tell them
   apart.
 
-**New capabilities, both NOT YET LIVE-TESTED**: `world.pipelinePumpTiers`
+**New capabilities, both live-verified 2026-09-07**: `world.pipelinePumpTiers`
 now reports the Valve too (see above); new `world.pipeReservoirTiers`
 RPC reports both fluid buffer sizes' real capacity/flow-limit. Neither
 buildable can currently be CONSTRUCTED via any RPC (see "Genuinely
@@ -181,7 +181,7 @@ struct) — this is not speculation:
   network has been running long enough to settle (if it settles at
   all without deliberate pre-priming).
 
-**New capability, NOT YET LIVE-TESTED**: `world.pipeFluidBoxes` RPC -
+**New capability, live-verified 2026-09-07**: `world.pipeFluidBoxes` RPC -
 per-segment `contentM3`/`maxContentM3`/`fillPct`/`maxOverfillPct`/
 `flowThrough`/`flowFill`/`flowDrain`/`flowLimit`/`pressureColumn`/
 `elevationPressureColumn`/`addedPressure`/`pressureGroup`/`z`, plus the
@@ -261,7 +261,7 @@ extractors), then use the new `max_producers_per_pipe`/
 extractors' pipes can safely join on one run vs. need to stay separate
 or converge only partway.
 
-## New toolkit, added this session (all NOT YET LIVE-TESTED)
+## New toolkit, added this session (since live-verified — RPCs in the 2026-09-07 sweep, calculators on real pump runs)
 
 **`world.pipelinePumpTiers`** (new RPC) — real `maxHeadLift`/
 `designHeadLift` (meters) and `defaultFlowLimit` (`[m^3/s]`) per pump
@@ -349,7 +349,7 @@ parallel pipe - short pipe runs at each end (source → loading station,
 unloading station → destination) plus rail for the long haul, rather
 than pipe/pump infrastructure spanning the whole distance.
 
-**New capability, NOT YET LIVE-TESTED**: `world.trainCargoPlatforms` RPC
+**New capability, live-verified 2026-09-18 (rates never yet observed on an actively-loading platform — see `docs/test-backlog.md`)**: `world.trainCargoPlatforms` RPC
 (see `RPC_REFERENCE.md` for the full field list) - real per-platform
 `outflowRate`/`inflowRate` `[m³/s]`, load/unload state, and docked
 vehicle id. Scoped to the station side only for this first pass -
@@ -397,7 +397,7 @@ between docks, `VehicleFluidSlotCapacity`) but exposes no public getter
 for that array - the new RPC below only surfaces the station-level
 combined rates that DO have public getters.
 
-**New capability, NOT YET LIVE-TESTED**: `world.truckStations` RPC (see
+**New capability, live-verified 2026-08-31 (Solid; the Liquid case still untested — see `docs/test-backlog.md`)**: `world.truckStations` RPC (see
 `RPC_REFERENCE.md` for the full field list) - `resourceForm`,
 `currentFluidDescriptor`, load/unload cycle state, combined
 station-level `vehicleFuelConsumptionRate`/`itemTransferRate`/

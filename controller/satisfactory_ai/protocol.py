@@ -91,8 +91,8 @@ class ConveyorBeltTierTelemetry:
 
 @dataclass(frozen=True)
 class PipelineTierTelemetry:
-    """Mirrors "world.pipelineTiers" (added 2026-08-25, pipe groundwork
-    - NOT YET LIVE-TESTED). Same array shape as ConveyorBeltTierTelemetry
+    """Mirrors "world.pipelineTiers" (added 2026-08-25, live-verified
+    since on real pipe runs). Same array shape as ConveyorBeltTierTelemetry
     - LogPipelineTiersAsJson skips (not errors on) any recipe whose
     buildable CDO fails to resolve, so "tiers" may contain fewer than
     two entries."""
@@ -141,8 +141,8 @@ def parse_pipeline_tier_telemetry(json_text: str) -> PipelineTierTelemetry:
 
 @dataclass(frozen=True)
 class ConveyorAttachmentCatalogTelemetry:
-    """Mirrors "world.conveyorAttachments" (added 2026-08-25, splitter/
-    merger groundwork - NOT YET LIVE-TESTED). Same array shape as
+    """Mirrors "world.conveyorAttachments" (added 2026-08-25, live-verified
+    in factory builds since). Same array shape as
     ConveyorBeltTierTelemetry/PipelineTierTelemetry -
     LogConveyorAttachmentCatalogAsJson skips (not errors on) any recipe
     whose buildable CDO fails to resolve."""
