@@ -185,3 +185,44 @@ first: Satisfactory itself uses `7777-7827` (`MinPort`/`MaxPort`, beacon/game
 ports) and `443` (`ServerPort`, online services). `51902` is outside both
 and not a well-known port. Configurable if it ever collides with something
 else on a given machine — see `UAIModHttpServerSubsystem::ListenPort`.
+
+## 2026-09-20 — Socket-level loopback bind FIX (release hardening)
+
+**Problem (found 2026-08-24):** the packaged/Alpakit build bound `0.0.0.0:51902`,
+not loopback. Root cause: the project `Config/DefaultEngine.ini` sets
+`[HTTPServer.Listeners] DefaultBindAddress=any`, so any listener without a
+per-port override binds all interfaces. The per-port `+ListenerOverrides=(Port=51902,BindAddress=localhost)`
+lives in `Config/DefaultEngine.ini` (editor-only) and the plugin
+`Config/DefaultEngine.ini` (meant to merge into the package, but did NOT
+reliably). So the only real enforcement was the app-layer `IsLoopbackPeer`
+check on a wide-open socket — one logic bug from exposure.
+
+**Fix:** `UAIModHttpServerSubsystem::Initialize()` now injects the per-port
+override into `GConfig` at runtime, BEFORE `GetHttpRouter`/`StartAllListeners`.
+`FHttpListener::StartListening` reads `FHttpServerConfig::GetListenerConfig()`
+from `GConfig [HTTPServer.Listeners]/ListenerOverrides` (GEngineIni) at bind
+time, so setting it in code binds the real socket regardless of whether the
+packaged `.ini` merged. Bind address is keyed to the mod setting:
+`localhost` by default (true loopback socket), `any` only when
+`AllowRemoteConnections` is enabled (then the app-layer check governs who is
+allowed). The `IsLoopbackPeer` app-layer reject remains as defense-in-depth.
+
+Behavior note: the bind is decided once at Initialize. Toggling
+`AllowRemoteConnections` ON at runtime needs a game restart to re-bind the
+socket to `any` (until then the loopback socket refuses remote regardless) —
+fail-closed, which is the safe direction. Document "restart after enabling
+remote" in the setting's description.
+
+**MANUAL VERIFICATION (required before public release — do on the PACKAGED
+Steam build, not the editor):**
+1. Launch the Alpakit-deployed mod in the real Steam game, load a save.
+2. `netstat -ano | findstr 51902` → must show **`127.0.0.1:51902` LISTENING**,
+   NOT `0.0.0.0:51902`. (This is the fix's whole point.)
+3. From another machine on the LAN (or `curl http://<this-PC-LAN-IP>:51902/rpc`
+   from another host), confirm the connection is **refused/unreachable** at
+   the socket level (not merely a 403).
+4. Confirm loopback still works: `curl http://127.0.0.1:51902/rpc` with a
+   `world.help` body succeeds.
+5. Enable `AllowRemoteConnections` in mod settings, restart, re-run step 2 →
+   should now show `0.0.0.0:51902`, and remote requests are accepted (app-layer
+   check allows them). Disable + restart to return to loopback-only.

@@ -169,6 +169,36 @@ void UAIModHttpServerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 		UE_LOG(LogAIModAI, Warning, TEXT("AIMod HTTP server: no UConfigManager found - mod settings (remote connections, unlimited resources, build distance limit) will use their off-by-default values and won't be player-editable this session"));
 	}
 
+	// SOCKET-LEVEL loopback binding (2026-09-20, release hardening).
+	// Root cause of the old 0.0.0.0 bind: the project
+	// Config/DefaultEngine.ini sets [HTTPServer.Listeners]
+	// DefaultBindAddress=any, so a listener with no per-port override binds
+	// all interfaces. The per-port .ini override does NOT reliably reach
+	// the Alpakit-packaged build (verified 2026-08-24: netstat showed
+	// 0.0.0.0). So force it into GConfig at RUNTIME instead:
+	// FHttpListener::StartListening reads
+	// FHttpServerConfig::GetListenerConfig() from GConfig
+	// [HTTPServer.Listeners]/ListenerOverrides (GEngineIni) at bind time -
+	// which happens inside the GetHttpRouter/StartAllListeners calls below -
+	// so setting it here binds the REAL socket loopback, not just the
+	// app-layer IsLoopbackPeer reject (which remains as defense-in-depth).
+	// Bind loopback by default; only bind 'any' when the player has opted
+	// into remote connections, in which case the app-layer check governs
+	// who is actually allowed. This makes loopback-only the socket-level
+	// default regardless of packaged-config merging.
+	{
+		const bool bAllowRemote = UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowRemoteConnections"), false);
+		const FString DesiredBind = bAllowRemote ? TEXT("any") : TEXT("localhost");
+		const FString PortKey = FString::Printf(TEXT("Port=%u"), ListenPort);
+		TArray<FString> Overrides;
+		GConfig->GetArray(TEXT("HTTPServer.Listeners"), TEXT("ListenerOverrides"), Overrides, GEngineIni);
+		Overrides.RemoveAll([&PortKey](const FString& Entry) { return Entry.Contains(PortKey); });
+		Overrides.Add(FString::Printf(TEXT("(Port=%u,BindAddress=%s)"), ListenPort, *DesiredBind));
+		GConfig->SetArray(TEXT("HTTPServer.Listeners"), TEXT("ListenerOverrides"), Overrides, GEngineIni);
+		UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server: forced port %u socket bind to '%s' via GConfig (remote connections %s)"),
+			ListenPort, *DesiredBind, bAllowRemote ? TEXT("ENABLED") : TEXT("disabled"));
+	}
+
 	FHttpServerModule& HttpServerModule = FHttpServerModule::Get();
 	Router = HttpServerModule.GetHttpRouter(ListenPort, /*bFailOnBindFailure=*/false);
 	if (!Router.IsValid())
@@ -184,7 +214,7 @@ void UAIModHttpServerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 	HttpServerModule.StartAllListeners();
 
-	UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server listening on http://127.0.0.1:%u/rpc (loopback only - see Config/DefaultEngine.ini ListenerOverrides)"), ListenPort);
+	UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server listening on port %u /rpc (socket bind forced via GConfig above; loopback-only unless remote connections enabled in mod settings)"), ListenPort);
 
 	TryBindChatManagerDelegate();
 
