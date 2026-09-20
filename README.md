@@ -37,7 +37,7 @@ source-of-truth priority, logging/testing conventions).
 
 Everything is exposed as JSON-RPC methods over a **loopback-only** HTTP
 server the mod runs inside the game (`world.*` namespace). There are
-**~104 methods**, most exercised against a real running session (not just
+**120+ methods**, most exercised against a real running session (not just
 compiled). Rather than list them here, the interface is **self-describing**:
 
 - **`world.help`** returns a live catalog of every method with its params
@@ -74,6 +74,31 @@ Out of scope so far: **no planning/optimization layer exists yet** (Phases
 *toolkit*, not an auto-solver — and the mod deliberately avoids any generic
 "call arbitrary function" operation (see CLAUDE.md's Safety and Stability
 Boundary).
+
+## Installing & connecting
+
+1. **Install the mod** the normal SML way — subscribe on
+   [ficsit.app](https://ficsit.app/) (once published) or drop the packaged
+   `.smod` into your Satisfactory mods folder. It depends on **SML**.
+2. **Launch a session.** On load, the mod starts a JSON-RPC HTTP server
+   bound to **loopback only** at `http://127.0.0.1:51902/rpc`.
+3. **Talk to it.** POST a JSON body to `/rpc`. Start with `world.help` to
+   discover everything:
+
+   ```bash
+   curl -s http://127.0.0.1:51902/rpc \
+     -H "Content-Type: application/json" \
+     -d '{"protocolVersion":1,"requestId":"1","method":"world.help"}'
+   ```
+
+   Every request needs `protocolVersion: 1`, a `requestId`, and a `method`;
+   write methods take a `params` object (see `world.help` /
+   [`docs/rpc-catalog.md`](docs/rpc-catalog.md)). The Python side in
+   [`controller/`](controller) wraps this transport if you'd rather not
+   hand-roll HTTP.
+
+By default only this machine can connect, and only telemetry + normal
+(material-cost) construction are enabled — see **Safety & disclosures**.
 
 ## Where things live
 
@@ -114,8 +139,30 @@ SML loader/Alpakit tooling needed to build and deploy the mod. See the
 [Satisfactory Modding docs](https://docs.ficsit.app/) for general
 SML/Alpakit setup instructions unrelated to AIMod itself.
 
-## Disclaimer
+## Safety & disclosures
 
-This is experimental, research-stage software provided "as is," with no
-warranty of any kind. It performs real, validated write operations
-against a live Satisfactory save — back up saves before experimenting.
+Please read before installing:
+
+- **Back up your saves.** This performs real, validated write operations
+  against a live Satisfactory save. It's experimental, research-stage
+  software provided "as is," with no warranty of any kind.
+- **Achievements & save integrity.** This is an automation/control tool,
+  **not** an achievement-safe mod. Even in its default configuration it can
+  do things a normal session can't (e.g. teleporting the player), and with
+  optional settings enabled it can inject items, re-fire milestone
+  achievements, and manipulate the world. Treat any save you use it on as a
+  modded/creative save.
+- **Creative features are OFF by default.** The cheat-like RPCs (free item
+  injection, achievement re-fire, seasonal-event forcing, moving/rebuilding
+  the space station, spawning/controlling Giant Flying Mantas, disabling map
+  boundary hazards, boosting vehicles) are gated behind an **Allow Creative
+  Features** toggle in the mod's settings that defaults off. An external
+  client can never enable it — only you, from the settings menu. A default
+  install is telemetry + normal, material-cost construction only.
+- **Networking.** The RPC server binds to **loopback (127.0.0.1) only** by
+  default, so only programs on your own machine can reach it. An **Allow
+  Remote Connections** setting (off by default) opens it to your LAN — do
+  that only on a network you trust, since anyone who can reach the port can
+  then drive your game. (Enabling it requires a game restart to take effect.)
+- **Single-player focused.** Multiplayer is largely untested; several write
+  operations are server-authority and may behave unexpectedly with guests.
