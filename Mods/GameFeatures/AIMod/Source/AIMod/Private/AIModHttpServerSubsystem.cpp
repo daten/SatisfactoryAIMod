@@ -511,6 +511,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		TEXT("world.setDamageVolumeEnabled"),
 		TEXT("world.despawnDamageVolume"),
 		TEXT("world.setVehicleEngineParams"),
+		TEXT("world.setShipReturnTime"),
 	};
 	if (CreativeMethods.Contains(Method)
 		&& !UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowCreativeFeatures"), false))
@@ -1510,6 +1511,21 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	if (Method == TEXT("world.launchShip"))
 	{
 		const FAIModOperationResult Result = UAIModFunctionLibrary::LaunchHubShip(GetGameInstance());
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Shorten the in-flight freighter's return wait (creative-gated) -
+	// see SetShipReturnTime's doc comment for the tick-vs-timer unknown.
+	if (Method == TEXT("world.setShipReturnTime"))
+	{
+		double SecondsFromNow = 0.0;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("secondsFromNow"), SecondsFromNow);
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetShipReturnTime(GetGameInstance(), static_cast<float>(SecondsFromNow));
 		OnComplete(MakeOperationResponse(Result, RequestId));
 		return true;
 	}

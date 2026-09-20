@@ -3181,6 +3181,38 @@ public:
 	static FAIModOperationResult LaunchHubShip(UObject* WorldContextObject);
 
 	/**
+	 * world.setShipReturnTime - shorten (or extend) the in-flight HUB
+	 * freighter's remaining travel time. The wait is real player-facing
+	 * friction: milestone completion lands at launch (live-verified), but
+	 * the terminal UI stays "ship away" until the pod returns, so the
+	 * player cannot even browse the next milestone without waiting out
+	 * the full per-schematic mTimeToComplete. CREATIVE-GATED - unlike
+	 * setActiveMilestone/launchShip this skips a designed wait rather
+	 * than mirroring a real action.
+	 *
+	 * Mechanism: writes AFGSchematicManager::mShipLandTimeStamp (a
+	 * protected Replicated UPROPERTY, "time stamp for when the ship is
+	 * gonna land back at the Trading Post") via reflection to
+	 * world-now + SecondsFromNow (clamped >= 0; 0 = land now). The
+	 * companion mShipLandTimeStampSave is deliberately left alone - it
+	 * is rewritten by the manager's own save path.
+	 *
+	 * OPEN QUESTION flagged for the live test (stub .cpp): whether the
+	 * landing fires by comparing this timestamp per tick (edit takes
+	 * effect) or by a one-shot timer armed at launch (edit does
+	 * nothing). The result detail reports timeUntilShipReturn
+	 * before/after so the caller sees whether the stamp moved; whether
+	 * the ship VISIBLY lands early is the live finding. If this turns
+	 * out timer-driven, the fallback lever is editing
+	 * UFGSchematic::mTimeToComplete on the CDO before purchase.
+	 *
+	 * Fails NO_SHIP_IN_FLIGHT (IsShipAtTradingPost() true) rather than
+	 * rewriting a timestamp the state machine isn't watching.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetShipReturnTime(UObject* WorldContextObject, float SecondsFromNow);
+
+	/**
 	 * world.reprocessMilestone - re-fire Steam milestone achievements for
 	 * milestones completed before achievements existed (firing genuine game
 	 * unlock events reaches Steam in a modded session). Re-runs the

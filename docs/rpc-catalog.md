@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **124 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **125 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -186,7 +186,7 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `volumeId:string`
 - **`world.installPowerShard`** — Install power shard(s) into a machine to raise its clock cap.  
   params: `buildableId:string, count:number`
-- **`world.launchShip`** — Press the HUB launch button for the fully-paid ACTIVE milestone (NOT_PAID_OFF otherwise). The milestone's purchased flag flips when the freighter returns - poll world.milestoneProgress.  
+- **`world.launchShip`** — Press the HUB launch button for the fully-paid ACTIVE milestone (NOT_PAID_OFF otherwise). The milestone's purchased flag flips at/near launch; the freighter return wait only gates the terminal UI.  
   params: `(none)`
 - **`world.movePortableMinerToInventory`** — Pick a portable miner back up into the player inventory.  
   params: `(none)`
@@ -233,6 +233,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
 - **`world.setProjectAssemblyVisualPhase`** — Drive the space station's VISUAL build phase (by phaseIndex or phaseAssetPath) without touching real progression; visuals snap back on the next real phase change or save load. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `phaseIndex:number?, phaseAssetPath:string?`
 - **`world.setRecipe`** — Set a machine's recipe (+optional clock).  
+  params: `(none)`
+- **`world.setShipReturnTime`** — CREATIVE: shorten the in-flight HUB freighter's remaining travel time (secondsFromNow, default 0 = land now) so the terminal is usable without waiting out the return. NO_SHIP_IN_FLIGHT if the ship is docked.  
   params: `(none)`
 - **`world.setSplitterSortRules`** — Set a programmable splitter's per-output sort rules.  
   params: `buildableId:string, rules:array`

@@ -3078,6 +3078,50 @@ FAIModOperationResult UAIModFunctionLibrary::LaunchHubShip(UObject* WorldContext
 	return Result;
 }
 
+FAIModOperationResult UAIModFunctionLibrary::SetShipReturnTime(UObject* WorldContextObject, float SecondsFromNow)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	AFGSchematicManager* SchematicManager = AFGSchematicManager::Get(World);
+	if (!SchematicManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGSchematicManager::Get returned null"));
+	}
+
+	if (SchematicManager->IsShipAtTradingPost())
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_SHIP_IN_FLIGHT"),
+			TEXT("The ship is already at the Trading Post - nothing to shorten. Launch first (world.launchShip)."));
+	}
+
+	const float Before = SchematicManager->GetTimeUntilShipReturn();
+
+	const FFloatProperty* StampProperty = FindFProperty<FFloatProperty>(AFGSchematicManager::StaticClass(), TEXT("mShipLandTimeStamp"));
+	if (!StampProperty)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+			TEXT("mShipLandTimeStamp not found on AFGSchematicManager via reflection - engine layout changed"));
+	}
+
+	const float NewStamp = World->GetTimeSeconds() + FMath::Max(0.0f, SecondsFromNow);
+	StampProperty->SetPropertyValue_InContainer(SchematicManager, NewStamp);
+
+	const float After = SchematicManager->GetTimeUntilShipReturn();
+	UE_LOG(LogAIModAI, Display, TEXT("SetShipReturnTime: timeUntilShipReturn %.1fs -> %.1fs (requested %.1fs from now)"),
+		Before, After, SecondsFromNow);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("timeUntilShipReturnBefore"), Before);
+	DetailObject->SetNumberField(TEXT("timeUntilShipReturnAfter"), After);
+	DetailObject->SetBoolField(TEXT("shipAtTradingPost"), SchematicManager->IsShipAtTradingPost());
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
 FAIModOperationResult UAIModFunctionLibrary::ReprocessMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, int32 Tier, bool bAllTiers)
 {
 	FAIModOperationResult Result;
