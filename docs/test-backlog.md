@@ -23,6 +23,25 @@ form, cargo platform flow rates).
 
 ## Tier 1 — pending-redeploy items and quick, high-value checks
 
+- [x] **NEW `world.upgradeSpaceElevator`** — **DONE 2026-09-20, PASS in
+  one call** on the RPC-built elevator: paid all 50 Smart Plating from
+  the player via the widget's PayOffFromInventory path (direct inventory
+  seeding is filter-refused, live-verified itemsAdded:0),
+  isReadyToUpgrade flipped, UpgradeTowTruck pressed. **Phase 1 completed
+  and HUB Tiers 3-4 flipped Locked→Available immediately** (5-9 stay
+  Locked) — the elevator-phase↔HUB-tier interdependency is confirmed
+  and per-phase. Display quirk: post-press `remainingCost` already
+  shows the NEXT phase's cost list.
+- [ ] **NEW `world.setGamePhase`** (creative-gated direct phase write) —
+  deployed but deliberately NOT yet exercised (the legitimate
+  upgradeSpaceElevator path covered the experiment). Test when a
+  skip-ahead is actually wanted; verify tier gating follows and visuals/
+  narrative behave.
+- [ ] **NEW `world.setShipReturnTime`** (creative-gated) — deployed, needs
+  an IN-FLIGHT freighter to test: launch any milestone, call with
+  secondsFromNow=0, confirm the terminal becomes usable immediately
+  (tick-vs-timer unknown flagged in its doc comment).
+
 - [x] **NEW `world.setActiveMilestone` + `world.launchShip`** — **DONE
   2026-09-20, ALL PASS after redeploy.** NOT_PAID_OFF guard fired
   correctly on the unpaid active milestone (with remaining cost in
