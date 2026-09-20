@@ -60,20 +60,26 @@ have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
   NON-active schematic (activeSchematic was null). Findings: (1)
   `purchased` never flipped true for the paid-off (ExampleMod) milestone
   — paying deposits cost but completion apparently needs the HUB flow /
-  active-schematic path; retest purchase-completion on a real HUB
-  milestone in a fresh save. (2) Player inventory NET +50 plates
+  active-schematic path — REPLICATED on vanilla in a fresh save
+  2026-09-20 (Logistics/Schematic_1-2: full 150/150/300 cost deposited,
+  remaining 0/0/0, purchased stays false, clean deduction with no
+  inventory anomaly); active-schematic completion test in progress via
+  the HUB terminal. (2) Player inventory NET +50 plates
   (211→261): −50 payment plus a suspected +100 ExampleMod demo unlock
   grant — harmless here, but re-observe on a vanilla milestone.
   `bFromDepot` variant still untried.
-- [ ] **`world.startMamResearch`** — NO TARGET in the current save (all
-  MAM trees fully researched). Needs the fresh/earlier save the user
-  offered to load: dry run, then a real cheap research (verify
-  `IsResearchBeingConducted` flips).
-- [x] **`world.claimMamResearch`** — **DONE 2026-09-20, PASS** on the
-  hard-drive path: claimed the completed `Research_HardDrive_0_C`,
-  completedResearch 1→0, generated exactly one unclaimed hard drive with
-  2 pending alternate-recipe choices (not a direct unlock) — matches the
-  header's documented special path.
+- [x] **`world.startMamResearch`** — **DONE 2026-09-20, PASS** (fresh
+  save, ExampleMod "Example Complex Tree"): dry run reported
+  canResearchBeInitiated + canAfford correctly; real call paid the full
+  100-Copper-Ingot cost atomically (100→0) and the research showed up
+  in `ongoingResearch`, later completing on its own — the atomic
+  no-partial-payment model behaved exactly as the header describes.
+- [x] **`world.claimMamResearch`** — **DONE 2026-09-20, BOTH PATHS
+  PASS.** Hard-drive path (main save): claimed the completed
+  `Research_HardDrive_0_C`, completedResearch 1→0, generated exactly one
+  unclaimed hard drive with 2 pending choices (not a direct unlock).
+  Normal path (fresh save): claimed a completed ExampleMod research —
+  node flipped to Purchased, no hard drive generated.
 - [x] **`world.claimMamHardDriveReward`** — **DONE 2026-09-20, PASS.**
   Claimed Alternate: Heavy Flexible Frame by schematic path; drive
   consumed (unclaimed 1→0) and `world.recipeCatalog` confirms
