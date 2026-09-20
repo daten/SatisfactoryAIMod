@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **122 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **124 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -186,11 +186,13 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `volumeId:string`
 - **`world.installPowerShard`** — Install power shard(s) into a machine to raise its clock cap.  
   params: `buildableId:string, count:number`
+- **`world.launchShip`** — Press the HUB launch button for the fully-paid ACTIVE milestone (NOT_PAID_OFF otherwise). The milestone's purchased flag flips when the freighter returns - poll world.milestoneProgress.  
+  params: `(none)`
 - **`world.movePortableMinerToInventory`** — Pick a portable miner back up into the player inventory.  
   params: `(none)`
 - **`world.pairDroneStations`** — Pair two drone stations (call BOTH ways for a working route).  
   params: `stationBuildableId:string, targetStationBuildableId:string?`
-- **`world.payMilestone`** — Legitimately pay off a milestone by consuming real items from the carried inventory (dryRun previews; shortfall reported). fromDepot=true auto-withdraws the shortfall from the Dimensional Depot first (produce->upload->pay in one call).  
+- **`world.payMilestone`** — Legitimately pay off a milestone by consuming real items from the carried inventory (dryRun previews; shortfall reported). fromDepot=true auto-withdraws the shortfall from the Dimensional Depot first (produce->upload->pay in one call). Payment alone never completes a milestone - select it (world.setActiveMilestone) and launch (world.launchShip).  
   params: `schematicClass:string?, dryRun:bool?, fromDepot:bool?`
 - **`world.removeItemsFromInventory`** — Remove/delete items from a buildable inventory (storage/chest, drone, truck-station); items are destroyed, not moved.  
   params: `buildableId:string, itemClass:string, inventoryRole:string?, amount:number`
@@ -207,6 +209,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
 - **`world.sendChatMessage`** — Post a chat message (local).  
   params: `message:string, sender:string?`
 - **`world.setActiveEvent`** — Force a seasonal event on/off-calendar (HUB party mode etc.) by name (Christmas/Anniversary/CSSBirthday/FirstOfApril/None) or index 0-4. Fires OnBeginEvent visuals. Session-only, reverts on reload. Verify with world.activeEvents. [creative: requires the 'Allow Creative Features' mod setting]  
+  params: `(none)`
+- **`world.setActiveMilestone`** — Select the active HUB milestone (the terminal's select step; CanSetAsActiveSchematic-validated). Required before world.launchShip can complete it.  
   params: `(none)`
 - **`world.setBeamLength`** — Set a placed beam's length.  
   params: `buildableId:string, newLength:number`

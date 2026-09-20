@@ -2972,7 +2972,111 @@ FAIModOperationResult UAIModFunctionLibrary::PayOffMilestone(UObject* WorldConte
 	return Result;
 }
 
+FAIModOperationResult UAIModFunctionLibrary::SetActiveMilestone(UObject* WorldContextObject, const FString& SchematicClassPath)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	AFGSchematicManager* SchematicManager = AFGSchematicManager::Get(World);
+	if (!SchematicManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGSchematicManager::Get returned null"));
+	}
 
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *SchematicClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGSchematic::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_SCHEMATIC"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGSchematic subclass"), *SchematicClassPath));
+	}
+	const TSubclassOf<UFGSchematic> SchematicClass = ResolvedClass;
+	const TSubclassOf<UFGSchematic> PreviousActive = SchematicManager->GetActiveSchematic();
+
+	if (!SchematicManager->CanSetAsActiveSchematic(SchematicClass))
+	{
+		return FAIModOperationResult::Failure(TEXT("CANNOT_SET_ACTIVE"),
+			FString::Printf(TEXT("CanSetAsActiveSchematic('%s') is false - already purchased, wrong type, or tier not available"), *SchematicClass->GetName()));
+	}
+
+	const bool bSet = SchematicManager->SetActiveSchematic(SchematicClass);
+	const TSubclassOf<UFGSchematic> NowActive = SchematicManager->GetActiveSchematic();
+	if (!bSet || NowActive != SchematicClass)
+	{
+		return FAIModOperationResult::Failure(TEXT("SET_ACTIVE_REJECTED"),
+			FString::Printf(TEXT("SetActiveSchematic('%s') %s and GetActiveSchematic() now reads '%s'"),
+				*SchematicClass->GetName(), bSet ? TEXT("returned true") : TEXT("returned false"),
+				NowActive ? *NowActive->GetName() : TEXT("<none>")));
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetActiveMilestone: active schematic %s -> %s"),
+		PreviousActive ? *PreviousActive->GetName() : TEXT("<none>"), *SchematicClass->GetName());
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("activeSchematic"), SchematicClass->GetPathName());
+	DetailObject->SetStringField(TEXT("previousActiveSchematic"), PreviousActive ? PreviousActive->GetPathName() : TEXT(""));
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::LaunchHubShip(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	AFGSchematicManager* SchematicManager = AFGSchematicManager::Get(World);
+	if (!SchematicManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGSchematicManager::Get returned null"));
+	}
+
+	const TSubclassOf<UFGSchematic> ActiveSchematic = SchematicManager->GetActiveSchematic();
+	if (!ActiveSchematic)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_ACTIVE_SCHEMATIC"),
+			TEXT("No active schematic - select one via world.setActiveMilestone (or the HUB terminal) before launching"));
+	}
+
+	if (!SchematicManager->IsSchematicPaidOff(ActiveSchematic))
+	{
+		const TArray<FItemAmount> Remaining = SchematicManager->GetRemainingCostFor(ActiveSchematic);
+		const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+		DetailObject->SetStringField(TEXT("activeSchematic"), ActiveSchematic->GetPathName());
+		DetailObject->SetArrayField(TEXT("remainingCost"), ItemAmountsToJsonArray(Remaining));
+		FAIModOperationResult Result = FAIModOperationResult::Failure(TEXT("NOT_PAID_OFF"),
+			FString::Printf(TEXT("Active schematic '%s' is not fully paid off - pay via world.payMilestone first (the real launch button is likewise disabled until paid)"), *ActiveSchematic->GetName()));
+		Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+		return Result;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	SchematicManager->LaunchShip(Character);
+
+	// LaunchShip returns void and its .cpp is a stub - report the
+	// observable post-call state instead of a hard verify; the milestone's
+	// purchased flag flips when the ship RETURNS, not here.
+	const float TimeUntilReturn = SchematicManager->GetTimeUntilShipReturn();
+	const bool bAtTradingPost = SchematicManager->IsShipAtTradingPost();
+	UE_LOG(LogAIModAI, Display, TEXT("LaunchHubShip: launched for '%s'; timeUntilShipReturn=%.1fs shipAtTradingPost=%s"),
+		*ActiveSchematic->GetName(), TimeUntilReturn, bAtTradingPost ? TEXT("true") : TEXT("false"));
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("activeSchematic"), ActiveSchematic->GetPathName());
+	DetailObject->SetNumberField(TEXT("timeUntilShipReturn"), TimeUntilReturn);
+	DetailObject->SetBoolField(TEXT("shipAtTradingPost"), bAtTradingPost);
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
 
 FAIModOperationResult UAIModFunctionLibrary::ReprocessMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, int32 Tier, bool bAllTiers)
 {

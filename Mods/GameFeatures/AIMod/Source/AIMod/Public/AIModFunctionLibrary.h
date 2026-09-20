@@ -3138,6 +3138,49 @@ public:
 	static FAIModOperationResult PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun, bool bFromDepot = false);
 
 	/**
+	 * world.setActiveMilestone - the HUB terminal's "select milestone"
+	 * step, done via AFGSchematicManager::SetActiveSchematic() (public
+	 * BlueprintCallable, the same call the terminal widget makes). Needed
+	 * because live testing (2026-09-20) proved PayOffOnSchematic deposits
+	 * cost on ANY milestone but completion only happens through the
+	 * active-schematic + ship-launch flow: a fully-paid non-active
+	 * milestone sits at remainingCost 0 with purchased=false forever.
+	 *
+	 * Pre-validates with the real CanSetAsActiveSchematic() gate
+	 * (CANNOT_SET_ACTIVE), then verifies GetActiveSchematic() actually
+	 * changed (same "verify after every write" discipline as everything
+	 * else here). Reports previous/new active schematic in detail.
+	 * Mirrors a real player action with no resource shortcut, so it is
+	 * NOT creative-gated - same posture as world.payMilestone.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetActiveMilestone(UObject* WorldContextObject, const FString& SchematicClassPath);
+
+	/**
+	 * world.launchShip - the HUB terminal's "launch" button:
+	 * AFGSchematicManager::LaunchShip(instigator) ("Player initiated
+	 * launch of the ship" per its own doc comment). This is the missing
+	 * completion step after world.payMilestone - the milestone's
+	 * purchased flag flips when the freighter RETURNS
+	 * (Multicast_OnShipReturned), not at payment time.
+	 *
+	 * Guards: NO_ACTIVE_SCHEMATIC if none selected (use
+	 * world.setActiveMilestone first), NOT_PAID_OFF with the remaining
+	 * cost in detail if IsSchematicPaidOff() is false - the real
+	 * terminal's launch button is likewise only enabled once fully paid,
+	 * and this refuses to probe what an unpaid launch would do.
+	 * LaunchShip() itself returns void and FGSchematicManager.cpp is a
+	 * stub, so the post-call detail reports the observable state
+	 * (timeUntilShipReturn, shipAtTradingPost) instead of a hard verify -
+	 * completion lands asynchronously at ship return; poll
+	 * world.milestoneProgress for purchased to flip.
+	 * NOT creative-gated - same real-player-action posture as
+	 * world.payMilestone/world.setActiveMilestone.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult LaunchHubShip(UObject* WorldContextObject);
+
+	/**
 	 * world.reprocessMilestone - re-fire Steam milestone achievements for
 	 * milestones completed before achievements existed (firing genuine game
 	 * unlock events reaches Steam in a modded session). Re-runs the

@@ -23,6 +23,15 @@ form, cargo platform flow rates).
 
 ## Tier 1 — pending-redeploy items and quick, high-value checks
 
+- [ ] **NEW `world.setActiveMilestone` + `world.launchShip`** (added
+  2026-09-20, this session): the two missing HUB-terminal steps that
+  turn a world.payMilestone deposit into a completed milestone (select
+  active → pay → launch → purchased flips at freighter return). Both
+  ungated (real player actions, real material cost). After redeploy:
+  in the fresh test save, setActiveMilestone(Logistics — already fully
+  pre-paid) → launchShip → poll milestoneProgress until purchased=true;
+  also confirm launchShip's NOT_PAID_OFF guard on an unpaid milestone.
+
 - [ ] **Post-refactor smoke test** — the 3-stage file split
   (`864eb66b7d`..`d39ed45f51`, include-hub extraction + shared helpers +
   domain `.cpp` split) has compiled but never run live. After the next
@@ -63,8 +72,15 @@ have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
   active-schematic path — REPLICATED on vanilla in a fresh save
   2026-09-20 (Logistics/Schematic_1-2: full 150/150/300 cost deposited,
   remaining 0/0/0, purchased stays false, clean deduction with no
-  inventory anomaly); active-schematic completion test in progress via
-  the HUB terminal. (2) Player inventory NET +50 plates
+  inventory anomaly). ROOT CAUSE FOUND: paying ACTIVE Field Research
+  (user-selected in HUB) also left purchased=false — completion needs
+  the terminal's LAUNCH step: FGSchematicManager.h's
+  LaunchShip(instigator) ("player pressed the launch button"), with the
+  purchase completing at freighter RETURN. Also verified: the
+  default-to-active path (empty schematicClass resolved the active
+  Field Research). Fix implemented same session: world.setActiveMilestone
+  + world.launchShip RPCs (see Tier 1) — pending redeploy + live test.
+  (2) Player inventory NET +50 plates
   (211→261): −50 payment plus a suspected +100 ExampleMod demo unlock
   grant — harmless here, but re-observe on a vanilla milestone.
   `bFromDepot` variant still untried.

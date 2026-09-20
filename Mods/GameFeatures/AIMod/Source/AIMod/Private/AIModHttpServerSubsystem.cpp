@@ -1484,6 +1484,36 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// The HUB terminal's "select milestone" step - see SetActiveMilestone's
+	// doc comment for why payment alone never completes a milestone.
+	if (Method == TEXT("world.setActiveMilestone"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		FString SchematicClassPath;
+		if (!(*ParamsObjectPtr)->TryGetStringField(TEXT("schematicClass"), SchematicClassPath) || SchematicClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.schematicClass must be a non-empty string")));
+			return true;
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetActiveMilestone(GetGameInstance(), SchematicClassPath);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// The HUB terminal's "launch" button - completes the fully-paid active
+	// milestone when the freighter returns. See LaunchHubShip's doc comment.
+	if (Method == TEXT("world.launchShip"))
+	{
+		const FAIModOperationResult Result = UAIModFunctionLibrary::LaunchHubShip(GetGameInstance());
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	// Re-fire milestone achievements by reprocessing already-purchased
 	// schematics. See ReprocessMilestone doc.
 	if (Method == TEXT("world.reprocessMilestone"))
