@@ -471,8 +471,8 @@ the fast primitive underneath a caller's own cache-building pass. Same
 itself applies (can't represent overhangs/cave ceilings) - not a new
 constraint, just inherited from the same underlying trace.
 
-**Not yet live-tested** - implemented and compiled same session as the
-circular-platform work, game wasn't in a state to test immediately.
+Live-verified in later build-planning sessions (terrain surveys before
+site selection).
 
 ## CRITICAL: `world.deleteBuilding` NEVER refunded construction cost - a real bug, cost the user thousands of real items (fixed 2026-08-30)
 
@@ -713,12 +713,12 @@ and prefer getting height/geometry right via `world.groundHeight`
 scanning BEFORE building over relying on being able to just delete and
 retry cheaply.
 
-## NEW CAPABILITY: train timetables + drone station pairing - `world.trains`/`world.trainStations`/`world.setTrainTimetable`/`world.setTrainSelfDriving`, `world.droneStations`/`world.pairDroneStations` (added 2026-08-29, not yet live-tested)
+## NEW CAPABILITY: train timetables + drone station pairing - `world.trains`/`world.trainStations`/`world.setTrainTimetable`/`world.setTrainSelfDriving`, `world.droneStations`/`world.pairDroneStations` (added 2026-08-29; drones live-verified 2026-09-07, trains 2026-09-18)
 
 > **SUPERSEDED for operational use (2026-09-07):** this section and the other
 > vehicle sections below were written from header research before any live
 > testing. For the current, live-verified procedures and gotchas (drones WORK,
-> trucks arm but need a clean loop, trains' drivable joint is pending), see
+> trucks autopilot 2026-09-19, trains self-drive a full loop 2026-09-18), see
 > **`docs/vehicle-placement-guide.md`** and the executable
 > **`controller/satisfactory_ai/vehicles.py`**.
 
@@ -783,11 +783,11 @@ NOT usable with `world.buildables`/`world.deleteBuilding`); station ids
 usable with `world.buildables` since both `AFGBuildableRailroadStation`
 and `AFGBuildableDroneStation` are ordinary `AFGBuildable`s.
 
-**Not yet live-tested at all** - implemented from source research only,
-same posture as this session's other same-session additions. Full RPC
+Live-verified since: drone station pairing 2026-09-07 (drone PoC),
+train timetable/self-driving 2026-09-18 (RPC-built loop). Full RPC
 docs in `RPC_REFERENCE.md`.
 
-## NEW CAPABILITY: full M.A.M. (research) status + automation - `world.mamStatus`, `world.startMamResearch`, `world.claimMamResearch`, `world.claimMamHardDriveReward`, `world.rerollMamHardDrive` (added 2026-08-29, not yet live-tested)
+## NEW CAPABILITY: full M.A.M. (research) status + automation - `world.mamStatus`, `world.startMamResearch`, `world.claimMamResearch`, `world.claimMamHardDriveReward`, `world.rerollMamHardDrive` (added 2026-08-29; the `world.mamStatus` READ is live-verified — the write RPCs remain untested, see `docs/test-backlog.md` Tier 2)
 
 User asked to query which M.A.M. items are unlocked and the current
 research/hard-drive-analysis status, plus automate M.A.M. functions to
@@ -883,11 +883,11 @@ player-independence pattern**: `AFGBuildableMAM` itself gates nothing -
 all, so none of these RPCs require the player to be near a physical M.A.M.
 building, same as every other write function in this file.
 
-**Not yet live-tested at all** - implemented from source research only,
-same posture as this session's other same-session additions built while
-the game wasn't running. Full RPC docs in `RPC_REFERENCE.md`.
+The `world.mamStatus` read is live-verified; the M.A.M. WRITE RPCs
+(start/claim/reroll) remain untested — see `docs/test-backlog.md`
+Tier 2. Full RPC docs in `RPC_REFERENCE.md`.
 
-## NEW CAPABILITY: `world.milestoneProgress` + `world.payMilestone` - the HUB has no inventory, payment is pure bookkeeping (added 2026-08-29, not yet live-tested)
+## NEW CAPABILITY: `world.milestoneProgress` + `world.payMilestone` - the HUB has no inventory, payment is pure bookkeeping (added 2026-08-29; the `world.milestoneProgress` READ is live-verified — `world.payMilestone` remains untested, see `docs/test-backlog.md` Tier 2)
 
 User asked to query HUB/Space Elevator milestone progress and whether
 AIMod could move items from the player's carried inventory to the HUB,
@@ -958,10 +958,8 @@ array's contents and echoes it in `result.detail.amountArrayAfterCall` on
 a successful call specifically so the first live test can observe the
 real contract instead of guessing further.
 
-**Not yet live-tested at all** - the user was away from the game when
-this was implemented ("not available to redeploy at this time"),
-implemented and compiled from source research only, same posture as this
-project's other same-session, not-yet-tested additions. First live test
+The `world.milestoneProgress` read is live-verified; `world.payMilestone`
+itself remains untested (see `docs/test-backlog.md` Tier 2). First live test
 should use `dryRun:true`, then a cheap/abundant milestone item, before
 trusting this for anything valuable.
 
@@ -1190,9 +1188,7 @@ realistically has no meaningful swatch cost anyway.
 placement, not `world.recipeCatalog`'s `ingredients` alone** - especially
 before a multi-piece autonomous build (a house, a factory wall run) where
 a mid-build "Missing materials!" wastes real player-visible feedback and
-partial-build cleanup. Not yet live-verified against the packaged game
-(implemented and compiled clean the same session it was found; pending
-redeploy).
+partial-build cleanup. Exercised live in later builds.
 
 ## CRITICAL: `world.placeExtractor` for solid ore Miners (Mk1/2/3) requires a real Portable Miner ITEM in inventory (discovered 2026-08-28)
 
@@ -1886,7 +1882,10 @@ neighbors. Confirmed by direct user inspection in-game:
   user's own real-gameplay experience exactly). Use
   `world.connectConveyorLift`'s `freeEndRotationSteps` param instead
   (`AFGHologram::ScrollRotate()` called on the hologram before the final
-  click, added 2026-08-31, **not yet live-tested**) - it only affects
+  click, added 2026-08-31; live-exercised since, though its independent
+  effect on a genuinely FREE end was never isolated - the verified lift
+  landed on a docking connector, which forces orientation; see
+  `docs/test-backlog.md`) - it only affects
   whichever end is still free; the already-connected end's orientation
   is forced by its snap target regardless of scroll value, matching the
   user's own description ("not talking about changing which end is
@@ -2496,13 +2495,10 @@ happens to hit at that X/Y.
 
 **This was root-caused live** (the house's roof tiles were found
 overhanging 50% outside the walls, because they'd been centered on wall
-corners rather than the quadrant center per the older workaround) but
-**the fix itself has not yet been live-tested** - implemented and
-compiled clean the same session the bug was found, after the game had
-already been closed for the day. First priority next session: rebuild
-the house's roof with `ignoreGroundTrace`, and re-run the wall perimeter
-without the 100-unit nudge, to confirm this actually resolves both
-issues before relying on it for new builds.
+corners rather than the quadrant center per the older workaround), and
+the fix has been live-confirmed in every `ignoreGroundTrace` flat-
+platform/roof build since - computed-Z placements land exactly where
+requested, no nudges or anchoring workarounds needed.
 
 ## 2026-09-19 — Belt tornado: free-floating pole+belt structures (LIVE)
 
