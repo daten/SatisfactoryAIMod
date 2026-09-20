@@ -34,18 +34,17 @@ form, cargo platform flow rates).
   fix is committed but PENDING REDEPLOY (never run live). Batch-delete a
   disposable row of foundations and confirm: one settle wait for the whole
   run (fast), refunds correct, no dangling-belt regressions.
-- [ ] **`world.setVehicleEngineParams`** — added 2026-09-19; the doc
-  comment's own caveat stands: FG's movement `.cpp` is stub source, so
-  whether `SetMaxEngineTorque`/`SetDragCoefficient` actually move top
-  speed is unproven. Test: read a truck's baseline top speed on a straight
-  run, lower drag, re-run, confirm a real speed change. Tune gradually
-  (Chaos instability warning in the header).
-- [ ] **Hazard unknown #3: damage stops for a player already inside** —
-  the ONE remaining item from `docs/world-boundary-hazards.md` (all four
-  RPCs otherwise live-verified 2026-09-19). Recipe is written out in that
-  doc's "Remaining live test" section: save, stand in the east warning
-  band, `world.setDamageVolumeEnabled` off, confirm ticking stops while
-  standing inside, re-enable, confirm it resumes.
+- [ ] **`world.setVehicleEngineParams`** — 2026-09-20: now gated behind
+  "Allow Creative Features" (CREATIVE_DISABLED; gate negative-path
+  verified). Real test still pending: enable the toggle, lower an
+  Explorer's drag, confirm an actual top-speed change while driving.
+  Tune gradually (Chaos instability warning in the header).
+- [x] **Hazard unknown #3: damage stops for a player already inside** —
+  **DONE, user-confirmed live 2026-09-20** ("we've live tested ...
+  hazard removal"). Session note: the doc's east-border recipe is not
+  reachable by ground-gated teleport from the base plateau (groundHeight
+  returns found=false beyond terrain streaming range — hop-teleport
+  required for any future border work).
 
 ## Tier 2 — M.A.M. / milestone / achievement writes (deliberately skipped in the 2026-09-07 sweep, at user request — get a fresh save checkpoint first)
 
@@ -53,38 +52,54 @@ All six are implemented with dry-run or verify-after-write discipline but
 have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
 `FGResearchManager.cpp`) is stub source, so real contracts are unconfirmed.
 
-- [ ] **`world.payMilestone`** — dry run first (reports would-be
-  submission/shortfall, touches nothing), then a real partial payment on a
-  cheap milestone. Open question flagged in the header: whether
-  `PayOffOnSchematic` requires the target to already be the ACTIVE
-  schematic. Also test the `bFromDepot` variant.
-- [ ] **`world.startMamResearch`** — dry run, then a real cheap research
-  (atomic full-cost payment; verify `IsResearchBeingConducted` flips).
-- [ ] **`world.claimMamResearch`** — claim a completed research; for a
-  hard-drive schematic confirm it generates an unclaimed drive instead of
-  a direct unlock.
-- [ ] **`world.claimMamHardDriveReward`** — pick one offered alternate
-  recipe by schematic path; verify the lookup-by-reward-content design
-  holds (no id collisions across unclaimed drives).
-- [ ] **`world.rerollMamHardDrive`** — reroll once, re-query
-  `world.mamStatus` for the new choices; check the
-  no-rerolls-left vs no-alternates-available detail split.
-- [ ] **`world.reprocessMilestone`** — the achievement re-fire mechanism.
-  UNCONFIRMED that `GiveAccessToSchematics` re-invokes
-  `CheckSchematicAchievement`. Test ONE tier first and watch for the Steam
-  pop before sweeping all tiers (per the header's own instruction).
+- [x] **`world.payMilestone`** — **DONE 2026-09-20, mechanics PASS with
+  two real findings.** Dry run exact (wouldSubmit 50 Iron Plate,
+  shortfall empty); real call submitted 50, `remainingCost` dropped to 0,
+  no PAYOFF_REJECTED. ANSWERED the header's open question: works on a
+  NON-active schematic (activeSchematic was null). Findings: (1)
+  `purchased` never flipped true for the paid-off (ExampleMod) milestone
+  — paying deposits cost but completion apparently needs the HUB flow /
+  active-schematic path; retest purchase-completion on a real HUB
+  milestone in a fresh save. (2) Player inventory NET +50 plates
+  (211→261): −50 payment plus a suspected +100 ExampleMod demo unlock
+  grant — harmless here, but re-observe on a vanilla milestone.
+  `bFromDepot` variant still untried.
+- [ ] **`world.startMamResearch`** — NO TARGET in the current save (all
+  MAM trees fully researched). Needs the fresh/earlier save the user
+  offered to load: dry run, then a real cheap research (verify
+  `IsResearchBeingConducted` flips).
+- [x] **`world.claimMamResearch`** — **DONE 2026-09-20, PASS** on the
+  hard-drive path: claimed the completed `Research_HardDrive_0_C`,
+  completedResearch 1→0, generated exactly one unclaimed hard drive with
+  2 pending alternate-recipe choices (not a direct unlock) — matches the
+  header's documented special path.
+- [x] **`world.claimMamHardDriveReward`** — **DONE 2026-09-20, PASS.**
+  Claimed Alternate: Heavy Flexible Frame by schematic path; drive
+  consumed (unclaimed 1→0) and `world.recipeCatalog` confirms
+  `Recipe_Alternate_HeavyFlexibleFrame_C` isAvailable=true. (Single-drive
+  case only — the multi-drive collision question stays theoretical.)
+- [x] **`world.rerollMamHardDrive`** — **DONE 2026-09-20, PASS.** Reroll
+  replaced both choices (Caterium Wire/Turbo Motor → Heavy Flexible
+  Frame/Aluminum Rod) and `hasReroll` flipped false. Param note: the RPC
+  takes `schematicClass` (any currently-offered reward), matching
+  RPC_REFERENCE, not the C++ arg name.
+- [ ] **`world.reprocessMilestone`** — 2026-09-20: gated behind "Allow
+  Creative Features" (CREATIVE_DISABLED; gate negative-path verified).
+  Real test pending the in-game toggle: ONE tier first, watch for the
+  Steam pop before sweeping all tiers.
 
 ## Tier 3 — portable miner end-to-end flow
 
 - [ ] **`world.placePortableMiner` → `world.retrievePortableMinerInventory`
   → `world.movePortableMinerToInventory`** — input validation passed
-  2026-09-07 but the full flow is UNVERIFIED: it was blocked on (a) no
-  portable-miner item in inventory — now unblocked by
-  `world.addItemsToPlayerInventory` (live-verified 2026-09-08; verify the
-  item class, likely `Desc_PortableMiner`), and (b) needing a real
-  infinite ore node (`BP_ResourceNode`), not a depletable
-  `BP_ResourceDeposit` — known-good nodes exist at the remote-factory
-  sites (see `reference_remote_ore_factories` memory / world.resourceNodes).
+  2026-09-07 but the full flow is UNVERIFIED. 2026-09-20: now ALSO
+  blocked on the "Allow Creative Features" toggle
+  (`world.addItemsToPlayerInventory` returns CREATIVE_DISABLED). Once
+  enabled: seed the miner item (verify the descriptor class), then place
+  on a real `BP_ResourceNode` — 490 real nodes enumerable; nearest free
+  iron node to the base is `BP_ResourceNode577` (~9.6 km, Impure) —
+  retrieve, move back. Note terrain-streaming limit: hop-teleport with
+  groundHeight gating per hop.
 
 ## Tier 4 — packaging / release verification (ficsit.app prep blockers)
 
@@ -102,9 +117,15 @@ have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
 
 - [ ] `world.truckStations` — the `resourceForm: "Liquid"` case (needs a
   Fluid Truck Station; none reachable when first tested 2026-08-31).
-- [ ] `world.trainCargoPlatforms` — `inflowRate`/`outflowRate` on an
-  ACTIVELY-loading platform (read itself verified; rates never observed
-  non-idle). The freight loop save (`train-loop-freight`) should provide one.
+- [x] `world.trainCargoPlatforms` — **DONE 2026-09-20, PASS.** A real
+  non-zero rate observed live: fluid platform
+  `Build_TrainDockingStationLiquid_C_2144894785` reported
+  `outflowRate: 9.84` (unload mode) alongside working
+  `freightCargoType: "Liquid"`/`isInLoadMode` fields. A self-driving
+  freight dock was also produced on demand (train re-enabled →
+  `dockingState: Docked`), but its standard platforms read 0 — nothing
+  to transfer since the 09-18 teardown, not a telemetry gap. Train
+  restored to parked afterward.
 - [ ] `world.setBeamLength` — save/reload persistence of the changed length.
 - [ ] Priority power switches under a REAL shortage — actual load-shedding
   behavior on an overloaded circuit (config round-trips all verified).
@@ -130,11 +151,18 @@ have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
   unverified at runtime for the mixed cases: Tower→ordinary pole
   (short range, the case flagged "not yet tried" in 2026-08-31 notes) and
   a machine against a tower's short-range side.
-- [ ] `world.spawnCreature` `scale` param — spawn itself verified
-  2026-09-08; whether non-1.0 scale actually applies on FactoryGame
-  creature BPs (collision/AI ranges often hardcoded) never checked.
+- [x] `world.spawnCreature` `scale` param — **DONE 2026-09-20,
+  user-confirmed.** Spawned a scale-3.0 Space Rabbit near the player
+  (alive, animated, wandering per telemetry); user visually confirmed
+  the creature-spawn tests. Note: creature telemetry carries no scale
+  field — visual confirmation is the only check. Despawned after.
 - [ ] `world.constructStackableSupport` with `stackCount >= 2` (single Zoop
-  call) — repeated-call stacking verified instead; the Zoop path never was.
+  call) — **FAILED 2026-09-20, real finding**: returns
+  `UNEXPECTED_STEP_COMPLETE` ("DoMultiStepPlacement() reported complete
+  after only the start click") — the hologram finishes as a single
+  placement instead of entering Zoop mode; nothing was built (buildable
+  count unchanged). Repeated-call stacking remains the working approach;
+  fix or drop the `stackCount` param.
 - [ ] `instigatorStrategy: "LocalPlayer"` for `world.connectConveyor` —
   experimental second-`ULocalPlayer` hypothesis for the UFGCDInitializing
   gate, never run (`AIModFunctionLibrary.h`, InstigatorStrategy comment).
@@ -150,10 +178,12 @@ have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
   offset is a "live-seed TODO" (poles placed at the span endpoint with no
   learned connector offset); seed it via `world.connectorLayout` /
   `connector_db.learn_and_store()` on a real placed pole.
-- [ ] `controller/satisfactory_ai/conveyors.py` — the belt `GetSpeed()`
-  unit conversion has deliberately never been confirmed against real
-  throughput; measure actual items/min through a Mk1 belt (e.g. container
-  count delta over a timed window) and pin the conversion down.
+- [x] `controller/satisfactory_ai/conveyors.py` — **DONE 2026-09-20,
+  CONFIRMED: items/min = GetSpeed() / 2.** All six tiers returned
+  exactly 2x the known real rates (120/240/540/960/1560/2400 vs
+  60/120/270/480/780/1200) — a coincidence across the whole ladder is
+  implausible. Update conveyors.py to expose the conversion (a timed
+  physical throughput count remains optional belt-and-suspenders).
 - [ ] `controller/satisfactory_ai/recipe_tree.py` — somersloop
   amplification assumes full 2x when a machine's sloop slot count is
   unknown ("slots unknown -> assume full 2x"); read the real per-machine
