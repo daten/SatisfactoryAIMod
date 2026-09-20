@@ -1,5 +1,6 @@
-"""Pipeline tier selection and routing toolkit (added 2026-08-25, pipe
-groundwork - NOT YET LIVE-TESTED, see ConstructPipe's C++ doc comment).
+"""Pipeline tier selection and routing toolkit (added 2026-08-25;
+live-verified since on real pump/tank runs - steep vertical runs are
+the one case still pending, see docs/test-backlog.md).
 
 Companion to satisfactory_ai.conveyors/power, same "toolkit, not
 solver" posture: every function here answers one question about
