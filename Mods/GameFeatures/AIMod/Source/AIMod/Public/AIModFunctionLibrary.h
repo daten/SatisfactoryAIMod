@@ -3138,6 +3138,130 @@ public:
 	static FAIModOperationResult PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun, bool bFromDepot = false);
 
 	/**
+	 * world.setActiveMilestone - the HUB terminal's "select milestone"
+	 * step, done via AFGSchematicManager::SetActiveSchematic() (public
+	 * BlueprintCallable, the same call the terminal widget makes). Needed
+	 * because live testing (2026-09-20) proved PayOffOnSchematic deposits
+	 * cost on ANY milestone but completion only happens through the
+	 * active-schematic + ship-launch flow: a fully-paid non-active
+	 * milestone sits at remainingCost 0 with purchased=false forever.
+	 *
+	 * Pre-validates with the real CanSetAsActiveSchematic() gate
+	 * (CANNOT_SET_ACTIVE), then verifies GetActiveSchematic() actually
+	 * changed (same "verify after every write" discipline as everything
+	 * else here). Reports previous/new active schematic in detail.
+	 * Mirrors a real player action with no resource shortcut, so it is
+	 * NOT creative-gated - same posture as world.payMilestone.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetActiveMilestone(UObject* WorldContextObject, const FString& SchematicClassPath);
+
+	/**
+	 * world.launchShip - the HUB terminal's "launch" button:
+	 * AFGSchematicManager::LaunchShip(instigator) ("Player initiated
+	 * launch of the ship" per its own doc comment). This is the missing
+	 * completion step after world.payMilestone - the milestone's
+	 * purchased flag flips when the freighter RETURNS
+	 * (Multicast_OnShipReturned), not at payment time.
+	 *
+	 * Guards: NO_ACTIVE_SCHEMATIC if none selected (use
+	 * world.setActiveMilestone first), NOT_PAID_OFF with the remaining
+	 * cost in detail if IsSchematicPaidOff() is false - the real
+	 * terminal's launch button is likewise only enabled once fully paid,
+	 * and this refuses to probe what an unpaid launch would do.
+	 * LaunchShip() itself returns void and FGSchematicManager.cpp is a
+	 * stub, so the post-call detail reports the observable state
+	 * (timeUntilShipReturn, shipAtTradingPost) instead of a hard verify -
+	 * completion lands asynchronously at ship return; poll
+	 * world.milestoneProgress for purchased to flip.
+	 * NOT creative-gated - same real-player-action posture as
+	 * world.payMilestone/world.setActiveMilestone.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult LaunchHubShip(UObject* WorldContextObject);
+
+	/**
+	 * world.setShipReturnTime - shorten (or extend) the in-flight HUB
+	 * freighter's remaining travel time. The wait is real player-facing
+	 * friction: milestone completion lands at launch (live-verified), but
+	 * the terminal UI stays "ship away" until the pod returns, so the
+	 * player cannot even browse the next milestone without waiting out
+	 * the full per-schematic mTimeToComplete. CREATIVE-GATED - unlike
+	 * setActiveMilestone/launchShip this skips a designed wait rather
+	 * than mirroring a real action.
+	 *
+	 * Mechanism: writes AFGSchematicManager::mShipLandTimeStamp (a
+	 * protected Replicated UPROPERTY, "time stamp for when the ship is
+	 * gonna land back at the Trading Post") via reflection to
+	 * world-now + SecondsFromNow (clamped >= 0; 0 = land now). The
+	 * companion mShipLandTimeStampSave is deliberately left alone - it
+	 * is rewritten by the manager's own save path.
+	 *
+	 * OPEN QUESTION flagged for the live test (stub .cpp): whether the
+	 * landing fires by comparing this timestamp per tick (edit takes
+	 * effect) or by a one-shot timer armed at launch (edit does
+	 * nothing). The result detail reports timeUntilShipReturn
+	 * before/after so the caller sees whether the stamp moved; whether
+	 * the ship VISIBLY lands early is the live finding. If this turns
+	 * out timer-driven, the fallback lever is editing
+	 * UFGSchematic::mTimeToComplete on the CDO before purchase.
+	 *
+	 * Fails NO_SHIP_IN_FLIGHT (IsShipAtTradingPost() true) rather than
+	 * rewriting a timestamp the state machine isn't watching.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetShipReturnTime(UObject* WorldContextObject, float SecondsFromNow);
+
+	/**
+	 * world.upgradeSpaceElevator - the Space Elevator terminal's two
+	 * player actions in one call: pay the next phase cost from the
+	 * PLAYER's carried inventory, then press the upgrade button.
+	 *
+	 * Feed path is AFGBuildableSpaceElevator::PayOffFromInventory(
+	 * playerInventory, slotIndex) - the widget's own drag-drop handler -
+	 * called once per carried slot holding a still-owed item class until
+	 * IsReadyToUpgrade() flips or no eligible slot remains. Direct
+	 * AddStack into GetInputInventory() is filter-refused (live-verified
+	 * itemsAdded:0, the same belt-feed-only gotcha as machine inputs),
+	 * which is why this goes through the widget path. Items must
+	 * genuinely be in the player inventory - no resource shortcut here,
+	 * so this is NOT creative-gated (same posture as world.payMilestone/
+	 * world.launchShip; creative item INJECTION stays separately gated).
+	 *
+	 * Once IsReadyToUpgrade() is true, calls UpgradeTowTruck() ("called
+	 * when the player presses to send more stuff to the tow truck" - the
+	 * real button). Completion is asynchronous (elevator state machine /
+	 * upgrade timer + game phase change); detail reports
+	 * isReadyToUpgrade before/after, remaining shortfall, elevator state
+	 * and upgrade timer so the caller can poll world.milestoneProgress'
+	 * spaceElevators block for the phase to advance.
+	 *
+	 * BuildableId optional: empty targets the world's single Space
+	 * Elevator (TARGET_NOT_FOUND if none, AMBIGUOUS_TARGET if several).
+	 * bPayOnly skips the button press (deposit without launching).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult UpgradeSpaceElevator(UObject* WorldContextObject, const FString& BuildableId, bool bPayOnly);
+
+	/**
+	 * world.setGamePhase - directly set the REAL game phase on
+	 * AFGGamePhaseManager (GoToNextGamePhase() for bNextPhase, else
+	 * SetGamePhaseFromGamePhaseIndex(PhaseIndex) - the index order is the
+	 * same GetAllGamePhaseAssetsSorted() order world.projectAssembly
+	 * reports). Unlike world.setProjectAssemblyVisualPhase this ADVANCES
+	 * REAL PROGRESSION (tier gating, narrative, station visuals follow),
+	 * skipping the Space Elevator part deliveries a phase normally costs -
+	 * which is why it is CREATIVE-GATED while world.upgradeSpaceElevator
+	 * (the legitimate pay-and-press path) is not.
+	 *
+	 * Verify-after-write: reports the phase index/name before and after;
+	 * fails PHASE_UNCHANGED if the manager refused the change (e.g.
+	 * SetGamePhaseFromGamePhaseIndex returned false).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetGamePhase(UObject* WorldContextObject, int32 PhaseIndex, bool bNextPhase);
+
+	/**
 	 * world.reprocessMilestone - re-fire Steam milestone achievements for
 	 * milestones completed before achievements existed (firing genuine game
 	 * unlock events reaches Steam in a modded session). Re-runs the

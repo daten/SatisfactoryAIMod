@@ -2972,7 +2972,327 @@ FAIModOperationResult UAIModFunctionLibrary::PayOffMilestone(UObject* WorldConte
 	return Result;
 }
 
+FAIModOperationResult UAIModFunctionLibrary::SetActiveMilestone(UObject* WorldContextObject, const FString& SchematicClassPath)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	AFGSchematicManager* SchematicManager = AFGSchematicManager::Get(World);
+	if (!SchematicManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGSchematicManager::Get returned null"));
+	}
 
+	UClass* ResolvedClass = LoadObject<UClass>(nullptr, *SchematicClassPath);
+	if (!ResolvedClass || !ResolvedClass->IsChildOf(UFGSchematic::StaticClass()))
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_SCHEMATIC"),
+			FString::Printf(TEXT("'%s' did not resolve to a UFGSchematic subclass"), *SchematicClassPath));
+	}
+	const TSubclassOf<UFGSchematic> SchematicClass = ResolvedClass;
+	const TSubclassOf<UFGSchematic> PreviousActive = SchematicManager->GetActiveSchematic();
+
+	if (!SchematicManager->CanSetAsActiveSchematic(SchematicClass))
+	{
+		return FAIModOperationResult::Failure(TEXT("CANNOT_SET_ACTIVE"),
+			FString::Printf(TEXT("CanSetAsActiveSchematic('%s') is false - already purchased, wrong type, or tier not available"), *SchematicClass->GetName()));
+	}
+
+	const bool bSet = SchematicManager->SetActiveSchematic(SchematicClass);
+	const TSubclassOf<UFGSchematic> NowActive = SchematicManager->GetActiveSchematic();
+	if (!bSet || NowActive != SchematicClass)
+	{
+		return FAIModOperationResult::Failure(TEXT("SET_ACTIVE_REJECTED"),
+			FString::Printf(TEXT("SetActiveSchematic('%s') %s and GetActiveSchematic() now reads '%s'"),
+				*SchematicClass->GetName(), bSet ? TEXT("returned true") : TEXT("returned false"),
+				NowActive ? *NowActive->GetName() : TEXT("<none>")));
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetActiveMilestone: active schematic %s -> %s"),
+		PreviousActive ? *PreviousActive->GetName() : TEXT("<none>"), *SchematicClass->GetName());
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("activeSchematic"), SchematicClass->GetPathName());
+	DetailObject->SetStringField(TEXT("previousActiveSchematic"), PreviousActive ? PreviousActive->GetPathName() : TEXT(""));
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::LaunchHubShip(UObject* WorldContextObject)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	AFGSchematicManager* SchematicManager = AFGSchematicManager::Get(World);
+	if (!SchematicManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGSchematicManager::Get returned null"));
+	}
+
+	const TSubclassOf<UFGSchematic> ActiveSchematic = SchematicManager->GetActiveSchematic();
+	if (!ActiveSchematic)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_ACTIVE_SCHEMATIC"),
+			TEXT("No active schematic - select one via world.setActiveMilestone (or the HUB terminal) before launching"));
+	}
+
+	if (!SchematicManager->IsSchematicPaidOff(ActiveSchematic))
+	{
+		const TArray<FItemAmount> Remaining = SchematicManager->GetRemainingCostFor(ActiveSchematic);
+		const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+		DetailObject->SetStringField(TEXT("activeSchematic"), ActiveSchematic->GetPathName());
+		DetailObject->SetArrayField(TEXT("remainingCost"), ItemAmountsToJsonArray(Remaining));
+		FAIModOperationResult Result = FAIModOperationResult::Failure(TEXT("NOT_PAID_OFF"),
+			FString::Printf(TEXT("Active schematic '%s' is not fully paid off - pay via world.payMilestone first (the real launch button is likewise disabled until paid)"), *ActiveSchematic->GetName()));
+		Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+		return Result;
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	if (!Character)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local AFGCharacterPlayer (player index 0)"));
+	}
+
+	SchematicManager->LaunchShip(Character);
+
+	// LaunchShip returns void and its .cpp is a stub - report the
+	// observable post-call state instead of a hard verify; the milestone's
+	// purchased flag flips when the ship RETURNS, not here.
+	const float TimeUntilReturn = SchematicManager->GetTimeUntilShipReturn();
+	const bool bAtTradingPost = SchematicManager->IsShipAtTradingPost();
+	UE_LOG(LogAIModAI, Display, TEXT("LaunchHubShip: launched for '%s'; timeUntilShipReturn=%.1fs shipAtTradingPost=%s"),
+		*ActiveSchematic->GetName(), TimeUntilReturn, bAtTradingPost ? TEXT("true") : TEXT("false"));
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("activeSchematic"), ActiveSchematic->GetPathName());
+	DetailObject->SetNumberField(TEXT("timeUntilShipReturn"), TimeUntilReturn);
+	DetailObject->SetBoolField(TEXT("shipAtTradingPost"), bAtTradingPost);
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetShipReturnTime(UObject* WorldContextObject, float SecondsFromNow)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	AFGSchematicManager* SchematicManager = AFGSchematicManager::Get(World);
+	if (!SchematicManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGSchematicManager::Get returned null"));
+	}
+
+	if (SchematicManager->IsShipAtTradingPost())
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_SHIP_IN_FLIGHT"),
+			TEXT("The ship is already at the Trading Post - nothing to shorten. Launch first (world.launchShip)."));
+	}
+
+	const float Before = SchematicManager->GetTimeUntilShipReturn();
+
+	const FFloatProperty* StampProperty = FindFProperty<FFloatProperty>(AFGSchematicManager::StaticClass(), TEXT("mShipLandTimeStamp"));
+	if (!StampProperty)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"),
+			TEXT("mShipLandTimeStamp not found on AFGSchematicManager via reflection - engine layout changed"));
+	}
+
+	const float NewStamp = World->GetTimeSeconds() + FMath::Max(0.0f, SecondsFromNow);
+	StampProperty->SetPropertyValue_InContainer(SchematicManager, NewStamp);
+
+	const float After = SchematicManager->GetTimeUntilShipReturn();
+	UE_LOG(LogAIModAI, Display, TEXT("SetShipReturnTime: timeUntilShipReturn %.1fs -> %.1fs (requested %.1fs from now)"),
+		Before, After, SecondsFromNow);
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("timeUntilShipReturnBefore"), Before);
+	DetailObject->SetNumberField(TEXT("timeUntilShipReturnAfter"), After);
+	DetailObject->SetBoolField(TEXT("shipAtTradingPost"), SchematicManager->IsShipAtTradingPost());
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::UpgradeSpaceElevator(UObject* WorldContextObject, const FString& BuildableId, bool bPayOnly)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildableSpaceElevator* Elevator = nullptr;
+	int32 ElevatorCount = 0;
+	for (TActorIterator<AFGBuildableSpaceElevator> It(World); It; ++It)
+	{
+		++ElevatorCount;
+		if (BuildableId.IsEmpty() || It->GetPathName() == BuildableId)
+		{
+			Elevator = *It;
+			if (!BuildableId.IsEmpty()) { break; }
+		}
+	}
+	if (!Elevator || (!BuildableId.IsEmpty() && Elevator->GetPathName() != BuildableId))
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+			BuildableId.IsEmpty() ? TEXT("No Space Elevator exists in this world") : FString::Printf(TEXT("No Space Elevator with id '%s'"), *BuildableId));
+	}
+	if (BuildableId.IsEmpty() && ElevatorCount > 1)
+	{
+		return FAIModOperationResult::Failure(TEXT("AMBIGUOUS_TARGET"),
+			FString::Printf(TEXT("%d Space Elevators exist - pass buildableId explicitly"), ElevatorCount));
+	}
+	if (Elevator->IsFullyUpgraded())
+	{
+		return FAIModOperationResult::Failure(TEXT("FULLY_UPGRADED"), TEXT("The Space Elevator reports IsFullyUpgraded - no next phase to pay toward"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	UFGInventoryComponent* PlayerInventory = Character ? Character->GetInventory() : nullptr;
+	if (!PlayerInventory)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local player/inventory"));
+	}
+
+	TArray<FItemAmount> CostBefore;
+	Elevator->GetNextPhaseCost(CostBefore);
+	TSet<TSubclassOf<UFGItemDescriptor>> OwedClasses;
+	for (const FItemAmount& Owed : CostBefore)
+	{
+		if (Owed.ItemClass && Owed.Amount > 0) { OwedClasses.Add(Owed.ItemClass); }
+	}
+
+	// Widget drop path, one slot at a time: direct AddStack into the input
+	// inventory is filter-refused (live-verified itemsAdded:0), so this
+	// mirrors what the pay-off widget itself does. Multiple passes in case
+	// PayOffFromInventory consumes partially; stop when ready or a full
+	// pass makes no progress (measured via the player's remaining count).
+	auto CountOwedCarried = [&]() -> int32
+	{
+		int32 Total = 0;
+		for (const TSubclassOf<UFGItemDescriptor>& Cls : OwedClasses) { Total += PlayerInventory->GetNumItems(Cls); }
+		return Total;
+	};
+	const int32 CarriedBefore = CountOwedCarried();
+	bool bWasReady = Elevator->IsReadyToUpgrade();
+	for (int32 Pass = 0; Pass < 8 && !Elevator->IsReadyToUpgrade(); ++Pass)
+	{
+		const int32 PassStartCount = CountOwedCarried();
+		for (int32 SlotIndex = 0; SlotIndex < PlayerInventory->GetSizeLinear() && !Elevator->IsReadyToUpgrade(); ++SlotIndex)
+		{
+			FInventoryStack Stack;
+			if (PlayerInventory->GetStackFromIndex(SlotIndex, Stack) && Stack.HasItems() && OwedClasses.Contains(Stack.Item.GetItemClass()))
+			{
+				Elevator->PayOffFromInventory(PlayerInventory, SlotIndex);
+			}
+		}
+		if (CountOwedCarried() == PassStartCount) { break; }
+	}
+	const int32 ItemsPaid = CarriedBefore - CountOwedCarried();
+	const bool bReady = Elevator->IsReadyToUpgrade();
+
+	TArray<FItemAmount> CostAfter;
+	Elevator->GetNextPhaseCost(CostAfter);
+
+	bool bPressedUpgrade = false;
+	if (bReady && !bPayOnly)
+	{
+		Elevator->UpgradeTowTruck();
+		bPressedUpgrade = true;
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("UpgradeSpaceElevator: paid %d item(s) (was ready=%s), readyToUpgrade=%s, pressedUpgrade=%s, state=%d, upgradeTimer=%.1f"),
+		ItemsPaid, bWasReady ? TEXT("true") : TEXT("false"), bReady ? TEXT("true") : TEXT("false"),
+		bPressedUpgrade ? TEXT("true") : TEXT("false"), static_cast<int32>(Elevator->GetSpaceElevatorState()), Elevator->GetSpaceElevatorUpgradeTimer());
+
+	if (!bReady && ItemsPaid == 0 && !bWasReady)
+	{
+		FAIModOperationResult Result = FAIModOperationResult::Failure(TEXT("NOTHING_TO_SUBMIT"),
+			TEXT("Player carries none of the next phase cost and the elevator is not ready - deliver the parts to the player inventory first"));
+		const TSharedRef<FJsonObject> FailDetail = MakeShared<FJsonObject>();
+		FailDetail->SetArrayField(TEXT("remainingCost"), ItemAmountsToJsonArray(CostAfter));
+		Result.ResultDetailJson = SerializeJsonObject(FailDetail);
+		return Result;
+	}
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("elevatorId"), Elevator->GetPathName());
+	DetailObject->SetNumberField(TEXT("itemsPaidFromPlayer"), ItemsPaid);
+	DetailObject->SetBoolField(TEXT("isReadyToUpgrade"), bReady);
+	DetailObject->SetBoolField(TEXT("pressedUpgrade"), bPressedUpgrade);
+	DetailObject->SetArrayField(TEXT("remainingCost"), ItemAmountsToJsonArray(CostAfter));
+	DetailObject->SetNumberField(TEXT("elevatorState"), static_cast<int32>(Elevator->GetSpaceElevatorState()));
+	DetailObject->SetNumberField(TEXT("upgradeTimer"), Elevator->GetSpaceElevatorUpgradeTimer());
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetGamePhase(UObject* WorldContextObject, int32 PhaseIndex, bool bNextPhase)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	AFGGamePhaseManager* PhaseManager = AFGGamePhaseManager::Get(World);
+	if (!PhaseManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGGamePhaseManager::Get returned null"));
+	}
+	if (!bNextPhase && PhaseIndex < 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Pass phaseIndex >= 0 or nextPhase=true"));
+	}
+
+	UFGGamePhase* Before = PhaseManager->GetCurrentGamePhase();
+	const int32 BeforeIndex = Before ? PhaseManager->GetGamePhaseIndexFromGamePhase(Before) : -1;
+
+	bool bAccepted = true;
+	if (bNextPhase)
+	{
+		if (PhaseManager->IsLastGamePhaseReached())
+		{
+			return FAIModOperationResult::Failure(TEXT("LAST_PHASE_REACHED"), TEXT("Already at the final game phase"));
+		}
+		PhaseManager->GoToNextGamePhase();
+	}
+	else
+	{
+		bAccepted = PhaseManager->SetGamePhaseFromGamePhaseIndex(PhaseIndex);
+	}
+
+	UFGGamePhase* After = PhaseManager->GetCurrentGamePhase();
+	const int32 AfterIndex = After ? PhaseManager->GetGamePhaseIndexFromGamePhase(After) : -1;
+
+	if (!bAccepted || AfterIndex == BeforeIndex)
+	{
+		return FAIModOperationResult::Failure(TEXT("PHASE_UNCHANGED"),
+			FString::Printf(TEXT("Phase manager did not change phase (accepted=%s, index %d -> %d)"),
+				bAccepted ? TEXT("true") : TEXT("false"), BeforeIndex, AfterIndex));
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetGamePhase: phase index %d -> %d (%s)"),
+		BeforeIndex, AfterIndex, After ? *After->GetName() : TEXT("<none>"));
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("phaseIndexBefore"), BeforeIndex);
+	DetailObject->SetNumberField(TEXT("phaseIndexAfter"), AfterIndex);
+	DetailObject->SetStringField(TEXT("phaseBefore"), Before ? Before->GetPathName() : TEXT(""));
+	DetailObject->SetStringField(TEXT("phaseAfter"), After ? After->GetPathName() : TEXT(""));
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
 
 FAIModOperationResult UAIModFunctionLibrary::ReprocessMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, int32 Tier, bool bAllTiers)
 {

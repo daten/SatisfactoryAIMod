@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **122 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **127 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -186,11 +186,13 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `volumeId:string`
 - **`world.installPowerShard`** — Install power shard(s) into a machine to raise its clock cap.  
   params: `buildableId:string, count:number`
+- **`world.launchShip`** — Press the HUB launch button for the fully-paid ACTIVE milestone (NOT_PAID_OFF otherwise). The milestone's purchased flag flips at/near launch; the freighter return wait only gates the terminal UI.  
+  params: `(none)`
 - **`world.movePortableMinerToInventory`** — Pick a portable miner back up into the player inventory.  
   params: `(none)`
 - **`world.pairDroneStations`** — Pair two drone stations (call BOTH ways for a working route).  
   params: `stationBuildableId:string, targetStationBuildableId:string?`
-- **`world.payMilestone`** — Legitimately pay off a milestone by consuming real items from the carried inventory (dryRun previews; shortfall reported). fromDepot=true auto-withdraws the shortfall from the Dimensional Depot first (produce->upload->pay in one call).  
+- **`world.payMilestone`** — Legitimately pay off a milestone by consuming real items from the carried inventory (dryRun previews; shortfall reported). fromDepot=true auto-withdraws the shortfall from the Dimensional Depot first (produce->upload->pay in one call). Payment alone never completes a milestone - select it (world.setActiveMilestone) and launch (world.launchShip).  
   params: `schematicClass:string?, dryRun:bool?, fromDepot:bool?`
 - **`world.removeItemsFromInventory`** — Remove/delete items from a buildable inventory (storage/chest, drone, truck-station); items are destroyed, not moved.  
   params: `buildableId:string, itemClass:string, inventoryRole:string?, amount:number`
@@ -208,6 +210,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `message:string, sender:string?`
 - **`world.setActiveEvent`** — Force a seasonal event on/off-calendar (HUB party mode etc.) by name (Christmas/Anniversary/CSSBirthday/FirstOfApril/None) or index 0-4. Fires OnBeginEvent visuals. Session-only, reverts on reload. Verify with world.activeEvents. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `(none)`
+- **`world.setActiveMilestone`** — Select the active HUB milestone (the terminal's select step; CanSetAsActiveSchematic-validated). Required before world.launchShip can complete it.  
+  params: `(none)`
 - **`world.setBeamLength`** — Set a placed beam's length.  
   params: `buildableId:string, newLength:number`
 - **`world.setBuildableColor`** — Recolor a buildable (machines only; fails on lightweight foundations).  
@@ -218,6 +222,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.setDamageVolumeEnabled`** — Enable/disable a damage volume's DOT+collision (reversible; session-only, resets on save load). [creative: requires the 'Allow Creative Features' mod setting]  
   params: `volumeId:string, enabled:bool`
+- **`world.setGamePhase`** — CREATIVE: directly set the REAL game phase (phaseIndex in world.projectAssembly's sorted order, or nextPhase=true). Advances actual progression (tier gating follows), skipping elevator part deliveries - unlike setProjectAssemblyVisualPhase which is visuals-only.  
+  params: `(none)`
 - **`world.setManta`** — Manipulate a manta by id: despawn, freeze (stop on its path), secondsPerLoop (lap speed), or currentTime (scrub along route). Session-only. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `mantaId:string, despawn:bool?, freeze:bool?, secondsPerLoop:number?, currentTime:number?`
 - **`world.setPowerSwitchOn`** — Turn a power switch on/off.  
@@ -229,6 +235,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
 - **`world.setProjectAssemblyVisualPhase`** — Drive the space station's VISUAL build phase (by phaseIndex or phaseAssetPath) without touching real progression; visuals snap back on the next real phase change or save load. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `phaseIndex:number?, phaseAssetPath:string?`
 - **`world.setRecipe`** — Set a machine's recipe (+optional clock).  
+  params: `(none)`
+- **`world.setShipReturnTime`** — CREATIVE: shorten the in-flight HUB freighter's remaining travel time (secondsFromNow, default 0 = land now) so the terminal is usable without waiting out the return. NO_SHIP_IN_FLIGHT if the ship is docked.  
   params: `(none)`
 - **`world.setSplitterSortRules`** — Set a programmable splitter's per-output sort rules.  
   params: `buildableId:string, rules:array`
@@ -252,6 +260,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `schematicClass:string, researchTreeClass:string, dryRun:bool?`
 - **`world.teleportPlayer`** — Teleport the local player to (x,y,z) (+optional yaw). Use to satisfy camera-distance-sensitive connect/place calls.  
   params: `x:number, y:number, z:number?, ignoreGroundTrace:bool?, yaw:number?`
+- **`world.upgradeSpaceElevator`** — Pay the Space Elevator's next phase cost from the PLAYER's carried inventory (the widget's own PayOffFromInventory path - direct inventory seeding is filter-refused) and press the upgrade button once ready. payOnly=true deposits without pressing. The real phase-advance path.  
+  params: `(none)`
 - **`world.uploadToCentralStorage`** — Upload items from the player inventory into the Dimensional Depot (stack-granular; clamped to Depot capacity).  
   params: `itemClass:string, amount:number`
 - **`world.withdrawFromCentralStorage`** — Withdraw items from the Dimensional Depot to the player inventory (clamped to what the Depot holds + player room).  
