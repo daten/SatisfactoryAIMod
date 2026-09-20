@@ -3122,6 +3122,178 @@ FAIModOperationResult UAIModFunctionLibrary::SetShipReturnTime(UObject* WorldCon
 	return Result;
 }
 
+FAIModOperationResult UAIModFunctionLibrary::UpgradeSpaceElevator(UObject* WorldContextObject, const FString& BuildableId, bool bPayOnly)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+
+	AFGBuildableSpaceElevator* Elevator = nullptr;
+	int32 ElevatorCount = 0;
+	for (TActorIterator<AFGBuildableSpaceElevator> It(World); It; ++It)
+	{
+		++ElevatorCount;
+		if (BuildableId.IsEmpty() || It->GetPathName() == BuildableId)
+		{
+			Elevator = *It;
+			if (!BuildableId.IsEmpty()) { break; }
+		}
+	}
+	if (!Elevator || (!BuildableId.IsEmpty() && Elevator->GetPathName() != BuildableId))
+	{
+		return FAIModOperationResult::Failure(TEXT("TARGET_NOT_FOUND"),
+			BuildableId.IsEmpty() ? TEXT("No Space Elevator exists in this world") : FString::Printf(TEXT("No Space Elevator with id '%s'"), *BuildableId));
+	}
+	if (BuildableId.IsEmpty() && ElevatorCount > 1)
+	{
+		return FAIModOperationResult::Failure(TEXT("AMBIGUOUS_TARGET"),
+			FString::Printf(TEXT("%d Space Elevators exist - pass buildableId explicitly"), ElevatorCount));
+	}
+	if (Elevator->IsFullyUpgraded())
+	{
+		return FAIModOperationResult::Failure(TEXT("FULLY_UPGRADED"), TEXT("The Space Elevator reports IsFullyUpgraded - no next phase to pay toward"));
+	}
+
+	AFGCharacterPlayer* Character = Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0));
+	UFGInventoryComponent* PlayerInventory = Character ? Character->GetInventory() : nullptr;
+	if (!PlayerInventory)
+	{
+		return FAIModOperationResult::Failure(TEXT("NO_PLAYER"), TEXT("No local player/inventory"));
+	}
+
+	TArray<FItemAmount> CostBefore;
+	Elevator->GetNextPhaseCost(CostBefore);
+	TSet<TSubclassOf<UFGItemDescriptor>> OwedClasses;
+	for (const FItemAmount& Owed : CostBefore)
+	{
+		if (Owed.ItemClass && Owed.Amount > 0) { OwedClasses.Add(Owed.ItemClass); }
+	}
+
+	// Widget drop path, one slot at a time: direct AddStack into the input
+	// inventory is filter-refused (live-verified itemsAdded:0), so this
+	// mirrors what the pay-off widget itself does. Multiple passes in case
+	// PayOffFromInventory consumes partially; stop when ready or a full
+	// pass makes no progress (measured via the player's remaining count).
+	auto CountOwedCarried = [&]() -> int32
+	{
+		int32 Total = 0;
+		for (const TSubclassOf<UFGItemDescriptor>& Cls : OwedClasses) { Total += PlayerInventory->GetNumItems(Cls); }
+		return Total;
+	};
+	const int32 CarriedBefore = CountOwedCarried();
+	bool bWasReady = Elevator->IsReadyToUpgrade();
+	for (int32 Pass = 0; Pass < 8 && !Elevator->IsReadyToUpgrade(); ++Pass)
+	{
+		const int32 PassStartCount = CountOwedCarried();
+		for (int32 SlotIndex = 0; SlotIndex < PlayerInventory->GetSizeLinear() && !Elevator->IsReadyToUpgrade(); ++SlotIndex)
+		{
+			FInventoryStack Stack;
+			if (PlayerInventory->GetStackFromIndex(SlotIndex, Stack) && Stack.HasItems() && OwedClasses.Contains(Stack.Item.GetItemClass()))
+			{
+				Elevator->PayOffFromInventory(PlayerInventory, SlotIndex);
+			}
+		}
+		if (CountOwedCarried() == PassStartCount) { break; }
+	}
+	const int32 ItemsPaid = CarriedBefore - CountOwedCarried();
+	const bool bReady = Elevator->IsReadyToUpgrade();
+
+	TArray<FItemAmount> CostAfter;
+	Elevator->GetNextPhaseCost(CostAfter);
+
+	bool bPressedUpgrade = false;
+	if (bReady && !bPayOnly)
+	{
+		Elevator->UpgradeTowTruck();
+		bPressedUpgrade = true;
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("UpgradeSpaceElevator: paid %d item(s) (was ready=%s), readyToUpgrade=%s, pressedUpgrade=%s, state=%d, upgradeTimer=%.1f"),
+		ItemsPaid, bWasReady ? TEXT("true") : TEXT("false"), bReady ? TEXT("true") : TEXT("false"),
+		bPressedUpgrade ? TEXT("true") : TEXT("false"), static_cast<int32>(Elevator->GetSpaceElevatorState()), Elevator->GetSpaceElevatorUpgradeTimer());
+
+	if (!bReady && ItemsPaid == 0 && !bWasReady)
+	{
+		FAIModOperationResult Result = FAIModOperationResult::Failure(TEXT("NOTHING_TO_SUBMIT"),
+			TEXT("Player carries none of the next phase cost and the elevator is not ready - deliver the parts to the player inventory first"));
+		const TSharedRef<FJsonObject> FailDetail = MakeShared<FJsonObject>();
+		FailDetail->SetArrayField(TEXT("remainingCost"), ItemAmountsToJsonArray(CostAfter));
+		Result.ResultDetailJson = SerializeJsonObject(FailDetail);
+		return Result;
+	}
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetStringField(TEXT("elevatorId"), Elevator->GetPathName());
+	DetailObject->SetNumberField(TEXT("itemsPaidFromPlayer"), ItemsPaid);
+	DetailObject->SetBoolField(TEXT("isReadyToUpgrade"), bReady);
+	DetailObject->SetBoolField(TEXT("pressedUpgrade"), bPressedUpgrade);
+	DetailObject->SetArrayField(TEXT("remainingCost"), ItemAmountsToJsonArray(CostAfter));
+	DetailObject->SetNumberField(TEXT("elevatorState"), static_cast<int32>(Elevator->GetSpaceElevatorState()));
+	DetailObject->SetNumberField(TEXT("upgradeTimer"), Elevator->GetSpaceElevatorUpgradeTimer());
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
+FAIModOperationResult UAIModFunctionLibrary::SetGamePhase(UObject* WorldContextObject, int32 PhaseIndex, bool bNextPhase)
+{
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("No valid world context"));
+	}
+	AFGGamePhaseManager* PhaseManager = AFGGamePhaseManager::Get(World);
+	if (!PhaseManager)
+	{
+		return FAIModOperationResult::Failure(TEXT("INTERNAL_ERROR"), TEXT("AFGGamePhaseManager::Get returned null"));
+	}
+	if (!bNextPhase && PhaseIndex < 0)
+	{
+		return FAIModOperationResult::Failure(TEXT("INVALID_REQUEST"), TEXT("Pass phaseIndex >= 0 or nextPhase=true"));
+	}
+
+	UFGGamePhase* Before = PhaseManager->GetCurrentGamePhase();
+	const int32 BeforeIndex = Before ? PhaseManager->GetGamePhaseIndexFromGamePhase(Before) : -1;
+
+	bool bAccepted = true;
+	if (bNextPhase)
+	{
+		if (PhaseManager->IsLastGamePhaseReached())
+		{
+			return FAIModOperationResult::Failure(TEXT("LAST_PHASE_REACHED"), TEXT("Already at the final game phase"));
+		}
+		PhaseManager->GoToNextGamePhase();
+	}
+	else
+	{
+		bAccepted = PhaseManager->SetGamePhaseFromGamePhaseIndex(PhaseIndex);
+	}
+
+	UFGGamePhase* After = PhaseManager->GetCurrentGamePhase();
+	const int32 AfterIndex = After ? PhaseManager->GetGamePhaseIndexFromGamePhase(After) : -1;
+
+	if (!bAccepted || AfterIndex == BeforeIndex)
+	{
+		return FAIModOperationResult::Failure(TEXT("PHASE_UNCHANGED"),
+			FString::Printf(TEXT("Phase manager did not change phase (accepted=%s, index %d -> %d)"),
+				bAccepted ? TEXT("true") : TEXT("false"), BeforeIndex, AfterIndex));
+	}
+
+	UE_LOG(LogAIModAI, Display, TEXT("SetGamePhase: phase index %d -> %d (%s)"),
+		BeforeIndex, AfterIndex, After ? *After->GetName() : TEXT("<none>"));
+
+	const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
+	DetailObject->SetNumberField(TEXT("phaseIndexBefore"), BeforeIndex);
+	DetailObject->SetNumberField(TEXT("phaseIndexAfter"), AfterIndex);
+	DetailObject->SetStringField(TEXT("phaseBefore"), Before ? Before->GetPathName() : TEXT(""));
+	DetailObject->SetStringField(TEXT("phaseAfter"), After ? After->GetPathName() : TEXT(""));
+	FAIModOperationResult Result = FAIModOperationResult::Success();
+	Result.ResultDetailJson = SerializeJsonObject(DetailObject);
+	return Result;
+}
+
 FAIModOperationResult UAIModFunctionLibrary::ReprocessMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, int32 Tier, bool bAllTiers)
 {
 	FAIModOperationResult Result;

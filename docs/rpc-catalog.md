@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **125 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **127 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -222,6 +222,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.setDamageVolumeEnabled`** — Enable/disable a damage volume's DOT+collision (reversible; session-only, resets on save load). [creative: requires the 'Allow Creative Features' mod setting]  
   params: `volumeId:string, enabled:bool`
+- **`world.setGamePhase`** — CREATIVE: directly set the REAL game phase (phaseIndex in world.projectAssembly's sorted order, or nextPhase=true). Advances actual progression (tier gating follows), skipping elevator part deliveries - unlike setProjectAssemblyVisualPhase which is visuals-only.  
+  params: `(none)`
 - **`world.setManta`** — Manipulate a manta by id: despawn, freeze (stop on its path), secondsPerLoop (lap speed), or currentTime (scrub along route). Session-only. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `mantaId:string, despawn:bool?, freeze:bool?, secondsPerLoop:number?, currentTime:number?`
 - **`world.setPowerSwitchOn`** — Turn a power switch on/off.  
@@ -258,6 +260,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `schematicClass:string, researchTreeClass:string, dryRun:bool?`
 - **`world.teleportPlayer`** — Teleport the local player to (x,y,z) (+optional yaw). Use to satisfy camera-distance-sensitive connect/place calls.  
   params: `x:number, y:number, z:number?, ignoreGroundTrace:bool?, yaw:number?`
+- **`world.upgradeSpaceElevator`** — Pay the Space Elevator's next phase cost from the PLAYER's carried inventory (the widget's own PayOffFromInventory path - direct inventory seeding is filter-refused) and press the upgrade button once ready. payOnly=true deposits without pressing. The real phase-advance path.  
+  params: `(none)`
 - **`world.uploadToCentralStorage`** — Upload items from the player inventory into the Dimensional Depot (stack-granular; clamped to Depot capacity).  
   params: `itemClass:string, amount:number`
 - **`world.withdrawFromCentralStorage`** — Withdraw items from the Dimensional Depot to the player inventory (clamped to what the Depot holds + player room).  

@@ -77,6 +77,8 @@ SUMMARIES = {
  "world.setActiveMilestone":"Select the active HUB milestone (the terminal's select step; CanSetAsActiveSchematic-validated). Required before world.launchShip can complete it.",
  "world.launchShip":"Press the HUB launch button for the fully-paid ACTIVE milestone (NOT_PAID_OFF otherwise). The milestone's purchased flag flips at/near launch; the freighter return wait only gates the terminal UI.",
  "world.setShipReturnTime":"CREATIVE: shorten the in-flight HUB freighter's remaining travel time (secondsFromNow, default 0 = land now) so the terminal is usable without waiting out the return. NO_SHIP_IN_FLIGHT if the ship is docked.",
+ "world.upgradeSpaceElevator":"Pay the Space Elevator's next phase cost from the PLAYER's carried inventory (the widget's own PayOffFromInventory path - direct inventory seeding is filter-refused) and press the upgrade button once ready. payOnly=true deposits without pressing. The real phase-advance path.",
+ "world.setGamePhase":"CREATIVE: directly set the REAL game phase (phaseIndex in world.projectAssembly's sorted order, or nextPhase=true). Advances actual progression (tier gating follows), skipping elevator part deliveries - unlike setProjectAssemblyVisualPhase which is visuals-only.",
  "world.reprocessMilestone":"Re-fire milestone achievements: reset+re-give already-purchased HUB schematics (keeps unlocks) so the unlock flow re-runs. Target schematicClass, tier (>=0), or allTiers. Session-only; test one tier first.",
  "world.mamStatus":"M.A.M. research status (ongoing/completed/hard drives).",
  "world.startMamResearch":"Start a M.A.M. research node.",

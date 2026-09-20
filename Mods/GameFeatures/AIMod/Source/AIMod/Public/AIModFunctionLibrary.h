@@ -3213,6 +3213,55 @@ public:
 	static FAIModOperationResult SetShipReturnTime(UObject* WorldContextObject, float SecondsFromNow);
 
 	/**
+	 * world.upgradeSpaceElevator - the Space Elevator terminal's two
+	 * player actions in one call: pay the next phase cost from the
+	 * PLAYER's carried inventory, then press the upgrade button.
+	 *
+	 * Feed path is AFGBuildableSpaceElevator::PayOffFromInventory(
+	 * playerInventory, slotIndex) - the widget's own drag-drop handler -
+	 * called once per carried slot holding a still-owed item class until
+	 * IsReadyToUpgrade() flips or no eligible slot remains. Direct
+	 * AddStack into GetInputInventory() is filter-refused (live-verified
+	 * itemsAdded:0, the same belt-feed-only gotcha as machine inputs),
+	 * which is why this goes through the widget path. Items must
+	 * genuinely be in the player inventory - no resource shortcut here,
+	 * so this is NOT creative-gated (same posture as world.payMilestone/
+	 * world.launchShip; creative item INJECTION stays separately gated).
+	 *
+	 * Once IsReadyToUpgrade() is true, calls UpgradeTowTruck() ("called
+	 * when the player presses to send more stuff to the tow truck" - the
+	 * real button). Completion is asynchronous (elevator state machine /
+	 * upgrade timer + game phase change); detail reports
+	 * isReadyToUpgrade before/after, remaining shortfall, elevator state
+	 * and upgrade timer so the caller can poll world.milestoneProgress'
+	 * spaceElevators block for the phase to advance.
+	 *
+	 * BuildableId optional: empty targets the world's single Space
+	 * Elevator (TARGET_NOT_FOUND if none, AMBIGUOUS_TARGET if several).
+	 * bPayOnly skips the button press (deposit without launching).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult UpgradeSpaceElevator(UObject* WorldContextObject, const FString& BuildableId, bool bPayOnly);
+
+	/**
+	 * world.setGamePhase - directly set the REAL game phase on
+	 * AFGGamePhaseManager (GoToNextGamePhase() for bNextPhase, else
+	 * SetGamePhaseFromGamePhaseIndex(PhaseIndex) - the index order is the
+	 * same GetAllGamePhaseAssetsSorted() order world.projectAssembly
+	 * reports). Unlike world.setProjectAssemblyVisualPhase this ADVANCES
+	 * REAL PROGRESSION (tier gating, narrative, station visuals follow),
+	 * skipping the Space Elevator part deliveries a phase normally costs -
+	 * which is why it is CREATIVE-GATED while world.upgradeSpaceElevator
+	 * (the legitimate pay-and-press path) is not.
+	 *
+	 * Verify-after-write: reports the phase index/name before and after;
+	 * fails PHASE_UNCHANGED if the manager refused the change (e.g.
+	 * SetGamePhaseFromGamePhaseIndex returned false).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetGamePhase(UObject* WorldContextObject, int32 PhaseIndex, bool bNextPhase);
+
+	/**
 	 * world.reprocessMilestone - re-fire Steam milestone achievements for
 	 * milestones completed before achievements existed (firing genuine game
 	 * unlock events reaches Steam in a modded session). Re-runs the

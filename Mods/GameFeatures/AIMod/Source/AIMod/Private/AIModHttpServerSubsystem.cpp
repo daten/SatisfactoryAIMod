@@ -512,6 +512,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		TEXT("world.despawnDamageVolume"),
 		TEXT("world.setVehicleEngineParams"),
 		TEXT("world.setShipReturnTime"),
+		TEXT("world.setGamePhase"),
 	};
 	if (CreativeMethods.Contains(Method)
 		&& !UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowCreativeFeatures"), false))
@@ -1511,6 +1512,40 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	if (Method == TEXT("world.launchShip"))
 	{
 		const FAIModOperationResult Result = UAIModFunctionLibrary::LaunchHubShip(GetGameInstance());
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// The Space Elevator terminal's pay-off + upgrade-button press - the
+	// legitimate phase-advance path. See UpgradeSpaceElevator's doc comment.
+	if (Method == TEXT("world.upgradeSpaceElevator"))
+	{
+		FString BuildableId;
+		bool bPayOnly = false;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetStringField(TEXT("buildableId"), BuildableId);
+			(*ParamsObjectPtr)->TryGetBoolField(TEXT("payOnly"), bPayOnly);
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::UpgradeSpaceElevator(GetGameInstance(), BuildableId, bPayOnly);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Direct REAL game-phase write (creative-gated) - unlike
+	// world.setProjectAssemblyVisualPhase this advances actual progression.
+	if (Method == TEXT("world.setGamePhase"))
+	{
+		double PhaseIndex = -1.0;
+		bool bNextPhase = false;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("phaseIndex"), PhaseIndex);
+			(*ParamsObjectPtr)->TryGetBoolField(TEXT("nextPhase"), bNextPhase);
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetGamePhase(GetGameInstance(), static_cast<int32>(PhaseIndex), bNextPhase);
 		OnComplete(MakeOperationResponse(Result, RequestId));
 		return true;
 	}
