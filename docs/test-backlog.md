@@ -30,8 +30,16 @@ form, cargo platform flow rates).
   isReadyToUpgrade flipped, UpgradeTowTruck pressed. **Phase 1 completed
   and HUB Tiers 3-4 flipped Locked→Available immediately** (5-9 stay
   Locked) — the elevator-phase↔HUB-tier interdependency is confirmed
-  and per-phase. Display quirk: post-press `remainingCost` already
-  shows the NEXT phase's cost list.
+  and per-phase. Phase 2 (same session) confirmed the pattern: Tiers
+  5-6 flipped Available, 7-9 stayed Locked. TWO REAL GOTCHAS from
+  Phase 2: (1) the detail's `remainingCost` is the phase's STATIC bill
+  (GetNextPhaseCost), NOT live remaining — a feed loop must track
+  itemsPaidFromPlayer/isReadyToUpgrade only, or it over-injects
+  (this run stranded ~1850 excess parts in the player inventory);
+  (2) there is NO player-inventory REMOVAL RPC to clean that up
+  (removeItemsFromInventory is buildable-only) — the user had to purge
+  manually. Candidate add: world.removeItemsFromPlayerInventory
+  (creative-gated counterpart to the add).
 - [ ] **NEW `world.setGamePhase`** (creative-gated direct phase write) —
   deployed but deliberately NOT yet exercised (the legitimate
   upgradeSpaceElevator path covered the experiment). Test when a
