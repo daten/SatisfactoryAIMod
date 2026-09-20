@@ -30,7 +30,7 @@ Satisfactory world, plan production chains against real recipes and
 resources, construct and configure factories through the mod's controlled
 operations, watch actual production, and replan — see
 [PLAN.md](PLAN.md) for the full objective and architecture, and
-[CLAUDE.md](CLAUDE.md) for the project's working rules (safety boundaries,
+[AGENTS.md](AGENTS.md) for the project's working rules (safety boundaries,
 source-of-truth priority, logging/testing conventions).
 
 ## Current functionality
@@ -72,8 +72,8 @@ drone proofs-of-concept.
 Out of scope so far: **no planning/optimization layer exists yet** (Phases
 17/19/20 in [PLAN.md](PLAN.md)) — the Python side is a deterministic
 *toolkit*, not an auto-solver — and the mod deliberately avoids any generic
-"call arbitrary function" operation (see CLAUDE.md's Safety and Stability
-Boundary).
+"call arbitrary function" operation (see AGENTS.md's safety and stability
+boundary).
 
 ## Installing & connecting
 
@@ -126,7 +126,7 @@ By default only this machine can connect, and only telemetry + normal
   `telemetry-protocol.md` / `operations-protocol.md` predate most of the
   interface — prefer `world.help` / `rpc-catalog.md`.)
 - **Plan and working rules**: [`PLAN.md`](PLAN.md) (objective, phase
-  breakdown, current milestone) and [`CLAUDE.md`](CLAUDE.md) (behavioral
+  breakdown, current milestone) and [`AGENTS.md`](AGENTS.md) (behavioral
   rules for AI-assisted development on this repo — safety boundaries,
   logging conventions, source-of-truth priority when FactoryGame's own
   `.cpp` bodies are stub-only).

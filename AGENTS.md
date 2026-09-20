@@ -1,1001 +1,379 @@
-# Satisfactory AI Interface — Codex Project Instructions
+# Satisfactory AI Interface — Agent Instructions
+
+Canonical instructions for any AI agent working in this repository
+(Claude Code, Codex, and others). `CLAUDE.md` points here; keep this file
+as the single source of truth.
 
 ## Purpose
 
-This repository contains an experimental interface intended to allow an external AI/planning system to observe and eventually control selected aspects of Satisfactory through an SML mod.
+This repository is a working interface that lets an external AI/planning
+system observe and control selected aspects of Satisfactory through an SML
+mod. The mod (`AIMod`, published as `SatisfactoryAIMod`) is a **bridge, not
+the AI**: it reads FactoryGame world state and exposes a set of explicit,
+validated write operations over a local RPC protocol. Planning,
+optimization, and decision-making live *outside* the mod, in an external
+controller. Never conflate the interface layer with the AI itself.
 
-The long-term research objective is an autonomous Satisfactory industrial agent capable of planning and constructing factories and eventually progressing through the game.
+See `PLAN.md` for the phase-by-phase roadmap and `README.md` for the
+user-facing overview.
 
-The immediate objective is much narrower:
+## Current state
 
-> Build a robust, well-defined Satisfactory/SML telemetry and control interface.
+The bottom-up interface is built and live-tested: logging, telemetry, a
+loopback JSON-RPC transport, stable identifiers, full game-state mutation,
+and factory/logistics construction. The interface is 120+ `world.*` methods,
+self-describing via `world.help` (+ `docs/rpc-catalog.md`). Real factories
+(a copper line, a Heavy Modular Frame factory) and rail/truck/drone
+proofs-of-concept have been built entirely through it.
 
-Do not confuse the interface layer with the AI itself.
+Not built yet, and deliberately kept *out* of the mod: the deterministic
+production/optimization solver and the closed-loop observe→plan→build→verify
+agent (PLAN.md's upper phases). The Python side (`controller/satisfactory_ai`)
+is a deterministic *toolkit*, not a solver.
 
----
+The read-first, prove-each-layer discipline still applies to any new
+capability.
 
-# Current Development Environment
+## Environment
 
-Operating system:
+- OS: Windows 10. Satisfactory: Steam installation.
+- Workspace: this repository (the SML monorepo fork; the mod lives at
+  `Mods/GameFeatures/AIMod/`, native source under its `Source/`).
+- The prerequisites are already set up and working — the custom Satisfactory
+  Unreal Engine, the SML starter project, Game Feature mod creation, the C++
+  toolchain, Unreal Editor project loading, and Alpakit packaging/deploy. Do
+  not recreate these unless an actual problem is detected.
+- Discover build scripts/tooling and engine paths from the existing
+  project/environment; do not guess absolute paths.
 
-`Windows 10`
+## Mod identity
 
-Satisfactory:
+The mod reference is `AIMod` (module, plugin, `ConfigId.ModReference`). It is
+baked into save files and is the published mod ID, so it is effectively
+permanent — **do not rename the mod, module, plugin, directory, or Game
+Feature assets** unless explicitly instructed. The public display name is
+`SatisfactoryAIMod` (`.uplugin` `FriendlyName`), which is cosmetic and may
+change freely.
 
-`Steam installation`
+## Development style
 
-Satisfactory modding workspace:
+Command-line oriented. The agent inspects files directly; edits C++, C#,
+PowerShell, and Python; runs build commands; inspects compiler output and
+logs; writes tests; and maintains documentation. Do not assume VS Code or
+Visual Studio is the primary interface (Visual Studio may serve as a
+compiler/debugger provider).
 
-```text
-F:\Codex\SatisfactoryModLoader\
-```
+Unreal Editor remains necessary for Unreal asset creation, Blueprint work,
+Game Feature configuration, Alpakit, packaging, and interactive testing. Do
+not move source-code work into Blueprint merely because the editor is open.
 
-Current mod:
+## Build system
 
-```text
-F:\Codex\SatisfactoryModLoader\Mods\GameFeatures\AIMod\
-```
+Unreal Build Tool is authoritative for the Unreal/SML C++ code. Do not
+introduce an independent CMake build, and do not compile Unreal classes
+directly with `cl.exe` — UHT-generated code and Unreal reflection must stay
+part of the normal Unreal build. The editor build target is Development
+Editor / Win64 / FactoryGame (via the repo's build script). Alpakit packages
+and deploys the mod.
 
-Current native source:
+## Source of truth
 
-```text
-F:\Codex\SatisfactoryModLoader\Mods\GameFeatures\AIMod\Source\
-```
+When determining how Satisfactory or SML works, prefer, in order:
 
-The current mod was generated through the Satisfactory/SML tooling.
-
-It already contains initial C# Build.cs and C++ templates.
-
-The following have already been successfully tested:
-
-- Satisfactory custom Unreal Engine installation
-- SML Starter Project
-- Game Feature mod creation
-- Blueprint example mod
-- C++ compilation
-- project compilation through the current C++ toolchain
-- Unreal Editor project loading
-- Alpakit packaging/deployment
-- loading and testing the mod in Satisfactory
-
-Do not spend time recreating these prerequisites unless an actual problem is detected.
-
----
-
-# Existing Mod Identity
-
-The current mod reference is:
-
-`AIMod`
-
-Do **not** rename the mod, module, plugin, directory, or existing Game Feature assets unless explicitly instructed to perform a rename.
-
-The name is temporary but functional.
-
-Changing Unreal/SML module identity introduces unnecessary risk while the C++ interface is still being established.
-
----
-
-# Development Style
-
-The preferred development workflow is command-line oriented.
-
-Codex is expected to:
-
-- inspect files directly
-- edit C++
-- edit C#
-- edit PowerShell
-- edit Python
-- run build commands
-- inspect compiler output
-- inspect logs
-- write tests
-- maintain documentation
-
-Do not assume VS Code or Visual Studio is the primary development interface.
-
-Visual Studio may exist as a compiler/debugger provider.
-
-Unreal Editor remains necessary for:
-
-- Unreal asset creation
-- Blueprint work
-- Game Feature configuration
-- Alpakit
-- packaging
-- interactive testing
-
-Do not unnecessarily move source-code work into Blueprint merely because Unreal Editor is available.
-
----
-
-# Build System
-
-Unreal Build Tool is authoritative for the Unreal/SML C++ code.
-
-Do not introduce an independent CMake build for the mod.
-
-Do not attempt to compile Unreal classes directly with `cl.exe`.
-
-UHT-generated code and Unreal reflection must remain part of the normal Unreal build process.
-
-The normal editor build target is expected to be:
-
-```text
-Configuration: Development Editor
-Platform: Win64
-Project: FactoryGame
-```
-
-Use the environment's actual build scripts/tooling after inspecting them.
-
-Do not guess custom Unreal Engine paths if they can be discovered from the existing project/environment.
-
-Alpakit is used for packaging/deploying the mod.
-
----
-
-# Source of Truth
-
-When determining how Satisfactory or SML works, use this priority:
-
-1. Current installed FactoryGame/SML headers and source available in this workspace.
+1. Installed FactoryGame/SML headers and source in this workspace.
 2. Current Satisfactory Modding documentation.
-3. Existing working examples in the Starter Project.
-4. Current upstream SML repositories/documentation if necessary.
+3. Working examples in the SML tooling.
+4. Upstream SML repositories/documentation.
 5. General Unreal Engine documentation.
-6. Memory or assumptions only as a last resort.
-
-The installed headers are especially important because documentation can lag behind the currently installed game/SML version.
-
-Never fabricate an Unreal or FactoryGame API because its name sounds plausible.
-
-If a required API is uncertain:
-
-1. Search the source tree.
-2. Identify candidate classes.
-3. inspect their declarations.
-4. trace existing usages.
-5. document findings.
-6. implement only after sufficient evidence exists.
-
----
-
-# Architectural Boundary
-
-The system has four conceptual layers:
-
-```text
-Satisfactory
-    ↓
-SML C++ interface
-    ↓
-External controller
-    ↓
-Planner / AI
-```
-
-## SML C++ interface responsibilities
-
-The mod may:
-
-- inspect game state
-- normalize game state
-- expose telemetry
-- validate commands
-- perform explicitly supported game operations
-- translate external commands into safe game-engine actions
-- report results
-- maintain protocol-facing object identity where needed
-
-## External controller responsibilities
-
-The external controller should handle:
-
-- persistent normalized world state
-- protocol communication
-- recording telemetry
-- experiment management
-- graph construction
-- state reconciliation
-- retries
-- telemetry history
-
-## Deterministic solver responsibilities
-
-Deterministic code should handle:
-
-- production arithmetic
-- recipe dependency calculations
-- graph traversal
-- optimization
-- resource allocation
-- geometry where deterministic geometry is appropriate
-- constraint solving
-
-## LLM responsibilities
-
-The LLM should primarily handle:
-
-- high-level goal interpretation
-- strategic planning
-- decomposing objectives
-- deciding between valid plans
-- diagnosis of unusual situations
-- replanning
-- selecting optimization objectives
-- explaining decisions
-
-Do not use an LLM to perform large volumes of arithmetic that can be handled reliably by deterministic code.
-
----
-
-# Keep the Unreal Mod Small
-
-Do not place the production solver inside Unreal.
-
-Do not embed an LLM runtime inside Unreal.
-
-Do not embed Python into the Unreal process without explicit architectural approval.
-
-Do not place strategic AI logic in Blueprint.
-
-Do not make the SML mod responsible for long-term experiment state unless game integration specifically requires it.
-
-The mod should behave primarily like a controlled adapter:
-
-```text
-FactoryGame objects
-        ↕
-SML interface
-        ↕
-normalized protocol
-```
-
----
-
-# Safety and Stability Boundary
-
-The external AI must never receive unrestricted access to arbitrary Unreal functionality.
-
-Do not create generic interfaces such as:
-
-```text
-CallFunctionByName(...)
-SetArbitraryProperty(...)
-SpawnAnyUClass(...)
-WriteMemory(...)
-ExecuteConsoleCommand(...)
-```
-
-unless explicitly approved for a specific debugging purpose.
-
-Prefer explicit operations:
-
-```text
-GetResourceNodes
-GetBuildings
-GetMachineStatus
-SetMachineRecipe
-PlaceBuilding
-ConnectConveyor
-ConnectPower
-```
-
-Each write operation should:
-
-1. validate input
-2. verify target identity
-3. verify target type
-4. verify requested operation is permitted
-5. invoke the game operation
-6. report actual success/failure
-
-The mod is a security/stability boundary between an AI-generated command stream and the game process.
-
-Treat all external commands as untrusted input.
-
----
-
-# No Direct Memory Manipulation
-
-Do not use:
-
-- hard-coded offsets
-- pointer scanning
-- DLL injection
-- binary patches
-- arbitrary process-memory reads/writes
-- undocumented structure overlays
-
-unless the project direction explicitly changes.
-
-The entire reason for using SML is to operate through Unreal and FactoryGame's object model rather than reverse-engineering runtime memory.
-
----
-
-# Unreal Object Rules
-
-Do not expose raw:
-
-- pointers
-- memory addresses
-- `UObject*`
-- `AActor*`
-- component pointers
-
-through the external protocol.
-
-Convert them into normalized values or stable interface IDs.
-
-Before storing an Unreal object reference across frames/events, verify that the chosen storage method properly participates in Unreal lifetime/garbage-collection rules.
-
-Never assume an actor remains valid.
-
-Use appropriate Unreal validity checks.
-
-Be particularly careful with:
-
-- destroyed actors
-- world teardown
-- save/load
-- map transition
-- Game Feature activation/deactivation
-- multiplayer/server ownership
-- asynchronous operations
-
----
-
-# Threading
-
-Assume game-object access belongs on the Unreal game thread unless the relevant API explicitly guarantees otherwise.
-
-Networking, parsing, or expensive calculations must not block the game thread.
-
-If a transport thread receives a command requiring game-world access, marshal that operation appropriately onto the game thread.
-
-Do not call arbitrary FactoryGame/Unreal APIs from worker threads.
-
-Document any non-obvious threading requirement discovered during development.
-
----
-
-# Logging
-
-Use a dedicated Unreal C++ log category for this project.
-
-Preferred conceptual name:
-
-```text
-LogAIModAI
-```
-
-Use appropriate levels:
-
-- `Verbose` for detailed diagnostics
-- `Display` or `Log` for normal lifecycle events
-- `Warning` for recoverable abnormal states
-- `Error` for failed operations
-- avoid `Fatal` except for genuinely unrecoverable programmer errors
-
-Do not use:
-
-- `printf`
-- `std::cout`
-- arbitrary text files
-- Windows console popups
-
-unless explicitly needed for a temporary isolated diagnostic.
-
-Runtime logs should be inspectable in:
-
-```text
-%LOCALAPPDATA%\FactoryGame\Saved\Logs\FactoryGame.log
-```
-
----
-
-# Error Handling
-
-Do not silently ignore failures.
-
-Prefer structured errors.
-
-Conceptually:
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "INVALID_BUILDING_ID",
-    "message": "No active building exists with the supplied identifier."
-  }
-}
-```
-
-Expected failures should not crash the game.
-
-Assertions should be reserved for programmer invariants, not malformed external requests.
-
----
-
-# Protocol Design
-
-The external interface should be versioned from the beginning.
-
-Conceptually:
-
-```json
-{
-  "protocolVersion": 1,
-  "requestId": "123",
-  "method": "world.resourceNodes"
-}
-```
-
-Do not expose Unreal serialization directly.
-
-Protocol structures must be independent of implementation classes.
-
-Prefer:
-
-```text
-FactoryGame object
-    ↓
-normalized internal DTO
-    ↓
-protocol serializer
-```
-
-rather than:
-
-```text
-FactoryGame UObject
-    ↓
-JSON reflection dump
-```
-
-The external API should remain reasonably stable even if FactoryGame internals change.
-
-## Self-describing interface (`world.help`)
-
-The RPC must remain discoverable by an agent that does **not** have the mod
-source. `world.help` returns a live catalog of every `world.*` method (name,
-category, params with name/type/required, and a one-line summary), generated
-from the dispatcher by `controller/tools/gen_rpc_catalog.py`, which also emits
-the embedded catalog (`AIModRpcCatalog.gen.cpp`) and `docs/rpc-catalog.md`. Keep
-it current (see Definition of Done); `gen_rpc_catalog.py --check` fails if it is
-stale. `RPC_REFERENCE.md` is a richer hand-written companion. Operational
-guides: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
-
----
-
-# Networking
-
-**STATUS: IMPLEMENTED** — a loopback-only JSON-RPC HTTP server (`AIModHttpServerSubsystem`) is live, serving ~104 `world.*` methods. The requirements below are the standing constraints it must keep meeting (they are satisfied today; do not regress them).
-
-The following constraints apply:
-
-- bind only to loopback by default
-- do not expose the API to the LAN by default
-- define message-size limits
-- validate JSON/schema
-- reject unknown operations
-- reject invalid argument types
-- use request IDs
-- return structured errors
-- avoid game-thread blocking
-- include protocol versioning
-
-Do not implement authentication initially if the service is strictly loopback-only, but design the transport so remote access is not accidentally enabled.
-
----
-
-# Third-Party Dependencies
-
-Avoid new native dependencies in the Unreal module unless they provide substantial value.
-
-Prefer Unreal facilities for:
-
-- strings
-- containers
-- JSON
-- sockets/networking
-- async execution
-- logging
-- filesystem access
-
-External Python code may use appropriate Python libraries more freely.
-
-Any new native dependency must be justified before being introduced.
-
----
-
-# Blueprint Boundary
-
-Blueprints are acceptable for:
-
-- simple UI
-- test harnesses
-- triggering/debugging C++ functions
-- visual Unreal configuration
-- small pieces where Blueprint is clearly more convenient
-
-Do not implement complex protocol handling, production planning, graph algorithms, or AI logic in Blueprint.
-
-Existing Blueprint content must continue to function unless explicitly being replaced.
-
----
-
-# C++ ↔ Blueprint Exposure
-
-Expose C++ functions to Blueprint only when there is a clear use case.
-
-Do not mark every function `BlueprintCallable`.
-
-Keep internal implementation details private.
-
-Blueprint exposure is an interface, not a default.
-
----
-
-# Resource Discovery
-
-The first meaningful world-inspection feature is resource-node enumeration.
-
-For each resource node, eventually capture:
-
-```text
-ID
-resource type
-purity
-position X/Y/Z
-occupied state
-```
-
-Additional information may be added where safely available.
-
-Do not infer node characteristics from position or visual assets if the actual object exposes them.
-
----
-
-# Stable Identifiers
-
-The external controller needs stable identifiers.
-
-Do not use pointer values.
-
-Before inventing identifiers, research whether FactoryGame already exposes suitable identifiers.
-
-Document:
-
-- uniqueness
-- persistence
-- save/load behavior
-- destruction behavior
-- recreation behavior
-
-If a project-specific identity system becomes necessary, design it deliberately.
-
----
-
-# Read Before Write
-
-**STATUS (2026-09): this bottom-up progression is COMPLETE** — full telemetry, an external world model, and full game-state mutation/construction are all built and live-tested. The rule below is kept as an enduring principle for any *new* capability: read/observe it reliably before you mutate it.
-
-Development order is deliberately read-first.
-
-Do not implement factory construction while world telemetry remains incomplete or unreliable.
-
-Preferred progression:
-
-```text
-read resource nodes
-read buildings
-read recipes
-read inventories
-read factory connectivity
-read progression
-    ↓
-model world externally
-    ↓
-only then mutate game state
-```
-
-This lets us understand how Satisfactory represents the world before attempting to create it.
-
----
-
-# First Write Operations
-
-**STATUS: COMPLETE** — `SetRecipe`/`SetClockSpeed` through `PlaceBuilding`/`ConnectConveyor`/`ConnectPipe`/`ConnectPower` (and far beyond) are all implemented and live-tested. Kept as the record of the deliberate order taken; the "start simple, validate, then expand" discipline still applies to new write operations.
-
-When mutation work eventually begins, start with operations against existing objects.
-
-Examples:
-
-```text
-SetRecipe
-SetClockRate
-```
-
-Only after these are validated should work proceed to:
-
-```text
-PlaceBuilding
-ConnectConveyor
-ConnectPipe
-ConnectPower
-```
-
-Do not jump directly from telemetry to arbitrary actor spawning.
-
----
-
-# Building Placement
-
-When construction is implemented, prefer Satisfactory's normal construction/buildable systems.
-
-Do not simply `SpawnActor` a factory building and assume it is valid.
-
-A valid Satisfactory buildable may require:
-
-- construction metadata
-- ownership
-- replication
-- save registration
-- connection components
-- subsystem registration
-- initialization
-- recipe state
-- hologram/build validation
-
-Research the existing construction code before implementing placement.
-
----
-
-# Multiplayer
-
-Multiplayer support is not an initial requirement.
-
-The primary target is:
-
-```text
-single-player/local Satisfactory session
-```
-
-However, do not deliberately create architecture that assumes every operation is valid on both client and server.
-
-When relevant, document whether an API:
-
-- must execute on server
-- executes on client
-- is replicated
-- is authority-only
-
-Do not solve multiplayer unless needed, but do not conceal multiplayer implications.
-
----
-
-# Save Compatibility
-
-Prefer normal Satisfactory save mechanisms.
-
-Do not independently rewrite `.sav` files from inside this mod.
-
-Any state the mod adds to the save must follow appropriate SML/Unreal save mechanisms.
-
-The eventual AI controller should be able to restart and reconstruct its world model from telemetry rather than requiring fragile in-process state.
-
----
-
-# Performance
-
-Do not scan every UObject every frame.
-
-Prefer:
-
-- explicit subsystems
-- known actor classes
-- event-driven updates
-- periodic low-frequency polling where necessary
-
-Initial debug scans may be brute-force if needed to understand the game, but production implementation should avoid unnecessarily expensive world scans.
-
-Profile before performing large optimization work.
-
----
-
-# Determinism and Reproducibility
-
-The eventual system is an experiment.
-
-Prefer behavior that can be:
-
-- logged
-- replayed
-- measured
-- compared
-
-Important operations should eventually have:
-
-- timestamp
-- request ID
-- objective/context
-- command
-- result
-- resulting object ID
-- failure reason
-
-Avoid opaque autonomous behavior inside the SML mod.
-
----
-
-# Testing Strategy
-
-There are three testing layers.
-
-## Layer 1 — Native compile tests
-
-Verify that C++ and UHT compile.
-
-## Layer 2 — Unreal/SML integration tests
-
-Run through Unreal Editor and/or packaged mod.
-
-Verify:
-
-- module loads
-- Game Feature activates
-- functions behave correctly
-
-## Layer 3 — Actual Satisfactory runtime tests
-
-Launch the Steam game with the deployed mod.
-
-Verify real FactoryGame behavior.
-
-A successful editor compile does not prove the runtime feature works.
-
----
-
-# External Test Fixtures
-
-When telemetry is developed, record representative outputs in:
-
-```text
-tests/fixtures/
-```
-
-Examples:
-
-```text
-resource_nodes.json
-buildings.json
-factory_graph.json
-```
-
-External Python tests should use these fixtures so that controller development does not require starting Satisfactory.
-
-Do not commit personal save files unless intentionally selected as test fixtures.
-
----
-
-# Documentation
-
-Document discoveries that future Codex sessions would otherwise need to rediscover.
-
-Use:
-
-```text
-docs/
-```
-
-Important topics include:
-
-```text
-current-environment.md
-build.md
-architecture.md
-resource-node-research.md
-object-identifiers.md
-factorygame-api-notes.md
-protocol.md
-threading.md
-```
-
-When a difficult Satisfactory/Unreal API behavior is discovered, document it immediately.
-
-Especially record rules such as:
-
-```text
-Do not call X before Y initializes.
-Object Z exists only on the server.
-Function A looks correct but fails during save load.
-```
-
-This accumulated project knowledge is valuable.
-
----
-
-# Comments
-
-Do not fill source with comments explaining obvious syntax.
-
-Comments should primarily explain:
-
-- Unreal lifecycle constraints
-- FactoryGame peculiarities
-- threading requirements
-- ownership rules
-- non-obvious API behavior
-- architectural reasons
-- dangerous assumptions
-
-Prefer documenting *why* over *what*.
-
----
-
-# Generated Files
-
-Do not manually edit Unreal-generated files.
-
-Do not commit unnecessary build output.
-
-Respect the existing Unreal/SML `.gitignore`.
-
-Typical generated artifacts should remain generated unless the project already intentionally versions them.
-
-Before changing ignore rules, inspect the current Starter Project conventions.
-
----
-
-# Git Discipline
-
-Before large changes:
-
-1. inspect `git status`
-2. understand existing modifications
-3. do not overwrite unrelated user work
-
-Prefer small logical commits when asked to commit.
-
-Do not commit automatically unless the user requests or the current task explicitly authorizes commits.
-
-Never perform destructive Git operations such as:
-
-```text
-reset --hard
-clean -fd
-force push
-```
-
-without explicit permission.
-
----
-
-# Refactoring
-
-Do not perform opportunistic repo-wide refactors during exploratory work.
-
-When investigating an API:
-
-1. make the smallest useful change
-2. compile
-3. validate
-4. then refactor once behavior is understood
-
-Unreal compile cycles are expensive; preserve known-working states.
-
----
-
-# Current Status and Frontier
-
-The original near-term milestone (trustworthy read-only resource-node JSON) and
-the whole bottom-up interface — logging, telemetry, loopback JSON-RPC transport,
-stable IDs, full game-state mutation, and factory/logistics **construction** —
-are **complete and live-tested**. The interface is ~104 `world.*` methods and is
-self-describing via `world.help` (+ `docs/rpc-catalog.md`; richer hand-written
-detail in `RPC_REFERENCE.md`). Real factories (a copper line, a Heavy Modular
-Frame factory) and rail/truck/drone PoCs have been built through it. See
-`PLAN.md` for phase-by-phase status.
-
-The current frontier is:
-
-1. **Engineering gaps in the interface** — a fully drivable RPC-built train
-   joint, a truck driving a clean tree-free loop, freight-platform snap, rail
-   coupling. Tracked in `docs/vehicle-placement-guide.md`.
-2. **The layers above the mod that are NOT built yet** (keep them out of the
-   mod): the deterministic production/optimization solver and the closed-loop
-   agent (PLAN.md Phases 17, 19, 20). The Python side is today a deterministic
-   *toolkit*, not a solver.
-
-The read-first, prove-each-layer discipline still applies to any new capability.
-
----
-
-# Definition of Done for a Coding Task
+6. Memory or assumptions — last resort only.
+
+Installed headers matter most because documentation lags the installed
+game/SML version. **Never fabricate an Unreal or FactoryGame API because its
+name sounds plausible.** Many FactoryGame `.cpp` bodies in this workspace are
+link stubs — the real implementation is in the shipping binary, so header
+declarations plus live testing are the evidence, not the stub bodies. If an
+API is uncertain: search the tree, identify candidates, inspect declarations,
+trace usages, then implement only once the evidence supports it.
+
+## Architecture
+
+Four conceptual layers: **Satisfactory → SML C++ interface → external
+controller → planner/AI.**
+
+- **SML C++ interface (the mod):** inspect and normalize game state, expose
+  telemetry, validate commands, perform explicitly supported operations,
+  translate external commands into safe engine actions, report results,
+  maintain protocol-facing object identity.
+- **External controller:** persistent normalized world state, protocol
+  communication, telemetry recording/history, experiment management, graph
+  construction, reconciliation, retries.
+- **Deterministic solver:** production arithmetic, recipe dependency
+  calculations, graph traversal, optimization, allocation, geometry,
+  constraint solving.
+- **LLM:** high-level goal interpretation, strategic planning, decomposing
+  objectives, choosing among valid plans, diagnosing unusual situations,
+  replanning, selecting objectives, explaining decisions. Do not use an LLM
+  for large volumes of arithmetic deterministic code can do reliably.
+
+### Keep the Unreal mod small
+
+Do not put the production solver, an LLM runtime, embedded Python, strategic
+AI logic, or long-term experiment state inside the Unreal mod (unless game
+integration specifically requires the last one). The mod is a controlled
+adapter between FactoryGame objects and the normalized protocol.
+
+## Safety and stability boundary
+
+The external AI must never receive unrestricted access to arbitrary Unreal
+functionality. Do not create generic interfaces such as
+`CallFunctionByName`, `SetArbitraryProperty`, `SpawnAnyUClass`,
+`WriteMemory`, or `ExecuteConsoleCommand` unless explicitly approved for a
+specific debugging purpose. Prefer explicit operations (`GetResourceNodes`,
+`SetMachineRecipe`, `PlaceBuilding`, `ConnectConveyor`, …).
+
+Each write operation must: validate input, verify target identity, verify
+target type, verify the operation is permitted, invoke the game operation,
+and report actual success/failure. Treat all external commands as untrusted
+input — the mod is a security/stability boundary between an AI-generated
+command stream and the game process.
+
+Cheat-capable operations with no legitimate in-game equivalent (free item
+injection, achievement re-fire, event forcing, world/entity manipulation)
+are gated behind the off-by-default **Allow Creative Features** player
+setting and flagged in `world.help`. An external caller can never enable
+that setting itself.
+
+### No direct memory manipulation
+
+No hard-coded offsets, pointer scanning, DLL injection, binary patches,
+arbitrary process-memory access, or undocumented structure overlays. The
+whole point of using SML is to operate through Unreal/FactoryGame's object
+model, not to reverse-engineer runtime memory.
+
+### Unreal object rules
+
+Do not expose raw pointers, memory addresses, `UObject*`, `AActor*`, or
+component pointers through the protocol — convert them to normalized values
+or stable interface IDs. Before storing an Unreal object reference across
+frames/events, ensure the storage participates in Unreal
+lifetime/GC rules; never assume an actor stays valid; use proper validity
+checks. Be especially careful with destroyed actors, world teardown,
+save/load, map transitions, Game Feature activation/deactivation,
+multiplayer/server ownership, and async operations.
+
+### Stable identifiers
+
+The external controller needs stable identifiers; never use pointer values.
+Prefer identifiers FactoryGame already exposes; document their uniqueness,
+persistence, and save/load/destruction/recreation behavior. Design a
+project-specific identity system deliberately only if one becomes necessary.
+
+## Threading
+
+Assume game-object access belongs on the Unreal game thread unless an API
+explicitly guarantees otherwise. Networking, parsing, and expensive
+calculations must not block the game thread. A transport thread that
+receives a command needing game-world access must marshal it onto the game
+thread. Do not call arbitrary FactoryGame/Unreal APIs from worker threads.
+Document any non-obvious threading requirement discovered.
+
+## Logging
+
+Use the dedicated log category `LogAIModAI`. Levels: `Verbose` for detailed
+diagnostics, `Display`/`Log` for normal lifecycle events, `Warning` for
+recoverable abnormal states, `Error` for failed operations; avoid `Fatal`
+except for genuinely unrecoverable programmer errors. Do not use `printf`,
+`std::cout`, arbitrary text files, or console popups except for a temporary
+isolated diagnostic. Runtime logs:
+`%LOCALAPPDATA%\FactoryGame\Saved\Logs\FactoryGame.log`.
+
+## Error handling
+
+Do not silently ignore failures. Return structured errors, e.g.
+`{"success": false, "error": {"code": "INVALID_BUILDING_ID", "message": "…"}}`.
+Expected failures must not crash the game. Reserve assertions for programmer
+invariants, not malformed external requests.
+
+## Protocol design
+
+The external interface is versioned. Requests carry `protocolVersion`, a
+`requestId`, and a `method`. Do not expose Unreal serialization directly;
+protocol structures are independent of implementation classes (FactoryGame
+object → normalized DTO → protocol serializer, never a raw JSON reflection
+dump). The API should stay reasonably stable even if FactoryGame internals
+change.
+
+**Self-describing interface (`world.help`):** the RPC must stay discoverable
+by an agent that does not have the mod source. `world.help` returns a live
+catalog of every `world.*` method (name, category, params with
+name/type/required, one-line summary), generated from the dispatcher by
+`controller/tools/gen_rpc_catalog.py`, which also emits the embedded catalog
+(`AIModRpcCatalog.gen.cpp`) and `docs/rpc-catalog.md`. Keep it current (see
+Definition of Done); `gen_rpc_catalog.py --check` fails when it is stale and
+is wired into CI. `RPC_REFERENCE.md` is a richer hand-written companion;
+operational guides live in `docs/factory-placement-guide.md` and
+`docs/vehicle-placement-guide.md`.
+
+## Networking
+
+The loopback JSON-RPC HTTP server (`AIModHttpServerSubsystem`) must keep
+meeting these standing constraints: bind to loopback only by default (the
+socket bind is forced via `GConfig` at startup, not just an app-layer
+check); do not expose the API to the LAN by default (a player-only,
+off-by-default setting gates remote access); enforce message-size limits;
+validate JSON/schema; reject unknown methods and invalid argument types; use
+request IDs; return structured errors; never block the game thread; and
+include protocol versioning. Authentication is unnecessary while strictly
+loopback-only, but the transport must not enable remote access accidentally.
+
+## Third-party dependencies
+
+Avoid new native dependencies in the Unreal module unless they add
+substantial value; prefer Unreal facilities for strings, containers, JSON,
+sockets, async, logging, and filesystem access. External Python code may use
+appropriate libraries more freely. Justify any new native dependency before
+adding it.
+
+## Blueprint boundary
+
+Blueprints are fine for simple UI, test harnesses, triggering/debugging C++
+functions, visual configuration, and small conveniences. Do not implement
+protocol handling, production planning, graph algorithms, or AI logic in
+Blueprint. Existing Blueprint content must keep working unless explicitly
+replaced. Expose C++ to Blueprint only with a clear use case — keep internal
+details private; Blueprint exposure is an interface, not a default.
+
+## Read before write
+
+Observe a capability reliably before mutating it: read the relevant world
+state (nodes, buildings, recipes, inventories, connectivity, progression)
+and model it before constructing or changing it. This is an enduring
+principle for every new capability, not just the original build order.
+
+## Building placement
+
+Prefer Satisfactory's normal construction/buildable systems — do not just
+`SpawnActor` a building and assume it is valid. A valid buildable may require
+construction metadata, ownership, replication, save registration, connection
+components, subsystem registration, initialization, recipe state, and
+hologram/build validation. Research the existing construction code before
+implementing new placement.
+
+## Multiplayer
+
+The primary target is a single-player/local session; multiplayer is not a
+requirement and is largely untested. Do not architect as if every operation
+is valid on both client and server. When relevant, document whether an API
+must run on the server, runs on the client, is replicated, or is
+authority-only. Do not solve multiplayer unless needed, but do not conceal
+its implications.
+
+## Save compatibility
+
+Prefer normal Satisfactory save mechanisms; do not rewrite `.sav` files from
+inside the mod. Any state the mod adds to a save must use appropriate
+SML/Unreal save mechanisms. The external controller should be able to
+restart and reconstruct its world model from telemetry rather than relying
+on fragile in-process state.
+
+## Performance
+
+Do not scan every UObject every frame. Prefer explicit subsystems, known
+actor classes, event-driven updates, and low-frequency polling where
+necessary. Brute-force debug scans are acceptable while investigating, but
+production code must avoid unnecessarily expensive world scans. Profile
+before large optimization work.
+
+## Determinism and reproducibility
+
+Prefer behavior that can be logged, replayed, measured, and compared.
+Important operations should be traceable (timestamp, request ID,
+objective/context, command, result, resulting object ID, failure reason).
+Avoid opaque autonomous behavior inside the mod.
+
+## Testing
+
+Three layers, none a substitute for the next:
+
+1. **Native compile** — C++ and UHT compile.
+2. **Unreal/SML integration** — module loads, Game Feature activates,
+   functions behave (editor and/or packaged mod).
+3. **Satisfactory runtime** — launch the Steam game with the deployed mod
+   and verify real FactoryGame behavior.
+
+A successful compile does not prove the runtime feature works. Record
+representative telemetry outputs as fixtures under `tests/fixtures/` so
+external Python tests run without launching Satisfactory. Do not commit
+personal save files unless intentionally chosen as fixtures.
+
+## Documentation
+
+Record discoveries a future session would otherwise have to rediscover, in
+`docs/`. Immediately document difficult Satisfactory/Unreal API behavior —
+especially ordering constraints ("do not call X before Y initializes"),
+server-only objects, and functions that look correct but fail during save
+load. This accumulated knowledge is valuable; land it in `docs/`, the
+`controller/satisfactory_ai` toolkit, and code comments rather than only in
+session memory.
+
+## Comments
+
+Do not comment obvious syntax. Comments should explain *why*: Unreal
+lifecycle constraints, FactoryGame peculiarities, threading requirements,
+ownership rules, non-obvious API behavior, architectural reasons, and
+dangerous assumptions.
+
+## Generated files and git
+
+Do not manually edit Unreal-generated files or commit unnecessary build
+output; respect the existing `.gitignore`. Before large changes, inspect
+`git status` and understand existing modifications — do not overwrite
+unrelated work. Prefer small logical commits. Never run destructive git
+operations (`reset --hard`, `clean -fd`, force push) without explicit
+permission.
+
+## Refactoring
+
+Do not do opportunistic repo-wide refactors during exploratory work. When
+investigating an API: make the smallest useful change, compile, validate,
+then refactor once behavior is understood. Unreal compile cycles are
+expensive — preserve known-working states.
+
+## Definition of Done (coding task)
 
 Before declaring a native-code task complete:
 
-1. source changes are internally consistent
-2. required module dependencies are present
-3. UHT succeeds
-4. Development Editor compilation succeeds
-5. relevant automated tests pass
-6. runtime verification steps are described
-7. logs/errors are checked when runtime testing is available
-8. documentation is updated if a non-obvious discovery was made
-9. **if you added, removed, or changed the params of a `world.*` RPC method**, re-run `python controller/tools/gen_rpc_catalog.py` (add a one-line summary for any new method) and rebuild, so the `world.help` catalog and `docs/rpc-catalog.md` stay in sync with the dispatcher. `gen_rpc_catalog.py --check` fails when they are stale.
+1. Source changes are internally consistent.
+2. Required module dependencies are present.
+3. UHT succeeds.
+4. Development Editor compilation succeeds.
+5. Relevant automated tests pass.
+6. Runtime verification steps are described.
+7. Logs/errors are checked when runtime testing is available.
+8. Documentation is updated for any non-obvious discovery.
+9. **If you added, removed, or changed the params of a `world.*` method**,
+   re-run `python controller/tools/gen_rpc_catalog.py` (add a one-line
+   summary for any new method) and rebuild, so `world.help` and
+   `docs/rpc-catalog.md` stay in sync. `gen_rpc_catalog.py --check` (run in
+   CI) fails when they are stale.
 
-If Unreal Editor or Satisfactory must be launched manually by the user to complete validation, explicitly state exactly what should be tested and what result is expected.
+If the user must launch Unreal Editor or Satisfactory to finish validation,
+state exactly what to test and the expected result. **Never claim runtime
+success merely because compilation succeeded.**
 
-Never claim runtime success merely because compilation succeeded.
+## Behavior for uncertain APIs
 
----
+Do not guess. Instead: search → inspect declarations → inspect usages → form
+a hypothesis → make a small test → compile → verify. When several candidate
+APIs exist, record the evidence for the chosen one in the relevant research
+note. Compiler errors and runtime logs are useful evidence. Treat
+exploratory development as investigation, not a single large speculative
+implementation.
 
-# Codex Behavior for Uncertain APIs
+## Long-term direction
 
-When uncertain:
-
-Do not guess.
-
-Instead:
-
-```text
-Search → inspect declarations → inspect usages → form hypothesis → make small test → compile → verify
-```
-
-If multiple possible Satisfactory APIs exist, explain the evidence for the selected one in the relevant research note.
-
-Compiler errors are useful evidence.
-
-Runtime logs are useful evidence.
-
-Treat exploratory development as investigation rather than trying to produce a large implementation in one pass.
-
----
-
-# Long-Term Success Criteria
-
-Eventually, the interface should make it possible for an external controller to express operations similar to:
-
-```text
-GetWorldState()
-GetResourceNodes()
-GetBuildings()
-GetFactoryGraph()
-GetInventory()
-GetProgression()
-GetAvailableRecipes()
-
-PlaceBuilding(...)
-DeleteBuilding(...)
-SetRecipe(...)
-SetClock(...)
-ConnectConveyor(...)
-ConnectPipe(...)
-ConnectPower(...)
-```
-
-without exposing arbitrary Unreal execution.
-
-Above this interface, independent software should eventually be capable of:
-
-```text
-observe
-plan
-optimize
-build
-measure
-diagnose
-correct
-progress
-```
-
-until a Satisfactory end-game objective is completed.
-
-That is the long-term direction.
-
-The present priority is building a reliable foundation rather than attempting autonomous gameplay prematurely.
+Eventually, independent software above this interface should be able to
+observe, plan, optimize, build, measure, diagnose, correct, and progress
+toward a Satisfactory end-game objective — without exposing arbitrary Unreal
+execution. The present priority remains a reliable foundation over premature
+autonomous gameplay.
