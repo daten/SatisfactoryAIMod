@@ -52,8 +52,16 @@ reliable method is **putting the player on its surface and reading the pawn posi
   Below it is a **wider lower tier** with collision top at **z≈1,004,458** (~3,600 units
   below the upper top), which extends further out. So the station is stepped, not a single
   flat disc. Falling off the upper edge = a short ~1,700u drop onto the lower tier, not a
-  plunge to the ground. **Measurement in progress / paused** on the lower tier — resume
-  by driving east until the lower collision ends, or edge-sample downward-and-outward.
+  plunge to the ground.
+
+  **ANGLED RAMPS / SLOPED OUTER EDGE (found 2026-09-19):** beyond the lower tier the
+  collision **slopes down and outward** via invisible angled ramps toward a visible outer
+  ring (drivable/standable on the slope). Waypoint on a ramp: r=**999,205**, z=**994,896**
+  (13,148 below the upper top). So the station's rim is a sculpted descending disc, not a
+  sheer edge. Radial profile so far (EAST): flat top z=1,008,044 out to the opaque ring
+  r~955k → upper edge r~990k → lower tier z~1,004,458 → sloping ramps (r~999k, z~994,896)
+  → visible outer ring (further out, lower). **Measurement in progress** — still descending
+  toward the outer ring; true outer radius not yet reached.
 
 ## Gotchas
 
