@@ -50,7 +50,7 @@ nesting), but never `|`. Regular buildable ids (`GetPathName()`) always
 start with `/Game/...`, never `lightweight:`, so the two id shapes never
 collide. Helpers: `MakeLightweightBuildableId`,
 `IsLightweightBuildableId`, `ParseLightweightBuildableId` (all in the
-anonymous namespace at the top of `AIModFunctionLibrary.cpp`).
+`AIModInternal` namespace in `AIModFunctionLibraryInternal.h`).
 
 ### Index stability — CORRECTED 2026-08-25, indices are NOT stable
 

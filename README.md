@@ -104,9 +104,12 @@ By default only this machine can connect, and only telemetry + normal
 
 - **Mod C++ source** (the actual interface):
   [`Mods/GameFeatures/AIMod/Source/AIMod`](Mods/GameFeatures/AIMod/Source/AIMod)
-  — `AIModFunctionLibrary.cpp/.h` implements the construction/telemetry
-  logic, `AIModHttpServerSubsystem.cpp/.h` is the RPC transport and
-  method dispatch.
+  — `AIModFunctionLibrary.h` declares the interface; its
+  implementation is split by domain across `AIModFunctionLibrary.cpp`
+  (world/session/config) and `AIModFunctionLibrary_{Telemetry,
+  Construction,Connections,Vehicles}.cpp`, with shared helpers in
+  `AIModFunctionLibraryInternal.h`. `AIModHttpServerSubsystem.cpp/.h`
+  is the RPC transport and method dispatch.
 - **External controller** (Python side):
   [`controller/`](controller) — `satisfactory_ai/` is a toolkit of
   geometry/protocol helpers (not an auto-layout solver by design), with
