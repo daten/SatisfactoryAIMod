@@ -146,6 +146,18 @@ have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
 - [ ] `controller/satisfactory_ai/pipes.py` — steep vertical pipe run
   (flagged unverified pending a live `world.testPipe` dry run at real
   vertical geometry; ordinary pump→tank runs are verified).
+- [ ] `controller/satisfactory_ai/belt_route.py` — pole belt-connector
+  offset is a "live-seed TODO" (poles placed at the span endpoint with no
+  learned connector offset); seed it via `world.connectorLayout` /
+  `connector_db.learn_and_store()` on a real placed pole.
+- [ ] `controller/satisfactory_ai/conveyors.py` — the belt `GetSpeed()`
+  unit conversion has deliberately never been confirmed against real
+  throughput; measure actual items/min through a Mk1 belt (e.g. container
+  count delta over a timed window) and pin the conversion down.
+- [ ] `controller/satisfactory_ai/recipe_tree.py` — somersloop
+  amplification assumes full 2x when a machine's sloop slot count is
+  unknown ("slots unknown -> assume full 2x"); read the real per-machine
+  production-amplifier slot counts live and replace the assumption.
 - [ ] `world.projectAssembly` before the Space Elevator exists — whether
   the station actor spawns pre-elevator (`found=false` path). Trivial;
   only testable on a fresh save.
