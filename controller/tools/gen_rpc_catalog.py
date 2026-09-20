@@ -73,7 +73,7 @@ SUMMARIES = {
  "world.setPriorityPowerSwitchPriority":"Set a priority power switch's priority group.",
  "world.activeEvents":"Active world/seasonal events.",
  "world.milestoneProgress":"HUB milestone/tech-tier progress.",
- "world.payMilestone":"Pay a milestone (pure bookkeeping; HUB has no inventory).",
+ "world.payMilestone":"Legitimately pay off a milestone by consuming real items from the carried inventory (dryRun previews; shortfall reported). fromDepot=true auto-withdraws the shortfall from the Dimensional Depot first (produce->upload->pay in one call).",
  "world.reprocessMilestone":"Re-fire milestone achievements: reset+re-give already-purchased HUB schematics (keeps unlocks) so the unlock flow re-runs. Target schematicClass, tier (>=0), or allTiers. Session-only; test one tier first.",
  "world.mamStatus":"M.A.M. research status (ongoing/completed/hard drives).",
  "world.startMamResearch":"Start a M.A.M. research node.",

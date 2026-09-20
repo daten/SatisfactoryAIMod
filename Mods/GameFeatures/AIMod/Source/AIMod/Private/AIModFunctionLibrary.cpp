@@ -15702,7 +15702,7 @@ FString UAIModFunctionLibrary::LogMilestoneProgressAsJson(UObject* WorldContextO
 	return JsonString;
 }
 
-FAIModOperationResult UAIModFunctionLibrary::PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun)
+FAIModOperationResult UAIModFunctionLibrary::PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun, bool bFromDepot)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -15754,12 +15754,53 @@ FAIModOperationResult UAIModFunctionLibrary::PayOffMilestone(UObject* WorldConte
 	// WithdrawFromCentralStorage first if the needed items are in the Depot.
 	const TArray<FItemAmount> RemainingCost = SchematicManager->GetRemainingCostFor(SchematicClass);
 
+	// fromDepot (2026-09-20): auto-withdraw the shortfall from the
+	// Dimensional Depot into the carried inventory before submitting, so a
+	// produce->upload->pay loop is one call. Same conservative add-then-
+	// remove pattern as WithdrawFromCentralStorage (never conjure items).
+	// On a dryRun we don't mutate; instead the submission preview below
+	// counts Depot stock as effectively available.
+	AFGCentralStorageSubsystem* CentralStorage = nullptr;
+	TArray<FItemAmount> WithdrawnFromDepot;
+	if (bFromDepot)
+	{
+		CentralStorage = AFGCentralStorageSubsystem::Get(World);
+		if (!CentralStorage)
+		{
+			return FAIModOperationResult::Failure(TEXT("NO_CENTRAL_STORAGE"), TEXT("fromDepot requested but no AFGCentralStorageSubsystem for this world"));
+		}
+		if (!bDryRun)
+		{
+			for (const FItemAmount& Owed : RemainingCost)
+			{
+				if (!Owed.ItemClass || Owed.Amount <= 0) { continue; }
+				const int32 Need = Owed.Amount - PlayerInventory->GetNumItems(Owed.ItemClass);
+				if (Need <= 0) { continue; }
+				const int32 ToPull = FMath::Min(Need, CentralStorage->GetNumItemsFromCentralStorage(Owed.ItemClass));
+				if (ToPull <= 0) { continue; }
+				const int32 Added = PlayerInventory->AddStack(FInventoryStack(ToPull, Owed.ItemClass), /*allowPartialAdd=*/true);
+				if (Added > 0)
+				{
+					const int32 Removed = CentralStorage->TryRemoveItemsFromCentralStorage(Owed.ItemClass, Added);
+					if (Removed < Added) { PlayerInventory->Remove(Owed.ItemClass, Added - Removed); }
+					if (Removed > 0) { WithdrawnFromDepot.Add(FItemAmount(Owed.ItemClass, Removed)); }
+				}
+			}
+		}
+	}
+
 	TArray<FItemAmount> Submission;
 	TArray<FItemAmount> Shortfall;
 	for (const FItemAmount& Owed : RemainingCost)
 	{
 		if (!Owed.ItemClass || Owed.Amount <= 0) { continue; }
-		const int32 Have = PlayerInventory->GetNumItems(Owed.ItemClass);
+		int32 Have = PlayerInventory->GetNumItems(Owed.ItemClass);
+		// dryRun preview counts Depot stock as available (real withdraw
+		// above already moved it into the inventory for the live path).
+		if (bFromDepot && bDryRun && CentralStorage)
+		{
+			Have += CentralStorage->GetNumItemsFromCentralStorage(Owed.ItemClass);
+		}
 		const int32 ToSubmit = FMath::Min(Owed.Amount, Have);
 		if (ToSubmit > 0)
 		{
@@ -15776,6 +15817,11 @@ FAIModOperationResult UAIModFunctionLibrary::PayOffMilestone(UObject* WorldConte
 		const TSharedRef<FJsonObject> DetailObject = MakeShared<FJsonObject>();
 		DetailObject->SetStringField(TEXT("schematicClass"), SchematicClass->GetPathName());
 		DetailObject->SetBoolField(TEXT("dryRun"), bDryRun);
+		DetailObject->SetBoolField(TEXT("fromDepot"), bFromDepot);
+		if (bFromDepot)
+		{
+			DetailObject->SetArrayField(TEXT("withdrawnFromDepot"), ItemAmountsToJsonArray(WithdrawnFromDepot));
+		}
 		DetailObject->SetArrayField(bDryRun ? TEXT("wouldSubmit") : TEXT("submitted"), ItemAmountsToJsonArray(Submission));
 		DetailObject->SetArrayField(TEXT("shortfall"), ItemAmountsToJsonArray(Shortfall));
 		return DetailObject;

@@ -3238,7 +3238,7 @@ public:
 	 * NOT YET LIVE-TESTED.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
-	static FAIModOperationResult PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun);
+	static FAIModOperationResult PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun, bool bFromDepot = false);
 
 	/**
 	 * world.reprocessMilestone (added 2026-09-20, explicit user request:

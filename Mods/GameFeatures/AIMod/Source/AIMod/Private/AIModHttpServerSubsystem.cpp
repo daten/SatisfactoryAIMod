@@ -1439,7 +1439,12 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		bool bDryRun = false;
 		ParamsObject->TryGetBoolField(TEXT("dryRun"), bDryRun);
 
-		const FAIModOperationResult Result = UAIModFunctionLibrary::PayOffMilestone(GetGameInstance(), SchematicClassPath, bDryRun);
+		// fromDepot: auto-withdraw the shortfall from the Dimensional Depot
+		// before paying (produce->upload->pay in one call).
+		bool bFromDepot = false;
+		ParamsObject->TryGetBoolField(TEXT("fromDepot"), bFromDepot);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::PayOffMilestone(GetGameInstance(), SchematicClassPath, bDryRun, bFromDepot);
 		OnComplete(MakeOperationResponse(Result, RequestId));
 		return true;
 	}

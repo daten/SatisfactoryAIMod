@@ -190,8 +190,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.pairDroneStations`** — Pair two drone stations (call BOTH ways for a working route).  
   params: `stationBuildableId:string, targetStationBuildableId:string?`
-- **`world.payMilestone`** — Pay a milestone (pure bookkeeping; HUB has no inventory).  
-  params: `schematicClass:string?, dryRun:bool?`
+- **`world.payMilestone`** — Legitimately pay off a milestone by consuming real items from the carried inventory (dryRun previews; shortfall reported). fromDepot=true auto-withdraws the shortfall from the Dimensional Depot first (produce->upload->pay in one call).  
+  params: `schematicClass:string?, dryRun:bool?, fromDepot:bool?`
 - **`world.removeItemsFromInventory`** — Remove/delete items from a buildable inventory (storage/chest, drone, truck-station); items are destroyed, not moved.  
   params: `buildableId:string, itemClass:string, inventoryRole:string?, amount:number`
 - **`world.removeMapMarker`** — Remove a map marker by id.  
