@@ -45,9 +45,15 @@ reliable method is **putting the player on its surface and reading the pawn posi
     collision plane is uniform, only the rendering differs. A **lower ring extends
     further** and the collision may continue past here.
   The collision top has been **dead flat at z=1,008,044 across the whole 9.5 km run**.
-  955,415 is already ~2.5× the entire play area's radius (~375,000). **Measurement in
-  progress / paused here** — resume by continuing east until collision ends, or by
-  edge-sampling (walk probes outward from center, find where z=1,008,044 collision stops).
+  955,415 is already ~2.5× the entire play area's radius (~375,000).
+
+  **TIERED STRUCTURE (found 2026-09-19):** the upper tier's outer edge is at ~r=989,525
+  (drove the upper collision from the opaque ring at 955k out to ~990k, then fell off).
+  Below it is a **wider lower tier** with collision top at **z≈1,004,458** (~3,600 units
+  below the upper top), which extends further out. So the station is stepped, not a single
+  flat disc. Falling off the upper edge = a short ~1,700u drop onto the lower tier, not a
+  plunge to the ground. **Measurement in progress / paused** on the lower tier — resume
+  by driving east until the lower collision ends, or edge-sample downward-and-outward.
 
 ## Gotchas
 
