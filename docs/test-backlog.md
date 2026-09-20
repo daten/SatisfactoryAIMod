@@ -103,11 +103,12 @@ have NEVER been run live; the engine side (`FGSchematicManager.cpp`,
 
 ## Tier 4 — packaging / release verification (ficsit.app prep blockers)
 
-- [ ] **Loopback-only socket bind in the PACKAGED build** — the plugin-level
-  `Config/DefaultEngine.ini` listener override (+ commit `f559607dd6`) is
-  explicitly "NOT YET VERIFIED against a real Steam session". After the
-  next packaged deploy: `netstat -ano | findstr 51902` must show
-  `127.0.0.1:51902` (or `[::1]`), NOT `0.0.0.0`. This is release blocker #1.
+- [x] **Loopback-only socket bind in the PACKAGED build** — **DONE,
+  verified 2026-09-20** (release-prep session): netstat on the packaged
+  Steam build shows `127.0.0.1:51902` (was `0.0.0.0`) via the
+  Initialize()-time GConfig injection (commit `f559607dd6`). The
+  plugin-ini comment's "NOT YET VERIFIED" is now stale. Optional
+  leftover: a LAN socket-refused check from another machine.
 - [ ] **Multiplayer: untested by design** — not a test to run, but the
   README/AGENTS "largely untested" disclosure must survive into the
   ficsit.app listing (several write RPCs assume the local player /
