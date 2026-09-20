@@ -369,7 +369,7 @@ namespace AIModInternal
 	// walls/other mass-placed pieces) - see MakeLightweightBuildableId's
 	// doc comment for why these need a wholly different id shape than
 	// AFGBuildable::GetPathName().
-	const TCHAR* LightweightIdPrefix = TEXT("lightweight:");
+	inline const TCHAR* const LightweightIdPrefix = TEXT("lightweight:");
 
 	/**
 	 * Lightweight buildables (see docs/lightweight-buildable-research.md)
