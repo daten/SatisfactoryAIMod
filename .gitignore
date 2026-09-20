@@ -31,7 +31,14 @@ Mods/**/Metadata/Crypto.json
 !Mods/WwisePatches/
 !Mods/SML/
 !Mods/SMLEditor/
+
+# GameFeatures is excluded by Mods/* above; re-open it so specific mods can
+# be un-ignored by name below (a bare nested "!" pattern can't rescue a path
+# whose parent directory is itself excluded).
+!Mods/GameFeatures/
+Mods/GameFeatures/*
 !Mods/GameFeatures/ExampleMod/
+!Mods/GameFeatures/AIMod/
 
 # Mods binaries
 Mods/**/Binaries/*
@@ -625,3 +632,18 @@ FodyWeavers.xsd
 # Additional files built by Visual Studio
 
 # End of https://www.toptal.com/developers/gitignore/api/unrealengine,visualstudio,rider,visualstudiocode
+
+### DocMod controller ###
+# Snapshot cache from controller/export_catalog.py - regenerate from the
+# live game with `python controller/export_catalog.py`, never hand-edit
+# or commit. The RPC methods it queries (docs/telemetry-protocol.md) are
+# the real source of truth, not this file.
+controller/catalog_cache.json
+
+# Run output from controller/splitter_matrix_test.py - a live diagnostic
+# result dump (per-case pass/fail, real ids/errors from one specific
+# test run), not a static reference. Re-run the script for fresh
+# results; docs/splitter-port-control-test.md tracks the durable
+# summary of what passed.
+controller/splitter_matrix_results*.json
+controller/splitter_matrix_retry_results.json

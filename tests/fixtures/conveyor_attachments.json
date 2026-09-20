@@ -1,0 +1,40 @@
+{
+  "protocolVersion": 1,
+  "attachments": [
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentSplitter.Recipe_ConveyorAttachmentSplitter_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+      "inputCount": 1,
+      "outputCount": 3,
+      "supportsSortRules": false
+    },
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentSplitterSmart.Recipe_ConveyorAttachmentSplitterSmart_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_SplitterSmart/Build_ConveyorAttachmentSplitterSmart.Build_ConveyorAttachmentSplitterSmart_C",
+      "inputCount": 1,
+      "outputCount": 3,
+      "supportsSortRules": true
+    },
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentSplitterProgrammable.Recipe_ConveyorAttachmentSplitterProgrammable_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_SplitterProgrammable/Build_ConveyorAttachmentSplitterProgrammable.Build_ConveyorAttachmentSplitterProgrammable_C",
+      "inputCount": 1,
+      "outputCount": 3,
+      "supportsSortRules": true
+    },
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentMerger.Recipe_ConveyorAttachmentMerger_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+      "inputCount": 3,
+      "outputCount": 1,
+      "supportsSortRules": false
+    },
+    {
+      "recipeClass": "/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorAttachmentMergerPriority.Recipe_ConveyorAttachmentMergerPriority_C",
+      "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_MergerPriority/Build_ConveyorAttachmentMergerPriority.Build_ConveyorAttachmentMergerPriority_C",
+      "inputCount": 3,
+      "outputCount": 1,
+      "supportsSortRules": false
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "protocolVersion": 1,
+  "resourceNodes": [
+    {
+      "id": "/Game/Maps/Game/Grasslands/Grass_Terrain.Grass_Terrain:PersistentLevel.BP_ResourceNodeOreIron_C_1",
+      "resource": "Iron Ore",
+      "resourceClass": "/Game/FactoryGame/Resource/RawResources/OreIron/Desc_OreIron.Desc_OreIron_C",
+      "purity": "Pure",
+      "position": { "x": 12345.0, "y": -6789.0, "z": 890.0 },
+      "occupied": false
+    },
+    {
+      "id": "/Game/Maps/Game/Grasslands/Grass_Terrain.Grass_Terrain:PersistentLevel.BP_ResourceNodeCopper_C_1",
+      "resource": "Copper Ore",
+      "resourceClass": "/Game/FactoryGame/Resource/RawResources/OreCopper/Desc_OreCopper.Desc_OreCopper_C",
+      "purity": "Normal",
+      "position": { "x": 23456.0, "y": 1234.0, "z": 450.0 },
+      "occupied": true
+    },
+    {
+      "id": "/Game/Maps/Game/Grasslands/Grass_Terrain.Grass_Terrain:PersistentLevel.BP_ResourceNodeLimestone_C_1",
+      "resource": "Limestone",
+      "resourceClass": "/Game/FactoryGame/Resource/RawResources/Stone/Desc_Stone.Desc_Stone_C",
+      "purity": "Impure",
+      "position": { "x": -5000.5, "y": 8800.25, "z": 120.0 },
+      "occupied": false
+    }
+  ]
+}

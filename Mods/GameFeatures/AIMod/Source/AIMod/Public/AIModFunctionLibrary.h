@@ -1,0 +1,3434 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
+#include "AIModTelemetryTypes.h"
+#include "AIModOperationTypes.h"
+#include "AIModFunctionLibrary.generated.h"
+
+/**
+ * Binds AFGAdminInterface::SaveGame's dynamic delegate (a UFUNCTION-bound
+ * delegate, not a plain TFunction like this mod's other async operations
+ * use) to forward the result into UAIModFunctionLibrary::SaveGame's
+ * TFunction callback. One short-lived instance per save
+ * request - AddToRoot() on creation keeps it alive across the async save,
+ * RemoveFromRoot() in the handler releases it once the delegate fires.
+ */
+UCLASS()
+class UAIModSaveGameCallbackProxy : public UObject
+{
+	GENERATED_BODY()
+public:
+	TFunction<void(const FAIModOperationResult&)> OnComplete;
+
+	UFUNCTION()
+	void HandleSaveComplete(bool bSuccess, const FText& ErrorMessage);
+};
+
+/**
+ * AIMod AI interface Blueprint entry points. PLAN.md Phase 3-12: a
+ * version smoke test, read-only world telemetry (resource nodes,
+ * buildables, manufacturers, factory connections) with JSON
+ * serialization, and - as of Phase 12 - the first two controlled write
+ * operations (SetManufacturerClockSpeed, SetManufacturerRecipe), each
+ * with explicit validation per CLAUDE.md's Safety and Stability Boundary.
+ * This class must never grow a generic "call any function by name" or
+ * "set any property by name" method.
+ */
+UCLASS()
+class AIMOD_API UAIModFunctionLibrary : public UBlueprintFunctionLibrary
+{
+	GENERATED_BODY()
+
+public:
+	/** Returns the AIMod AI interface version string. */
+	UFUNCTION(BlueprintPure, Category = "AIMod|AI Interface", meta = (BlueprintThreadSafe))
+	static FString GetInterfaceVersion();
+
+	/**
+	 * Reads a bool property's live value out of AIMod's player-facing mod
+	 * configuration (see AIModConfiguration.h - UAIModConfiguration,
+	 * registered via UConfigManager::RegisterModConfiguration in
+	 * UAIModHttpServerSubsystem::Initialize). Returns DefaultValue if the
+	 * config manager/section/property can't be found (e.g. called before
+	 * the game instance subsystem chain is ready) - never throws, never
+	 * treats a missing config as an error, since these are all
+	 * off-by-default safety/capability toggles where "can't read it" and
+	 * "player left it off" should behave identically.
+	 *
+	 * Not a UFUNCTION - internal infrastructure shared between
+	 * AIModFunctionLibrary.cpp's construction functions and
+	 * AIModHttpServerSubsystem.cpp's loopback check, not part of the
+	 * external RPC surface.
+	 */
+	static bool GetAIModConfigBool(UObject* WorldContextObject, const FString& PropertyName, bool DefaultValue);
+
+	/** Float counterpart to GetAIModConfigBool - see its doc comment. */
+	static float GetAIModConfigFloat(UObject* WorldContextObject, const FString& PropertyName, float DefaultValue);
+
+	/**
+	 * Serializes a real ground-trace query to
+	 * {"protocolVersion":1,"found":bool,"x":X,"y":Y,"z":realZ,"normal":{...}}
+	 * - makes placement height deterministic without requiring the caller
+	 * to already know
+	 * that world.placeBuilding's "z" param is a +/-1000-unit ground-trace
+	 * SEARCH CENTER, not a literal height (see
+	 * docs/placement-lessons.md's real z/gridSnapSize semantics section).
+	 * A caller can query the real ground Z at a given X/Y first, then
+	 * pass the returned "z" straight back in as world.placeBuilding's
+	 * ReferenceZ - guaranteed to match, no more guess-and-iterate.
+	 *
+	 * ReferenceZ works exactly like ConstructBuildingAtPosition's own
+	 * param: anchors the search, defaults to the player's current Z if
+	 * omitted (sentinel <= -1000000). Uses the exact same trace as actual
+	 * construction (FindGroundAtXY, factored out of
+	 * ConstructBuildingAtPosition specifically so this can't drift out
+	 * of sync with what a real placement would resolve to). "found":false
+	 * means the trace hit nothing within +/-1000 units of ReferenceZ -
+	 * "z" in that case is just the literal search center, matching what
+	 * ConstructBuildingAtPosition itself falls back to.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogGroundHeightAsJson(UObject* WorldContextObject, float X, float Y, float ReferenceZ);
+
+	/**
+	 * world.terrainHeightGrid - batched version of
+	 * world.groundHeight: the SAME real trace (FindGroundAtXY, shared
+	 * helper - can't drift out of sync with either single-point queries
+	 * or real construction placement), run for an entire rectangular
+	 * grid of X/Y points in ONE call instead of one HTTP round-trip per
+	 * point. Useful when a survey (e.g. scanning for a terrain intrusion
+	 * under a platform) would otherwise need hundreds of individual
+	 * world.groundHeight calls, each paying full HTTP+JSON overhead for a
+	 * trace that itself takes a small fraction of that time. Batching moves
+	 * the loop server-side, where only the real trace cost remains per point.
+	 *
+	 * Grid: MinX/MinY to MaxX/MaxY inclusive, spaced StepSize apart in
+	 * both axes (CountX = floor((MaxX-MinX)/StepSize)+1, same for Y).
+	 * ReferenceZ is the same +/-1000-unit search-center anchor as
+	 * world.groundHeight (defaults to the player's current Z if <=
+	 * -1000000) - used for EVERY point in the grid, so choose an anchor
+	 * that plausibly covers the whole area's real height range, or issue
+	 * multiple calls with different anchors for areas spanning a wide Z
+	 * range (e.g. a cliff).
+	 *
+	 * Result is two parallel flat arrays (row-major, length
+	 * CountX*CountY: index = row*CountX + col, x = MinX + col*StepSize,
+	 * y = MinY + row*StepSize) rather than an array of per-point
+	 * objects - deliberately compact, since a useful survey area can
+	 * easily mean thousands of points and per-point JSON object overhead
+	 * would dominate the payload. No normal is returned (unlike
+	 * world.groundHeight) - query that single point directly if the
+	 * surface normal at a specific spot is needed; the batched form is
+	 * for height/gap survey, not full surface characterization.
+	 *
+	 * Capped at MaxTerrainHeightGridPoints (10000, ~a 100x100 grid) to
+	 * bound the single-call cost - this runs entirely on the game
+	 * thread like every other trace in this file, so an unbounded grid
+	 * would risk a real frame hitch. Returns "tooManyPoints":true with
+	 * the real requested/max counts (no heights/found data) if exceeded
+	 * - tile a larger area into multiple calls, or use a coarser
+	 * stepSize, rather than raising the cap.
+	 *
+	 * Real terrain doesn't change between sessions on the same map/game
+	 * version (per project discussion, Satisfactory's map is hand-
+	 * crafted and static) - callers are expected to CACHE a survey's
+	 * result to a local file for reuse rather than re-querying the same
+	 * area repeatedly; this function itself has no caching of its own,
+	 * it's a faster primitive for the caller's own cache-building pass.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTerrainHeightGridAsJson(UObject* WorldContextObject, float MinX, float MinY, float MaxX, float MaxY, float StepSize, float ReferenceZ);
+
+	/**
+	 * Enumerates all AFGResourceNode actors in the world via TActorIterator
+	 * (see docs/resource-node-research.md for why - no working manager API
+	 * was found) and returns them as normalized, protocol-facing telemetry
+	 * structs (PLAN.md Phase 5, Task 8). Id is session-local only; see
+	 * FAIModResourceNodeTelemetry's comment.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FAIModResourceNodeTelemetry> GetResourceNodeTelemetry(UObject* WorldContextObject);
+
+	/** Debug entry point: logs one human-readable line per resource node via LogAIModAI. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogResourceNodes(UObject* WorldContextObject);
+
+	/**
+	 * Serializes resource node telemetry to the Phase 6 JSON protocol
+	 * shape ({"protocolVersion":1,"resourceNodes":[...]}), logs it via
+	 * LogAIModAI, and returns the JSON string. Used internally by the
+	 * "world.resourceNodes" RPC method (UAIModHttpServerSubsystem).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogResourceNodesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.waterVolumes - locates bodies of water for floating water pump
+	 * placement. Water bodies ARE real, discoverable actors -
+	 * `AFGWaterVolume` (`FGWaterVolume.h`), which implements
+	 * `IFGExtractableResourceInterface`,
+	 * the SAME interface a normal ore `AFGResourceNode` implements for
+	 * extraction purposes - just not an `AFGResourceNodeBase` subclass
+	 * (it's an `APhysicsVolume`), which is exactly why
+	 * `world.resourceNodes`/`world.placeExtractor` (both scoped to
+	 * `AFGResourceNodeBase`) cannot see or target water at all - see
+	 * ConstructWaterPumpNearReference's doc comment for the
+	 * construction-side half.
+	 *
+	 * Lists every placed `AFGWaterVolume` with its real, public
+	 * `IsOccupied()`/`CanBecomeOccupied()`/`CanPlaceResourceExtractor()`/
+	 * `HasAnyResources()`/`GetResourceClass()`, plus `position` (actor
+	 * location) and `bounds` (`GetComponentsBoundingBox()` min/max/size)
+	 * so a caller can compute real candidate points inside a given
+	 * volume without this project guessing at lake geometry. `occupied`
+	 * reflects the volume's own occupancy tracking - it is unconfirmed
+	 * whether a single large lake's `AFGWaterVolume` can hold multiple
+	 * pumps simultaneously (occupancy might be a single bool for the whole
+	 * volume, or something finer-grained the stub-sourced `.cpp` doesn't
+	 * reveal).
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogWaterVolumesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.damageVolumes - locates the map boundaries that harm the
+	 * player. The harmful map boundary is NOT a wall: it is
+	 * level-placed `AFGDamageOverTimeVolume` actors (plain `AVolume`
+	 * brushes) whose `UFGDotComponent` applies a `UFGDamageOverTime` to
+	 * overlapping pawns. Construction never consults them, which is why
+	 * RPC builds outside the border succeed while the player dies there.
+	 * Direct source confirmation: `UFGDamageType::mDestroyVehicles` is
+	 * documented "e.g. world perimeter damage" (FGDamageType.h).
+	 *
+	 * Lists every `AFGDamageOverTimeVolume` with id (path name),
+	 * position, AABB bounds (`GetComponentsBoundingBox()`), the DOT
+	 * class (read via reflection - `UFGDotComponent::mDotClass` is a
+	 * protected UPROPERTY with no public getter), damage interval and
+	 * damage types (via the real public statics
+	 * `UFGDamageOverTime::GetDamageInterval/GetDamageTypes`), plus
+	 * `dotActive`/`collisionEnabled` so SetDamageVolumeEnabled state is
+	 * visible. Root also carries `killZ` (AWorldSettings - the void
+	 * death plane under the map) and the 2D minimap extent from
+	 * `UFGMapFunctionLibrary::GetWorldBounds` for context. Expect this
+	 * to ALSO return non-boundary hazards (poison gas uses the same DOT
+	 * mechanism); edge volumes are distinguishable by enormous size and
+	 * perimeter placement. NOTE: AABBs of rotated brush volumes
+	 * overestimate the true shape - use ProbeHazardAsJson to bisect the
+	 * exact surface where it matters.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogDamageVolumesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.probeHazard - exact point-containment test against every
+	 * `AFGDamageOverTimeVolume` via `EncompassesPoint` (brush-accurate,
+	 * unlike the AABBs above), plus belowKillZ and inside-2D-world-bounds
+	 * checks. Reports containing volume ids and the distance to the
+	 * nearest non-containing volume so a controller can bisect the true
+	 * boundary surface. Caveat flagged for live test: FG overrides
+	 * `EncompassesPoint` for the post-process interface and the .cpp is
+	 * a stub here - if the real implementation ever diverges from brush
+	 * containment this needs a fallback through the brush body instance.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString ProbeHazardAsJson(UObject* WorldContextObject, float X, float Y, float Z);
+
+	/**
+	 * world.setDamageVolumeEnabled - reversible hazard kill-switch.
+	 * Disable order matters: `SetActorEnableCollision(false)` FIRST so
+	 * end-overlap events fire while the `UFGDotComponent` is still
+	 * active and it unregisters the DOT from anyone currently standing
+	 * inside (its `OnActorEndOverlap` path), THEN `Deactivate()` the
+	 * component. Enable reverses that order so begin-overlaps re-register.
+	 * Session-only: level-actor state is not written to the save; the
+	 * volume is live again after save load.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetDamageVolumeEnabled(UObject* WorldContextObject, const FString& VolumeId, bool bEnabled);
+
+	/**
+	 * world.despawnDamageVolume - full `Destroy()` of the volume actor
+	 * (also removes its boundary post-process vignette, which
+	 * SetDamageVolumeEnabled leaves registered). Id must resolve to an
+	 * `AFGDamageOverTimeVolume` specifically - this is NOT a generic
+	 * actor-destroy (Safety and Stability Boundary). Collision is
+	 * disabled first for the same latched-DOT reason as
+	 * SetDamageVolumeEnabled. Session-only, same save caveat: runtime
+	 * destruction of a map-placed actor is not persisted, the volume
+	 * returns on save load.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult DespawnDamageVolume(UObject* WorldContextObject, const FString& VolumeId);
+
+	/**
+	 * world.projectAssembly - inspect the orbital space station whose build
+	 * phases can be manipulated independently of milestones for visual
+	 * effect. The station is
+	 * `AFGProjectAssembly` (FGProjectAssembly.h), a sky actor at
+	 * mProjectAssemblyHeight (2,350,000 units - inside the hazard-free
+	 * sky above the 4.5km kill ceiling, see docs/world-boundary-hazards.md).
+	 * Its visuals react to ONE input: the OnGamePhaseChanged
+	 * BlueprintNativeEvent carrying a UFGGamePhase asset; the BP subclass
+	 * maps phase -> visual stage via the protected mGamePhaseMap
+	 * (TMap<TSubclassOf<UFGGamePhase>,int32>, "from start(0) to end").
+	 *
+	 * Reports: station id/position, IsPlayingLaunchSequence (real public
+	 * getter), mIsMovingToTarget/mTargetLocation/mMovementSpeed/
+	 * mProjectAssemblyHeight/mGamePhaseMap (protected UPROPERTYs, read
+	 * via reflection - internal telemetry sourcing only), plus the phase
+	 * catalog from UFGGamePhase::GetAllGamePhaseAssetsSorted() (index in
+	 * that sorted order = the phaseIndex accepted by
+	 * SetProjectAssemblyVisualPhase) and the manager's current/target
+	 * phase. found=false (not an error) when no station actor exists -
+	 * unverified whether it spawns before the Space Elevator is built.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogProjectAssemblyAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setProjectAssemblyVisualPhase - drives the station's visual
+	 * build state WITHOUT touching real progression: invokes the
+	 * station's OnGamePhaseChanged BlueprintNativeEvent directly via
+	 * FindFunction/ProcessEvent (it's a protected UFUNCTION; ProcessEvent
+	 * dispatches to the BP override, which owns the visuals) with an
+	 * arbitrary UFGGamePhase. Bypasses AFGGamePhaseManager and the
+	 * narrative path (OnGamePhaseChangedInternal) entirely - milestones,
+	 * schematics and the real phase are untouched, and the next REAL
+	 * phase change (or save reload) snaps visuals back to truth.
+	 *
+	 * Phase selected by PhaseIndex (into the GetAllGamePhaseAssetsSorted
+	 * order reported by world.projectAssembly; pass -1 for unused) or by
+	 * PhaseAssetPath (exact asset path from the same report).
+	 *
+	 * FLAGGED UNKNOWN for live test: the BP implementation is opaque
+	 * from source - if it re-reads the phase manager instead of trusting
+	 * the event parameter, this no-ops (returns success but nothing
+	 * visibly changes; that outcome = the finding, not a code bug).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetProjectAssemblyVisualPhase(UObject* WorldContextObject, int32 PhaseIndex, const FString& PhaseAssetPath);
+
+	/**
+	 * world.setProjectAssemblyHeight - lower the orbital station so it can
+	 * be viewed/reached from a survivable altitude, since the player is
+	 * hard-capped at the z~2,440,000 sky boundary - see
+	 * docs/world-boundary-hazards.md. Geometry: the station's XY exactly
+	 * tracks the Space Elevator (it sits directly above it), but its Z is
+	 * a FIXED absolute
+	 * world height (mProjectAssemblyHeight default 2,350,000), NOT
+	 * relative to the elevator's ground Z (elevator at z=3380, station at
+	 * exactly 2,350,000).
+	 *
+	 * Moves the station to world Z = NewHeight, keeping its current XY.
+	 * Belt-and-suspenders because the position logic is Blueprint-driven
+	 * (the C++ Tick/UpdatePosition_Implementation are empty stubs, so any
+	 * per-tick repositioning is in the BP subclass): (1) set the protected
+	 * mProjectAssemblyHeight via reflection so a BP UpdatePosition that
+	 * reads it uses the new value, (2) SetActorLocation directly, (3)
+	 * invoke UpdatePosition via ProcessEvent to apply. Returns the actual
+	 * resulting actor location so the caller can see whether it held.
+	 *
+	 * Session-only: mProjectAssemblyHeight is EditDefaultsOnly (not
+	 * SaveGame), so this never persists and cannot corrupt a save - a
+	 * reload restores the vanilla 2,350,000.
+	 *
+	 * FLAGGED UNKNOWN for the live test: if the BP subclass's Event Tick
+	 * re-derives location every frame from something other than
+	 * mProjectAssemblyHeight, the station may snap back; the returned
+	 * position (and a follow-up world.projectAssembly) will show it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetProjectAssemblyHeight(UObject* WorldContextObject, float NewHeight);
+
+	/**
+	 * world.setVehicleEngineParams - raise a manually-driven vehicle's top
+	 * speed (e.g. to traverse the moon-scale space station). Targets an
+	 * AFGWheeledVehicle (the
+	 * Explorer/Tractor/Truck) and adjusts its Chaos movement via the
+	 * runtime setters that apply WITHOUT a physics rebuild:
+	 *   - SetMaxEngineTorque (more torque -> higher top speed + accel)
+	 *   - SetDragCoefficient (LOWER drag -> much higher top speed; top
+	 *     speed is where available thrust equals aero drag)
+	 * These are real UChaosWheeledVehicleMovementComponent setters (the
+	 * FG component derives from it). MaxRPM/gear-ratio changes are NOT
+	 * done here - they need a full SetupVehicle/physics re-init that is
+	 * risky from stub-sourced headers; torque+drag are the safe,
+	 * purpose-built runtime levers.
+	 *
+	 * Target selection: VehicleId (path name from world.vehicles) if
+	 * given; otherwise the nearest AFGWheeledVehicle to the local player.
+	 * Pass a negative value for either param to leave it unchanged.
+	 * Per-instance and session-only (does not touch the CDO/defaults).
+	 *
+	 * Not yet verified at runtime: Chaos runtime handling at very high top
+	 * speed is unpredictable (wheelspin, launching off terrain, instability);
+	 * tune gradually. The FG movement .cpp is a stub here, so verify the
+	 * setters actually move top speed live before relying on values.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetVehicleEngineParams(UObject* WorldContextObject, const FString& VehicleId, float MaxEngineTorque, float DragCoefficient);
+
+	/**
+	 * world.mantas - the Giant
+	 * Flying Manta is `AFGManta` (FGManta.h): a plain AActor (NOT an
+	 * AFGCreature, which is why world.creatures never saw it) that flies a
+	 * spline path (mSplinePath/mCachedSpline) advanced by a replicated
+	 * timer mCurrentTime looping every mSecondsPerLoop (default 900s = a
+	 * 15-min circuit); UpdateManta() repositions it each tick. Enumerable
+	 * via TActorIterator<AFGManta>. Reports id/class/position, currentTime
+	 * (public getter), and secondsPerLoop/offsetMagnitude/tickTransform/
+	 * isClosedSplineLoop (private UPROPERTYs read via reflection) plus
+	 * spline length (GetSpline()).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMantasAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setManta - manipulate an existing Giant Flying Manta by id:
+	 *   - despawn: Destroy() the actor (session-only, returns on reload)
+	 *   - freeze: toggle mTickTransform (false = stop advancing along the
+	 *     spline, so it holds position; true = resume)
+	 *   - secondsPerLoop: change lap time (smaller = faster; <=0 = unchanged)
+	 *   - currentTime: scrub it to a point on its route (0..secondsPerLoop;
+	 *     <0 = unchanged)
+	 * All non-despawn edits are private-UPROPERTY writes via reflection,
+	 * scoped to AFGManta only (not generic actor manipulation).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetManta(UObject* WorldContextObject, const FString& MantaId, bool bDespawn, bool bHasFreeze, bool bFreeze, float SecondsPerLoop, float CurrentTime);
+
+	/**
+	 * world.spawnManta - spawn another manta that shares an EXISTING
+	 * manta's spline path (a whole flock on the same route). Spawns an
+	 * actor of the source manta's own class (its BP subclass, which
+	 * carries the mesh) via deferred spawn so mSplinePath is set BEFORE
+	 * BeginPlay caches the spline, copies mSecondsPerLoop, and offsets
+	 * mCurrentTime by TimeOffsetSeconds so it trails/leads the original.
+	 * EXPERIMENTAL / not yet verified at runtime: BeginPlay/UpdateManta are
+	 * BP-driven (C++ stubs here), so whether a deferred-spawned copy
+	 * correctly caches the shared spline and flies needs runtime
+	 * verification. Spawning
+	 * on a brand-new path is NOT supported (would need creating an
+	 * AFGSplinePath). Session-only.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SpawnManta(UObject* WorldContextObject, const FString& SourceMantaId, float TimeOffsetSeconds);
+
+	/**
+	 * Enumerates all placed AFGBuildable actors (PLAN.md Phase 10,
+	 * "buildings"). Tries AFGBuildableSubsystem::GetAllBuildablesRef()
+	 * first (a real public getter exists, per
+	 * docs/buildable-research.md) and falls back to a TActorIterator
+	 * scan if the subsystem isn't available - its .cpp is a stub in
+	 * this repo, so whether it's actually populated at runtime is
+	 * unverified.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FAIModBuildableTelemetry> GetBuildableTelemetry(UObject* WorldContextObject);
+
+	/** Debug entry point: logs one line per buildable via LogAIModAI. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogBuildables(UObject* WorldContextObject);
+
+	/** Serializes buildable telemetry to {"protocolVersion":1,"buildables":[...]}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogBuildablesAsJson(UObject* WorldContextObject);
+
+	/** Filtered variant (docs/build-efficiency-plan.md 2a):
+	 * IdSubstrings keeps rows whose id contains ANY of the substrings
+	 * (empty = no id filter); bBoundsSet + BoundsMin/BoundsMax keep rows
+	 * whose position lies inside the box (Z ignored when both bounds' Z
+	 * are 0). Filters AND together. A full-world dump can be 250KB+, so
+	 * phase-scoped queries replace it for single-component verification.
+	 * Plain static (not a UFUNCTION):
+	 * protocol-facing only, reached via world.buildables' optional
+	 * params. */
+	static FString LogBuildablesAsJsonFiltered(UObject* WorldContextObject, const TArray<FString>& IdSubstrings, bool bBoundsSet, const FVector& BoundsMin, const FVector& BoundsMax);
+
+	/**
+	 * world.vehicles - AFGVehicle is not an AFGBuildable, so
+	 * world.buildables cannot see anything world.constructVehicle builds.
+	 * Minimal id/class/position/rotation via a real TActorIterator<AFGVehicle>
+	 * scan, same shape as world.buildables. Enough to find an id for
+	 * world.deleteBuilding (now vehicle-aware too). Richer per-vehicle
+	 * state (fuel, cargo, drone docking status) is future work.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogVehiclesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.vehiclePathNodes - read-only diagnostic for the truck
+	 * vehicle-path network. Lists every AFGVehiclePathNode: guid, position,
+	 * class (docking vs default), server path-network id, and arriving/leaving
+	 * segment connection counts. Used to see whether a docking station's
+	 * docking node is actually wired into a path loop (a route waypoint is
+	 * unreachable if its node is an isolated network of its own).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogVehiclePathNodesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.creatures - read-only telemetry for every AFGCreature,
+	 * primarily to verify a spawned creature is actually live/animated and not
+	 * frozen (the pre-FinishSpawning failure mode). Per creature: id, class,
+	 * position, rotation, velocity + speed, behaviorState
+	 * (ECreatureState -> string), hasController (+ class), isPassive,
+	 * isPersistent, isAliveAndWell, currentHealth/maxHealth, and
+	 * hasAnimInstance (+ anim class) from the skeletal mesh. A frozen creature
+	 * reads: no controller, no anim instance, CS_Default, zero speed, unchanged
+	 * position across polls; an animated one has a controller + anim instance
+	 * and a live behavior state / nonzero speed / drifting position.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogCreaturesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.addItemsToInventory - explicit, validated item
+	 * injection into a specific buildable inventory. Deliberately scoped (not a
+	 * generic "write any inventory") per the interface's explicit-operations
+	 * rule. InventoryRole selects which of a buildable's inventories:
+	 *   drone station  -> "input" | "output" | "fuel"
+	 *   truck station  -> "fuel" (dedicated fuel input) | "input"/"store"
+	 *   storage/other  -> "store" | "auto" (first inventory component)
+	 * Resolves ItemClassPath to a UFGItemDescriptor and AddStack()s Amount into
+	 * the chosen inventory (respects the inventory's allowed-item filter, so a
+	 * disallowed item returns 0 added). Used to seed a drone pickup station with
+	 * cargo + batteries without hauling a belt across the map. Reports itemsAdded
+	 * and the inventory's post-add item count.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult AddItemsToInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount);
+
+	/**
+	 * world.removeItemsFromInventory - the counterpart to
+	 * AddItemsToInventory: remove/delete items from a named buildable inventory
+	 * (storage container/chest, drone station input/output/fuel, truck-station
+	 * fuel/inventory, or the first inventory component). Same inventoryRole
+	 * resolution as the add. Clamps to what is actually present and reports the
+	 * exact itemsRemoved (delta-measured). NOTE: the items are DESTROYED from
+	 * that inventory (not moved to the player) - to move to the player use
+	 * withdrawFromCentralStorage (Depot) or a belt. Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult RemoveItemsFromInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount);
+
+	/**
+	 * world.addItemsToPlayerInventory - creative item injection
+	 * into the LOCAL PLAYER's inventory (AFGCharacterPlayer::GetInventory() +
+	 * AddStack), the player-side counterpart to AddItemsToInventory. Unblocks
+	 * flows that need a held ITEM which no other RPC could provide - e.g.
+	 * placePortableMiner requires a portable-miner item in inventory, and
+	 * hand-loading fuel/ammo. Respects slot/stack limits (a full inventory
+	 * returns a partial or zero add, reported in detail.itemsAdded, not an
+	 * error). Single-player / loopback creative capability, same posture as the
+	 * buildable-inventory injection. Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult AddItemsToPlayerInventory(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);
+
+	/**
+	 * world.mergeVehiclePathNodes - migrates all path-segment
+	 * connections from SourceNodeId onto DestNodeId and removes the source node
+	 * (AFGVehiclePathNode::MoveConnectionsToNode). Used to wire a docking
+	 * station's docking node into a hand-built path loop: a
+	 * constructVehiclePathSegment endpoint that lands next to (but does not
+	 * snap onto) a station's docking node leaves two coincident-but-separate
+	 * nodes, so the loop never actually reaches the station and its route
+	 * waypoint is unreachable. Merging the loop's default node into the
+	 * docking node makes the docking node part of the loop. Both ids must
+	 * resolve to AFGVehiclePathNode buildables.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult MergeVehiclePathNodes(UObject* WorldContextObject, const FString& SourceNodeId, const FString& DestNodeId);
+
+	/**
+	 * Enumerates all AFGBuildableManufacturer actors and reads their
+	 * current recipe, clock speed, production status/progress/
+	 * productivity, and input/output inventory contents (PLAN.md
+	 * Phase 10, "machine recipes" / "machine inventories" / "machine
+	 * production status"). Read-only.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FAIModManufacturerTelemetry> GetManufacturerTelemetry(UObject* WorldContextObject);
+
+	/** Debug entry point: logs one line per manufacturer via LogAIModAI. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogManufacturers(UObject* WorldContextObject);
+
+	/** Serializes manufacturer telemetry to {"protocolVersion":1,"manufacturers":[...]}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogManufacturersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Returns telemetry for the manufacturer the local player is
+	 * currently looking at / can interact with
+	 * (AFGCharacterPlayer::GetBestUsableActor() - the same game-owned
+	 * "what am I aiming at" state that drives the "Press E to interact"
+	 * prompt, not a reimplemented line trace). An empty-Id struct
+	 * (Id.IsEmpty()) means nothing is targeted or the targeted actor
+	 * isn't a manufacturer. Player index 0 only - single-player/local
+	 * session scope, per PLAN.md/CLAUDE.md. Meant to let a caller target
+	 * write operations (SetManufacturerClockSpeed/SetManufacturerRecipe)
+	 * at whatever the player is currently looking at, instead of picking
+	 * an id out of the full GetManufacturerTelemetry list.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModManufacturerTelemetry GetTargetedManufacturer(UObject* WorldContextObject);
+
+	/**
+	 * Serializes GetTargetedManufacturer's result to
+	 * {"protocolVersion":1,"manufacturer":null|{...}}, logs it, and
+	 * returns it. "manufacturer" is JSON null when nothing/non-manufacturer
+	 * is targeted, not an error.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTargetedManufacturerAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Enumerates factory connection points on every AFGBuildableFactory
+	 * actor (PLAN.md Phase 10, "conveyor connection components"). One row
+	 * per connection point, not a constructed graph - see
+	 * FAIModFactoryConnectionTelemetry's comment. This is the raw
+	 * material Phase 11's external-controller-side world graph is built
+	 * from, alongside GetBuildableTelemetry.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FAIModFactoryConnectionTelemetry> GetFactoryConnectionTelemetry(UObject* WorldContextObject);
+
+	/** Debug entry point: logs one line per connection point via LogAIModAI. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogFactoryConnections(UObject* WorldContextObject);
+
+	/** Serializes connection telemetry to {"protocolVersion":1,"connections":[...]}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogFactoryConnectionsAsJson(UObject* WorldContextObject);
+
+	/** Filtered variant - see LogBuildablesAsJsonFiltered's comment.
+	 * IdSubstrings match against ownerBuildableId here. */
+	static FString LogFactoryConnectionsAsJsonFiltered(UObject* WorldContextObject, const TArray<FString>& IdSubstrings, bool bBoundsSet, const FVector& BoundsMin, const FVector& BoundsMax);
+
+	/** world.connectorLayout (docs/build-efficiency-plan.md
+	 * 2c): a buildable CLASS's factory-connection layout in the actor's
+	 * LOCAL frame, read from the class defaults WITHOUT spawning
+	 * anything - native CDO components plus Blueprint SCS component
+	 * templates (transforms composed down each SCS attachment chain).
+	 * This is the authoritative source for the Python connector DB
+	 * (controller/satisfactory_ai/connector_db.py), replacing hand-seeded
+	 * profiles learned from placed instances - a class never placed yet
+	 * can now be planned correctly the first time. Read-only; the class
+	 * is loaded if not already in memory. */
+	static FString LogConnectorLayoutAsJson(UObject* WorldContextObject, const FString& BuildableClassPath);
+
+	/**
+	 * Same purpose as GetFactoryConnectionTelemetry, for pipes
+	 * (UFGPipeConnectionComponentBase - covers both fluid pipes and
+	 * hypertubes, see FAIModPipeConnectionTelemetry's comment).
+	 * "world.connections" only covers factory connections, leaving no way
+	 * to read a real pipe/hypertube connector's position/normal before
+	 * placing one - exactly the data needed to plan a straight run instead
+	 * of guessing rotation.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static TArray<FAIModPipeConnectionTelemetry> GetPipeConnectionTelemetry(UObject* WorldContextObject);
+
+	/** Debug entry point: logs one line per pipe/hypertube connection point via LogAIModAI. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static void LogPipeConnections(UObject* WorldContextObject);
+
+	/** Serializes pipe connection telemetry to {"protocolVersion":1,"connections":[...]}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipeConnectionsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Returns the local player character's current position/rotation
+	 * (see FAIModPlayerTelemetry's comment for why this exists) - player
+	 * index 0 only, single-player/local scope per PLAN.md/CLAUDE.md.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModPlayerTelemetry GetPlayerTelemetry(UObject* WorldContextObject);
+
+	/** Serializes GetPlayerTelemetry to {"protocolVersion":1,"position":{...},"rotation":{...}}, logs it, and returns it. */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPlayerAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.teleportPlayer - moves the player position, mostly for
+	 * building purposes. Player index
+	 * 0 only, single-player/local scope, same as GetPlayerTelemetry.
+	 *
+	 * Uses the real, standard Unreal `AActor::TeleportTo(DestLocation,
+	 * DestRotation, bIsATest=false, bNoCheck=false)` - NOT a raw
+	 * SetActorLocation - so the engine's own `FindTeleportSpot` runs
+	 * first (nudges the destination clear of solid geometry if the
+	 * literal point would embed the player in it) and the move goes
+	 * through `MoveComponent(..., ETeleportType::TeleportPhysics)`,
+	 * which is the correct way to relocate a `ACharacter` (properly
+	 * notifies `UCharacterMovementComponent` rather than fighting its
+	 * next tick). Returns false (surfaced as TELEPORT_BLOCKED) if the
+	 * destination has no nearby clear spot - real failure signal, not
+	 * silently ignored.
+	 *
+	 * `GetCharacterMovement()->StopMovementImmediately()` is called
+	 * right after a successful teleport - zeroes residual velocity so a
+	 * player teleported mid-fall/mid-sprint doesn't carry that momentum
+	 * (and potential fall damage) into the new location. This is the
+	 * standard, public `UMovementComponent` API for exactly this, not a
+	 * custom workaround.
+	 *
+	 * Same ground-trace-or-literal-Z convention as
+	 * ConstructVehicle/ConstructBuildingAtPosition: pass
+	 * bIgnoreGroundTrace=true with an explicit Z to place at literal
+	 * world coordinates (e.g. a known building/node's height), or
+	 * false to ground-snap X/Y via FindGroundAtXY (Z becomes the search
+	 * center, or the player's current Z if omitted) - useful for
+	 * "teleport near this resource node/buildable" callers that only
+	 * know X/Y. bHasTargetYaw/TargetYawDegrees optionally sets facing;
+	 * when false the player's current camera yaw/pitch/roll is kept
+	 * (only position changes).
+	 *
+	 * Does NOT touch `IFGUnsafePawnRelocationInterface` (last-safe-
+	 * location bookkeeping the elevators use for save/load) - out of
+	 * scope for this first pass; a teleported-then-saved player relies
+	 * on TeleportTo's own encroachment check having picked a genuinely
+	 * clear spot, not on that separate mechanism.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult TeleportPlayer(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees);
+
+	/**
+	 * world.mapMarkerIcons - lists the real, current set of
+	 * icons the in-game map UI itself offers for manually-placed markers
+	 * - `AFGIconDatabaseSubsystem::GetAllIconDataForType(EIconType::
+	 * ESIT_MapStamp, includeHidden=false, ...)`, confirmed from source as
+	 * the non-deprecated, current API (FGIconLibrary.h's equivalent
+	 * static functions are explicitly marked DeprecatedFunction pointing
+	 * back to this subsystem). `ESIT_MapStamp` is a real, distinct
+	 * `EIconType` value with its own backing array
+	 * (`UFGIconLibrary::mMapStampIconData`) - deliberately not the
+	 * broader "every icon in the game" set (building/part/equipment
+	 * icons etc are a different, much larger catalog not meant for map
+	 * stamps). Each returned `iconId` is the exact value to pass as
+	 * `world.placeMapMarker`'s `iconId` - do not guess an ID, always
+	 * resolve it from this call first (same "search, don't fabricate"
+	 * posture as every other catalog in this project).
+	 *
+	 * Live-tested. `AFGIconDatabaseSubsystem::Get()` requires the database
+	 * to have finished initializing
+	 * (`IsInitialized()`/`mOnDatabaseAvailable`) - it is unconfirmed whether
+	 * that has already happened by the time this is likely to be called
+	 * (well after a save has loaded).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMapMarkerIconsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.mapMarkers - companion read to
+	 * world.placeMapMarker; lists every marker currently on the map,
+	 * player-placed or otherwise. Direct pass-through of the real,
+	 * public `AFGMapManager::GetMapMarkers()`. `mapMarkerType` is
+	 * resolved via `StaticEnum<ERepresentationType>()->
+	 * GetNameStringByValue()` rather than a hand-written switch (unlike
+	 * this file's usual small-enum convention, e.g.
+	 * FactoryConnectionDirectionToString) - `ERepresentationType` has 22
+	 * real values (FGActorRepresentation.h), transcribing all of them by
+	 * hand is real transcription-error risk for no benefit over the
+	 * engine's own reflection data.
+	 *
+	 * Live-tested - same `AFGMapManager::Get()`-may-return-null-
+	 * before-world-fully-ready caveat as every other subsystem-`Get()`
+	 * call in this file.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMapMarkersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.placeMapMarker - places an icon at specific coordinates to
+	 * assist the player. Uses the real,
+	 * public `AFGMapManager::AddNewMapMarker(const FMapMarker&, FMapMarker&
+	 * out_NewMapMarker)` - "Creates a new map marker with the data
+	 * provided in the existing marker. Will return the ID for the
+	 * created marker" (its own doc comment) - the input marker's
+	 * `MarkerGUID` is left default/invalid so the manager assigns a
+	 * fresh one, returned here as `ResultDetailJson: {"markerId":"..."}`.
+	 * `IconId` should come from `world.mapMarkerIcons` - not validated
+	 * against the catalog here (an out-of-range id likely just renders
+	 * as a missing/blank icon rather than crashing, per
+	 * `GetIconTextureFromIconID`'s bool-returning sibling suggesting a
+	 * graceful "not found" path exists - unconfirmed at runtime).
+	 *
+	 * `MapMarkerType` is hardcoded to `ERepresentationType::RT_Default`
+	 * (not exposed as a param) - this is `FMapMarker`'s own default-
+	 * constructor value, the same shape a manually-placed player marker
+	 * is presumed to take; `RT_MapMarker`/`RT_Stamp` exist as separate
+	 * enum values but neither appeared anywhere outside the enum
+	 * declaration itself when searched (stub .cpp bodies strip the real
+	 * assignment), so there was no source evidence to prefer either over
+	 * the struct's own literal default.
+	 *
+	 * Color defaults to white `(1,1,1)`, NOT `FMapMarker`'s own literal
+	 * default (`FLinearColor::Black`) - inferred, not confirmed: a
+	 * multiply-tint against white is the standard, near-universal UE
+	 * convention for "no color change," whereas black would zero out an
+	 * icon's own color entirely under that same convention. Flagged as
+	 * an inference specifically because it deviates from the struct's
+	 * literal default - first thing to check if a live-placed marker's
+	 * icon renders wrong. `Scale` defaults to `1.0` and
+	 * `CompassViewDistance` defaults to `"Off"`, both matching
+	 * `FMapMarker`'s own literal defaults exactly (no deviation, so no
+	 * similar flag).
+	 *
+	 * Same ground-trace-or-literal-Z convention as
+	 * ConstructVehicle/TeleportPlayer, applied here mainly so a caller
+	 * that only knows X/Y (not a specific resource node/buildable's real
+	 * Z) still gets a sensible marker elevation for 3D compass-ping
+	 * rendering, not because a map marker has any collision to avoid.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult PlaceMapMarker(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, int32 IconId, const FString& Name, bool bHasColor, float ColorR, float ColorG, float ColorB, float Scale, const FString& CompassViewDistance);
+
+	/**
+	 * world.removeMapMarker - companion write to
+	 * world.placeMapMarker; undo/cleanup for iterative test placements.
+	 * `MarkerId` is the GUID string `world.placeMapMarker` returned (or
+	 * one read from `world.mapMarkers`). Looks the marker up via a fresh
+	 * `GetMapMarkers()` call first (validates the target actually exists
+	 * - fails `TARGET_NOT_FOUND` otherwise, per this project's "verify
+	 * target identity before invoking the operation" convention) rather
+	 * than constructing a bare-GUID `FMapMarker` and trusting
+	 * `RemoveMapMarker`'s real, stub-sourced `operator==` to match
+	 * correctly on an otherwise-default-constructed struct. Re-queries
+	 * `GetMapMarkers()` again after removal and reports success based on
+	 * the GUID actually being gone, not merely on the call having been
+	 * made - same "report the ACTUAL result" posture as every write
+	 * operation in this project.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult RemoveMapMarker(UObject* WorldContextObject, const FString& MarkerId);
+
+	/**
+	 * Serializes the current in-game time of day to
+	 * {"protocolVersion":1,"hour":H,"minute":M,"daySeconds":S,"isDay":bool}
+	 * via AFGTimeOfDaySubsystem::Get()'s own GetHours()/GetMinutes()/
+	 * GetDaySeconds()/IsDay() - lets a caller check the
+	 * current time before deciding whether to call SetTimeOfDay.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTimeOfDayAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Forces the in-game time of day to a specific hour/minute - the
+	 * day/night cycle makes it hard to visually observe live builds once
+	 * it goes dark, so this can reset to a specific daylight time on demand.
+	 *
+	 * AFGTimeOfDaySubsystem (FGTimeSubsystem.h) exposes a public, plain
+	 * C++ SetDaySeconds(float) - not BlueprintCallable, and not exposed
+	 * to the generic RPC surface directly, since this class must never
+	 * grow a "call any function by name" method (see this class's header
+	 * doc comment). The real hour/minute-based setter,
+	 * UFGCheatManager::SetTimeOfDay(int32 hour, int32 minute), exists
+	 * specifically to convert hour/minute to seconds via
+	 * AFGTimeOfDaySubsystem's own SECONDS_PER_HOUR/SECONDS_PER_MINUTE
+	 * constants (AFGTimeOfDaySubsystem declares
+	 * "friend class UFGCheatManager;" for exactly this) and route through
+	 * Server_SetTimeOfDay - but reaching a real UFGCheatManager instance
+	 * depends on cheats being enabled for the local player controller,
+	 * which isn't guaranteed in an ordinary session. Since AIMod's own
+	 * code has full engine access (not a Blueprint-only caller), this
+	 * calls AFGTimeOfDaySubsystem::SetDaySeconds() directly with
+	 * Hour*SECONDS_PER_HOUR + Minute*SECONDS_PER_MINUTE, then
+	 * ForceReplicateTimeToClients() (public, exists specifically to push
+	 * a manual time change out) so the change is visible immediately
+	 * rather than waiting for the next periodic sync.
+	 *
+	 * Fails with INVALID_REQUEST if Hour is outside [0,23] or Minute is
+	 * outside [0,59]. Does not persist as a "fixed" time - the day/night
+	 * cycle continues advancing normally from the new time, per
+	 * mUpdateTime/the normal Tick() behavior; this is a one-shot jump,
+	 * not a pause.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetTimeOfDay(UObject* WorldContextObject, int32 Hour, int32 Minute);
+
+	/**
+	 * Serializes the local player's chat history (AFGChatManager::
+	 * GetReceivedChatMessages()) to
+	 * {"protocolVersion":1,"messages":[{"sender","text","type","timestamp","isLocalPlayerMessage"},...]}
+	 * - optional two-way chat with the player.
+	 *
+	 * This is genuinely two-way without any extra plumbing: a message the
+	 * player types in the normal in-game chat box flows through the
+	 * ordinary game chat pipeline into this same
+	 * AFGChatManager::mReceivedMessages array SendChatMessage below
+	 * writes to - there is no separate "player input" channel to poll.
+	 * "type" is one of "PlayerMessage"/"SystemMessage"/"AdaMessage"/
+	 * "CustomMessage" (EFGChatMessageType). No "since last call"
+	 * filtering exists here - the caller is expected to track its own
+	 * high-water mark (e.g. by count or by "timestamp") between polls,
+	 * per CLAUDE.md's "external controller" responsibilities.
+	 *
+	 * NOTE: messages the player sends with a leading "/" never reach
+	 * this array at all - SML's own AFGPlayerController::
+	 * ChatMessageEntered hook diverts anything "/"-prefixed to chat
+	 * command dispatch (this is also how AIMod's own "/aimod" command
+	 * works - see AIModChatCommand.cpp) before it's ever added as a
+	 * normal chat message.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogChatHistoryAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Posts a message into the player's in-game chat, so the AI controller
+	 * can optionally talk back to the player through Satisfactory's own
+	 * chat UI, not just this process's own logs/console.
+	 *
+	 * Uses AFGChatManager::AddChatMessageToReceived() - the same
+	 * mechanism SML's own USMLRemoteCallObject::SendChatMessage_
+	 * Implementation uses (SMLRemoteCallObject.cpp) - rather than
+	 * BroadcastChatMessage()'s NetMulticast RPC, since AddChatMessageToReceived
+	 * is the simpler, already-proven-in-this-codebase path and this
+	 * project is explicitly single-player/local-session scope (PLAN.md/
+	 * CLAUDE.md), where there's no separate remote client to multicast
+	 * to. Defaults Sender to "AIMod AI" and MessageType to
+	 * EFGChatMessageType::CMT_CustomMessage (a distinct visual style from
+	 * ordinary player chat) if not overridden. Fails with INVALID_REQUEST
+	 * if Message is empty.
+	 *
+	 * No rate limiting is implemented (flagged, not built - the real
+	 * FGChatManager.cpp doesn't visibly enforce any either, per this
+	 * feature's own research, so this matches the base game's own
+	 * behavior rather than under- or over-restricting it) - a caller
+	 * hammering this repeatedly could still flood the player's chat.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SendChatMessage(UObject* WorldContextObject, const FString& Message, const FString& Sender);
+
+	/**
+	 * PLAN.md Phase 12: first controlled write operation. Sets the clock
+	 * speed (FactoryGame's "potential") on an existing manufacturing
+	 * building, identified by the session-local id from
+	 * GetManufacturerTelemetry. Validates, in order: buildable exists and
+	 * is a manufacturer (TARGET_NOT_FOUND), the building actually allows
+	 * changing potential (OPERATION_NOT_PERMITTED), and the requested
+	 * percent is within [GetCurrentMinPotential(),GetCurrentMaxPotential()]
+	 * (INVALID_CLOCK_SPEED, message includes the valid range). Uses
+	 * SetPendingPotential() - per FactoryGame's own doc comment, the
+	 * change takes effect at the NEXT production cycle, not instantly.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetManufacturerClockSpeed(UObject* WorldContextObject, const FString& BuildableId, float ClockSpeedPercent);
+
+	/**
+	 * world.installPowerShard - inserts a Power Shard into a building's
+	 * potential inventory (SetManufacturerClockSpeed alone only sets a
+	 * clock speed within whatever max potential already exists).
+	 * AFGBuildableFactory::GetPotentialInventory() is real, public, and a
+	 * plain UFGInventoryComponent* - the same direct AddStack pattern
+	 * already used elsewhere in this file (SimulatedCraft,
+	 * MovePortableMinerToInventory, the dismantle refund fix), not the
+	 * more complex TryFillPotentialInventory (a "fill to X value"
+	 * player-UI-shaped API with EPowerShardType bucketing this function
+	 * deliberately does not use).
+	 *
+	 * Works uniformly on ANY AFGBuildableFactory - both manufacturers
+	 * AND extractors (a Miner) - confirmed from source both derive from
+	 * the same base class exposing GetPotentialInventory()/
+	 * mCanChangePotential identically (AFGBuildableResourceExtractorBase
+	 * : AFGBuildableFactory), so this one function covers overclocking a
+	 * Mk3 Miner the same way it covers a Smelter or Constructor.
+	 *
+	 * Real, verified item class: the "Power Shard" item is
+	 * /Game/FactoryGame/Resource/Environment/Crystal/Desc_CrystalShard.Desc_CrystalShard_C
+	 * (confirmed via world.recipeCatalog, not guessed) - hardcoded here
+	 * the same way DebugCheckPowerConnection hardcodes Recipe_PowerLine,
+	 * since there is exactly one real overclock shard item in the game.
+	 *
+	 * Removes Count shards from the player's carried inventory only
+	 * after verifying it holds that many (INSUFFICIENT_INGREDIENTS
+	 * otherwise), adds them to the target's potential inventory via
+	 * AddStack(allowPartialAdd=true), then - if fewer were actually
+	 * added than requested (the potential inventory ran out of real
+	 * slots) - returns the unplaced excess back to the player rather
+	 * than losing it, same restore-on-partial-failure discipline as the
+	 * dismantle refund fix. Fails with OPERATION_NOT_PERMITTED if the
+	 * target has no potential inventory at all (mCanChangePotential is
+	 * false) or if zero shards could be added (no free slots).
+	 *
+	 * Result detail (result.detail): shardsAdded (the real count that
+	 * fit), newMaxPotentialPercent (GetCurrentMaxPotential()*100 after
+	 * insertion - re-query this or world.setClockSpeed's own error
+	 * message to get the real new overclock ceiling, do not assume +50%
+	 * per shard without confirming live - the exact per-shard boost is a
+	 * real UFGPowerShardDescriptor::GetBoostValue() value this function
+	 * does not currently look up separately).
+	 *
+	 * Live-tested - the real per-building default shard slot
+	 * count (when overridesShardSlotCount is false, which is the case
+	 * for all three buildings this was designed for: Miner Mk3, Smelter
+	 * Mk1, Constructor Mk1) is a real value this project's own
+	 * world.buildableCatalog cannot currently see (see
+	 * LogBuildableCatalogAsJson's doc comment) - confirm the real slot
+	 * count and per-shard boost live before assuming a specific number
+	 * of shards will fit or how much overclock headroom they grant.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult InstallPowerShard(UObject* WorldContextObject, const FString& BuildableId, int32 Count);
+
+	/**
+	 * PLAN.md Phase 12: sets the recipe on an existing manufacturing
+	 * building. Validates, in order: buildable exists and is a
+	 * manufacturer (TARGET_NOT_FOUND), recipeClassPath resolves to an
+	 * actual UFGRecipe subclass - this rejects any other class path, it
+	 * is NOT a generic "load any class" capability, per CLAUDE.md's
+	 * Safety and Stability Boundary (INVALID_RECIPE), the recipe is
+	 * actually producible in this building's class via
+	 * UFGRecipe::IsProducedIn (RECIPE_NOT_COMPATIBLE), and both input and
+	 * output inventories are empty - FactoryGame's own SetRecipe doc
+	 * comment: "It is up to the caller to make sure input and output
+	 * inventories are empty before changing recipe" (INVENTORY_NOT_EMPTY).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetManufacturerRecipe(UObject* WorldContextObject, const FString& BuildableId, const FString& RecipeClassPath);
+
+	/**
+	 * Dismantles an existing buildable via the real IFGDismantleInterface
+	 * (Execute_CanDismantle/Execute_Dismantle), not AActor::Destroy() -
+	 * per CLAUDE.md's "No Direct Memory Manipulation", this is the same
+	 * cleanup path (connections, attached wires, inventories,
+	 * AFGBuildableSubsystem removal) a player's in-game dismantle uses.
+	 * Synchronous, no hologram involved. Fails TARGET_NOT_FOUND if the id
+	 * does not resolve, or CANNOT_DISMANTLE if the buildable refuses
+	 * (already dismantled, or an un-dismantled parent like integrated
+	 * railroad track).
+	 *
+	 * Also handles "lightweight:<ClassPath>|<Index>" ids (see
+	 * docs/lightweight-buildable-research.md): foundations and other
+	 * mass-placed pieces are not AFGBuildable actors but
+	 * FRuntimeBuildableInstanceData in AFGLightweightBuildableSubsystem -
+	 * materializes a temporary AFGBuildable* via
+	 * FindOrSpawnBuildableForRuntimeData() and reuses Execute_Dismantle(),
+	 * which has a dedicated branch for removing the lightweight instance.
+	 *
+	 * Also dismantles GetChildDismantleActors() children first - some
+	 * buildables reference a separate actor that Dismantle_Implementation
+	 * itself does not clean up (e.g. AFGBuildablePipeline's
+	 * mFlowIndicator). The real player dismantle path
+	 * (UFGBuildGunStateDismantle) consults this; Execute_Dismantle alone
+	 * does not - without it, a dismantled pipe leaves its fluid indicator
+	 * floating in place.
+	 *
+	 * REAL CONSTRUCTION-COST REFUND - GetDismantleRefund() is computed
+	 * BEFORE dismantling
+	 * and its stacks are added directly to the local player's carried
+	 * inventory via AddStack(allowPartialAdd=true) after. Execute_Dismantle()
+	 * alone does NOT refund anything - that's a
+	 * separate interface function the real player dismantle path calls
+	 * independently; without this call, dismantling silently destroys every
+	 * buildable's construction cost with no refund (see
+	 * docs/placement-lessons.md). If no local player/inventory can be
+	 * found, the refund is logged as lost rather than silently dropped
+	 * without a trace - dismantling itself still succeeds either way.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult DismantleBuildable(UObject* WorldContextObject, const FString& BuildableId);
+
+	/**
+	 * Rotates an existing buildable in place around its own vertical (Z)
+	 * axis. A vertical lift's free/unconnected end lands facing an
+	 * unpredictable direction (likely inherited from whatever orientation
+	 * the last-placed lift used, a convenience default for chaining similar
+	 * builds); this corrects it after construction, since otherwise
+	 * orientation can only be set at initial placement via
+	 * world.placeBuilding's `yaw` param.
+	 *
+	 * Uses plain AActor::SetActorRotation() - the same mechanism
+	 * world.placeBuilding's absolute `yaw` param already uses at
+	 * placement time (see ConstructBuildingAtPosition), just applied
+	 * after the fact. Factory connectors are child USceneComponents, so
+	 * GetConnectorLocation()/GetConnectorNormal() reflect the new
+	 * rotation automatically - no special-casing needed for that part.
+	 *
+	 * Only changes yaw (pitch/roll preserved as-is) - this does NOT
+	 * change which end is Input vs Output (item flow direction), only
+	 * which way the buildable (and therefore its connectors) face
+	 * horizontally.
+	 *
+	 * SAFETY, not yet fully verified at runtime: for a vertical lift
+	 * specifically, both connectors sit on the lift's own vertical axis,
+	 * so rotating yaw doesn't move either connector's position - only the
+	 * direction each one faces. If one end is ALREADY connected (the
+	 * normal case for a lift built via world.connectConveyorLift, whose
+	 * Input is connected and Output is free), this rotates that
+	 * connected end's facing normal too, alongside the free end's. The
+	 * logical connection (mConnectedComponent, a pointer-based link) is
+	 * not expected to break, but the visual/geometric alignment at that
+	 * end may look off after rotating - test on a real connected lift
+	 * before trusting this broadly for that case.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetBuildableRotation(UObject* WorldContextObject, const FString& BuildableId, float Yaw);
+
+	/**
+	 * Sets a buildable's paint color directly, bypassing the normal
+	 * swatch-picker UI - e.g. color-coding pipes by content (blue for
+	 * water, yellow for acid, black for oil). Customization is the general
+	 * mechanic for changing the color or material of most in-game objects,
+	 * so this works on any AFGBuildable, not just pipes.
+	 *
+	 * Real mechanism, confirmed from source (FGColorInterface.h/
+	 * FGFactoryColoringTypes.h, not guessed): AFGBuildable implements
+	 * IFGColorInterface directly. SetCustomizationData_Native()'s own
+	 * doc comment says it "should call ApplyCustomizationData" itself -
+	 * a single, self-contained call, no separate Apply step needed.
+	 * Colors are set via FFactoryCustomizationData::OverrideColorData
+	 * (a FFactoryCustomizationColorSlot with real FLinearColor Primary/
+	 * SecondaryColor fields) - this bypasses the normal SwatchDesc
+	 * (pre-made palette) entirely for a direct, arbitrary RGB override.
+	 * ColorSlot is set to INDEX_CUSTOM_COLOR_SLOT (255,
+	 * FGFactoryColoringTypes.h's own real constant: "the index used to
+	 * specify a 'slot' is a custom user color and thus not really a slot
+	 * at all") so the override takes visual precedence over whatever
+	 * swatch/slot was previously active.
+	 *
+	 * Reads the buildable's EXISTING FFactoryCustomizationData first
+	 * (GetCustomizationData_Native()) and only overwrites
+	 * OverrideColorData/ColorSlot - SwatchDesc/PatternDesc/MaterialDesc/
+	 * SkinDesc are left untouched, so this doesn't clobber an existing
+	 * pattern or material choice, only the color.
+	 *
+	 * Color channels are [0,1] floats (FLinearColor convention, not
+	 * 0-255) - secondaryR/G/B default to the same value as primary if
+	 * omitted (most buildables only show one solid color to a casual
+	 * glance; the primary/secondary split matters mainly for patterned
+	 * buildables). Alpha is always 1.0 - FFactoryCustomizationColorSlot's
+	 * NetSerialize explicitly always sets Alpha=1 on receive, so a
+	 * caller-supplied alpha would never actually persist.
+	 *
+	 * Validates GetCanBeColored_Native() first and refuses with
+	 * NOT_COLORABLE if false, rather than calling the setter on
+	 * something the game itself says shouldn't be painted.
+	 *
+	 * Live-tested:
+	 * works on normal actor buildables (machines). KNOWN LIMITATION: fails on
+	 * LIGHTWEIGHT/instanced buildables (e.g. foundations, whose id is an
+	 * "class|index" instance handle) - same for SetBuildableRotation.
+	 * In particular, whether setting ColorSlot=INDEX_CUSTOM_COLOR_SLOT
+	 * is really sufficient (vs. needing some other field combination) is
+	 * inferred from the constant's own doc comment, not confirmed by
+	 * observing a real color change in-game.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetBuildableColor(UObject* WorldContextObject, const FString& BuildableId, float PrimaryR, float PrimaryG, float PrimaryB, float SecondaryR, float SecondaryG, float SecondaryB, bool bHasSecondaryColor);
+
+	/**
+	 * Returns telemetry for the resource node the local player is
+	 * currently aiming at, via the same
+	 * AFGCharacterPlayer::GetBestUsableActor() GetTargetedManufacturer
+	 * uses - AFGResourceNodeBase implements IFGUseableInterface
+	 * (FGResourceNodeBase.h:93, note the spelling) - the same game state
+	 * that drives the "Press E to start mining..." prompt (see
+	 * docs/extractor-placement-research.md; a hand-rolled view-angle
+	 * heuristic is the wrong approach here). An empty-Id struct means
+	 * nothing/non-node is targeted right now.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModResourceNodeTelemetry GetTargetedResourceNode(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13 (extractor placement), stage 2 of the staged
+	 * verification plan in docs/manual-verification.md: a dry-run only,
+	 * no-mutation experiment. Spawns a real AFGResourceExtractorHologram
+	 * (via AFGHologram::SpawnHologramFromRecipe(Recipe_MinerMk1)) at the
+	 * currently-targeted resource node (GetTargetedResourceNode), feeds
+	 * it a synthetic FHitResult pointing at that node, then reports
+	 * CanConstruct()'s real disqualifier list - then destroys the
+	 * hologram. Never calls Construct() - this function cannot place a
+	 * real building or touch the save. Scoped to solid resources only
+	 * (Miner Mk1) for this first experiment; liquid/gas nodes (Water/Oil
+	 * Extractor) are out of scope and return UNSUPPORTED_RESOURCE_FORM.
+	 *
+	 * PARTIALLY ASYNCHRONOUS: all validation up through spawning the
+	 * hologram and snapping it happens synchronously and returns
+	 * immediately on failure. If that all succeeds, the actual
+	 * CanConstruct() check is deferred and polled across real engine
+	 * ticks: a freshly-spawned hologram reports
+	 * a hard UFGCDInitializing disqualifier that neither an immediate
+	 * check nor several manually-invoked Tick() calls clear - it appears
+	 * to depend on a real per-frame engine cycle, plausibly an async
+	 * clearance/overlap query per FGHologram.h's
+	 * InitializeClearanceData()/PostInitializeClearanceData() split).
+	 * In that case this function returns immediately with
+	 * ErrorCode="PENDING" and the real result is logged to LogAIModAI
+	 * once polling resolves (or a safety-cap number of ticks is hit).
+	 * See docs/extractor-placement-research.md - the two load-bearing
+	 * assumptions (synthetic-hit-result snapping, and hologram
+	 * construction without a real AFGBuildGun) are still unverified
+	 * against real runtime behavior.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult DebugCheckExtractorPlacementOnTargetedNode(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13, second dry-run experiment: because
+	 * DebugCheckExtractorPlacementOnTargetedNode's standalone hologram
+	 * (spawned via AFGHologram::SpawnHologramFromRecipe, no real
+	 * AFGBuildGun involved) consistently reports a hard
+	 * UFGCDInitializing disqualifier that will not clear (see
+	 * docs/extractor-placement-research.md), this drives the REAL build gun
+	 * flow instead, per
+	 * docs/buildgun-driven-placement-research.md: calls
+	 * AFGCharacterPlayer::HotKeyRecipe(Recipe_MinerMk1) (a real,
+	 * ordinary player-facing hotkey feature - not something invented for
+	 * this experiment) to equip the build gun and enter build mode,
+	 * retrieves the resulting UFGBuildGunStateBuild/hologram via public
+	 * accessors, feeds a synthetic FHitResult through
+	 * AFGBuildGun::GetHitResult()'s mutable reference (bypassing the
+	 * real camera trace), polls real ticks the same way as the standalone
+	 * experiment, and always calls UnequipBuildGun() before returning to
+	 * restore the player's prior equipped state.
+	 *
+	 * VISIBLE SIDE EFFECT, unlike the standalone experiment: this
+	 * genuinely equips the build gun and shows the normal in-game
+	 * build-mode HUD/hologram UI for the duration of the test, briefly
+	 * replacing whatever the player currently has equipped.
+	 *
+	 * Same safety posture as the standalone experiment: never calls
+	 * Construct()/Server_ConstructHologram - this cannot place a real
+	 * building or touch the save. Same solid-resource-only scope
+	 * (UNSUPPORTED_RESOURCE_FORM for liquid/gas nodes) and the same
+	 * PARTIALLY ASYNCHRONOUS behavior (ErrorCode="PENDING" while polling,
+	 * real result logged to LogAIModAI once resolved).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult DebugCheckExtractorPlacementViaBuildGun(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13: the first real write operation for building
+	 * placement - places a real Miner Mk1 on the currently-targeted
+	 * resource node. THIS IS A REAL MUTATION, unlike every other
+	 * "extractor placement" function in this class - it genuinely
+	 * constructs a building and touches the save.
+	 *
+	 * Runs the exact same validated flow as
+	 * DebugCheckExtractorPlacementViaBuildGun (HotKeyRecipe, synthetic
+	 * hit result via GetHitResult(), real-tick polling for
+	 * CanConstruct()) - see docs/buildgun-driven-placement-research.md;
+	 * canConstruct resolves to true after 1
+	 * real tick. Only once CanConstruct() genuinely returns true does
+	 * this go one step further than the dry-run: calls
+	 * UFGBuildGunStateBuild::InternalConstructHologram() (the same
+	 * function Server_ConstructHologram's RPC delegates to
+	 * server-side - both public, calling it directly here skips only the
+	 * client->server RPC serialization round-trip, a no-op in this
+	 * same-process singleplayer/listen-server context) with a fresh
+	 * FNetConstructionID from AFGBuildableSubsystem::GetNewNetConstructionID().
+	 * If CanConstruct() ever returns false, this behaves identically to
+	 * the dry-run - logs why, unequips the build gun, and never attempts
+	 * construction.
+	 *
+	 * PARTIALLY ASYNCHRONOUS, same as the dry-run: returns immediately
+	 * with ErrorCode="PENDING" while polling; the real outcome (including
+	 * whether the target node reports occupied afterward, as
+	 * confirmation) is logged to LogAIModAI once resolved.
+	 *
+	 * VISIBLE SIDE EFFECT: equips the build gun for the duration (same as
+	 * the dry-run), unequipped afterward regardless of outcome.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult ConstructExtractorOnTargetedNode(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13: generalizes ConstructExtractorOnTargetedNode
+	 * beyond resource-node-anchored extractors - places any simple,
+	 * single-step, non-snapping building recipe (production machines:
+	 * Constructor/Assembler/Manufacturer/Smelter/Foundry/Refinery/etc.)
+	 * a short distance in front of the player. REAL MUTATION - places an
+	 * actual building and touches the save, same as
+	 * ConstructExtractorOnTargetedNode.
+	 *
+	 * NOT for buildings that need snap points or multi-step placement
+	 * (belts, pipes, walls, foundations, power lines) - those need
+	 * different hologram-driving logic this function doesn't implement.
+	 * Untested outside a couple of production-machine recipes; if
+	 * CanConstruct() reports a real (non-Initializing) disqualifier for
+	 * some other recipe class, that's the game correctly saying no, not
+	 * a bug to work around here.
+	 *
+	 * Position: deliberately simple, not a real "solve valid placement"
+	 * algorithm (explicit scope decision - see docs/manual-verification.md).
+	 * A candidate X/Y is chosen 800 units in front of the player (their
+	 * actor forward vector, horizontal only); a single vertical line
+	 * trace (ECC_Visibility, player ignored) at that X/Y finds real
+	 * ground and its actual hit result is used directly. If nothing is
+	 * hit (e.g. no ground within 1000 units either way), falls back to a
+	 * synthetic hit result at the player's own Z with an assumed
+	 * FVector::UpVector normal. Either way, CanConstruct() is still the
+	 * real gate - a bad spot (e.g. overlapping another building) is
+	 * reported as CANNOT_CONSTRUCT, not silently forced.
+	 *
+	 * RecipeClassPath uses the same validation as SetManufacturerRecipe -
+	 * must resolve to a real UFGRecipe subclass (INVALID_RECIPE if not).
+	 * Same PARTIALLY ASYNCHRONOUS behavior and real-tick polling for
+	 * CanConstruct() as ConstructExtractorOnTargetedNode - see that
+	 * function's comment and docs/buildgun-driven-placement-research.md.
+	 * Same visible side effect (equips the build gun for the duration).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult ConstructBuildingNearPlayer(UObject* WorldContextObject, const FString& RecipeClassPath);
+
+	/**
+	 * Spawns a real AFGCreature near the player. Gated behind the
+	 * "AllowCreatureSpawning" mod
+	 * setting (see AIModConfiguration.h), OFF by default - unlike
+	 * construction, there is no existing in-game equivalent of "a player
+	 * manually spawns a creature", so this is treated as the same
+	 * category of player-opt-in-only capability as bUnlimitedResources,
+	 * not something an external AI controller can ever enable itself.
+	 *
+	 * CreatureClassPath must resolve to a real TSubclassOf<AFGCreature> -
+	 * same narrow "load and validate one specific type" pattern as
+	 * RecipeClassPath elsewhere in this file (INVALID_CREATURE_CLASS if
+	 * not), not a generic "spawn any actor" capability - see CLAUDE.md's
+	 * Safety and Stability Boundary.
+	 *
+	 * Genuinely synchronous, unlike the buildable placement functions -
+	 * AFGCreatureSubsystem::BeginSpawningCreature is a plain (non-UFUNCTION,
+	 * non-RPC) public C++ function that returns the spawned AFGCreature*
+	 * directly, so no hologram/real-tick polling is needed here.
+	 *
+	 * DistanceFromPlayer is clamped to [100, 5000] units in front of the
+	 * player; the actual spawn Z comes from a real ground trace at that
+	 * X/Y (see FindGroundAtXY), same fallback-to-flat behavior as
+	 * ConstructBuildingNearPlayer if nothing is hit.
+	 *
+	 * Scale is a uniform scale factor applied to the spawn transform
+	 * (default/invalid values treated as 1.0, clamped to [0.05, 20.0]) -
+	 * untested against FactoryGame's own creature Blueprints, since
+	 * collision/AI ranges are often hardcoded independent of
+	 * RootComponent scale.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SpawnCreatureNearPlayer(UObject* WorldContextObject, const FString& CreatureClassPath, float DistanceFromPlayer, float Scale);
+
+	/**
+	 * Despawns a creature previously spawned via SpawnCreatureNearPlayer
+	 * (or any real AFGCreature), by its GetPathName() id. For
+	 * cleanup before a save - narrowly scoped to
+	 * AFGCreature (TActorIterator<AFGCreature> lookup), not a generic
+	 * "destroy any actor" capability - see CLAUDE.md's Safety and
+	 * Stability Boundary.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult DespawnCreature(UObject* WorldContextObject, const FString& CreatureId);
+
+	/**
+	 * Building placement at an explicit X/Y (not near-player). Not a
+	 * UFUNCTION - TFunction callbacks are not UHT-compatible - plain C++
+	 * entry point for UAIModHttpServerSubsystem only. Same validated
+	 * flow as ConstructBuildingNearPlayer (real-tick polling for
+	 * CanConstruct, re-asserted every tick for deterministic placement).
+	 * Genuinely asynchronous: OnComplete fires exactly once, sync or
+	 * after polling resolves.
+	 *
+	 * RotationScrollDelta: applies AFGHologram::Scroll(sign) that many
+	 * times. Non-linear for magnitude greater than 1 and terrain
+	 * dependent - see docs/buildgun-driven-placement-research.md.
+	 * Prefer bHasTargetYaw/TargetYawDegrees for a reliable result.
+	 *
+	 * GridSnapSize: rounds X/Y to the nearest multiple before placing.
+	 * 0 disables. Independent of any per-building internal snap.
+	 *
+	 * ReferenceZ: anchors the ground trace to this Z instead of the
+	 * player current Z - needed because the trace search range is only
+	 * +/-1000 units, so an unrelated player position can miss real
+	 * terrain entirely. Pass an existing buildable Z (world.buildables)
+	 * for deterministic multi-step layouts. Sentinel -1000000 means
+	 * not provided, falls back to player Z.
+	 *
+	 * bIgnoreGroundTrace: skips the ground trace entirely and places at
+	 * the literal (X, Y, ReferenceZ) - requires ReferenceZ to be
+	 * explicitly provided (fails MISSING_REFERENCE_Z otherwise). Added
+	 * because the trace is unreliable in two confirmed ways: (1) at an
+	 * exact foundation tile edge, the same request can non-
+	 * deterministically find either the real top surface or fall through
+	 * to unrelated lower terrain; (2) above open interior space (e.g. a
+	 * roof over a room, nothing solid within +/-1000 units), it always
+	 * falls through to the floor below, never the intended height. Use
+	 * world.groundHeight once to find a real surface Z nearby, compute
+	 * the true target Z from that (see docs/placement-lessons.md), then
+	 * pass it here for a placement no game-thread trace can perturb.
+	 *
+	 * bIgnoreAimLocation/bIgnorePlayerEncroachment/bIgnoreClearance/
+	 * bIgnoreInvalidFloor: named, scoped bypasses of specific UX-only
+	 * disqualifiers, for large autonomous layouts that accept the
+	 * collision risk. Every other disqualifier still applies.
+	 *
+	 * bHasTargetYaw/TargetYawDegrees: sets an exact final world yaw
+	 * directly, bypassing RotationScrollDelta - the reliable way to get
+	 * a specific orientation.
+	 *
+	 * FaceBuildableId: resolves an existing buildable position and
+	 * computes TargetYawDegrees to face it automatically. Takes
+	 * priority over an explicit yaw. Fails with FACE_TARGET_NOT_FOUND.
+	 * Orients the whole building only, not a specific connector on a
+	 * multi-connector building.
+	 */
+	static void ConstructBuildingAtPosition(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, int32 RotationScrollDelta, float GridSnapSize, float ReferenceZ, bool bIgnoreGroundTrace, bool bIgnoreAimLocation, bool bIgnorePlayerEncroachment, bool bIgnoreClearance, bool bIgnoreInvalidFloor, bool bHasTargetYaw, float TargetYawDegrees, const FString& FaceBuildableId, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * PLAN.md Phase 13/14: dry-run only, no-mutation experiment toward
+	 * conveyor/power connections (see docs/conveyor-power-connection-research.md).
+	 * Given two ALREADY-PLACED buildables (by session-local id, e.g. from
+	 * ConstructBuildingAtPosition's result.buildableId), finds a free
+	 * UFGPowerConnectionComponent on each (via generic
+	 * Buildable->GetComponents<>(), the same pattern already proven for
+	 * factory connections), spawns a real AFGWireHologram (via
+	 * HotKeyRecipe(Recipe_PowerLine)), calls its public
+	 * SetConnection(0/1, ...) with both components, and reports
+	 * CanConstruct()'s real disqualifier list. Never calls Construct() -
+	 * this cannot place a real wire or touch the save, same safety
+	 * posture as DebugCheckExtractorPlacementOnTargetedNode.
+	 *
+	 * Exists specifically to test the untested assumption in
+	 * docs/conveyor-power-connection-research.md: whether SetConnection()
+	 * alone is sufficient, or whether AFGWireHologram's private
+	 * CheckValidSnap()/CheckLength() need the real multi-step
+	 * TrySnapToActor/DoMultiStepPlacement flow to have run first to
+	 * populate some other internal state SetConnection() alone doesn't.
+	 *
+	 * Same PARTIALLY ASYNCHRONOUS behavior as the other build-gun-driven
+	 * dry-run functions (ErrorCode="PENDING" while polling, real result
+	 * logged to LogAIModAI once resolved) and the same visible
+	 * build-gun-equip side effect.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult DebugCheckPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB);
+
+	/**
+	 * Places a real extractor on a resource node by session-local id
+	 * (world.resourceNodes), instead of requiring the player to be
+	 * looking at it. Not a UFUNCTION - plain C++ entry point for
+	 * UAIModHttpServerSubsystem, same async shape as
+	 * ConstructBuildingAtPosition.
+	 *
+	 * The synthetic FHitResult must set a real Distance field (not the
+	 * 0.f default) - AFGResourceExtractorHologram sanity-checks it, a
+	 * default value fails with "Must be placed on a Resource Node!"
+	 * even on a valid node. Also calls Hologram->TrySnapToActor(Hit),
+	 * which populates mSnappedExtractableResource.
+	 *
+	 * RecipeClassPath is caller-chosen (any solid/liquid/gas extractor
+	 * recipe) - engine-side gating on AFGBuildableResourceExtractorBase
+	 * already restricts which recipe fits which node type correctly, no
+	 * need to re-derive that here. NodeId resolves against the wider
+	 * AFGResourceNodeBase, which also reaches Fracking Core nodes (a
+	 * Resource Well Pressurizer target, not an AFGResourceNode - see
+	 * docs/resource-well-research.md).
+	 *
+	 * Fracking Satellite sequencing is a real engine-side gate, not
+	 * bypassable here: a satellite extractor needs its core Pressurizer
+	 * already producing (poll world.resourceNodes' satelliteState)
+	 * before it can be built - this function correctly fails rather
+	 * than silently skipping that check.
+	 */
+	static void ConstructExtractorOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructWaterPumpNearReference - places additional pumps next
+	 * to a player-placed reference pump. See world.waterVolumes' doc
+	 * comment for the full finding.
+	 *
+	 * **Water Pump placement is NOT reachable through
+	 * `world.placeExtractor`/`ConstructExtractorOnNode`**:
+	 * `ConstructExtractorOnNode` only searches
+	 * `TActorIterator<AFGResourceNodeBase>`, and a water body is an
+	 * `AFGWaterVolume` (`APhysicsVolume`), NOT an
+	 * `AFGResourceNodeBase` subclass - there is no "node" for it
+	 * to find. Architecturally, this is correctly done as a
+	 * literal-position placement instead:
+	 * `AFGWaterPumpHologram : AFGResourceExtractorHologram :
+	 * AFGFactoryHologram` - the SAME simple single-click hologram
+	 * lineage `ConstructBuildingAtPosition` already drives for ordinary
+	 * buildings, NOT the multi-step `AFGSplineHologram` branch. Real,
+	 * dedicated construct disqualifiers confirmed to exist for exactly
+	 * this (`FGConstructDisqualifier.h`): `UFGCDNeedsWaterVolume`
+	 * ("RequiresDeepWater") and `UFGCDResourceIsTooShallow`
+	 * ("NotDeepEnough") - a raw-position/depth check, not a node-
+	 * occupancy check, confirming water pump validity is decided by
+	 * where you aim, not what you're snapped to.
+	 *
+	 * Given that, this function is a thin wrapper, NOT a new
+	 * hologram-driving implementation: resolves `ReferenceBuildableId`
+	 * (must be a real, already-placed `AFGBuildableWaterPump` -
+	 * deliberately requiring an existing, already-validated pump as the
+	 * anchor rather than accepting any
+	 * buildable), computes a literal target position
+	 * (`ReferencePosition + (OffsetX, OffsetY, OffsetZ)` - `OffsetZ`
+	 * defaults to `0`, i.e. same height as the reference, since that's
+	 * already known-good water-surface height nearby, deliberately NOT
+	 * re-ground-tracing which could hit the lakebed under the water
+	 * rather than its surface), then delegates into the shared
+	 * `ConstructWaterPumpAtCandidatePosition` internal helper (also used
+	 * by `ConstructWaterPumpAtPosition` below) - real
+	 * `AFGWaterVolume`-lookup/hologram-driving logic, not
+	 * `ConstructBuildingAtPosition`.
+	 *
+	 * `RecipeClassPath` defaults to `Recipe_WaterPump` (confirmed the
+	 * only real Water Pump recipe/tier that exists) if left empty.
+	 *
+	 * Live-tested against a real ocean with a real reference pump.
+	 * Minimum pump spacing: a 2000-unit offset
+	 * fails `CANNOT_CONSTRUCT`/"Encroaching another object's
+	 * clearance!", while 3000/4000/5000-unit offsets succeed (verified via
+	 * `world.buildables` at the exact expected positions) - real minimum
+	 * spacing is somewhere in (2000, 3000], not yet narrowed further. See
+	 * `docs/placement-lessons.md`'s "CRITICAL:
+	 * `world.constructWaterPumpAtPosition`... CRASHED THE GAME" entry
+	 * for a related fix in the shared helper.
+	 */
+	static void ConstructWaterPumpNearReference(UObject* WorldContextObject, const FString& ReferenceBuildableId, float OffsetX, float OffsetY, float OffsetZ, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructWaterPumpAtPosition - seeds the FIRST pump in a field
+	 * from a literal position. `ConstructWaterPumpNearReference`
+	 * deliberately requires an already-placed reference pump, which means a
+	 * fully autonomous build otherwise has no way to place the very first
+	 * pump without a human having placed one by hand. This closes that
+	 * hole: same real
+	 * mechanism (shares the `ConstructWaterPumpAtCandidatePosition`
+	 * internal helper wholesale, not a reimplementation - see that
+	 * helper's own comment in the .cpp), just a literal `(X, Y, Z)`
+	 * candidate position instead of resolving one from a reference
+	 * buildable. No ground-trace mode - unlike ordinary buildings, a
+	 * water pump's valid Z is decided entirely by which
+	 * `AFGWaterVolume` (if any) contains the point and that volume's
+	 * own `CanPlaceResourceExtractor()`/depth disqualifiers, not by
+	 * where the terrain surface is - pass a real Z, typically read from
+	 * `world.waterVolumes`' bounds for the target lake.
+	 *
+	 * Live-tested for a genuine in-water position (verified via
+	 * `world.buildables`). The negative path guards against a real crash: a
+	 * literal on-land position (well outside any real water) takes the
+	 * whole game process down via
+	 * `AFGResourceExtractorHologram::ConfigureActor()`'s
+	 * `mSnappedExtractableResource` assert, because a water-volume lookup
+	 * that falls back to the NEAREST volume by distance when no volume
+	 * actually contains the point can pick dry land for a huge ocean
+	 * volume. So `AFGWaterVolume::EncompassesPoint()` is a hard
+	 * requirement, with no distance fallback as an actual target - see
+	 * `docs/placement-lessons.md`'s dedicated crash writeup for the full
+	 * root-cause/fix detail.
+	 */
+	static void ConstructWaterPumpAtPosition(UObject* WorldContextObject, float X, float Y, float Z, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructVehicle - Drones and wheeled vehicles
+	 * (Tractor/Truck/Explorer/Cyber Wagon/Golf Cart) are hologram-driven
+	 * (AFGVehicleHologram : AFGHologram), the SAME class hierarchy every
+	 * other Construct* function here already drives - confirmed from
+	 * source, NOT the Portable Miner's equipment-dispenser/reflection
+	 * pattern. ConstructBuildingAtPosition refuses vehicle recipes
+	 * outright (WRONG_METHOD_FOR_VEHICLE) so this is the only path.
+	 *
+	 * DroneStationId (optional): if provided, snaps to that
+	 * AFGBuildableDroneStation the same way ConstructExtractorOnNode
+	 * snaps to a resource node - required for drone recipes, since
+	 * AFGBuildableDroneHologram has a mandatory mSnappedStation
+	 * reference (UFGCDMustSnapStation/UFGCDOccupiedStation/
+	 * UFGCDDroneStationHasDrone in FGConstructDisqualifier.h) this
+	 * function never bypasses, by the same conservative logic
+	 * ConstructBuildingAtPosition refuses extractors outright - a real,
+	 * confirmed crash already exists for an analogous unset-mandatory-
+	 * reference case (AFGResourceExtractorHologram::ConfigureActor), and
+	 * whether AFGBuildableDroneHologram's own ConstructVehicle() is
+	 * equally unsafe when unsnapped is unconfirmed from source (stub
+	 * .cpp), not worth gambling on.
+	 *
+	 * Left empty: free placement at literal X/Y, same
+	 * bIgnoreGroundTrace/ground-trace choice as
+	 * ConstructBuildingAtPosition - for wheeled vehicles, which have no
+	 * mandatory-reference disqualifier found in source.
+	 *
+	 * AFGVehicle is not an AFGBuildable (a separate AFGDriveablePawn
+	 * hierarchy) - construction confirmation uses a real AFGVehicle
+	 * actor-iterator proximity scan instead of AFGBuildableSubsystem's
+	 * registry, everything else here mirrors ConstructExtractorOnNode's
+	 * proven poll/disqualifier/construct shape.
+	 *
+	 * A freshly-built vehicle still needs fuel (GetFuelInventory()) to
+	 * actually move, and a drone still needs its station paired to a
+	 * destination (AFGDroneSubsystem::Server_PairStations, a public
+	 * BlueprintCallable function, not yet exposed here) before it will
+	 * fly a route - neither is handled by this function, which only
+	 * covers construction itself. Live-tested.
+	 */
+	static void ConstructVehicle(UObject* WorldContextObject, const FString& RecipeClassPath, const FString& DroneStationId, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * Places a Portable Miner (AFGPortableMiner) on a resource node.
+	 * Architecturally unlike every other Construct* function here: a
+	 * Portable Miner is not an AFGBuildable, never driven by a hologram.
+	 * It is deployed as EQUIPMENT via AFGPortableMinerDispenser, whose
+	 * real placement logic is a protected
+	 * Server_SpawnPortableMiner(location, resourceNode).
+	 *
+	 * Flow: (1) requires a real Portable Miner item already in inventory
+	 * (ItemClassPath, PORTABLE_MINER_NOT_IN_INVENTORY if absent) - real
+	 * consumption, not synthesized; (2) moves it into the ARMS
+	 * equipment slot (a genuinely separate inventory component from the
+	 * general backpack) and calls the real SetActiveEquipmentIndex to
+	 * equip the dispenser; (3) polls for the dispenser to actually
+	 * exist in that slot; (4) calls Server_SpawnPortableMiner with the
+	 * node real location (not a camera trace, matching this file player-
+	 * independence pattern elsewhere); (5) polls for the new actor and
+	 * unequips.
+	 *
+	 * STILL UNRESOLVED: step 4 executes with no error
+	 * and correct parameters (confirmed via log), but no real actor
+	 * appears - true even when called as a direct C++ member call via a
+	 * protected-access-bypass accessor (see the .cpp), not just via
+	 * reflection. Root cause not found; something inside the real,
+	 * stub-source compiled implementation is rejecting it.
+	 *
+	 * NodeId uses the same AFGResourceNodeBase lookup as
+	 * ConstructExtractorOnNode. Fails with NODE_OCCUPIED if already
+	 * occupied, matching real game behavior.
+	 */
+	static void ConstructPortableMinerOnNode(UObject* WorldContextObject, const FString& NodeId, const FString& ItemClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * Serializes every AFGPortableMiner actor in the world to
+	 * {"protocolVersion":1,"portableMiners":[{"id","position","nodeId",
+	 * "isProducing","extractionProgress","outputInventory":[{"itemClass",
+	 * "numItems"},...]},...]} - companion to
+	 * ConstructPortableMinerOnNode, since a Portable Miner has to be
+	 * emptied directly by the player (no belt output) - this is how a
+	 * caller finds out one needs emptying before
+	 * calling RetrievePortableMinerInventory. Id is the same session-local
+	 * GetPathName()-based scheme as every other actor id in this protocol.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPortableMinersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Moves items out of a Portable Miner's output inventory
+	 * (GetOutputInventory(), a plain UFGInventoryComponent) and into the
+	 * local player's own inventory - the "have to be emptied directly by
+	 * the player" step, done via RPC instead of walking up and pressing E.
+	 *
+	 * Moves EVERY item currently in the output inventory (no partial/
+	 * selective retrieval yet - a real gap for a future pass if selective
+	 * retrieval turns out to matter). Uses
+	 * UFGInventoryComponent::Remove()+AddStack(allowPartialAdd=true) -
+	 * real inventory mutation, not a synthesized item grant. Only the
+	 * amount AddStack actually reports as added is ever Remove()'d from
+	 * the source - if the player's inventory fills up partway through,
+	 * whatever didn't fit simply stays in the Portable Miner rather than
+	 * being lost, so this is always safe to call even against a nearly-
+	 * full player inventory.
+	 *
+	 * Fails with TARGET_NOT_FOUND if PortableMinerId doesn't resolve,
+	 * NOTHING_TO_RETRIEVE if the output inventory is already empty, or
+	 * INVENTORY_FULL if it has items but none of them fit in the
+	 * player's inventory.
+	 */
+	static void RetrievePortableMinerInventory(UObject* WorldContextObject, const FString& PortableMinerId, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * Moves a Portable Miner item from the player's ARMS equipment slot
+	 * back into their general inventory. Needed because
+	 * the ARMS slot is a genuinely separate inventory component (see
+	 * ConstructPortableMinerOnNode's doc comment) that a stationary
+	 * Miner's real construction-cost affordability check does not see:
+	 * world.placeExtractor fails with "Missing
+	 * materials!" for a Portable Miner ingredient even when the player
+	 * has one equipped as their active item. No-ops successfully (returns
+	 * Success with no change) if the ARMS slot doesn't currently hold a
+	 * Portable Miner - not an error, since the general inventory may
+	 * already have one. Uses the real UFGInventoryComponent::
+	 * RemoveFromIndex(idx, num, targetInventory) transfer overload, not a
+	 * separate Remove()+AddStack() pair.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult MovePortableMinerToInventory(UObject* WorldContextObject);
+
+	/**
+	 * Simulated handheld-item crafting - a deliberate alternative to driving
+	 * the real Workshop/WorkBench crafting UI (never implemented - see
+	 * docs/placement-lessons.md), for the specific case of a player who has
+	 * the real ingredients for a handheld item but can't reach a bench, or
+	 * (the motivating case) needs a Portable Miner and
+	 * world.placePortableMiner's underlying Server_SpawnPortableMiner RPC is
+	 * still unresolved.
+	 *
+	 * Deliberately scoped to HANDHELD ITEMS ONLY, not a generic "spawn any
+	 * item" capability (CLAUDE.md's Safety and Stability Boundary) - the
+	 * recipe's real UFGRecipe::GetProducts() is checked and EVERY product
+	 * must resolve to a UFGEquipmentDescriptor subclass, rejecting recipes
+	 * for raw parts, buildings, or bulk factory components entirely.
+	 * Fails with NOT_HANDHELD_ITEM if the recipe produces anything else.
+	 *
+	 * Real inventory mutation, not a synthesized grant with no cost: reads
+	 * the recipe's actual UFGRecipe::GetIngredients() and verifies the
+	 * player's real inventory (UFGInventoryComponent::HasItems()) can
+	 * afford ALL of them before changing anything - fails with
+	 * INSUFFICIENT_INGREDIENTS (naming what's short) rather than partially
+	 * consuming ingredients for a craft that can't complete. Only on a
+	 * full pass does it Remove() each ingredient and AddStack() each
+	 * product, in the recipe's own stated amounts (single craft, no
+	 * multiplier).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SimulatedCraft(UObject* WorldContextObject, const FString& RecipeClassPath);
+
+	/**
+	 * Reports every item currently held in the Dimensional Depot (real
+	 * class name AFGCentralStorageSubsystem - "Dimensional Depot" is only
+	 * the in-game display name). Motivating case: a player can have 2500
+	 * Concrete "in dimensional storage" yet world.placeBuilding still fails
+	 * "Missing materials!" on a 2-Concrete wall. Real interactive player
+	 * building pulls from both the Depot and carried inventory
+	 * automatically (with a player-configurable preference for draw order) -
+	 * this mod's
+	 * Construct* functions do NOT yet replicate that, they only check
+	 * carried UFGInventoryComponent. See WithdrawFromCentralStorage for
+	 * the current manual workaround.
+	 *
+	 * Deliberately does NOT gate the item lookup behind
+	 * AFGCentralStorageSubsystem::IsCentralStorageBuilt(), which
+	 * reports a SEPARATE container-registration bookkeeping array
+	 * (mCentralStorages) that is unreliable/false even with
+	 * real, already-built AFGCentralStorageContainer buildables present,
+	 * so gating on it silently reports an empty Depot regardless
+	 * of actual contents. Calls GetAllItemsFromCentralStorage()
+	 * unconditionally - the `isCentralStorageBuilt` field in the
+	 * response still reflects the same unreliable flag for reference/
+	 * diagnostics, but callers should trust `items` being empty (not
+	 * this flag) to mean "genuinely nothing in the Depot."
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogCentralStorageAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Reports every item currently in the local player's CARRIED
+	 * inventory (UFGInventoryComponent, general backpack - not the ARMS
+	 * equipment slot, not the Dimensional Depot). One
+	 * aggregated entry per distinct item class, summed across every
+	 * stack. Empty {"items":[]} (hasPlayer:false) if no local
+	 * AFGCharacterPlayer exists rather than an error. Complements
+	 * LogCentralStorageAsJson so a caller can compute a reliable "combined
+	 * carried + Depot" total for a given item.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPlayerInventoryAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Triggers a real, local game save via the same path the pause menu's
+	 * "Save" button uses (AFGPlayerControllerBase::GetAdminInterface() ->
+	 * AFGAdminInterface::SaveGame(true, ...)) - lets a caller checkpoint
+	 * progress via RPC instead of manually pausing and saving.
+	 *
+	 * SaveName, if empty, falls back to the current session's name
+	 * (AFGGameState::GetSessionName()) so this overwrites the active save
+	 * slot, matching a normal in-game quicksave rather than creating a new
+	 * save file. Fails with NO_SESSION_NAME if that's also empty (no
+	 * active session to save).
+	 *
+	 * Always saves locally (the `locally` bool AFGAdminInterface::SaveGame
+	 * takes) - this project's primary target is a single-player/local
+	 * session per CLAUDE.md; a remote/host save isn't exposed here.
+	 *
+	 * Genuinely asynchronous - SaveGame's own delegate is a Save
+	 * confirmation from the engine, not just "request sent" - so OnComplete
+	 * only fires once the save has actually finished (or failed).
+	 */
+	static void SaveGame(UObject* WorldContextObject, const FString& SaveName, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * Withdraws items from the Dimensional Depot into the player's
+	 * general inventory, companion to
+	 * LogCentralStorageAsJson - see that function's doc comment for why
+	 * this is needed (Depot storage and carried inventory are genuinely
+	 * separate). Uses the real
+	 * AFGCentralStorageSubsystem::TryRemoveItemsFromCentralStorage(),
+	 * which itself clamps to whatever is actually available (a request
+	 * for more than the Depot holds is not an error - it withdraws
+	 * whatever it can). Fails with NO_CENTRAL_STORAGE only if the
+	 * subsystem itself doesn't exist for this world (should never
+	 * happen in practice), or NOTHING_WITHDRAWN if the Depot holds none
+	 * of the requested item. Deliberately does NOT gate on
+	 * IsCentralStorageBuilt() (same unreliable flag as
+	 * LogCentralStorageAsJson), which would silently block every withdrawal
+	 * attempt even with real, populated Depot storage present.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult WithdrawFromCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);
+
+	/**
+	 * world.uploadToCentralStorage - the reverse of
+	 * withdrawFromCentralStorage: move items from the local PLAYER inventory
+	 * INTO the Dimensional Depot. The engine's only deposit path
+	 * (AFGCentralStorageSubsystem::UploadItemFromInventoryToCentralStorage) is
+	 * per-slot / whole-stack, so upload is STACK-GRANULAR: it uploads whole
+	 * matching stacks whose size keeps the running total <= Amount (never
+	 * overshoots the cap, never partially destroys a stack). Clamped by what
+	 * the player actually holds AND the Depot's remaining capacity for that item
+	 * (GetCentralStorageItemLimit). Reports itemsUploaded (may be < Amount when
+	 * the remaining need is smaller than the smallest matching stack, or the
+	 * Depot is near full) - a soft shortfall, not a loss. Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult UploadToCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);
+
+	/**
+	 * Deletes every AFGBuildablePipelineFlowIndicator in the world that
+	 * isn't the real, currently-attached indicator of any live
+	 * AFGBuildablePipeline. Position-proximity heuristics are unreliable for
+	 * telling an orphaned indicator apart from a legitimate one in a
+	 * dense pipe cluster (see docs/placement-lessons.md).
+	 *
+	 * Exact, not a guess: for every AFGBuildablePipeline in the world,
+	 * calls its own public GetFlowIndicator() (a real accessor for the
+	 * mFlowIndicator UPROPERTY, no reflection needed) to build the set of
+	 * genuinely-attached indicators; any AFGBuildablePipelineFlowIndicator
+	 * actor not in that set is a confirmed orphan - real debris left
+	 * behind by a pipe deleted before this project's
+	 * DismantleBuildable child-actor-cleanup fix existed (see that
+	 * function's doc comment), not a false positive from proximity
+	 * matching. Deletes orphans via the same real
+	 * IFGDismantleInterface::Execute_Dismantle() path as
+	 * DismantleBuildable, not AActor::Destroy(). Returns
+	 * {"protocolVersion":1,"totalIndicators","attachedCount","orphanCount",
+	 * "deletedIds":[...]}.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString CleanupOrphanedFlowIndicatorsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Connects power between two buildings via
+	 * AFGWireHologram::SetConnection(0/1, ...) directly with a single
+	 * GetHitResult() assignment for ConnectionA - the only mechanism
+	 * confirmed to work for machine-to-machine wire connections. A
+	 * click-based TrySnapToActor rewrite never populated
+	 * GetConnection(0)/(1) for wires at all; do not repeat without new
+	 * evidence.
+	 *
+	 * bIgnoreAimLocation/bIgnoreWireSnap/bIgnoreWireLength are named,
+	 * per-disqualifier bypasses (manually walks GetConstructDisqualifiers
+	 * rather than trusting the opaque CanConstruct bool), needed because of
+	 * real disqualifier flakiness - the same connection pair
+	 * returning different disqualifiers across identical repeated calls.
+	 * bIgnoreWireLength opts out of UFGCDWireTooLong, the
+	 * wire mMaxLength cap (10000cm pole / 30000cm tower). Unlike the other
+	 * two it is a real deterministic geometry gate, but it is BUILD-TIME
+	 * only - the power circuits merge logically with no runtime length
+	 * dependency - so a wire built past the cap still carries power. Off by
+	 * default; the caller opts in to span any distance with one wire (e.g.
+	 * a remote outpost kilometres from the grid) instead of a pole chain.
+	 *
+	 * Same bDryRun/async pattern as ConstructExtractorOnNode. A
+	 * CANNOT_CONSTRUCT/NO_POWER_CONNECTION result may correctly reflect
+	 * a real pole-vs-daisy-chain progression gate (see
+	 * docs/conveyor-power-connection-research.md), not a bug.
+	 */
+	/* Optional connector pins mirror connectConveyor's
+	 * sourceConnectorPosition/destConnectorPosition: when set, only a
+	 * free power connection within 150 units of the pin is eligible on
+	 * that side - deterministic port selection on multi-connector
+	 * buildables. Also carries the stale-wire-hologram stuck-state fix
+	 * (see the .cpp) - the "Must be hooked up to a connection!"
+	 * everything-fails session state no longer needs the place+delete
+	 * workaround. */
+	static void ConstructPowerConnection(UObject* WorldContextObject, const FString& BuildableIdA, const FString& BuildableIdB, bool bDryRun, bool bIgnoreAimLocation, bool bIgnoreWireSnap, bool bIgnoreWireLength, TFunction<void(const FAIModOperationResult&)> OnComplete, const TOptional<FVector>& ConnectorPositionA = TOptional<FVector>(), const TOptional<FVector>& ConnectorPositionB = TOptional<FVector>());
+
+	/**
+	 * Diagnostic only, not a real placement attempt: spawns a real belt
+	 * hologram and feeds a synthetic hit at a free output connection
+	 * through three entry points (UpdateHologramPlacement, TrySnapToActor,
+	 * a single click), logging the resulting connection state after
+	 * each. Never calls CanConstruct/Construct, never touches the save,
+	 * reports synchronously.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult DebugCheckConveyorSnap(UObject* WorldContextObject, const FString& SourceBuildableId);
+
+	/**
+	 * Connects a conveyor belt between two connectors via the real
+	 * TrySnapToActor()+DoMultiStepPlacement() click sequence, once at
+	 * the source and once at the dest, polling for UFGCDInitializing to
+	 * clear before checking CanConstruct(). Same bDryRun/async pattern
+	 * as ConstructPowerConnection. Not a UFUNCTION, same reason as the
+	 * other async entry points.
+	 *
+	 * RecipeClassPath: any of Recipe_ConveyorBeltMk1..Mk6. Tier/rate
+	 * selection is deliberately not done here - see
+	 * world.conveyorBeltTiers and controller/satisfactory_ai/conveyors.py.
+	 * Source/dest are not required to be machines - any AFGBuildable
+	 * with a free UFGFactoryConnectionComponent works, including belts
+	 * themselves, so chaining calls should build multi-segment routes
+	 * (not live-tested beyond single machine-to-machine segments).
+	 *
+	 * RouteMode: one of Straight/Curve/Auto (case-insensitive, empty
+	 * leaves the hologram default). Added because the basic click
+	 * sequence reliably fails on any real direction mismatch between
+	 * source and dest connectors - not yet verified at runtime to resolve it.
+	 *
+	 * InstigatorStrategy (case-insensitive, empty defaults to
+	 * "PlayerController"): which pawn/controller drives the hologram's
+	 * construction. "RealCharacter" uses the actual player's real,
+	 * equipped BuildGun (proven reliable, but visibly moves the real
+	 * camera - see ConstructConveyorBelt_RealCharacterStrategy's comment
+	 * in the .cpp). "AIController"/"PlayerController" spawn a throwaway
+	 * decoy pawn+controller instead so the real player's camera is never
+	 * touched - both leave the hologram permanently stuck on
+	 * UFGCDInitializing, ruling out controller class as the variable.
+	 * "LocalPlayer" (not yet verified at runtime) spawns a genuine second
+	 * ULocalPlayer via UGameInstance::CreateLocalPlayer() instead of a bare
+	 * decoy, on the hypothesis that genuine local-player identity (not just
+	 * controller class) is what UFGCDInitializing's gate actually requires -
+	 * see docs/camera-hijack-and-second-player-research.md and the .cpp's
+	 * "Decoy-instigator rewrite" comment.
+	 *
+	 * SourceConnectorPosition/DestConnectorPosition: when provided (real
+	 * world coordinates, e.g. from
+	 * a prior world.connections call), targets ONE SPECIFIC connector by
+	 * position instead of "the first free one of the right direction" -
+	 * required for deterministic port selection on a multi-output
+	 * buildable like a splitter (world.connections' own "direction" field
+	 * only tells you Input vs Output, not WHICH of several same-direction
+	 * connectors will be used - this is what makes that choice explicit
+	 * and provable). Optional; omitting both keeps prior behavior exactly.
+	 * Errors NO_FACTORY_CONNECTION if nothing free is within tolerance of
+	 * the given position - never silently falls back to a different one.
+	 */
+	static void ConstructConveyorBelt(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, const FString& RouteMode, const FString& InstigatorStrategy, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * Read-only telemetry - returns a placed belt or pipe's
+	 * REAL world-space path, so a mod-constructed conveyor's actual geometry
+	 * can be compared against a normally (player-)placed one.
+	 * world.connectConveyor's belts can curve unpredictably despite aligned
+	 * connectors, and world.connections only reports whether the two
+	 * endpoints ended up connected, not the resulting path itself. Works on
+	 * anything implementing
+	 * IFGSplineBuildableInterface - confirmed from source that both
+	 * AFGBuildableConveyorBelt and AFGBuildablePipeBase share this
+	 * interface and its exact accessor set, so this is deliberately
+	 * generic rather than belt-specific. Does NOT cover
+	 * AFGBuildableConveyorLift - lifts are not spline-based (confirmed
+	 * from source: a lift's placement is fully described by its
+	 * mTopTransform/GetHeight(), no spline component exists on that
+	 * class at all).
+	 *
+	 * Same "embed found/error in the payload" convention as
+	 * LogGroundHeightAsJson, not a thrown RPC error - see that function's
+	 * doc comment for why (every Log*AsJson result is unconditionally
+	 * wrapped success:true at the dispatch layer).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogSplineGeometryAsJson(UObject* WorldContextObject, const FString& BuildableId);
+
+	/**
+	 * Telemetry, not a mutation - same LogXAsJson convention as
+	 * LogConveyorBeltTiersAsJson. Vertical conveyor groundwork: lifts can
+	 * transition item flow between miners locked to the terrain and raised
+	 * foundations.
+	 *
+	 * Recipe_ConveyorLiftMk1..Mk6 (all six confirmed present on disk,
+	 * same naming as belts) resolve to `AFGBuildableConveyorLift` -
+	 * `AFGBuildableConveyorBase`'s OTHER direct subclass alongside
+	 * regular belts, confirmed from source, sharing
+	 * `GetSpeed()`/`GetConnection0()`/`GetConnection1()`. Reports each
+	 * tier's real queried `speed` only - deliberately does NOT report
+	 * min/max height limits: `AFGConveyorLiftHologram`'s
+	 * `mStepHeight`/`mMinimumHeight`/`mMaximumHeight`/
+	 * `mMinimumHeightWithVerticalConnection` are plain private `float`
+	 * members with NO `UPROPERTY` macro (confirmed from header) - unlike
+	 * every other reflection-based CDO read in this file,
+	 * `FindFProperty<FFloatProperty>` cannot find a non-`UPROPERTY`
+	 * field at all, since UHT never generates reflection data for it.
+	 * This is a genuine, real gap, not an omission - real height limits
+	 * remain unknown until discovered another way.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogConveyorLiftTiersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * PLAN.md Phase 13/14, vertical conveyor groundwork. Deliberate
+	 * near-mirror of
+	 * ConstructConveyorBelt's two-click `TrySnapToActor` flow -
+	 * `AFGConveyorLiftHologram` is NOT a spline hologram (confirmed from
+	 * source: `AFGConveyorLiftHologram : AFGBuildableHologram` directly,
+	 * NOT `AFGSplineHologram` like belts/pipes - a vertical lift is a
+	 * straight column, no bending), but it DOES override
+	 * `TrySnapToActor`/`DoMultiStepPlacement` itself, so the same
+	 * click-driven pattern applies: `UpdateHologramPlacement()` before
+	 * each `TrySnapToActor()`, the connector's real
+	 * `GetConnectorNormal()` (not a placeholder) in the synthetic hit.
+	 * Reuses `FindFreeFactoryConnection`/`UFGFactoryConnectionComponent` -
+	 * `AFGBuildableConveyorLift` shares the exact same connection
+	 * component type as regular belts (both derive from
+	 * `AFGBuildableConveyorBase`).
+	 *
+	 * Live-tested.
+	 * No post-end-click connectivity diagnostic is
+	 * available here (unlike belts'/pipes' `GetAnyConnectedBuildables()`/
+	 * `IsConnectionSnapped()`, inherited from `AFGSplineHologram` which
+	 * this hologram does NOT derive from) - only the disqualifier list
+	 * is logged. No `RouteMode` param - lifts are a fixed vertical
+	 * column, no bend/curve concept applies. Same `bDryRun` switch and
+	 * real-construction posture as every other `Construct*` function.
+	 * Not a `UFUNCTION` - same reason as the other async entry points.
+	 *
+	 * FreeEndRotationSteps:
+	 * a lift's free (not-yet-connected) end lands facing an
+	 * unpredictable direction, and it can ONLY be rotated
+	 * while the hologram is still being placed - NOT after
+	 * construction (world.setBuildableRotation's
+	 * SetActorRotation() on an already-built lift reports success but
+	 * produces zero real change - the buildable's components are very
+	 * likely Static mobility once placed). The free end rotates
+	 * in 90-degree steps via mouse-wheel DURING placement (not the same
+	 * input as height, which follows the view with no scroll wheel
+	 * involved) - this is `AFGHologram::ScrollRotate()`,
+	 * called on `LiftHologram` BEFORE the final click, mirroring
+	 * `ConstructBuildingAtPosition`'s established `Scroll()`-called-N-
+	 * times-per-real-player-notch pattern for regular building rotation.
+	 * Positive rotates one way, negative the other, magnitude is number
+	 * of 90-degree steps. 0 (default) leaves rotation exactly as the
+	 * hologram itself would resolve it - Live-tested, including
+	 * whether this actually affects the free end at all.
+	 */
+	static void ConstructConveyorLift(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, int32 FreeEndRotationSteps, const TOptional<FVector>& SourceConnectorPosition, const TOptional<FVector>& DestConnectorPosition, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * Telemetry. KEY FINDING (see docs/conveyor-attachment-research.md):
+	 * splitters/mergers use AFGConveyorAttachmentHologram :
+	 * AFGFactoryHologram : AFGBuildableHologram, the same simple single-
+	 * step lineage as Miners/Smelters/Constructors, not the
+	 * AFGSplineHologram branch belts/pipes need multi-click driving for.
+	 * So ConstructBuildingAtPosition + ConstructConveyorBelt (both
+	 * already generic) place and connect them with zero new construction
+	 * code - deliberately no ConstructSplitter wrapper.
+	 *
+	 * Reports the real recipe catalog (Splitter/Merger plus Smart/
+	 * Programmable Splitter and Priority Merger) with each variant's
+	 * real inputCount/outputCount, read via GetDirection() on each CDO's
+	 * connectors via GetDefaultComponents<>() - plain GetComponents<>()
+	 * finds nothing here since these connectors are Blueprint-SCS-added,
+	 * not native CreateDefaultSubobject (plain GetComponents<> would report
+	 * 0/0 for every entry). Also reports
+	 * supportsSortRules (true only for Smart/Programmable variants) -
+	 * per-output item-type routing (mSortRules/AddSortRule, public on
+	 * FGBuildableSplitterSmart.h) has no write operation yet; placement
+	 * alone does not let an agent configure routing rules.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogConveyorAttachmentCatalogAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.splitterSortRules - reads smart/programmable splitter
+	 * configuration, the read side of per-output item-type routing. Lists
+	 * every placed
+	 * `AFGBuildableSplitterSmart` instance's current sort rules -
+	 * `GetSortRules()`, a real, public, plain (non-stub) getter over
+	 * `mSortRules`.
+	 *
+	 * **Smart Splitter and Programmable Splitter share this ONE native
+	 * class** (see `docs/conveyor-attachment-research.md`). Both recipe
+	 * tiers differ only in
+	 * `mMaxNumSortRules` (`GetMaxNumSortRules()`, reported per-instance
+	 * here) and output count - the sort-rule data model
+	 * (`FSplitterSortRule`: `ItemClass` + `OutputIndex`) is identical
+	 * across both, so one function genuinely covers both tiers, not two
+	 * separate implementations pretending to.
+	 *
+	 * Each rule's `itemClass` may be `UFGWildCardDescriptor` - a real,
+	 * dedicated C++ class whose own doc comment says "Not a real
+	 * resource, used to indicate a wild card in sorting rules"
+	 * (`FGWildCardDescriptor.h`) - reported here as `"isWildcard": true`
+	 * plus the real class path, rather than only one or the other, since
+	 * a caller may want either the human "this output takes anything"
+	 * signal or the raw class identity. `FSplitterSortRule` only has
+	 * `ItemClass`/`OutputIndex` - no separate "Overflow"/"None" enum
+	 * field exists in source, so this project makes no claim about those
+	 * as distinct concepts beyond what the wildcard class + output index
+	 * pairing itself represents.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogSplitterSortRulesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setSplitterSortRules - the write counterpart to
+	 * world.splitterSortRules.
+	 * Calls the real, public
+	 * `AFGBuildableSplitterSmart::SetSortRules(TArray<FSplitterSortRule>)`
+	 * directly - a full, atomic replace of every rule on the target
+	 * splitter, not incremental Add/Remove/SetAt calls (the class also
+	 * has those, but a caller can already compute a full desired end
+	 * state from `world.splitterSortRules`'s current-state read, so a
+	 * single replace call is simpler and more predictable than
+	 * requiring the caller to diff against prior state).
+	 *
+	 * `RulesJson` is a raw JSON array string (same convention as
+	 * SetTrainTimetable's `StopsJson` - a reflected `TArray<CustomStruct>`
+	 * UFUNCTION param isn't needed when the dispatch layer already parses
+	 * JSON directly), each element `{"outputIndex": int, "itemClass":
+	 * string}`. `itemClass` is EITHER a real item recipe/descriptor class
+	 * path (see `world.itemCatalog`) OR the literal string `"Wildcard"`
+	 * (case-insensitive) / an empty string, both of which resolve to the
+	 * real `UFGWildCardDescriptor::StaticClass()` sentinel - exposed as a
+	 * friendly string specifically because `UFGWildCardDescriptor` is
+	 * "not a real resource" (own doc comment) and is NOT expected to
+	 * appear in `world.itemCatalog`'s normal item list, so a caller has
+	 * no other practical way to discover its real class path.
+	 *
+	 * Fails `INVALID_REQUEST` if `RulesJson` doesn't parse as a JSON
+	 * array of well-formed rule objects, and `INVALID_ITEM_CLASS` if a
+	 * non-wildcard `itemClass` doesn't resolve to a real
+	 * `UFGItemDescriptor` subclass. Does NOT independently validate
+	 * `outputIndex` against the splitter's real output count or
+	 * `rules.Num()` against `GetMaxNumSortRules()` - same "let the real
+	 * engine be the authority on its own limits" posture as
+	 * ConstructExtractorOnNode/ConstructBeam, rather than this project
+	 * guessing at exactly how `SetSortRules` handles an out-of-range
+	 * request.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetSplitterSortRules(UObject* WorldContextObject, const FString& BuildableId, const FString& RulesJson);
+
+	/**
+	 * world.recipeCatalog - supports pre-planning (what recipes/alternates
+	 * build each item, what machines are needed, resource/power
+	 * requirements, rates).
+	 * Reports EVERY recipe in the game via AFGRecipeManager::GetAllRecipes()
+	 * - including ones not yet unlocked in the current save, unlike the
+	 * progression-gated GetAllAvailableRecipes(). Each entry: recipeClass,
+	 * displayName, isBuildingRecipe, manufacturingDuration, ingredients/
+	 * products (itemClass/itemName/amount - amount is FItemAmount's raw
+	 * unit, thousandths of a m^3 for liquids/gases, NOT pre-converted -
+	 * check the item's "form" via world.itemCatalog), producedIn (real
+	 * buildable/build-gun class paths), and the recipe's variable-power-
+	 * consumption constant/factor.
+	 *
+	 * IMPORTANT: AFGRecipeManager::Get() is stub-source in Editor/PIE and
+	 * only resolves to real data in the packaged/Alpakit-deployed game -
+	 * test against the real Steam session, not Play-in-Editor.
+	 *
+	 * Deliberately does NOT compute effective production rates (items/min
+	 * accounting for clock speed or Somersloop boost) - see
+	 * world.buildableCatalog for the per-building min/max potential and
+	 * production-boost fields needed to do that arithmetic on the caller
+	 * side, per this project's toolkit-not-solver preference.
+	 *
+	 * `isAvailable`/`relevantEvents` distinguish event-only recipes (e.g.
+	 * around Christmas) and report whether they are currently obtainable.
+	 * This catalog lists event-only recipes (GetAllRecipes() is every
+	 * recipe class registered in the game, unlocked or not); these two
+	 * fields tell them apart from normal ones and say if they're CURRENTLY
+	 * obtainable.
+	 * `isAvailable` is the real, public
+	 * `AFGRecipeManager::IsRecipeAvailable()` - true only once actually
+	 * unlocked (milestone/MAM/alternate/calendar reward/etc, whatever
+	 * unlocked it). `relevantEvents` is the real, public, static
+	 * `UFGRecipe::GetRelevantEvents()` - empty for an ordinary
+	 * always-obtainable recipe, non-empty (e.g. `["Christmas"]`) for a
+	 * seasonal-event-only one; see world.activeEvents for whether that
+	 * event is running right now. Confirmed from source
+	 * (`FGRecipe.h`'s real `mRelevantEvents` field,
+	 * `AFGRecipeManager::ShouldAddRecipeByEvent()`) that recipe
+	 * event-gating is a genuine, first-class FactoryGame mechanic, not
+	 * something this project has to infer or fake.
+	 *
+	 * NOTE: the internal `EEvents::EV_Christmas` name (and this field's
+	 * string value `"Christmas"`) is FactoryGame's own internal name for
+	 * the event players see in-game as "FICSMAS" - searching this data
+	 * for the literal string "FICSMAS" will find nothing; use
+	 * "Christmas".
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogRecipeCatalogAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.itemCatalog - companion to LogRecipeCatalogAsJson,
+	 * see that function's doc comment for the shared AFGRecipeManager/
+	 * stub-source caveats. Reports every item descriptor via
+	 * AFGRecipeManager::GetAllItemDescriptors(): itemClass, name, form
+	 * ("Solid"/"Liquid"/"Gas"/"Invalid"), isBuildingDescriptor (true for
+	 * building "items" like Recipe_ConstructorMk1's product - cross-check
+	 * against world.recipeCatalog's isBuildingRecipe), stackSize,
+	 * energyValue (for fuel), radioactiveDecay, and gasType (only set when
+	 * form is "Gas").
+	 *
+	 * `isAvailable` (same event-support purpose as
+	 * world.recipeCatalog) - the real, public
+	 * `AFGRecipeManager::IsItemDescriptorAvailable()`, "true if... has a
+	 * recipe that produces it or it has been explicitly unlocked" (its
+	 * own doc comment). An event-only item (e.g. FICSMAS's Candy Cane)
+	 * still appears in this catalog year-round (it's a real, permanently-
+	 * registered item class) but reports `isAvailable: false` outside
+	 * its event/before its calendar slot is opened - cross-reference the
+	 * item's producing recipe in world.recipeCatalog for
+	 * `relevantEvents` context, since items themselves carry no event
+	 * tag directly (only recipes do, per `FGRecipe.h`'s `mRelevantEvents`).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogItemCatalogAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.buildableCatalog - full field list in RPC_REFERENCE.md.
+	 * Derived from the recipe catalog (filters isBuildingRecipe==true,
+	 * resolves each to its AFGBuildable via
+	 * UFGBuildingDescriptor::GetBuildableClass()) so construction cost is
+	 * always exactly the recipe's ingredients. Clearance boxes are the
+	 * buildable's real mClearanceData - the same data FactoryGame's own
+	 * overlap checks use - read via IFGClearanceInterface, class-default
+	 * only, never spawns anything.
+	 *
+	 * potentialShardSlots is only meaningful when overridesShardSlotCount
+	 * is true; most buildings report the override off, meaning the real
+	 * slot count falls back to a global default this per-building read
+	 * cannot see - a real, documented gap, not a wrong number. Components
+	 * are read via GetDefaultComponents<>() not GetComponents<>(), which
+	 * misses Blueprint-SCS-added connectors (see
+	 * LogConveyorAttachmentCatalogAsJson).
+	 *
+	 * `isAvailable`/`relevantEvents` (same event-support purpose as
+	 * world.recipeCatalog) - `isAvailable` is the real, public
+	 * `AFGRecipeManager::IsBuildingAvailable()`; `relevantEvents` is
+	 * pulled from the SAME backing recipe already in scope here
+	 * (`UFGRecipe::GetRelevantEvents(RecipeClass)`), not a second lookup.
+	 * A seasonal decoration buildable (e.g. a FICSMAS tree/wreath) will
+	 * still be listed here year-round with `isAvailable: false` outside
+	 * its event.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogBuildableCatalogAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.activeEvents - supports special-event items/buildings (e.g.
+	 * around Christmas) that are not always unlocked. Reports every real
+	 * `EEvents` value FactoryGame defines (`FGEventSubsystem.h`) with
+	 * whether it's currently active - `AFGEventSubsystem::
+	 * GetCurrentEvents()`/`IsEventActive()`, both real and public
+	 * (`GetCurrentEvents()` is a plain inline getter over a replicated
+	 * `TArray<EEvents>`, not stub-bodied like most of this project's
+	 * other subsystem calls - one of the few genuinely reliable-from-
+	 * source signals here).
+	 *
+	 * This is the top-level context needed to interpret
+	 * world.recipeCatalog/world.buildableCatalog's `relevantEvents`
+	 * fields: a recipe tagged `relevantEvents: ["Christmas"]` is only
+	 * eligible to become available while `"Christmas"` shows
+	 * `isActive: true` here (`AFGRecipeManager::ShouldAddRecipeByEvent()`
+	 * gates on exactly this) - event-active is necessary, but whether a
+	 * specific recipe is ALSO actually unlocked yet (e.g. via opening the
+	 * right calendar slot) is a separate question, answered by that
+	 * recipe's own `isAvailable` field.
+	 *
+	 * Real-world/in-game-date-driven (`FSimpleDate`/`ShouldRunEvent()`),
+	 * not something this mod controls - there is no RPC to force an
+	 * event active, only to observe FactoryGame's own real determination
+	 * of it. `EEvents::EV_Christmas` is FactoryGame's internal name for
+	 * the event players see in-game as "FICSMAS" - reported here as
+	 * `"Christmas"`, matching world.recipeCatalog's `relevantEvents`
+	 * string exactly (not `"FICSMAS"`).
+	 *
+	 * Live-tested. `AFGEventSubsystem::Get()` is stub-bodied like most
+	 * subsystem `Get()` calls in this file.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogActiveEventsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setActiveEvent - force a seasonal event
+	 * (HUB party mode etc.) on/off-calendar. AFGEventSubsystem activates
+	 * events by real-world date at load; this overrides that for the
+	 * session. Accepts an event by name ("Christmas"/"Anniversary"/
+	 * "CSSBirthday"/"FirstOfApril"/"None"), enum token ("EV_Christmas"),
+	 * or index 0-4. Mirrors setProjectAssemblyVisualPhase: adds the event
+	 * to the public replicated mCurrentEvents (or clears it for None),
+	 * then fires the OnBeginEvent BlueprintImplementableEvent via
+	 * ProcessEvent so the BP spawns the event visuals. Read side:
+	 * world.activeEvents (isActive per event) verifies before/after.
+	 *
+	 * Session-only (real progression/calendar unlocks untouched; reverts
+	 * on reload). FLAGGED UNKNOWNS: (1) whether HUB
+	 * decorations respond to OnBeginEvent alone or also need the
+	 * per-event HubMiniGameClass/GiftRainSpawner/calendar actor spawned;
+	 * (2) None only clears mCurrentEvents - there's no OnEndEvent hook, so
+	 * already-spawned decorations may persist until a reload.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetActiveEvent(UObject* WorldContextObject, const FString& EventNameOrIndex);
+
+	/**
+	 * world.constructionCost - the recipe catalog's own
+	 * "ingredients" field is the BASE recipe cost only. Real construction
+	 * (both interactive and via world.placeBuilding) also charges for
+	 * whatever building customization (swatch/pattern/material) is
+	 * currently active for that buildable category: e.g. an RPC wall
+	 * placement can fail "Missing materials!" needing Iron Plate even
+	 * though Recipe_Wall_8x4_01's own ingredients list only Concrete,
+	 * matching the player's own build menu showing the same combined
+	 * cost. FFactoryCustomizationData::GetAppliedRecipes() is the real
+	 * mechanism - each applied customization (a UFGCustomizationRecipe,
+	 * itself a UFGRecipe subclass) has its own ingredients, added on top
+	 * of the base recipe's.
+	 *
+	 * Spawns a real hologram for RecipeClassPath via the same HotKeyRecipe
+	 * path construction uses (so it inherits whatever default swatch the
+	 * engine itself would apply to a real new placement), reads its
+	 * mCustomizationData (protected, no public getter - read via
+	 * FStructProperty reflection, the established pattern for protected
+	 * UPROPERTYs in this file), sums GetIngredients() across the base
+	 * recipe and every applied customization recipe (merging amounts for
+	 * the same item class), then unequips - never calls CanConstruct or
+	 * Construct, nothing is placed. Generic across every buildable
+	 * category (walls, foundations, pipes, roofs, etc.) since it is
+	 * driven by the same real per-hologram customization state the game
+	 * itself maintains, not a hardcoded per-category rule.
+	 *
+	 * Returns "baseIngredients" (matches world.recipeCatalog for this
+	 * recipe), "appliedCustomizationRecipes" (class paths, empty if no
+	 * swatch/pattern/material is currently active for this category), and
+	 * "totalIngredients" (the real combined cost) - use the last one for
+	 * an accurate affordability check before building, not
+	 * world.recipeCatalog's "ingredients" alone.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogConstructionCostAsJson(UObject* WorldContextObject, const FString& RecipeClassPath);
+
+	/**
+	 * Telemetry (JSON string, not FAIModOperationResult). Returns
+	 * AFGBuildableConveyorBase::GetSpeed() for each Recipe_ConveyorBeltMk1..
+	 * Mk6 buildable class, read live off each CDO. GetSpeed()'s unit is
+	 * unconfirmed from source (FactoryGame's own header just says "Speed
+	 * of this conveyor") - treat values as relative/comparable across
+	 * tiers, not confirmed items-per-minute. A recipe whose class fails
+	 * to load is simply omitted, not a hard error.
+	 *
+	 * Also reports maxSplineLength/bendRadius (public hologram getters)
+	 * and maxInclineDegrees (mMaxIncline, no public getter, read via
+	 * FindFProperty reflection - a single hardcoded field lookup, not a
+	 * generic property-access capability), read off each recipe's
+	 * hologram class CDO via
+	 * ResolveConveyorBeltHologramClassForRecipe/GetHologramClass (a
+	 * different accessor than the buildable class GetSpeed() reads off).
+	 * Lets a caller check before connecting whether two connectors are
+	 * too far apart or too steep for one belt segment and need chaining
+	 * (see ConstructConveyorBelt). Omitted per-tier if the hologram class
+	 * does not resolve.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogConveyorBeltTiersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Telemetry. Returns Recipe_PowerLine's buildable class
+	 * (AFGBuildableWire) CDO's mMaxLength/mMaxPowerTowerLength/
+	 * mLengthPerCost - public EditDefaultsOnly UPROPERTYs with a
+	 * documented "[cm]" unit, unlike the belt tier data's ambiguous-unit
+	 * GetSpeed(). Only one power line tier exists (no Mk1..N), so this
+	 * returns a single flat object, not an array.
+	 *
+	 * ConstructPowerConnection's source/dest lookup is already generic
+	 * (FindFreePowerConnection searches any AFGBuildable, not hardcoded
+	 * to machines), so a real power pole should work as an intermediate
+	 * relay for a connection exceeding mMaxLength by chaining
+	 * world.connectPower calls - untested live so far, every power
+	 * connection built has been one direct machine-to-machine segment.
+	 * See docs/conveyor-power-connection-research.md: a machine's
+	 * default single power slot may require routing through a pole even
+	 * for a short connection if the daisy-chain unlock is not active in
+	 * the current save, separate from the mMaxLength question.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPowerLineLimitsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.powerPoles - distinguishes power towers from power poles (towers
+	 * have longer connections to other towers plus short connections to
+	 * poles or machines). See `FindPowerConnectionPair`'s comment in the
+	 * .cpp for a related `world.connectPower`/`ConstructPowerConnection`
+	 * correctness fix in the connection-type pairing.
+	 *
+	 * Lists every placed `AFGBuildablePowerPole` (the real base class for
+	 * ALL power poles - confirmed from source that the Power Tower is
+	 * `AFGBuildablePowerPole` with `mPowerPoleType ==
+	 * EPowerPoleType::PPT_TOWER`, NOT the separate, unused
+	 * `AFGBuildablePowerTower` class that only appears in its own header
+	 * anywhere in the tree). `powerPoleType` is `"Pole"`/`"WallPlug"`/
+	 * `"WallPlugDouble"`/`"PowerTower"`. `powerTowerWireMaxLength` is the
+	 * real, public, PER-INSTANCE `GetPowerTowerWireMaxLength()` - "When
+	 * connecting a wire from this power tower to another power tower,
+	 * this is the max length the wire is allowed to be" (own doc
+	 * comment) - a DIFFERENT, separate real limit from
+	 * `AFGBuildableWire::mMaxPowerTowerLength` already exposed by
+	 * `world.powerLineLimits` (that one is a property of the wire
+	 * recipe/tier; this one is a property of the specific pole
+	 * instance) - reported here as `0` for non-Tower poles, where it's
+	 * not meaningful.
+	 *
+	 * `connections` reports each of the pole's real
+	 * `UFGPowerConnectionComponent`s with its `powerConnectionType`
+	 * (`"Default"`/`"PowerTower"`/`"Any"` - `FGPowerConnectionComponent.h`'s
+	 * own doc comment: "Power connections of different types are
+	 * incompatible") and free-connection count - the connection type is
+	 * what distinguishes a tower's tower-to-tower connector from its
+	 * pole/machine connector, which the connection-pairing logic depends
+	 * on. A Power Tower is
+	 * expected to report TWO entries here (one `PowerTower`, one
+	 * `Default`); an ordinary Pole/Wall Plug is expected to report ONE.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPowerPolesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.priorityPowerSwitches - reads priority power switch config.
+	 * Lists every placed `AFGBuildablePriorityPowerSwitch`
+	 * - real, public, non-stub-bodied getters throughout (`GetPriority()`/
+	 * `IsSwitchOn()`/`IsSwitchConnected()` are all plain inline getters on
+	 * `FGBuildableCircuitSwitch.h`/`FGBuildablePriorityPowerSwitch.h`, not
+	 * the usual stub-.cpp caveat this project carries almost everywhere
+	 * else).
+	 *
+	 * `circuitGroupID0`/`circuitGroupID1` come from
+	 * `GetInfo()->GetCircuitGroupID0()`/`GetCircuitGroupID1()`
+	 * (`AFGPriorityPowerSwitchInfo`, "the circuit group ID we belong to
+	 * at our first/second connection, -1 if disconnected") - real circuit
+	 * topology, not fabricated. `hasBuildingTag`/`buildingTag` come from
+	 * `IFGBuildingTagInterface::Execute_HasBuildingTag`/
+	 * `Execute_GetBuildingTag` (called via the interface's generated
+	 * `Execute_` wrapper, not the `_Implementation` methods directly -
+	 * the correct call convention for a `BlueprintNativeEvent`) - the
+	 * player-set label shown on the switch in-game, separate from
+	 * `switchName` (`GetInfo()->GetSwitchName()`, a real, distinct
+	 * getter - unconfirmed whether these two ever actually differ in
+	 * practice).
+	 *
+	 * **Real finding, not a naming choice**: there is no separate "Smart
+	 * Power Switch" buildable/recipe - only `Recipe_PowerSwitch` and
+	 * `Recipe_PriorityPowerSwitch` exist as real recipe assets
+	 * (confirmed: searched the whole Content tree). The
+	 * `Buildable/Factory/SmartPowerSwitch/` content folder holds only
+	 * mesh/material/texture assets with no `Build_`/`Recipe_` Blueprint
+	 * of its own - almost certainly just the source art for
+	 * `Build_PriorityPowerSwitch`'s mesh, not a distinct buildable.
+	 * `docs/buildable-coverage.md`'s "Smart/Priority Power Switch" row
+	 * should be read as one real thing, not two.
+	 *
+	 * Live-tested; the non-stub-bodied getters here carry real confidence
+	 * they resolve correctly at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPriorityPowerSwitchesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setPowerSwitchOn - turns a circuit switch on
+	 * or off via the real, public `AFGBuildableCircuitSwitch::
+	 * SetSwitchOn(bool)` - deliberately targets the BASE class, not just
+	 * `AFGBuildablePriorityPowerSwitch`, since on/off is shared,
+	 * identical behavior across every switch on this hierarchy (plain
+	 * `Recipe_PowerSwitch` included) - a natural generalization that
+	 * costs nothing extra, not scope creep beyond what was asked (a
+	 * Priority Power Switch's on/off control IS `AFGBuildableCircuitSwitch::
+	 * SetSwitchOn`, there is no priority-specific override of it).
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetPowerSwitchOn(UObject* WorldContextObject, const FString& BuildableId, bool bSwitchOn);
+
+	/**
+	 * world.setPriorityPowerSwitchPriority - sets the real, public
+	 * `AFGBuildablePriorityPowerSwitch::SetPriority(int32)` - "the
+	 * priority with which this switch will be turned off automatically
+	 * in case of power shortage. A higher number will be turned off
+	 * before a lower number. 0 (or less) means this switch will never be
+	 * turned off automatically" (its own doc comment, quoted verbatim
+	 * since it's the exact real semantics, not summarized/guessed).
+	 * Unlike `world.setPowerSwitchOn`, this is genuinely
+	 * `AFGBuildablePriorityPowerSwitch`-specific - only that subclass has
+	 * a priority field, a plain `Recipe_PowerSwitch` instance fails
+	 * `WRONG_TYPE` here.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetPriorityPowerSwitchPriority(UObject* WorldContextObject, const FString& BuildableId, int32 Priority);
+
+	/**
+	 * Telemetry, not a mutation - same LogXAsJson convention as
+	 * LogConveyorBeltTiersAsJson/LogPowerLineLimitsAsJson. Pipe groundwork,
+	 * the pipe counterpart to the belt/power tier telemetry.
+	 *
+	 * Reports Recipe_Pipeline and Recipe_PipelineMK2 (both confirmed on
+	 * disk - note the capital "MK2", unlike belts' "Mk2"). Per tier:
+	 * "flowLimit" is AFGBuildablePipeline::GetFlowLimit(), a PUBLIC
+	 * getter with a documented unit ("Maximum flow through this pipe in
+	 * cubic meters. [m^3/s]" per FGBuildablePipeline.h's own doc
+	 * comment) - unlike belt speed, this is directly usable without a
+	 * unit caveat. "maxSplineLength"/"bendRadius"/"minBendRadius" come
+	 * from AFGPipelineHologram's CDO (resolved via
+	 * ResolvePipelineHologramClassForRecipe, the same
+	 * UFGBuildDescriptor::GetHologramClass pattern as the belt hologram
+	 * lookup) - ALL THREE are private UPROPERTY(EditDefaultsOnly)
+	 * fields with no public getter (unlike belts, where two of three
+	 * had public getters), read via FindFProperty<FFloatProperty>
+	 * reflection - a single hardcoded read-only field lookup per field,
+	 * not a generic property-access capability, same justification as
+	 * the belt incline read. Any tier/field that fails to resolve is
+	 * simply omitted, not a hard error.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipelineTiersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Pipeline Pump tier data for pipe-network planning - headlift/
+	 * flow-rate math for real builds, e.g. sizing parallel pipelines for
+	 * a fully-overclocked Pressurized Water Extractor. Mirrors
+	 * LogPipelineTiersAsJson's structure for Recipe_PipelinePump (Mk1)
+	 * and Recipe_PipelinePumpMK2 (capital "MK2", matching the pipe
+	 * tiers' own naming - confirmed from the real asset filenames on
+	 * disk).
+	 *
+	 * Unlike the pipe tier's maxSplineLength/bendRadius/minBendRadius,
+	 * ALL THREE fields here are real PUBLIC BlueprintPure getters on
+	 * AFGBuildablePipelinePump - GetMaxHeadLift()/GetDesignHeadLift()/
+	 * GetDefaultFlowLimit() - no FindFProperty reflection needed.
+	 *
+	 * "designHeadLift" vs "maxHeadLift": per AFGBuildablePipelinePump.h's
+	 * own disclaimer comment, headlift is pump pressure measured in
+	 * meters - "the height of the fluid column." Design is the
+	 * pump's rated/recommended operating point; max is the absolute
+	 * ceiling, "working outside of its specifications" above design but
+	 * still functional up to max. Real elevation gain a pump needs to
+	 * overcome should be checked against design first, max only as a
+	 * hard ceiling.
+	 *
+	 * "defaultFlowLimit" is the pump's own max throughput [m^3/s], but
+	 * per GetDefaultFlowLimit()'s doc comment this is itself capped by
+	 * "the neighbouring pipes" - i.e. a pump never exceeds whatever pipe
+	 * tier it's actually connected to (see world.pipelineTiers'
+	 * flowLimit) - a pump adds headlift, it does NOT increase a
+	 * network's real throughput ceiling beyond the pipe tier in use.
+	 *
+	 * Live-tested. Whether the
+	 * CDO's GetDefaultFlowLimit()/GetMaxHeadLift()/GetDesignHeadLift()
+	 * return meaningful defaults absent a real connected pipe network
+	 * (CDOs are never actually placed/connected) is unconfirmed; a
+	 * placeholder/zero value here would need a real placed-pump query
+	 * instead, not yet built.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipelinePumpTiersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Real-time per-segment fluid simulation state for every placed
+	 * AFGBuildablePipeline. Pipe-network telemetry can look "chaotic"
+	 * during fill/startup; this lets it be observed directly.
+	 *
+	 * Confirmed from source (FGFluidIntegrantInterface.h's FFluidBox):
+	 * each individual pipe SEGMENT (not the whole network) is its own
+	 * independent simulation unit with real content/capacity in [m^3] -
+	 * "contentM3"/"maxContentM3" here, alongside the segment's own real
+	 * length in centimeters ("lengthCm", AFGBuildablePipeBase::GetLength())
+	 * - together giving the real length-to-volume relationship the user
+	 * described (longer segment, more volume).
+	 *
+	 * "fillPct" is content/maxContent, computed here for convenience (not
+	 * a real engine field) - 0 if maxContent is 0.
+	 *
+	 * "flowFill"/"flowDrain"/"flowThrough" [m^3/s] are documented in
+	 * FFluidBox's own comment as "not used for any simulations, only for
+	 * feedback" - i.e. real telemetry values, not authoritative
+	 * simulation state (that lives in the pipe NETWORK's junction-pair
+	 * updates, not exposed here) - expect these to be noisy/transient
+	 * during startup or under sloshing conditions, not simple steady
+	 * values.
+	 *
+	 * "maxOverfillPct" documents FFluidBox's real overfill-for-pressure
+	 * mechanic (a pipe can hold MORE than maxContentM3, up to this extra
+	 * fraction, and part of that overfill builds real pressure) - the
+	 * likely source of "sloshing" oscillation, a real, documented
+	 * simulation feature.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipeFluidBoxesAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Fluid buffer ("Storage Tank"/"Industrial Fluid Buffer") tier data -
+	 * two different size fluid buffers. Both real,
+	 * distinct buildings - `Recipe_PipeStorageTank` (small, in-game
+	 * "Fluid Buffer") and `Recipe_IndustrialTank` (large, "Industrial
+	 * Fluid Buffer") - confirmed to share the SAME C++ class,
+	 * `AFGBuildablePipeReservoir`, via a direct grep of both `.uasset`
+	 * binaries for the embedded class name string (not inferred).
+	 *
+	 * `maxContentM3`/`flowLimit` come from real public BlueprintPure
+	 * getters (`GetFluidContentMax()`/`GetFlowLimit()`) - no reflection
+	 * needed. `GetFlowLimit()`'s own doc comment: "depends on the number
+	 * of connection components" - a CDO's reported value may not reflect
+	 * a real, connected instance's actual limit; treat as a rough
+	 * per-tier reference, confirm against a real placed tank if exact
+	 * numbers matter.
+	 *
+	 * Live-tested; same CDO-never-placed caveat as
+	 * world.pipelinePumpTiers.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogPipeReservoirTiersAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Train cargo platform telemetry - fluid train station segments and
+	 * freight cars, for long-distance fluid networks. Confirmed from
+	 * source: there is no
+	 * separate "Fluid Freight Platform" C++ class - both
+	 * `Recipe_TrainDockingStation` (solid/conveyor) and
+	 * `Recipe_TrainDockingStationLiquid` (fluid/pipe) resolve to the
+	 * SAME class, `AFGBuildableTrainPlatformCargo`, confirmed by
+	 * grepping both `.uasset` binaries for the embedded class name
+	 * string - differentiated only by the CDO's `mFreightCargoType`
+	 * default (`FCT_Standard` vs `FCT_Liquid`). Likewise
+	 * `AFGFreightWagon` (the single, unified wagon - only one
+	 * `Recipe_FreightWagon` exists) dynamically becomes "Standard" or
+	 * "Liquid" typed based on whatever item is actually loaded into it,
+	 * not a separate wagon class - rail cargo transport for fluids is
+	 * genuinely the same infrastructure as solid cargo, not a distinct
+	 * system.
+	 *
+	 * `outflowRate`/`inflowRate` [m^3/s] come from real public
+	 * BlueprintPure getters, `GetOutflowRate()`/`GetInflowRate()` -
+	 * their own doc comments say "Only valid for Liquid Freight
+	 * Platforms," so expect 0 on solid/conveyor-type platforms. This is
+	 * the key missing piece for observing a real long-distance
+	 * fluid-by-rail network (station-side load/unload rate), directly
+	 * analogous to world.pipeFluidBoxes for ordinary pipe segments.
+	 *
+	 * Scoped to the STATION side of rail cargo for this first pass -
+	 * `AFGFreightWagon` itself is NOT included (it's an
+	 * `AFGRailroadVehicle`, not an `AFGBuildable`, same "invisible to
+	 * world.buildables" gap already found and fixed once before for
+	 * ordinary wheeled AFGVehicle - see world.vehicles/
+	 * DismantleBuildable's TActorIterator<AFGVehicle> fallback - a
+	 * genuinely open, separate future addition for freight wagons
+	 * specifically, not done here).
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTrainCargoPlatformsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Truck station telemetry - covers fluid trucks and fluid truck
+	 * stations. Both `Recipe_TruckStation` (solid) and
+	 * `Recipe_FluidTruckStation` (fluid, "Fluid Truck Station" in-game)
+	 * exist as genuinely distinct recipes/Blueprints
+	 * (Build_TruckStation.uasset / Build_FluidTruckStation.uasset), but -
+	 * same unified-class pattern as world.trainCargoPlatforms and
+	 * AFGFreightWagon before it - both resolve to the SAME native class,
+	 * `AFGBuildableDockingStation`, confirmed by grepping both `.uasset`
+	 * binaries for the embedded class name string. There is no separate
+	 * "AFGFluidTruckStation" class; the fluid variant is just a
+	 * `mIsFluidStorageInventory=true` instance of the same buildable
+	 * (GetDockingStationResourceForm() reports which one a given
+	 * instance is - its header doc comment: "This determines whenever
+	 * it is a fluid docking station or solid docking station").
+	 *
+	 * `GetVehicleFuelConsumptionRate()`/`GetItemTransferRate()`/
+	 * `GetMaximumStackTransferRate()` are combined, station-level rates
+	 * "for all vehicles that dock to this station" (own doc comments) -
+	 * not per-vehicle. `currentFluidDescriptor` (fluid stations only)
+	 * comes from `GetCurrentFluidDescriptor()`, empty string when unset
+	 * or on a solid station. `dockedVehicleId` uses `GetDockedActor()`
+	 * (returns a bare AActor* - both wheeled AFGWheeledVehicle and rail
+	 * AFGTrain/AFGRailroadVehicle can dock, per source's
+	 * IFGDockableInterface being implemented by AFGWheeledVehicle - this
+	 * function does not assume which).
+	 *
+	 * AFGBuildableDockingStation : AFGBuildableFactory : AFGBuildable,
+	 * so truck stations already appear in world.buildables like any
+	 * other buildable - this function adds the truck/fluid-specific
+	 * fields (resourceForm, load/unload cycle, per-vehicle-tracking
+	 * combined rates) that world.buildables does not expose.
+	 *
+	 * Live-tested.
+	 * GetDockingStationResourceForm() is stub-bodied in this local
+	 * source tree (returns default EResourceForm() unconditionally when
+	 * read from source) - the real logic only exists in the compiled
+	 * game binary, same caveat as every other stub-sourced getter this
+	 * project already depends on (e.g. GetOutflowRate on cargo
+	 * platforms) - expected to resolve correctly at actual runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTruckStationsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * Near-exact mirror of ConstructConveyorBelt: same build-gun two-
+	 * click mechanism (TrySnapToActor + DoMultiStepPlacement(true) at
+	 * source, then dest), including the UpdateHologramPlacement-before-
+	 * TrySnapToActor and real GetConnectorNormal fixes. AFGPipelineHologram
+	 * is a sibling of AFGConveyorBeltHologram (both derive from
+	 * AFGSplineHologram), but pipes use their own parallel connection
+	 * hierarchy - UFGPipeConnectionComponentBase/EPipeConnectionType
+	 * (PCT_PRODUCER/PCT_CONSUMER) - not UFGFactoryConnectionComponent.
+	 *
+	 * AFGSplineHologram has no GetAnyConnectedBuildables (only
+	 * AFGConveyorBeltHologram declares that), so the post-end-click
+	 * diagnostic here uses IsConnectionSnapped(false) instead, the same
+	 * not-fully-reliable indicator noted on DebugCheckConveyorSnap.
+	 * Fluid type mismatch (UFGCDPipeFluidTypeMismatch) is left to the
+	 * real CanConstruct() disqualifier check, same as any other
+	 * disqualifier this function does not special-case. Whether
+	 * chaining calls through an intermediate pipe support pole works
+	 * like it does for belts/power, or poles only auto-spawn internally
+	 * via the hologram's own default support recipe, is unconfirmed.
+	 *
+	 * RecipeClassPath: Recipe_Pipeline or Recipe_PipelineMK2 (see
+	 * world.pipelineTiers for each tier's real flowLimit/
+	 * maxSplineLength/bendRadius). Tier selection and multi-segment
+	 * routing are deliberately not decided here. Source/dest need not
+	 * be machines - any AFGBuildable with a free
+	 * UFGPipeConnectionComponentBase works.
+	 */
+	/**
+	 * FindFreeFluidPipeConnection fallback (for connecting pipes to a
+	 * Storage Tank and merging multiple lines through Pipeline Junctions):
+	 * a genuine producer/consumer distinction
+	 * (PCT_PRODUCER/PCT_CONSUMER) only exists on machines that actually
+	 * have one (Refineries, Pumps, Blenders). Storage
+	 * Tanks (Recipe_PipeStorageTank) and Pipeline Junctions (Cross/T) have
+	 * ONLY PCT_ANY connectors, so an exact-type match finds nothing on
+	 * either, making it impossible to build a pipe to/from them. So this
+	 * falls back to any free PCT_ANY connector once the exact match fails,
+	 * so both work.
+	 */
+	static void ConstructPipe(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * Constructs a real hypertube tube segment (Recipe_PipeHyper) between
+	 * two existing buildables' free hypertube connectors - a Hypertube
+	 * entrance/exit (AFGPipeHyperStart), a junction/T-junction, or another
+	 * tube segment. Despite the "Recipe_HyperTube*" naming of the
+	 * junction/support recipes in the catalog, the actual connecting tube
+	 * is `Recipe_PipeHyper`, and its hologram is a Blueprint child of the
+	 * SAME AFGPipelineHologram class ConstructPipe drives - confirmed from
+	 * source/asset research (docs/hypertube-research.md). Deliberately a
+	 * near-mirror of ConstructPipe (same two-click TrySnapToActor +
+	 * DoMultiStepPlacement flow, same deterministic-look/disqualifier-
+	 * ignore player-independence pattern as the other Construct*
+	 * functions), differing only in:
+	 * (1) no recipeClass param - Recipe_PipeHyper is hardcoded, since no
+	 * hypertube tier variants exist; (2) connector lookup accepts
+	 * UFGPipeConnectionComponentHyper at PCT_ANY (not PCT_PRODUCER/
+	 * PCT_CONSUMER like fluid pipes - confirmed from source that hypertube
+	 * connectors never override the PCT_ANY default); (3) no producer/
+	 * consumer distinction - hypertubes are bidirectional, so
+	 * source/dest just mean "which buildable's free connector each end
+	 * uses", not a flow direction. Not a UFUNCTION - same reason as the
+	 * other async entry points.
+	 */
+	static void ConstructHypertube(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, bool bDryRun, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructRailroadTrack - AFGRailroadTrackHologram : AFGSplineHologram,
+	 * the SAME base ConstructPipe/ConstructConveyorBelt already drive
+	 * (GetConstructDisqualifiers/TrySnapToActor/DoMultiStepPlacement/
+	 * GetCurrentBuildStep are all AFGSplineHologram members) - a near-
+	 * mirror of ConstructPipe, same two-click snap-to-connector-component
+	 * flow, differing only in the connector type
+	 * (UFGRailroadTrackConnectionComponent, bidirectional - no producer/
+	 * consumer split).
+	 *
+	 * SourceBuildableId/DestBuildableId must each have a free
+	 * UFGRailroadTrackConnectionComponent (e.g. a Train Station platform,
+	 * or an existing track's open end) - deliberately mirrors belts/
+	 * pipes' existing-buildable-to-existing-buildable model rather than
+	 * solving free-floating track placement in this pass. Switches and
+	 * signals are out of scope - this only builds a single point-to-point
+	 * segment; UFGCDTrackTooLong/TooShort/TooSteep/TrunToSharp (sic, real
+	 * name typo in FGConstructDisqualifier.h) are never bypassed.
+	 *
+	 * Not yet verified at runtime - implemented from header research only
+	 * (FGRailroadTrackHologram.cpp is a stub, real construct-path
+	 * behavior unconfirmed).
+	 */
+	static void ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructTrainPlatform / world.testTrainPlatform -
+	 * attach a freight/empty train platform to a station (or another platform)
+	 * by driving the real AFGTrainPlatformHologram platform SNAP, not a
+	 * placement bypass. Freight platforms are snap-to-connection buildings
+	 * (mRequireSnapToPlatform + a UFGTrainPlatformConnection at each end + a
+	 * child rail-track hologram); a raw placeBuilding fails "must be placed
+	 * inline with another train platform", and force-placing past that would
+	 * leave a disconnected, non-loading platform. This aims a synthetic hit at
+	 * the target's free platform connection, feeds the platform hologram
+	 * (UpdateHologramPlacement, no position/yaw pin) until the "must be inline"
+	 * disqualifier clears (= genuine snap), then InternalConstructHologram, and
+	 * verifies the target connection reports connected. TargetBuildableId is a
+	 * station or existing platform; optional ConnectorPos picks which free end
+	 * (for chaining). bDryRun reports whether it would snap without building.
+	 */
+	static void ConstructTrainPlatform(UObject* WorldContextObject, const FString& TargetBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& ConnectorPos, bool bHasConnectorPos, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructVehiclePathSegment - AFGVehiclePathSegmentHologram :
+	 * AFGBuildableHologram (not AFGSplineHologram, unlike tracks/belts/
+	 * pipes), but implements the same TrySnapToActor+DoMultiStepPlacement
+	 * two-click contract on its own terms.
+	 *
+	 * Unlike every other spline-ish Construct* function here,
+	 * StartX/Y/Z and EndX/Y/Z are LITERAL coordinates, not existing
+	 * buildable ids - path nodes are free and auto-created by segment
+	 * placement (confirmed from source:
+	 * AFGVehiclePathSegment::SetNodeConnections's own doc comment, "Null
+	 * connections will be automatically initialized to fresh nodes").
+	 * Same ignoreGroundTrace/literal-Z convention as
+	 * ConstructVehicle/ConstructBuildingAtPosition - the direct way to
+	 * lay a path on a flat foundation platform rather than raw terrain.
+	 * A point near an existing AFGVehiclePathNode/AFGVehiclePathSegment
+	 * (within ~800cm) lets the hologram's own TrySnapToActor connect to
+	 * it instead of creating a new node - not specially handled here,
+	 * same "let the real engine trace decide" posture as
+	 * ConstructExtractorOnNode.
+	 *
+	 * Deliberately NOT covered: assigning a built vehicle to auto-drive
+	 * a route over these segments. Real, public, BlueprintCallable API
+	 * exists for this in source
+	 * (AFGWheeledVehicleIdentifier::SetVehicleRoute/AddWaypoint/
+	 * SetAutopilotEnabled, resolved via AFGVehicleSubsystem's path-node
+	 * GUID lookups) but needs its own telemetry/RPC layer (path node
+	 * GUIDs aren't exposed anywhere yet) - a real, separate follow-up,
+	 * same posture as drone station-pairing being deferred alongside
+	 * ConstructVehicle.
+	 *
+	 * Live-tested. FGVehiclePathSegmentHologram.cpp is a stub, so the real
+	 * construct-path behavior comes only from header research.
+	 */
+	static void ConstructVehiclePathSegment(UObject* WorldContextObject, const FString& RecipeClassPath, float StartX, float StartY, float StartZ, float EndX, float EndY, float EndZ, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructBeam - control over rotation and length of beam
+	 * objects. Architecture
+	 * "Beam" pieces (`Recipe_Beam`/`Recipe_Beam_Support`/
+	 * `Recipe_Beam_Cross`/etc, `Content/.../Prototype/Buildable/Beams/`
+	 * - note the "Prototype" content path, this may still be
+	 * newer/less-finalized content than the rest of the catalog) use
+	 * their OWN dedicated hologram, `AFGBeamHologram :
+	 * AFGBuildableHologram` (`FGBeamHologram.h`) - a genuinely different
+	 * placement paradigm from both ConstructBuildingAtPosition's single-
+	 * click-on-grid flow and the connector-to-connector spline flow
+	 * ConstructPipe/ConstructConveyorBelt use. Modeled directly on
+	 * ConstructVehiclePathSegment just above (nearly identical shape:
+	 * literal Start/End coordinates, same bIgnoreGroundTrace convention,
+	 * same two-click TrySnapToActor+DoMultiStepPlacement(true) flow,
+	 * same deferred-poll-for-UFGCDInitializing-then-InternalConstructHologram
+	 * completion) since `AFGBeamHologram` shares the same
+	 * `DoMultiStepPlacement`/`GetConstructDisqualifiers` contract - NOT
+	 * modeled on ConstructPipe/ConstructConveyorBelt, which need real
+	 * connector components neither beams nor path segments have.
+	 *
+	 * Ground-tracing BOTH ends independently (the default,
+	 * `bIgnoreGroundTrace=false`) will place a beam flat along the
+	 * terrain surface at each end's ground height - NOT a diagonal
+	 * support between two elevated points, which is beams' most
+	 * compelling real use case (building more complex visual
+	 * architecture). For an actual angled/diagonal beam,
+	 * callers almost certainly want `bIgnoreGroundTrace=true` with
+	 * explicit Start/EndZ - the ground-trace default exists only for
+	 * consistency with every other Construct* function in this file, not
+	 * because it's the useful mode here.
+	 *
+	 * `bFreeformMode` selects between the hologram's two real, distinct
+	 * build modes - confirmed from source (`AFGBeamHologram::
+	 * mBuildModeDiagonal`/`mBuildModeFreeForm`, both
+	 * `TSubclassOf<UFGHologramBuildModeDescriptor>`) but read here via
+	 * `FindFProperty` reflection since they're protected with no public
+	 * getter (first reflection read of a `TSubclassOf`/`FObjectPropertyBase`
+	 * field in this codebase, same "search the source, don't guess"
+	 * posture as every other reflection field read here), then applied
+	 * via the real, public `AFGHologram::SetBuildModeOverride()` before
+	 * the start click. `false` (default) uses `CreateVerticalBeam`
+	 * (vertical/diagonal-snapped angles only); `true` uses
+	 * `CreateFreeformBeam` (arbitrary angle, exactly the Start->End
+	 * vector).
+	 *
+	 * `RotationScrollSteps` mirrors ConstructConveyorLift's
+	 * `freeEndRotationSteps` pattern - `SetScrollRotateValue(0)` then
+	 * `ScrollRotate(direction, step)` called N times - but queries the
+	 * REAL runtime `Hologram->GetRotationStep()` for the step size
+	 * instead of a hardcoded 90 (its own doc comment: "0 or negative
+	 * means no override", falls back to 90 in that case) - confirmed
+	 * from source that `AFGBeamHologram` genuinely overrides this,
+	 * meaning beams get a real, finer per-notch rotation than ordinary
+	 * buildings, not just a visual illusion of precision. Applied AFTER
+	 * the end-click's `UpdateHologramPlacement`/`TrySnapToActor` but
+	 * BEFORE that click's `DoMultiStepPlacement(true)` - since a beam's
+	 * yaw/pitch are already fully determined by the Start->End vector,
+	 * this is a best-effort inference that it controls ROLL around the
+	 * beam's own long axis (which face of an asymmetric profile points
+	 * which way) - not confirmed at runtime, first thing to check
+	 * against a real placed beam if this parameter appears to do
+	 * nothing or something unexpected.
+	 *
+	 * Real length is NOT a construction-time-only concern here - see
+	 * SetBeamLength below for adjusting an already-placed beam's length
+	 * directly via the real, permanent `AFGBuildableBeam::SetLength()`.
+	 * This function's own length is simply `Distance(Start, End)`,
+	 * clamped by the hologram to the recipe's real `mMaxLength` (not
+	 * independently validated here - a too-long request should surface
+	 * as a real construct disqualifier from the hologram itself, same
+	 * "let the real engine trace decide" posture as
+	 * ConstructExtractorOnNode).
+	 *
+	 * Live-tested. FGBeamHologram.cpp is a stub, so the real
+	 * placement/build-mode/rotation behavior comes only from header research.
+	 */
+	static void ConstructBeam(UObject* WorldContextObject, const FString& RecipeClassPath, float StartX, float StartY, float StartZ, float EndX, float EndY, float EndZ, bool bIgnoreGroundTrace, bool bFreeformMode, int32 RotationScrollSteps, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructStackableSupport - stackable poles provide a dense way
+	 * to bring back multiple pipes. Real recipes:
+	 * `Recipe_ConveyorPoleStackable`/`Recipe_PipeSupportStackable`/
+	 * `Recipe_HyperPoleStackable` (Content/FactoryGame/Recipes/Buildings/)
+	 * all resolve to the SAME real, generic classes -
+	 * `AFGBuildablePoleStackable`/`AFGStackablePoleHologram` (neither
+	 * name is belt/pipe/hypertube-specific; this shared-class conclusion
+	 * is inferred from the class naming rather than binary-grep-verified) -
+	 * so one function covers all three tiers generically via
+	 * `RecipeClassPath`, same "generic across recipe" posture as
+	 * `ConstructBuildingAtPosition`.
+	 *
+	 * Drives the real, confirmed `AFGBuildableHologram` Zoop mechanic
+	 * directly rather than simulating a mouse drag:
+	 * `EBuildableHologramBuildStep::BHBS_PlacementAndRotation` then
+	 * `BHBS_Zoop` (`FGBuildableHologram.h`) - the SAME two-step shape
+	 * already proven for `ConstructBeam`, driven the same way
+	 * (`UpdateHologramPlacement`+`TrySnapToActor`+`DoMultiStepPlacement(true)`
+	 * for the first click). Between the two clicks, calls the real,
+	 * public `SetZoopAmount(FIntVector)` directly with the requested
+	 * stack count - "how many instances to add in each local-space
+	 * direction" (own doc comment). **Inferred, NOT confirmed**: the
+	 * vertical axis is the `FIntVector`'s Z component - matches
+	 * `EHologramZoopDirections`' explicit `HZD_Up`/`HZD_Down` naming,
+	 * but the `FIntVector`-to-local-axis mapping itself isn't
+	 * independently confirmed from source - first thing to check live
+	 * if a requested stack count comes out wrong or sideways.
+	 *
+	 * **Real, flagged risk**: `SetZoopFromHitresult()`'s own doc comment
+	 * says it runs "ervery [sic] frame when zooping instead of the
+	 * usual positioning logic" - meaning a later `UpdateHologramPlacement()`
+	 * call (e.g. during the poll loop's disqualifier-refresh) may
+	 * internally re-derive the zoop amount from the hit result and
+	 * silently overwrite the explicit `SetZoopAmount()` call. Mitigated
+	 * by reasserting `SetZoopAmount()` again immediately after every
+	 * poll tick's `UpdateHologramPlacement()` call, same "reassert every
+	 * tick" posture this project already uses for deterministic look/
+	 * hit-result state - but this specific interaction is NOT confirmed
+	 * live.
+	 *
+	 * `StackCount` is the number of ADDITIONAL instances beyond the base
+	 * one (0 = a single ordinary instance, same as not zooping at all).
+	 * Not validated against `GetMaxZoopAmount()` - let the real engine's
+	 * own disqualifiers be the authority on the real per-tier limit,
+	 * same "don't guess at engine limits" posture as `ConstructBeam`'s
+	 * length.
+	 *
+	 * `ResultDetailJson` reports how many real buildables of the
+	 * resolved class were actually found near the target position
+	 * afterward (`foundCount`, plus the full `buildableIds` list) versus
+	 * requested (`requestedCount` = `StackCount + 1`) - since a Zoop
+	 * placement can legitimately construct MULTIPLE separate buildable
+	 * actors in one call, `ResultBuildableId` alone (the single-id
+	 * convention every other `Construct*` function here uses, set here
+	 * to just the first one found) can't represent the whole stack -
+	 * check `ResultDetailJson` for the full picture.
+	 *
+	 * Live-tested. This drives the Zoop mechanic via `SetZoopAmount()`
+	 * rather than the ordinary single-click/two-click flow.
+	 *
+	 * `StackCount` produces multiple UNIFORM instances of the SAME
+	 * recipe in one Zoop placement - a real, valid mechanic, but NOT
+	 * the primary real-world workflow. Stackable supports can be mixed so
+	 * belts and pipes stack interchangeably, usually as multiple separate
+	 * attachments, not in one instantaneous placement - i.e. a player
+	 * normally builds each level as its OWN separate placement, snapping
+	 * onto the previous one's real top, which is what lets a single column
+	 * mix `Recipe_PipeSupportStackable` at one level with
+	 * `Recipe_ConveyorPoleStackable` at another. See
+	 * `ConstructStackableSupportOnTop` below for that mechanism -
+	 * that one, not `StackCount`, is the right tool for the "dense way
+	 * to bring back multiple pipes" use case.
+	 */
+	static void ConstructStackableSupport(UObject* WorldContextObject, const FString& RecipeClassPath, float X, float Y, float Z, int32 StackCount, bool bIgnoreGroundTrace, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.constructStackableSupportOnTop - mixed pipe+belt dense routing
+	 * is normally built as separate stacked attachments (not one
+	 * instantaneous placement) and can mix recipe tiers freely between
+	 * levels. This is the mechanism for that: places a NEW stackable
+	 * support directly on top of an ALREADY-PLACED one, at its real top -
+	 * `RecipeClassPath` may be a DIFFERENT stackable tier than the
+	 * reference's own recipe (e.g. a `Recipe_PipeSupportStackable`
+	 * reference with a `Recipe_ConveyorPoleStackable` placed on top of it),
+	 * mixing belt and pipe supports interchangeably in one column.
+	 *
+	 * `ReferenceBuildableId` must be a real, already-placed
+	 * `AFGBuildablePoleStackable` (fails `WRONG_TYPE` otherwise). The
+	 * candidate position is computed as the reference's real
+	 * `GetActorLocation() + FVector(0, 0, GetStackHeight())` -
+	 * `GetStackHeight()` is a real, public, per-instance getter
+	 * (`FGBuildablePoleStackable.h`), not a guessed constant. Shares
+	 * the exact same underlying construction path as
+	 * `ConstructStackableSupport` with `StackCount=0` (a single
+	 * ordinary placement, not a Zoop multi-instance one) - see that
+	 * function's doc comment for the full sourcing; not repeated here.
+	 * The shared helper's own `TrySnapToActor` call gets a chance to
+	 * correct any small error in this computed position against the
+	 * reference's real top attachment point, same "let the real engine
+	 * decide" posture as every other Construct* function in this file.
+	 *
+	 * Live-tested.
+	 */
+	static void ConstructStackableSupportOnTop(UObject* WorldContextObject, const FString& ReferenceBuildableId, const FString& RecipeClassPath, TFunction<void(const FAIModOperationResult&)> OnComplete);
+
+	/**
+	 * world.setBeamLength - companion to world.constructBeam for beam length
+	 * control. Unlike most of this project's "length" concerns (pipe
+	 * segments, conveyor lifts), a beam's length is a real, permanent,
+	 * always-adjustable property of the PLACED actor itself, not just a
+	 * hologram-time preview - confirmed from source
+	 * (`FGBuildableBeam.h`): `AFGBuildableBeam::GetLength()`/
+	 * `SetLength(float)`, bounded by real `GetDefaultLength()`/
+	 * `GetMaxLength()`. This function is a direct call to that real
+	 * setter - it does not re-run any hologram/build-gun flow.
+	 *
+	 * `BuildableId` accepts BOTH a plain buildable id and this project's
+	 * `lightweight:<class>|<index>` synthetic id (see
+	 * MakeLightweightBuildableId) - beams derive from
+	 * `AFGBuildableFactoryBuildingLightweight`, the same lightweight-
+	 * instancing base as foundations, so most placed beams are NOT real
+	 * actors until materialized. Reuses the exact same
+	 * `AFGLightweightBuildableSubsystem::FindOrSpawnBuildableForRuntimeData()`
+	 * resolution DismantleBuildable already established, rather than
+	 * duplicating that logic.
+	 *
+	 * NewLength is rejected (`INVALID_LENGTH`) if `<= 0` or
+	 * `> GetMaxLength()` - a real, validated bound, not left to the
+	 * engine to silently clamp.
+	 *
+	 * REAL, SPECIFIC UNCERTAINTY: whether
+	 * calling `SetLength()` on a temporary actor materialized via
+	 * `FindOrSpawnBuildableForRuntimeData()` correctly persists back into
+	 * the lightweight instance data callers will see on the NEXT
+	 * `world.buildables`/save, or whether it only affects the transient
+	 * temporary actor. `FGBuildableBeam.h`'s own
+	 * `GetLightweightTypeSpecificData()`/`ApplyLightweightTypeSpecificData()`
+	 * override pair (round-tripping a real `FBuildableBeamLightweightData::
+	 * BeamLength` field) strongly suggests the sync path exists and is
+	 * real, first-class game logic - but this is inference from struct
+	 * shape, not a confirmed call trace (the actual sync call happens
+	 * inside stub-sourced .cpp bodies this project can't read). First
+	 * thing to verify live: set a beam's length, then re-query
+	 * world.buildables (or dismantle it) and confirm the change stuck.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetBeamLength(UObject* WorldContextObject, const FString& BuildableId, float NewLength);
+
+	/**
+	 * world.milestoneProgress - reports HUB milestone/tutorial
+	 * schematic progress by tier (AFGSchematicManager::GetHubSchematicsForTier/
+	 * GetTechTierState/GetRemainingCostFor/GetPaidOffCostFor/IsSchematicPurchased/
+	 * GetActiveSchematic - all real, public, non-stub-bodied getters, unlike
+	 * most of this project's other FactoryGame research targets) plus every
+	 * AFGBuildableSpaceElevator's phase-upgrade state (GetNextPhaseCost/
+	 * IsReadyToUpgrade/IsFullyUpgraded/GetInputInventory - the Elevator is a
+	 * normal AFGBuildableFactory, already visible to world.buildables and
+	 * already belt-connectable via the existing generic world.connectConveyor
+	 * path with zero new code (the Elevator can be fed with conveyor belts,
+	 * unlike the HUB).
+	 *
+	 * "The HUB" in player terms is AFGBuildableTradingPost's mHubTerminal
+	 * sub-building - confirmed from source it holds no inventory of its own;
+	 * milestone payment is tracked purely as FItemAmount bookkeeping on
+	 * AFGSchematicManager (mPaidOffSchematic), not any physical buildable
+	 * inventory - see PayOffMilestone below for the actual submission path.
+	 *
+	 * Tiers 0-14 are scanned (comfortably covers every real game tier);
+	 * a tier is only included if GetHubSchematicsForTier returns anything
+	 * for it, so unused/future tiers don't clutter the output.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMilestoneProgressAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.payMilestone - moves items from the player's
+	 * CARRIED inventory (AFGCharacterPlayer::GetInventory(), same scope
+	 * SimulatedCraft/Construct* functions already use - NOT the Dimensional
+	 * Depot, see LogCentralStorageAsJson's doc comment for that same
+	 * established gap; use WithdrawFromCentralStorage first if the needed
+	 * items are in the Depot) toward a HUB milestone/tutorial schematic's
+	 * remaining cost, then calls the real
+	 * AFGSchematicManager::PayOffOnSchematic to register the payment.
+	 *
+	 * If SchematicClassPath is empty, targets the manager's current
+	 * GetActiveSchematic() (whatever the player has focused in the real
+	 * in-game HUB widget) - does NOT call SetActiveSchematic itself, so it
+	 * never silently redirects what the player is working toward.
+	 *
+	 * Per item in GetRemainingCostFor(schematic): submits
+	 * min(remainingAmount, player's carried amount) - never more than what's
+	 * owed, never more than what's actually carried, so this can only ever
+	 * submit real, affordable amounts, same "verify affordability first"
+	 * discipline as SimulatedCraft. If bDryRun, inventory and the schematic
+	 * manager are never touched - only the would-be submission/shortfall is
+	 * computed and reported, so this can be checked safely before the first
+	 * live attempt.
+	 *
+	 * If NOT a dry run and nothing is submittable (player carries none of
+	 * what's still owed), fails with NOTHING_TO_SUBMIT rather than
+	 * claiming a silent no-op success. Otherwise removes each submitted
+	 * item from carried inventory, calls PayOffOnSchematic, and - critically
+	 * - if that call returns false, RESTORES every removed item back to the
+	 * player's inventory (AddStack, allowPartialAdd=true) before failing
+	 * with PAYOFF_REJECTED, the same restore-on-failure discipline already
+	 * established for the Portable Miner ARMS-slot move
+	 * (MovePortableMinerToInventory) - never destroys real items on a
+	 * rejected payment.
+	 *
+	 * Result detail (submitted/shortfall item lists, dryRun flag) is
+	 * reported via FAIModOperationResult::ResultDetailJson, a JSON object
+	 * embedded under result.detail by the RPC layer - see
+	 * AIModOperationTypes.h.
+	 *
+	 * PayOffOnSchematic's real contract is UNCONFIRMED from source
+	 * (FGSchematicManager.cpp is a stub like nearly everything else in this
+	 * codebase) - specifically whether it requires the target to already be
+	 * the ACTIVE schematic, and whether it mutates the amount array it's
+	 * passed (ProcessEvent-by-reference pattern seen elsewhere in this
+	 * file). Deliberately NOT gated on "must be active" here - the real
+	 * engine call is trusted to enforce or not enforce that itself
+	 * (PAYOFF_REJECTED surfaces a false return either way) rather than this
+	 * function guessing at a restriction the source doesn't actually state.
+	 * Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun, bool bFromDepot = false);
+
+	/**
+	 * world.reprocessMilestone - re-fire Steam milestone achievements for
+	 * milestones completed before achievements existed (firing genuine game
+	 * unlock events reaches Steam in a modded session). Re-runs the
+	 * unlock/completion flow for already-purchased HUB schematics so its
+	 * inline
+	 * AFGSchematicManager::CheckSchematicAchievement() re-fires.
+	 *
+	 * Mechanism (both public UFUNCTIONs): ResetPurchasedSchematics() -
+	 * whose own comment says it "Will not revoke any unlocks!", so recipes
+	 * are KEPT - then GiveAccessToSchematics() to re-process. Target one
+	 * schematic (schematicClass), a whole Tier (>=0), or all tiers
+	 * (bAllTiers). Only purchased schematics are touched.
+	 *
+	 * Session-effect: re-runs completions (may replay the freighter/ship
+	 * return + purchase notifications). Not yet verified at runtime: the
+	 * .cpp is a stub here so it's UNCONFIRMED that GiveAccessToSchematics
+	 * actually re-invokes CheckSchematicAchievement - test ONE tier and
+	 * watch for the Steam pop before sweeping all.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult ReprocessMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, int32 Tier, bool bAllTiers);
+
+	/**
+	 * world.mamStatus - full M.A.M. (research) status:
+	 * AFGResearchManager's current/ongoing research (with time left - a
+	 * reflective read of the protected mOngoingResearch array, no public
+	 * full-list getter exists; GetResearchBeingConducted() only returns a
+	 * single schematic even though mCanConductMultipleResearch is real),
+	 * completed-but-unclaimed research, unclaimed hard drives and their
+	 * pending alternate-recipe reward choices, and every visible research
+	 * tree's nodes with each node's real ESchematicState (Locked/Available/
+	 * Purchased/Hidden - the same enum world.milestoneProgress uses for HUB
+	 * schematics) so a caller can tell "unlocked" apart from "locked but
+	 * available" apart from genuinely locked.
+	 *
+	 * Only research trees whose UFGResearchTree::GetResearchTreeStatus is
+	 * NOT Locked are expanded with node detail - a fully locked tree isn't
+	 * visible to the real player either, so its nodes would be noise.
+	 *
+	 * Note: AFGBuildableMAM itself gates nothing - InitiateResearch/
+	 * ClaimResearchResults take no building reference at all, confirmed
+	 * from source (same player-independence property as every other write
+	 * function in this file already relies on).
+	 *
+	 * Separately, UFGResearchMachine/UFGResearchRecipe (FGResearchMachine.h/
+	 * FGResearchRecipe.h) appear to be a distinct visual-feedback layer
+	 * (mesh-scaling animation during analysis) that reacts to
+	 * AFGResearchManager's real delegates - not itself a second research
+	 * mechanism to drive. Not used here; flagged in case this assumption
+	 * turns out wrong under live testing.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogMamStatusAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.startMamResearch - the real
+	 * AFGResearchManager::InitiateResearch call is atomic (pays the FULL
+	 * schematic cost from carried inventory and starts the research timer
+	 * in one step) - unlike world.payMilestone's incremental partial-
+	 * payment model, there is no real "submit some ingredients now, more
+	 * later" mechanic for M.A.M. research to expose, confirmed from source
+	 * (CanAffordResearch checks the whole cost at once; no analog to
+	 * AFGSchematicManager's per-item FSchematicCost paid-off tracking
+	 * exists on AFGResearchManager). This function reflects that reality:
+	 * one call both "submits ingredients" and "activates research".
+	 *
+	 * InitiateResearch itself returns void (its own doc comment claims a
+	 * bool return that the real signature doesn't have - stale text, not
+	 * trusted) - so this function pre-validates with the real
+	 * CanResearchBeInitiated/CanAffordResearch gates BEFORE calling it
+	 * (surfacing CANNOT_RESEARCH/INSUFFICIENT_INGREDIENTS as clear
+	 * failures with the real cost attached via ResultDetailJson), then
+	 * verifies IsResearchBeingConducted(schematic) actually flipped true
+	 * afterward - never trusts a void call blindly, same "verify after
+	 * every write" discipline as everything else in this file.
+	 *
+	 * bDryRun runs only the pre-validation, touching nothing - same
+	 * convention as world.payMilestone. SchematicClassPath and
+	 * ResearchTreeClassPath are both required - InitiateResearch itself
+	 * needs the initiating tree, there is no "current active tree" concept
+	 * to default to the way world.payMilestone can default to
+	 * GetActiveSchematic().
+	 *
+	 * Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult StartMamResearch(UObject* WorldContextObject, const FString& SchematicClassPath, const FString& ResearchTreeClassPath, bool bDryRun);
+
+	/**
+	 * world.claimMamResearch - claims a completed research's
+	 * results (AFGResearchManager::ClaimResearchResults). For a normal
+	 * M.A.M. schematic this grants the real unlock immediately. For a hard
+	 * drive analysis schematic (ESchematicType::EST_HardDrive), the real
+	 * engine internally generates a new unclaimed hard drive with random
+	 * alternate-recipe reward choices instead (ProcessCompletedHardDriveResearch)
+	 * - see world.claimMamHardDriveReward for the follow-up step that
+	 * actually picks one. Fails with NOT_COMPLETE if
+	 * IsResearchComplete(schematic) is false rather than calling a void
+	 * function that would silently no-op. Verifies afterward that
+	 * IsResearchComplete(schematic) actually flipped false.
+	 *
+	 * Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult ClaimMamResearch(UObject* WorldContextObject, const FString& SchematicClassPath);
+
+	/**
+	 * world.claimMamHardDriveReward - picks one alternate
+	 * recipe from an unclaimed hard drive's randomly-rolled reward choices
+	 * (UFGHardDrive::ClaimSchematic). Deliberately identified by
+	 * RewardSchematicClassPath - one of the schematics currently offered
+	 * by SOME unclaimed hard drive, found via
+	 * AFGResearchManager::GetUnclaimedHardDrives + each UFGHardDrive's own
+	 * public GetSchematics() - rather than by a numeric hard drive id.
+	 *
+	 * This is a deliberate design choice, not an oversight:
+	 * AFGResearchManager::mUnclaimedHardDriveData's real HardDriveID field
+	 * exists but has no public accessor, and UFGHardDrive::mHardDriveID is
+	 * a plain private int with no UPROPERTY at all - genuinely
+	 * unreflectable, unlike every other "read a protected/private field
+	 * via FindFProperty" case elsewhere in this file. Since
+	 * GetAvailableAlternateSchematics already excludes schematics already
+	 * offered by another unclaimed hard drive from future rolls (confirmed
+	 * from source), a given reward schematic class should only ever be
+	 * offered by one unclaimed hard drive at a time - safe to use as the
+	 * lookup key. Fails with REWARD_NOT_FOUND if no unclaimed hard drive
+	 * currently offers it.
+	 *
+	 * Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult ClaimMamHardDriveReward(UObject* WorldContextObject, const FString& RewardSchematicClassPath);
+
+	/**
+	 * world.rerollMamHardDrive - rerolls an unclaimed hard
+	 * drive's reward choices (UFGHardDrive::Reroll). Same
+	 * identify-by-current-reward-content lookup as
+	 * ClaimMamHardDriveReward, for the same reason - pass any ONE of the
+	 * schematics currently offered by the target hard drive. Fails with
+	 * CANNOT_REROLL if UFGHardDrive::CanReroll() is false - the detail
+	 * distinguishes "no rerolls left for this drive"
+	 * (!HasReroll()) from "no alternate recipes currently available to
+	 * reroll into" via ResultDetailJson. Since a reroll changes the reward
+	 * schematic set, re-query world.mamStatus afterward to see the new
+	 * choices rather than expecting them echoed back here.
+	 *
+	 * Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult RerollMamHardDrive(UObject* WorldContextObject, const FString& AnyCurrentRewardSchematicClassPath);
+
+	/**
+	 * world.trainStations - lists every AFGTrainStationIdentifier
+	 * via AFGRailroadSubsystem::GetAllTrainStations, each with its real
+	 * station name and the underlying AFGBuildableRailroadStation's id (the
+	 * same id world.buildables already uses for it). Needed because
+	 * world.buildables alone doesn't expose the station's display name,
+	 * and a timetable stop is identified by buildable id, not name - this
+	 * is how a caller finds the right id to build a world.setTrainTimetable
+	 * request without guessing from world.buildables' bare class/position
+	 * data.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTrainStationsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.trains - lists every AFGTrain via
+	 * AFGRailroadSubsystem::GetAllTrains: name, status (Parked/
+	 * ManualDriving/SelfDriving/Derailed), self-driving enabled + its real
+	 * ESelfDrivingLocomotiveError (NoPower/NoTimeTable/InvalidNextStop/
+	 * NoPath/StationUnreachable/etc - the actual reason a train isn't
+	 * moving, not just a boolean), docking state, and its FULL timetable
+	 * (every AFGRailroadTimeTable stop's station id/name + real
+	 * FTrainDockingRuleSet - DockingDefinition/DockForDuration/
+	 * IsDurationAndRule/load+unload item filters).
+	 *
+	 * Trains are AActors, not AFGBuildable (same category as AFGVehicle) -
+	 * `id` is GetPathName(), usable with world.setTrainTimetable/
+	 * world.setTrainSelfDriving, NOT with world.buildables/
+	 * world.deleteBuilding.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogTrainsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.setTrainTimetable - configures a train's full
+	 * timetable in one call: AFGRailroadTimeTable::SetStops(), a real,
+	 * public, BlueprintCallable "replace everything" setter (not an
+	 * incremental add/remove) - so this always REPLACES the whole stop
+	 * list, matching that real semantics rather than layering a partial-
+	 * update abstraction over it. Creates a new time table via
+	 * AFGTrain::NewTimeTable() first if the train doesn't have one yet
+	 * (AFGTrain::HasTimeTable() is false).
+	 *
+	 * Each stop resolves a station by buildable id (from world.buildables
+	 * or world.trainStations) to its real AFGTrainStationIdentifier via
+	 * AFGBuildableRailroadStation::GetStationIdentifier() - fails with
+	 * TARGET_NOT_FOUND per-stop if the id isn't a real, currently-existing
+	 * railroad station (checked BEFORE calling SetStops, so a bad stop id
+	 * never partially commits a timetable).
+	 *
+	 * Verifies afterward that GetNumStops() matches the requested stop
+	 * count - never trusts SetStops's own bool return blindly (same
+	 * "verify after every write" discipline as everything else in this
+	 * file).
+	 *
+	 * Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetTrainTimetable(UObject* WorldContextObject, const FString& TrainId, const FString& StopsJson);
+
+	/**
+	 * world.setTrainSelfDriving - enables/disables a train's
+	 * autopilot (AFGTrain::SetSelfDrivingEnabled). Does NOT fail if the
+	 * train reports a self-driving error afterward (e.g. no time table, no
+	 * path, station unreachable) - that's real, informative train
+	 * configuration state for the caller to see via
+	 * result.detail.selfDrivingError, not a failure of this RPC call
+	 * itself (the engine's own SetSelfDrivingEnabled has no failure return
+	 * to check against). Only fails if IsSelfDrivingEnabled() doesn't match
+	 * the requested value at all afterward.
+	 *
+	 * Not yet verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetTrainSelfDriving(UObject* WorldContextObject, const FString& TrainId, bool bEnabled);
+
+	/**
+	 * world.setTruckAutopilot - the road-vehicle analogue of
+	 * setTrainSelfDriving, for AFGWheeledVehicle (trucks/tractors/explorers).
+	 * Trucks have no "self driving" concept; instead their persistent
+	 * AFGWheeledVehicleIdentifier holds an ordered route of waypoint GUIDs
+	 * (AFGWheeledVehicleIdentifier::SetVehicleRoute) plus an autopilot enable
+	 * flag (SetAutopilotEnabled). A waypoint is the GUID of a docking
+	 * station's docking path node (AFGBuildableDockingStation::
+	 * GetDockingPathNode()->GetPathNodeGUID()), so the caller passes the
+	 * station BUILDABLE ids and this resolves each to its docking node GUID.
+	 *
+	 * StationIdsJson (optional) is a JSON array of docking-station buildable
+	 * ids in visit order; when non-empty it overwrites the whole route
+	 * (SetVehicleRoute). Pass an empty string to leave the existing route
+	 * untouched (e.g. to just toggle autopilot off). Before enabling, the
+	 * truck is snapped onto its current path segment
+	 * (UpdateCurrentVehiclePathSegmentFromVehicleLocation) so it is "on the
+	 * path".
+	 *
+	 * Like setTrainSelfDriving this does NOT fail on a post-enable autopilot
+	 * error (StationUnreachable/NotOnPath/TooFewStations/NoFuel/Deadlocked) -
+	 * that's real configuration state returned in result.detail.autopilotError
+	 * for the caller to act on. Only fails on bad input / target not found /
+	 * the enable flag not sticking.
+	 *
+	 * Server-authority (single-player local host is the server). Not yet
+	 * verified at runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetTruckAutopilot(UObject* WorldContextObject, const FString& VehicleId, bool bEnabled, const FString& StationIdsJson, const FString& FuelItemClass, int32 FuelAmount);
+
+	/**
+	 * world.droneStations - lists every drone station via
+	 * AFGDroneSubsystem::GetAllStations(): id (the underlying
+	 * AFGBuildableDroneStation's buildable id), pairedStationId (its
+	 * single paired partner, if any - drone pairing is a mutual 1:1 link,
+	 * not a directional source/destination pair, confirmed from source:
+	 * AFGDroneStationInfo::mPairedStation is a single pointer, not a list;
+	 * cargo flows both directions between paired stations), real drone
+	 * status (NoDrone/Docked/Loading/Takeoff/EnRoute/Docking/Unloading/
+	 * NotEnoughFuel/CannotUnload), active/allowed fuel types, latest+
+	 * average round-trip/item-rate statistics, and the station's real
+	 * input/output/fuel inventories.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FString LogDroneStationsAsJson(UObject* WorldContextObject);
+
+	/**
+	 * world.pairDroneStations - pairs (or unpairs) two drone
+	 * stations, i.e. sets which station a drone route connects - this is
+	 * the RPC that answers "configure source and destination for a drone."
+	 * Real mechanism confirmed from source:
+	 * AFGDroneStationInfo::PairStation(otherStation) - a single mutual
+	 * link per station (not a directional route list), matching
+	 * world.droneStations' pairedStationId shape above.
+	 *
+	 * TargetStationBuildableId empty/omitted unpairs StationBuildableId
+	 * instead (PairStation(nullptr) - OnPairedStationUpdate's own doc
+	 * comment confirms "newStation can be nullptr"). Verifies afterward
+	 * that GetPairedStation() matches the requested target (or is null,
+	 * for an unpair) - never trusts the call blindly.
+	 *
+	 * Live-tested.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult PairDroneStations(UObject* WorldContextObject, const FString& StationBuildableId, const FString& TargetStationBuildableId);
+};

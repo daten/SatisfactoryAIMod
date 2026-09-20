@@ -1,0 +1,5003 @@
+{
+ "protocolVersion": 1,
+ "buildables": [
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147322390",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 1500,
+    "y": 282600,
+    "z": -518.623779296875
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147236124",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 3000,
+    "y": 281600,
+    "z": 303
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147437369",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 3600,
+    "y": 281600,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147435400",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 4600,
+    "y": 281600,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147431917",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": -1000,
+    "y": 280500,
+    "z": -835.276611328125
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147400984",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 2400,
+    "y": 279200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147400724",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 3400,
+    "y": 278400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147445592",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 277000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147187854",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 6400,
+    "y": 281400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147419962",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 8800,
+    "y": 282600,
+    "z": 800
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147419693",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 12500,
+    "y": 282200,
+    "z": 1800
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147247138",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 6600,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147047656",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 11000,
+    "y": 279800,
+    "z": 1101
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 87.74864483869628,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147263736",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 3500,
+    "y": 277400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147235840",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 3000,
+    "y": 281600,
+    "z": 1003
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.3896278385013,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147232389",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 710.836181640625,
+    "y": 283822.9375,
+    "z": 727.0278930664062
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.85650071716958,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147436940",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 3600,
+    "y": 281600,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.2675654389189,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147436654",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 3600,
+    "y": 281600,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.2675654389189,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147436369",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 3600,
+    "y": 281600,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.2675654389189,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147436075",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 3600,
+    "y": 281600,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.2675654389189,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147435105",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 4600,
+    "y": 281600,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.06414387765355,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147434818",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 4600,
+    "y": 281600,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.06414387765355,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147434546",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 4600,
+    "y": 281600,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.06414387765355,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147431643",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": -1000,
+    "y": 280500,
+    "z": -135.276611328125
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 90.20426146921602,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147431378",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": -1000,
+    "y": 280500,
+    "z": -135.276611328125
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 90.20426146921602,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147400423",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 2400,
+    "y": 279200,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.50749741638508,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147400151",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 2400,
+    "y": 279200,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.50749741638508,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147399879",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 2400,
+    "y": 279200,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.50749741638508,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147399607",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 2400,
+    "y": 279200,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.50749741638508,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147398213",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 3400,
+    "y": 278400,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.30030159147513,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147445339",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 2800,
+    "y": 277000,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.4208569371769,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147445075",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 2800,
+    "y": 277000,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.4208569371769,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147444812",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 2800,
+    "y": 277000,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.4208569371769,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147181457",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 6000,
+    "y": 281100,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147182442",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 6300,
+    "y": 281400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147418671",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 8800,
+    "y": 282600,
+    "z": 1500
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.21641661678763,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147418427",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 12500,
+    "y": 282200,
+    "z": 2500
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 87.46375100378194,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147186156",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 6200,
+    "y": 281800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147187569",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 6000,
+    "y": 281400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147246825",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 6600,
+    "y": 281200,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.65547025701352,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147246535",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 6600,
+    "y": 281200,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.65547025701352,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147227556",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 4266.86376953125,
+    "y": 273262.65625,
+    "z": -2170.52490234375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.10542436114204,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147226484",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 6600,
+    "y": 281200,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.65547025701352,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147214363",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 6600,
+    "y": 281200,
+    "z": 1001
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.65547025701352,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147214096",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 5683.5361328125,
+    "y": 276473.59375,
+    "z": 975.9847412109375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.82232147396068,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147444238",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 2000,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147443932",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 2800,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147443616",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 3600,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147443294",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 4400,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147442954",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 5200,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147443567",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 1200,
+    "y": 283600,
+    "z": -669
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147434036",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 2000,
+    "y": 280600,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147447076",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 12500,
+    "y": 282000,
+    "z": 1800
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147446833",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 8800,
+    "y": 282400,
+    "z": 800
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147432293",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 6200,
+    "y": 282600,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147445660",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 2000,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147445406",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 2800,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147445129",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 3600,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147444842",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 4400,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147444542",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 5200,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147441416",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 1700,
+    "y": 283600,
+    "z": 331
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147419837",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 1900,
+    "y": 280400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147450240",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 2400,
+    "y": 278800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147445860",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 7200,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147423868",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 5800,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147274506",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 7000,
+    "y": 275400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147274241",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 3600,
+    "y": 277400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147273965",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 4400,
+    "y": 277400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147207156",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 2000,
+    "y": 278200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147452321",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 282000,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147452064",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 282000,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147451770",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 3600,
+    "y": 282000,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147451209",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 5200,
+    "y": 282000,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_SmelterMk1_C_2147446923",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/SmelterMk1/Build_SmelterMk1.Build_SmelterMk1_C",
+   "position": {
+    "x": 4400,
+    "y": 282000,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147265169",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 4300,
+    "y": 277400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147046478",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 5910.0045166015625,
+    "y": 274130,
+    "z": -3181.8345947265625
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.76494412321154,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_FoundryMk1_C_2147452988",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/FoundryMk1/Build_FoundryMk1.Build_FoundryMk1_C",
+   "position": {
+    "x": 6000,
+    "y": 282000,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147454182",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 277600,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147453901",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 276400,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147215621",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 5200,
+    "y": 276400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ManufacturerMk1_C_2147215368",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ManufacturerMk1/Build_ManufacturerMk1.Build_ManufacturerMk1_C",
+   "position": {
+    "x": 5800,
+    "y": 278000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147423064",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 279600,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147422750",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 279600,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147422397",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 278800,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147304108",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 6000,
+    "y": 280800,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147303796",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 6800,
+    "y": 280800,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147240160",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 4100,
+    "y": 274600,
+    "z": -3869
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147441767",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 282700,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147415355",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 281800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147414194",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 282700,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147413310",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 281800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147412463",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 3600,
+    "y": 282700,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147411478",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 3600,
+    "y": 281800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147410554",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 4400,
+    "y": 282700,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147409757",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 4400,
+    "y": 281800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147408991",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 5200,
+    "y": 282700,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147408358",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 5200,
+    "y": 281800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147372141",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 10000,
+    "y": 280100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147451920",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 279300,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147451187",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 277100,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147280298",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 9400,
+    "y": 278100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147448152",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 279300,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147446872",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2400,
+    "y": 278900,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147433140",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 1900,
+    "y": 280500,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147432454",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 280500,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_FoundryMk1_C_2147225575",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/FoundryMk1/Build_FoundryMk1.Build_FoundryMk1_C",
+   "position": {
+    "x": 7600,
+    "y": 282000,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147267904",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 5900,
+    "y": 276500,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147224984",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 4980.0005795316265,
+    "y": 282309.9998547495,
+    "z": 681
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.98939667536546,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147272672",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2800,
+    "y": 275900,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147271102",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 6200,
+    "y": 275400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147269618",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 7000.00000257045,
+    "y": 275500,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147270291",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 9600,
+    "y": 276700,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147271816",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 5100,
+    "y": 275300,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147136957",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 6800,
+    "y": 281300,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147212899",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 5200,
+    "y": 276900,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147210700",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 6000,
+    "y": 280500,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147277764",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 8400,
+    "y": 276700,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147209395",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 6800,
+    "y": 280500,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147206216",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2000,
+    "y": 278500,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147205403",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 2100,
+    "y": 278200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147332296",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 9789.995483398438,
+    "y": 280870,
+    "z": 1088.1654052734375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.00370838888345,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147137953",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7700,
+    "y": 281400.00000257045,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147139564",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7800,
+    "y": 281800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147242313",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 8100,
+    "y": 278000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147421453",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 2900,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147420287",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 3700,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147419326",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4500,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147406918",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 2100,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147405685",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 5100,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147405032",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4300,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147404310",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 3500,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147445931",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 2700,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147439895",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 1700,
+    "y": 283500,
+    "z": 331
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147438065",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 571.7421875,
+    "y": 284602.09375,
+    "z": -971.45361328125
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147418060",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 1900,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147444747",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 12400,
+    "y": 282000,
+    "z": 1800
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147443661",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 8700,
+    "y": 282400,
+    "z": 800
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147423351",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 1800,
+    "y": 283600,
+    "z": 331
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorLiftMk4_C_2147443299",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorLiftMk4/Build_ConveyorLiftMk4.Build_ConveyorLiftMk4_C",
+   "position": {
+    "x": 1800,
+    "y": 283600,
+    "z": -669
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorLiftMk4_C_2147440938",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorLiftMk4/Build_ConveyorLiftMk4.Build_ConveyorLiftMk4_C",
+   "position": {
+    "x": 1600,
+    "y": 283600,
+    "z": -669
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_MinerMk3_C_2147318068",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/MinerMk3/Build_MinerMk3.Build_MinerMk3_C",
+   "position": {
+    "x": 571.7421875,
+    "y": 283802.09375,
+    "z": -1071.45361328125
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_MinerMk3_C_2147456438",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/MinerMk3/Build_MinerMk3.Build_MinerMk3_C",
+   "position": {
+    "x": 4127.76953125,
+    "y": 273241.8125,
+    "z": -3969.00634765625
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147066061",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4600,
+    "y": 275100,
+    "z": 331
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147066560",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4500,
+    "y": 275200,
+    "z": 331
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_StorageContainerMk2_C_2147059031",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/StorageContainerMk2/Build_StorageContainerMk2.Build_StorageContainerMk2_C",
+   "position": {
+    "x": 5800,
+    "y": 279600,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147057094",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 5800,
+    "y": 278800,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147352834",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 9999.99999742955,
+    "y": 280900,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147298524",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 9800,
+    "y": 278100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147429670",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 4266.863528745603,
+    "y": 273262.6517214912,
+    "z": -2170.5249037221392
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.10542694096675,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147435990",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 4400,
+    "y": 278400,
+    "z": 201
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147322376",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7500,
+    "y": 278200,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147323076",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 8300,
+    "y": 278200,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147323849",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 9100,
+    "y": 278200,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147441645",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 4900,
+    "y": 274600,
+    "z": -3869
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147409967",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 7600,
+    "y": 280400,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147409668",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 8400,
+    "y": 280400,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147409351",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 9200,
+    "y": 280400,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147409030",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 10000,
+    "y": 280400,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147408702",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 7600,
+    "y": 278800,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147408368",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 8400,
+    "y": 278800,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147408034",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 9200,
+    "y": 278800,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147407699",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 10000,
+    "y": 278800,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147405945",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 8400,
+    "y": 279600,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147405668",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 9600,
+    "y": 279600,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147348692",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 6800,
+    "y": 280200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147405011",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 8400,
+    "y": 279600,
+    "z": 1101
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.27918516632717,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147404186",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 8400,
+    "y": 279600,
+    "z": 1101
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.27918516632717,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147402322",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 9600,
+    "y": 279600,
+    "z": 1101
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.03353543170425,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147402043",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 8189.9954833984375,
+    "y": 280870,
+    "z": 1088.1654052734375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.32976378290127,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147401789",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 8989.995483398438,
+    "y": 280870,
+    "z": 1088.1654052734375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.16672123840044,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147395944",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 11000,
+    "y": 280200,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerPoleMk1_C_2147394608",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C",
+   "position": {
+    "x": 11000,
+    "y": 279800,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147394330",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 11000,
+    "y": 279800,
+    "z": 1101
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 87.74864483869628,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147393544",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 8400,
+    "y": 279600,
+    "z": 1101
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.27918516632717,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147336348",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 2316.4638671875,
+    "y": 277526.4055786133,
+    "z": 875.9847412109375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.5217733585531,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147381832",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 4400,
+    "y": 278400,
+    "z": 901
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.09453864011597,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147381536",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 9600,
+    "y": 279600,
+    "z": 1101
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.03353543170425,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147380121",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 6639.9969482421875,
+    "y": 278495.1692504883,
+    "z": 1315.6190795898438
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.63418910424107,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147379234",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 9789.995483398438,
+    "y": 279270,
+    "z": 1088.1654052734375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 87.99228052335572,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147374069",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 7600,
+    "y": 280100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147373432",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 8400,
+    "y": 280100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk1_C_2147372744",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk1/Build_ConveyorBeltMk1.Build_ConveyorBeltMk1_C",
+   "position": {
+    "x": 9200,
+    "y": 280100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147369992",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 2800,
+    "y": 280200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147369711",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 7400,
+    "y": 280200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147369392",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 7600,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147369080",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 8400,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147368758",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 9200,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147368436",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 10000,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147365624",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 1899.9999974295497,
+    "y": 280300,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147364789",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 2799.9999974295497,
+    "y": 280100,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147363914",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 2900,
+    "y": 280200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147360491",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7400,
+    "y": 280300,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147359450",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7600,
+    "y": 280700,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147358414",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7700,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147356799",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 8400,
+    "y": 280700,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147355864",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 8500,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147355040",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 9200,
+    "y": 280700,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147353867",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 9300,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147334870",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 10800,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147334583",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 10800,
+    "y": 280400,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147333301",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 10100,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147332689",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 10800,
+    "y": 280700,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147330634",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 7600,
+    "y": 278200,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147330361",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 8400,
+    "y": 278200,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147330096",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 9200,
+    "y": 278200,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147329821",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 10000,
+    "y": 278200,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147329517",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 7000,
+    "y": 278200,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147327469",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7600,
+    "y": 278500,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147326678",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 8400,
+    "y": 278500,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147325856",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 9200,
+    "y": 278500,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147325137",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 10000,
+    "y": 278500,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147324547",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 9900,
+    "y": 278200,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147309110",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 8400,
+    "y": 277200,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_AssemblerMk1_C_2147308839",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/AssemblerMk1/Build_AssemblerMk1.Build_AssemblerMk1_C",
+   "position": {
+    "x": 9600,
+    "y": 277200,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147308548",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 11600,
+    "y": 280400,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147308233",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 11600,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147306061",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 8189.9954833984375,
+    "y": 279270,
+    "z": 1088.1654052734375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.32020009467632,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147305767",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 7916.4638671875,
+    "y": 277126.4055786133,
+    "z": 1075.9847412109375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.36371907885213,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147304174",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 10589.995483398438,
+    "y": 280870,
+    "z": 1088.1654052734375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 87.840727864541,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147300218",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 10800,
+    "y": 277600,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147299967",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 8600,
+    "y": 277500,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.99999999999999,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147299696",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 7000,
+    "y": 277600,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147299395",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 8200,
+    "y": 278100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147282415",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 9800,
+    "y": 278000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147298842",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 11600,
+    "y": 277800,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147296533",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 10900,
+    "y": 281000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147295592",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 11599.99999742955,
+    "y": 280900,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147295038",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 10800,
+    "y": 280100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147294230",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 10700,
+    "y": 277600.00000257045,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147292528",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 8600,
+    "y": 277600,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147291511",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7000,
+    "y": 278100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147290802",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7000,
+    "y": 277500,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147289620",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7100,
+    "y": 277600,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147288579",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 8200,
+    "y": 277800,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147279955",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 9400,
+    "y": 278000,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147284938",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 11600,
+    "y": 280100,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147284290",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 11500,
+    "y": 277800.00000257045,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147275344",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 5900,
+    "y": 276400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.99999999999999,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147275059",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 5000,
+    "y": 275300,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147274781",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 6200,
+    "y": 275300,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147161561",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 6589.9954833984375,
+    "y": 281270,
+    "z": 888.1654052734375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.6578381562302,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147220229",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 5799.99999742955,
+    "y": 282700,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147219191",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 5900,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147216969",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7200,
+    "y": 282700,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147215355",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 6200,
+    "y": 282500,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147214377",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 7200.00000257045,
+    "y": 282900,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147165813",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 7180.000607967377,
+    "y": 282359.9996948242,
+    "z": 756
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.54336627621541,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147140490",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 7800,
+    "y": 281400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147140209",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 6800,
+    "y": 281400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147131304",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 4500,
+    "y": 274100,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147131052",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 4500,
+    "y": 275100,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.99999999999999,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147075547",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4100,
+    "y": 274900,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147129257",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4127.76953125,
+    "y": 274041.8125,
+    "z": -3869.00634765625
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147128334",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4500,
+    "y": 274200,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorLiftMk4_C_2147123913",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorLiftMk4/Build_ConveyorLiftMk4.Build_ConveyorLiftMk4_C",
+   "position": {
+    "x": 4500,
+    "y": 275500,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147114892",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4900,
+    "y": 274900,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147113312",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 4900,
+    "y": 274000,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.99999999999999,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147095465",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 4000,
+    "y": 275300,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147112197",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4600,
+    "y": 274100,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147111628",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4900,
+    "y": 274300,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147085183",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4100,
+    "y": 275300,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147083562",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 5700,
+    "y": 274600,
+    "z": -3869
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147082874",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4499.99999742955,
+    "y": 274000,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147080066",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 5110.0045166015625,
+    "y": 274130,
+    "z": -3181.8345947265625
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 88.93208409417245,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147079812",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 5000,
+    "y": 275100,
+    "z": -3769
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentMerger_C_2147067452",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Merger/Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C",
+   "position": {
+    "x": 4500,
+    "y": 275100,
+    "z": 331
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147044451",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 3600,
+    "y": 279600,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConstructorMk1_C_2147044024",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConstructorMk1/Build_ConstructorMk1.Build_ConstructorMk1_C",
+   "position": {
+    "x": 4400,
+    "y": 279600,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147031972",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4400,
+    "y": 279300,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147043368",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 4400,
+    "y": 280400,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147041785",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 2589.9954833984375,
+    "y": 280070,
+    "z": 888.1654052734375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.47016253032567,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_PowerLine_C_2147041548",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C",
+   "position": {
+    "x": 3389.9954833984375,
+    "y": 280070,
+    "z": 1088.1654052734375
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.30651998077415,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147030014",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 2800,
+    "y": 280700,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 89.99999999999999,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147029024",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 2800,
+    "y": 280300,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147033611",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 4399.99999742955,
+    "y": 280300,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147032713",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 3600,
+    "y": 279300,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorAttachmentSplitter_C_2147024772",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/CA_Splitter/Build_ConveyorAttachmentSplitter.Build_ConveyorAttachmentSplitter_C",
+   "position": {
+    "x": 3600,
+    "y": 280400,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": -90.00000000000001,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147024089",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 2900,
+    "y": 280699.99999742955,
+    "z": 401
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147022503",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 3600,
+    "y": 280300,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "/Game/FactoryGame/Map/GameLevel01/Persistent_Level.Persistent_Level:PersistentLevel.Build_ConveyorBeltMk4_C_2147021547",
+   "buildableClass": "/Game/FactoryGame/Buildable/Factory/ConveyorBeltMk4/Build_ConveyorBeltMk4.Build_ConveyorBeltMk4_C",
+   "position": {
+    "x": 3700,
+    "y": 280400,
+    "z": 501
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3507",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 2000,
+    "y": 281200,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3508",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 2800,
+    "y": 281200,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3509",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 3600,
+    "y": 281200,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3510",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 4400,
+    "y": 281200,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3511",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 5200,
+    "y": 281200,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3512",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 2000,
+    "y": 282000,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3513",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 2800,
+    "y": 282000,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3514",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 3600,
+    "y": 282000,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3515",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 4400,
+    "y": 282000,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3516",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 5200,
+    "y": 282000,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3517",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 3600,
+    "y": 282800,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3518",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 4400,
+    "y": 282800,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3519",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 5200,
+    "y": 282800,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3520",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": -1000,
+    "y": 280500,
+    "z": -1075.276611328125
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3521",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 2000,
+    "y": 280400,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3522",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 2800,
+    "y": 280400,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3523",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 3600,
+    "y": 280400,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3524",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 4400,
+    "y": 280400,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3525",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 5200,
+    "y": 280400,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3526",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 2000,
+    "y": 279600,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3527",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 2800,
+    "y": 279600,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3528",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 3600,
+    "y": 279600,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3529",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 5200,
+    "y": 279600,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3530",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 4400,
+    "y": 278800,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 180,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3531",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6000,
+    "y": 281200,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3532",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6800,
+    "y": 281200,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3533",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 281200,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3534",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6000,
+    "y": 282000,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3535",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6800,
+    "y": 282000,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3536",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 282000,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3537",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6000,
+    "y": 282800,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3538",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6800,
+    "y": 282800,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3539",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 282800,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3540",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6000,
+    "y": 280800,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3541",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6800,
+    "y": 280800,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3542",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6000,
+    "y": 281600,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3543",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 6800,
+    "y": 281600,
+    "z": 150
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3544",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 277200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3545",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 278000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3546",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 278800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3547",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 279600,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3548",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 280400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3549",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3550",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 282000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3551",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 7600,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3552",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 8400,
+    "y": 277200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3553",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 8400,
+    "y": 278000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3554",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 8400,
+    "y": 278800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3555",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 8400,
+    "y": 279600,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3556",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 8400,
+    "y": 280400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3557",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 8400,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3558",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 8400,
+    "y": 282000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3559",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 8400,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3560",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 9200,
+    "y": 277200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3561",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 9200,
+    "y": 278000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3562",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 9200,
+    "y": 278800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3563",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 9200,
+    "y": 279600,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3564",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 9200,
+    "y": 280400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3565",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 9200,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3566",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 9200,
+    "y": 282000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3567",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 9200,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3568",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10000,
+    "y": 277200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3569",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10000,
+    "y": 278000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3570",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10000,
+    "y": 278800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3571",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10000,
+    "y": 279600,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3572",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10000,
+    "y": 280400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3573",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10000,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3574",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10000,
+    "y": 282000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3575",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10000,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3576",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10800,
+    "y": 277200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3577",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10800,
+    "y": 278000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3578",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10800,
+    "y": 278800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3579",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10800,
+    "y": 279600,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3580",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10800,
+    "y": 280400,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3581",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10800,
+    "y": 281200,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3582",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10800,
+    "y": 282000,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  },
+  {
+   "id": "lightweight:/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C|3583",
+   "buildableClass": "/Game/FactoryGame/Buildable/Building/Foundation/Build_Foundation_8x1_01.Build_Foundation_8x1_01_C",
+   "position": {
+    "x": 10800,
+    "y": 282800,
+    "z": 301
+   },
+   "rotation": {
+    "pitch": 0,
+    "yaw": 0,
+    "roll": 0
+   }
+  }
+ ]
+}

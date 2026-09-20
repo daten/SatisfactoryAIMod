@@ -1,0 +1,108 @@
+# Production planning workflow (end-to-end)
+
+How to go from "I want N of part X per minute" to a built, running factory, using
+the deterministic Python tools plus the RPC. Each step names the tool, what it
+answers, and the DECISION the agent makes (the tools compute and expose; they do
+not choose plans/layouts/sites — see [[feedback_dont_prebake_agent_decisions]]).
+
+All Python runs from `controller/`. The recipe/siting tools work OFFLINE against
+`catalog_cache.json`; refresh it after a game/mod patch with
+`python export_catalog.py` (game must be running).
+
+---
+
+## 1. Bill of materials — what to build  → `satisfactory_ai/recipe_tree.py`
+Given target part + rate, get every intermediate recipe, machine counts (+clock%),
+raw-resource rates, byproducts, machine totals, and total power.
+
+    python -m satisfactory_ai.recipe_tree "Reinforced Iron Plate" 10
+
+Decisions you make here (the solver forces them rather than guessing):
+- **Alternate / ambiguous recipes** → it raises `RecipeChoiceNeeded`; re-run with
+  `--choose Desc_X_C=Recipe_Y_C` (or `recipe_choices={}` in code).
+- **What to import vs make** → `--raw "Iron Ingot"` treats a part as a sourced
+  leaf. `/RawResources/` (ore, water, ...) are leaves by default.
+- **Overclock** (Power Shards) → `--max-clock 150/200/250` to trade machines for
+  clock; reports shards + higher power.
+- **Somersloops** (rare - use strategically on the most EXPENSIVE items) →
+  `--sloop "Item"` amplifies output up to 2x for the same input, so that step's
+  machines AND its ingredient demand drop and cascade upstream (often the biggest
+  lever for a deep end-game part). Reports total Somersloops + the power cost.
+
+Take from the result: `raw_totals` (feeds step 2), machine counts + `total_power_mw`
+(feeds steps 3–4), byproducts (need a sink — [[feedback_byproduct_sink]]).
+
+## 2. Where to build — resource siting  → `satisfactory_ai/siting.py`
+Feed `world.resourceNodes` telemetry + the BOM's `raw_totals` in:
+
+    rank_sites_for_demand(nodes, bom.raw_totals, link_radius=..., miner_mk=...)
+
+Returns clusters (candidate sites, with centroid) ranked by whether their
+extraction (`extraction_rate` = purity × miner Mk) meets the demand, with
+per-resource deficits. Decisions: which site, which miner tier, whether a partial
+site + belt/train imports for the deficits is acceptable. (Solid nodes only;
+water/oil pumped separately.) Pick a build centroid from the chosen cluster.
+
+## 3. Footprint & layout  → `satisfactory_ai/layout.py` + `composites.py`
+You now know machine counts (step 1) and a site (step 2). Use the geometry
+toolkit to place them:
+- foundation footprint: `compute_disk_fill_grid` / `compute_outer_touching_ring`
+  (size from machine totals; default 8x1 foundations — [[feedback_prefer_1m_foundations]]).
+- machine rows + manifolds: `composites.machine_row`, `composites.manifold`,
+  `vertical_pair_block`; power backbone: `pole_backbone`.
+- connector geometry (does this belt pair fit? where to place to align?):
+  `predict_connector_world_state`, `compute_aligned_placement_position`,
+  `connectors_are_compatible`, `candidate_yaws_for_normal`.
+Pre-plan compactly, elevated/clear terrain, belts routed intentionally
+([[feedback_build_layout_preplanning]]).
+
+## 4. Belts / pipes  → `router.py`, `belt_route.py`, `route_drc.py`
+Two routing styles:
+- **Point-to-point** (`router.route_connection`): "connect output A → input B" as
+  a direct belt or segments + jog/relay/elevation, honoring the belt rulebook
+  (min run, `maxSplineLength`, 30° incline, S-against-facing). Fast, but the
+  mid-span spline is the game's choice — fine for functional hookups.
+- **Deterministic circuit-board lanes** (`belt_route.plan_belt_lane`): when you
+  want belts to run exactly where you choose (no wandering), give an ordered
+  WAYPOINT path; it lays a conveyor pole at each vertex and SHORT STRAIGHT spans
+  (auto-subdivided < ~1500u so each span's spline ≈ straight and predictable).
+  You pick the path and z-lanes (route crossings on different z); the tool
+  realizes it. NB a long single `connectConveyor` bulges unpredictably — that's
+  why short pole-anchored spans give clean, non-overlapping routing.
+
+**Verify before building** with `route_drc.check_route`: feed the planned
+segments + obstacle AABBs (map `world.buildables` `bounds` → `Obstacle`) +
+terrain (`world.terrainHeightGrid` → a `ground_z(x,y)`); it flags belt-vs-machine
+/ foundation / belt / terrain overlaps (a PCB-style DRC). Iterate the layout
+offline until clean, THEN build. For a LONG span whose curved path you can't
+predict by hand, call `world.testConveyorBelt` (dry run) - it now returns the
+belt's PREDICTED spline (`result.detail.points`) without building; feed those
+points to the DRC as segments to verify the real path. It also checks BUILT
+routes via `world.splineGeometry`. For long hauls from the resource site, cross hostile
+terrain with a lift-skyway and teleport the player NEAR the work (belt validation
+is camera-dependent) — [[reference_belt_haul_terrain_rules]].
+
+## 5. Power
+`total_power_mw` from step 1 sizes the generators/fuel. Variable-power machines
+(Particle Accelerator / Quantum Encoder / Converter) are counted at their range
+MAX so you build for peak, not brown out. If you overclock to save machines
+(`solve_bom(max_clock_percent=150/200/250)` or `--max-clock`), the BOM reports
+the extra draw AND the Power Shards needed — factor both in. Wire with
+`connectPower` (no length limit; `ignoreAimLocation`); if it wedges globally,
+a full game restart clears it (project_hmf_optimization bug #2).
+
+## 6. Build & verify  → `satisfactory_ai/executor.py` + `world.batch`
+Execute placements/connections via the executor (auto-repairs dangling belts,
+best-effort teleports) and `world.batch` (≤100 ops). Then verify real positions
+with `world.buildables` before trusting success ([[feedback_validate_test_placements]]),
+confirm machines actually produce (`setClockSpeed` is pending until a machine
+runs), and give byproducts a sink. Save at natural pauses
+([[feedback_session_saving_discipline]]).
+
+---
+
+### Boundary reminder
+The tools answer questions and compute numbers deterministically (CLAUDE.md's
+"deterministic solver responsibilities"); the agent decides between valid plans,
+alternates, sites, and objectives (CLAUDE.md's "LLM responsibilities"). Keep it
+that way — no tool here should silently pick a layout, recipe, or site.

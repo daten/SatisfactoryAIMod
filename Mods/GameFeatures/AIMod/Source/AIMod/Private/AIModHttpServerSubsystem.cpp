@@ -1,0 +1,3449 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#include "AIModHttpServerSubsystem.h"
+#include "AIMod.h"
+#include "AIModFunctionLibrary.h"
+#include "AIModOperationTypes.h"
+#include "HttpServerModule.h"
+#include "IHttpRouter.h"
+#include "HttpServerRequest.h"
+#include "HttpServerResponse.h"
+#include "HttpPath.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonWriter.h"
+#include "Serialization/JsonSerializer.h"
+#include "Policies/CondensedJsonPrintPolicy.h"
+#include "Engine/GameInstance.h"
+#include "IPAddress.h"
+#include "AIModConfiguration.h"
+#include "Configuration/ConfigManager.h"
+#include "FGChatManager.h"
+#include "Engine/World.h"
+#include "HAL/PlatformTime.h"
+#include "FGRecipe.h"
+
+namespace
+{
+	// Defense-in-depth: don't rely solely on the socket-level
+	// Config/DefaultEngine.ini ListenerOverrides loopback
+	// binding: it does NOT take effect in the actual Steam-launched
+	// (packaged Shipping) game - the socket ends up bound to
+	// 0.0.0.0:51902, not 127.0.0.1:51902 - because that ini override
+	// lives in this dev workspace's project-level
+	// Config/DefaultEngine.ini, which only applies to Development Editor
+	// sessions run from here, not the separately-deployed Alpakit
+	// package. This check is what actually enforces "loopback only" for
+	// real players.
+	bool IsLoopbackPeer(const FHttpServerRequest& Request)
+	{
+		if (!Request.PeerAddress.IsValid())
+		{
+			return false;
+		}
+		const FString PeerIp = Request.PeerAddress->ToString(/*bAppendPort=*/false);
+		return PeerIp == TEXT("127.0.0.1") || PeerIp == TEXT("::1") || PeerIp.StartsWith(TEXT("127."));
+	}
+
+	// forward declaration for FAIModBatchState's finalizer, defined with
+	// the other helpers below
+	TUniquePtr<FHttpServerResponse> MakeJsonResponse(EHttpServerResponseCodes Code, const TSharedRef<FJsonObject>& Body);
+}
+
+/**
+ * world.batch bookkeeping - shared across the chained
+ * sub-op completion callbacks. File scope (not the anonymous namespace)
+ * because the header forward-declares it for RunBatchStep's signature.
+ */
+struct FAIModBatchState
+{
+	TArray<TSharedPtr<FJsonObject>> Ops;
+	bool bHaltOnError = true;
+	int32 Index = 0;
+	int32 SucceededCount = 0;
+	bool bAnyFailed = false;
+	TArray<TSharedPtr<FJsonValue>> Results;
+	// True while the most recent successful sub-op was a
+	// world.deleteBuilding whose corpse has NOT yet been settled. Batch
+	// sub-op deletes skip their per-op 0.75s corpse-settle hold (the
+	// batch fast path - see the deleteBuilding handler comment); this
+	// flag makes RunBatchStep re-insert the ONE hold that still matters:
+	// before the next NON-delete op (a place right after a delete must
+	// not race the corpse's instanced collision), and before the final
+	// batch response when the batch ends on deletes (protecting the
+	// caller's next request). Consecutive deletes run back-to-back.
+	bool bUnsettledDelete = false;
+};
+
+namespace
+{
+	TUniquePtr<FHttpServerResponse> MakeJsonResponse(EHttpServerResponseCodes Code, const TSharedRef<FJsonObject>& Body)
+	{
+		FString JsonString;
+		// Condensed, not the default pretty-printed policy - see the
+		// matching comment in AIModFunctionLibrary.cpp.
+		const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+			TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&JsonString);
+		FJsonSerializer::Serialize(Body, Writer);
+
+		TUniquePtr<FHttpServerResponse> Response = FHttpServerResponse::Create(JsonString, TEXT("application/json"));
+		Response->Code = Code;
+		return Response;
+	}
+
+	TUniquePtr<FHttpServerResponse> MakeErrorResponse(EHttpServerResponseCodes Code, const FString& RequestId, const FString& ErrorCode, const FString& Message)
+	{
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetNumberField(TEXT("protocolVersion"), 1);
+		Root->SetStringField(TEXT("requestId"), RequestId);
+		Root->SetBoolField(TEXT("success"), false);
+
+		const TSharedRef<FJsonObject> ErrorObject = MakeShared<FJsonObject>();
+		ErrorObject->SetStringField(TEXT("code"), ErrorCode);
+		ErrorObject->SetStringField(TEXT("message"), Message);
+		Root->SetObjectField(TEXT("error"), ErrorObject);
+
+		UE_LOG(LogAIModAI, Warning, TEXT("AIMod HTTP server: request %s failed - %s: %s"), *RequestId, *ErrorCode, *Message);
+
+		return MakeJsonResponse(Code, Root);
+	}
+
+	// Maps FAIModOperationResult::ErrorCode (AIModFunctionLibrary.cpp's
+	// write operations) to an HTTP status. Defaults to BadRequest for any
+	// code not explicitly listed, rather than guessing at codes that
+	// don't exist yet.
+	EHttpServerResponseCodes HttpCodeForOperationError(const FString& ErrorCode)
+	{
+		if (ErrorCode == TEXT("TARGET_NOT_FOUND")) { return EHttpServerResponseCodes::NotFound; }
+		if (ErrorCode == TEXT("OPERATION_NOT_PERMITTED")) { return EHttpServerResponseCodes::Forbidden; }
+		if (ErrorCode == TEXT("INTERNAL_ERROR")) { return EHttpServerResponseCodes::ServerError; }
+		return EHttpServerResponseCodes::BadRequest;
+	}
+
+	TUniquePtr<FHttpServerResponse> MakeOperationResponse(const FAIModOperationResult& OperationResult, const FString& RequestId)
+	{
+		if (!OperationResult.bSuccess)
+		{
+			return MakeErrorResponse(HttpCodeForOperationError(OperationResult.ErrorCode), RequestId, OperationResult.ErrorCode, OperationResult.ErrorMessage);
+		}
+
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetNumberField(TEXT("protocolVersion"), 1);
+		Root->SetStringField(TEXT("requestId"), RequestId);
+		Root->SetBoolField(TEXT("success"), true);
+
+		const TSharedRef<FJsonObject> ResultObject = MakeShared<FJsonObject>();
+		if (!OperationResult.ResultBuildableId.IsEmpty())
+		{
+			ResultObject->SetStringField(TEXT("buildableId"), OperationResult.ResultBuildableId);
+		}
+		if (!OperationResult.ResultDetailJson.IsEmpty())
+		{
+			TSharedPtr<FJsonObject> DetailObject;
+			const TSharedRef<TJsonReader<>> DetailReader = TJsonReaderFactory<>::Create(OperationResult.ResultDetailJson);
+			if (FJsonSerializer::Deserialize(DetailReader, DetailObject) && DetailObject.IsValid())
+			{
+				ResultObject->SetObjectField(TEXT("detail"), DetailObject);
+			}
+		}
+		Root->SetObjectField(TEXT("result"), ResultObject);
+		return MakeJsonResponse(EHttpServerResponseCodes::Ok, Root);
+	}
+}
+
+void UAIModHttpServerSubsystem::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+
+	// Registers AIMod's player-facing mod settings (AIModConfiguration.h)
+	// so they show up in SML's normal mod settings menu, load from/save to
+	// disk, and are readable via UAIModFunctionLibrary::GetAIModConfigBool/
+	// GetAIModConfigFloat elsewhere in this module. Gives player-controlled
+	// safety/capability toggles instead of hardcoded defaults or per-call
+	// opt-in flags.
+	if (UConfigManager* ConfigManager = GetGameInstance() ? GetGameInstance()->GetSubsystem<UConfigManager>() : nullptr)
+	{
+		ConfigManager->RegisterModConfiguration(UAIModConfiguration::StaticClass());
+	}
+	else
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("AIMod HTTP server: no UConfigManager found - mod settings (remote connections, unlimited resources, build distance limit) will use their off-by-default values and won't be player-editable this session"));
+	}
+
+	// SOCKET-LEVEL loopback binding (release hardening).
+	// The project Config/DefaultEngine.ini sets [HTTPServer.Listeners]
+	// DefaultBindAddress=any, so a listener with no per-port override binds
+	// all interfaces, and the per-port .ini override does NOT reliably reach
+	// the Alpakit-packaged build (the socket ends up on 0.0.0.0). So force
+	// it into GConfig at RUNTIME instead:
+	// FHttpListener::StartListening reads
+	// FHttpServerConfig::GetListenerConfig() from GConfig
+	// [HTTPServer.Listeners]/ListenerOverrides (GEngineIni) at bind time -
+	// which happens inside the GetHttpRouter/StartAllListeners calls below -
+	// so setting it here binds the REAL socket loopback, not just the
+	// app-layer IsLoopbackPeer reject (which remains as defense-in-depth).
+	// Bind loopback by default; only bind 'any' when the player has opted
+	// into remote connections, in which case the app-layer check governs
+	// who is actually allowed. This makes loopback-only the socket-level
+	// default regardless of packaged-config merging.
+	{
+		const bool bAllowRemote = UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowRemoteConnections"), false);
+		const FString DesiredBind = bAllowRemote ? TEXT("any") : TEXT("localhost");
+		const FString PortKey = FString::Printf(TEXT("Port=%u"), ListenPort);
+		TArray<FString> Overrides;
+		GConfig->GetArray(TEXT("HTTPServer.Listeners"), TEXT("ListenerOverrides"), Overrides, GEngineIni);
+		Overrides.RemoveAll([&PortKey](const FString& Entry) { return Entry.Contains(PortKey); });
+		Overrides.Add(FString::Printf(TEXT("(Port=%u,BindAddress=%s)"), ListenPort, *DesiredBind));
+		GConfig->SetArray(TEXT("HTTPServer.Listeners"), TEXT("ListenerOverrides"), Overrides, GEngineIni);
+		UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server: forced port %u socket bind to '%s' via GConfig (remote connections %s)"),
+			ListenPort, *DesiredBind, bAllowRemote ? TEXT("ENABLED") : TEXT("disabled"));
+	}
+
+	FHttpServerModule& HttpServerModule = FHttpServerModule::Get();
+	Router = HttpServerModule.GetHttpRouter(ListenPort, /*bFailOnBindFailure=*/false);
+	if (!Router.IsValid())
+	{
+		UE_LOG(LogAIModAI, Error, TEXT("AIMod HTTP server: failed to bind router on port %u"), ListenPort);
+		return;
+	}
+
+	RpcRouteHandle = Router->BindRoute(
+		FHttpPath(TEXT("/rpc")),
+		EHttpServerRequestVerbs::VERB_POST,
+		FHttpRequestHandler::CreateUObject(this, &UAIModHttpServerSubsystem::HandleRpcRequest));
+
+	HttpServerModule.StartAllListeners();
+
+	UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server listening on port %u /rpc (socket bind forced via GConfig above; loopback-only unless remote connections enabled in mod settings)"), ListenPort);
+
+	TryBindChatManagerDelegate();
+
+	// See TryBindChatManagerDelegate's doc comment - Initialize()
+	// alone runs too early (often at the main menu, before the player's
+	// save has finished loading into its real world), so also rebind on
+	// every real game world's init, mirroring FAIModModule::RunPerWorldSetup's
+	// two-delegate pattern for the same ProcessServerTravel reliability reason.
+	ChatWorldInitializedActorsHandle = FWorldDelegates::OnWorldInitializedActors.AddUObject(this, &UAIModHttpServerSubsystem::OnWorldInitializedActorsForChat);
+	ChatPostLoadMapWithWorldHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(this, &UAIModHttpServerSubsystem::OnPostLoadMapWithWorldForChat);
+}
+
+void UAIModHttpServerSubsystem::Deinitialize()
+{
+	FWorldDelegates::OnWorldInitializedActors.Remove(ChatWorldInitializedActorsHandle);
+	FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(ChatPostLoadMapWithWorldHandle);
+
+	if (UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr)
+	{
+		World->GetTimerManager().ClearTimer(ChatManagerBindRetryTimer);
+	}
+	if (AFGChatManager* ChatManager = AFGChatManager::Get(GetGameInstance()))
+	{
+		ChatManager->OnChatMessageAdded.RemoveDynamic(this, &UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded);
+	}
+
+	if (Router.IsValid() && RpcRouteHandle.IsValid())
+	{
+		Router->UnbindRoute(RpcRouteHandle);
+	}
+	Router.Reset();
+
+	UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server stopped"));
+
+	Super::Deinitialize();
+}
+
+void UAIModHttpServerSubsystem::OnWorldInitializedActorsForChat(const FActorsInitializedParams& Params)
+{
+	RebindChatManagerForWorld(Params.World);
+}
+
+void UAIModHttpServerSubsystem::OnPostLoadMapWithWorldForChat(UWorld* World)
+{
+	RebindChatManagerForWorld(World);
+}
+
+void UAIModHttpServerSubsystem::RebindChatManagerForWorld(UWorld* World)
+{
+	// Fires for every world load, including menu/editor-preview worlds -
+	// skip anything that isn't a real game world, and de-duplicate since
+	// both delegates can fire for the same world (see FAIModModule::
+	// RunPerWorldSetup's matching comment).
+	if (!World || !World->IsGameWorld() || LastRebindWorld == World)
+	{
+		return;
+	}
+	LastRebindWorld = World;
+
+	// Clear any pending retry from an earlier (now-stale) world before
+	// trying again against this one.
+	World->GetTimerManager().ClearTimer(ChatManagerBindRetryTimer);
+	TryBindChatManagerDelegate();
+}
+
+void UAIModHttpServerSubsystem::TryBindChatManagerDelegate()
+{
+	AFGChatManager* ChatManager = AFGChatManager::Get(GetGameInstance());
+	if (!ChatManager)
+	{
+		// AFGChatManager is a world/actor-based subsystem, unlike
+		// UConfigManager - it may not exist yet this early. Retry on a
+		// short repeating timer until it does, then stop (see this
+		// function's header doc comment).
+		if (UWorld* World = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr)
+		{
+			World->GetTimerManager().SetTimer(ChatManagerBindRetryTimer, this, &UAIModHttpServerSubsystem::TryBindChatManagerDelegate, 1.0f, /*bLoop=*/false);
+		}
+		return;
+	}
+
+	// Seed LastSeenChatMessageCount to whatever history already exists
+	// (e.g. the "X has joined the game!" system message) so only
+	// messages added AFTER this binding trigger an ack - not a backlog
+	// from before the mod finished initializing.
+	TArray<FChatMessageStruct> ExistingMessages;
+	ChatManager->GetReceivedChatMessages(ExistingMessages);
+	LastSeenChatMessageCount = ExistingMessages.Num();
+
+	// RemoveDynamic before AddDynamic makes this idempotent. Without it,
+	// TryBindChatManagerDelegate ending up bound more than once (exact
+	// cause unconfirmed - possibly this being called again in some
+	// world-reload scenario without an intervening Deinitialize) turns a
+	// single real chat message into
+	// dozens of duplicate "received, thinking..." acks: a multicast
+	// delegate bound N times fires the handler N times per broadcast, and
+	// since SendChatMessage's AddChatMessageToReceived re-triggers this
+	// same delegate synchronously, N bindings compound multiplicatively
+	// rather than just linearly. RemoveDynamic is a safe no-op if not
+	// currently bound.
+	ChatManager->OnChatMessageAdded.RemoveDynamic(this, &UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded);
+	ChatManager->OnChatMessageAdded.AddDynamic(this, &UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded);
+
+	UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server: bound to AFGChatManager::OnChatMessageAdded for instant chat acknowledgment"));
+}
+
+void UAIModHttpServerSubsystem::HandlePlayerChatMessageAdded()
+{
+	AFGChatManager* ChatManager = AFGChatManager::Get(GetGameInstance());
+	if (!ChatManager)
+	{
+		return;
+	}
+
+	TArray<FChatMessageStruct> Messages;
+	ChatManager->GetReceivedChatMessages(Messages);
+
+	// Bulk-load guard: a burst of dozens of messages can appear between one
+	// broadcast and
+	// the next - a save actually finishing its load into the real world
+	// restores its persisted chat history in one go, and (whether due to
+	// lossy type/sender persistence or some other restore-path quirk not
+	// fully root-caused from source alone) entries that were never real
+	// live player input can end up satisfying the PlayerMessage+local
+	// check below. A genuine live keystroke can only ever add exactly
+	// ONE message per broadcast - anything more than that in a single
+	// invocation is unambiguously not real-time typing, so silently
+	// catch up the watermark without acking rather than flooding chat.
+	const int32 NewMessageCount = Messages.Num() - LastSeenChatMessageCount;
+	if (NewMessageCount > 1)
+	{
+		UE_LOG(LogAIModAI, Warning, TEXT("HandlePlayerChatMessageAdded: %d messages appeared at once (was %d, now %d) - treating as a bulk history load, not live typing, and skipping acks for all of them"),
+			NewMessageCount, LastSeenChatMessageCount, Messages.Num());
+		LastSeenChatMessageCount = Messages.Num();
+		return;
+	}
+
+	// Re-entrancy note: SendChatMessage below calls AddChatMessageToReceived,
+	// which fires THIS SAME delegate again, synchronously, before this call
+	// returns. Advancing LastSeenChatMessageCount BEFORE reacting (not
+	// after the whole batch) means the re-entrant call's own fresh read of
+	// LastSeenChatMessageCount already excludes the message this call is
+	// currently handling - it only ever sees the newly-added ack (a
+	// CustomMessage, filtered out below regardless) as "new", so it can't
+	// double-ack the same player message or roll the watermark backward.
+	while (LastSeenChatMessageCount < Messages.Num())
+	{
+		const FChatMessageStruct Message = Messages[LastSeenChatMessageCount];
+		++LastSeenChatMessageCount;
+
+		// Diagnostic logging: a real keystroke can produce a burst of dozens
+		// of acks via dozens of SEPARATE sequential broadcasts (not one
+		// batch, so the bulk-load guard above does not trigger). This logs
+		// every message's real content as it's processed, to distinguish the
+		// same player text being re-added many times (an upstream
+		// chat-submission bug outside AIMod) from old historical entries
+		// being replayed with corrupted type/sender metadata (a save-restore
+		// issue).
+		UE_LOG(LogAIModAI, Display, TEXT("HandlePlayerChatMessageAdded: index=%d sender=\"%s\" text=\"%s\" type=%d isLocal=%s"),
+			LastSeenChatMessageCount - 1, *Message.MessageSender.ToString(), *Message.MessageText.ToString(),
+			static_cast<int32>(Message.MessageType), Message.bIsLocalPlayerMessage ? TEXT("true") : TEXT("false"));
+
+		// Only a genuine player-typed message ("/"-prefixed text never
+		// reaches this array at all - diverted to chat command dispatch -
+		// so no separate check is needed for that). Explicitly excludes
+		// System/Ada/Custom messages, which includes AIMod's own acks -
+		// without this a real ack would count as "new" too.
+		//
+		// Multiplayer safety: bIsLocalPlayerMessage identifies
+		// the HOST player's own messages in this (host-side) process -
+		// remote clients' messages replicate in without the flag. By
+		// default only the host is acknowledged, mirroring
+		// LogChatHistoryAsJson's suppression of remote-player messages
+		// from world.chatHistory: a message the external agent will never
+		// see should not get a "received, thinking..." reply implying it
+		// was heard. When the host enables AllowNonHostChatMessages, both
+		// the history filter and this ack open up together.
+		const bool bIsHostPlayerMessage = Message.MessageType == EFGChatMessageType::CMT_PlayerMessage && Message.bIsLocalPlayerMessage;
+		const bool bIsRemotePlayerMessage = Message.MessageType == EFGChatMessageType::CMT_PlayerMessage && !Message.bIsLocalPlayerMessage;
+		const bool bAckThisMessage = bIsHostPlayerMessage ||
+			(bIsRemotePlayerMessage && UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowNonHostChatMessages"), false));
+		if (bAckThisMessage)
+		{
+			// Duplicate-submission guard: the game's own chat system can
+			// submit the SAME literal message dozens of times for a single
+			// keystroke (observed as dozens of back-to-back identical
+			// entries in the same millisecond). That's upstream of AIMod
+			// entirely (nothing here adds player-typed messages) and not
+			// fixable from this file, but acking each duplicate individually
+			// floods chat. A real human retyping the exact same text takes
+			// far longer than this - suppress only when the same text repeats
+			// within half a second of the last ack.
+			const FString MessageText = Message.MessageText.ToString();
+			const double NowSeconds = FPlatformTime::Seconds();
+			const bool bIsRepeatSpam = (MessageText == LastAckedMessageText) && (NowSeconds - LastAckedMessageTime) < 0.5;
+
+			if (bIsRepeatSpam)
+			{
+				UE_LOG(LogAIModAI, Verbose, TEXT("HandlePlayerChatMessageAdded: suppressing ack for duplicate \"%s\" (upstream repeat-submission, not a new player action)"), *MessageText);
+			}
+			else
+			{
+				const bool bAutoAck = UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AutoAcknowledgeChatMessages"), true);
+				if (bAutoAck)
+				{
+					UAIModFunctionLibrary::SendChatMessage(GetGameInstance(), TEXT("received, thinking..."), TEXT("AIMod"));
+				}
+				LastAckedMessageText = MessageText;
+				LastAckedMessageTime = NowSeconds;
+			}
+		}
+	}
+}
+
+bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Request, const FHttpResultCallback& OnComplete)
+{
+	// AllowRemoteConnections - a player-controlled mod
+	// setting (AIModConfiguration.h), off by default: this defense-in-depth
+	// check still runs unconditionally otherwise, per this class's header
+	// doc comment ("bind only to loopback by default... design the
+	// transport so remote access is not accidentally enabled" -
+	// CLAUDE.md's Networking rules). An external RPC caller cannot enable
+	// this itself - only the player, from AIMod's settings menu.
+	const bool bAllowRemoteConnections = UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowRemoteConnections"), false);
+	if (!bAllowRemoteConnections && !IsLoopbackPeer(Request))
+	{
+		const FString PeerDescription = Request.PeerAddress.IsValid() ? Request.PeerAddress->ToString(/*bAppendPort=*/true) : TEXT("<unknown>");
+		UE_LOG(LogAIModAI, Warning, TEXT("AIMod HTTP server: rejected non-loopback request from %s (enable 'Allow Remote Connections' in AIMod's mod settings to accept this)"), *PeerDescription);
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::Forbidden, TEXT(""), TEXT("FORBIDDEN"), TEXT("AIMod RPC only accepts loopback connections (enable 'Allow Remote Connections' in AIMod's mod settings to change this)")));
+		return true;
+	}
+	else if (bAllowRemoteConnections && !IsLoopbackPeer(Request))
+	{
+		const FString PeerDescription = Request.PeerAddress.IsValid() ? Request.PeerAddress->ToString(/*bAppendPort=*/true) : TEXT("<unknown>");
+		UE_LOG(LogAIModAI, Warning, TEXT("AIMod HTTP server: accepted non-loopback request from %s - 'Allow Remote Connections' is enabled in AIMod's mod settings"), *PeerDescription);
+	}
+
+	if (Request.Body.Num() > MaxRequestBodyBytes)
+	{
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::RequestTooLarge, TEXT(""), TEXT("PAYLOAD_TOO_LARGE"),
+			FString::Printf(TEXT("Request body exceeds %lld byte limit"), MaxRequestBodyBytes)));
+		return true;
+	}
+
+	// Body is raw UTF-8 bytes, not pre-decoded. FUTF8ToTCHAR's pointer
+	// constructor is deprecated in this engine version - use StringCast.
+	const auto Converted = StringCast<TCHAR>(reinterpret_cast<const UTF8CHAR*>(Request.Body.GetData()), Request.Body.Num());
+	const FString BodyString(Converted.Length(), Converted.Get());
+
+	TSharedPtr<FJsonObject> RequestObject;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(BodyString);
+	if (!FJsonSerializer::Deserialize(Reader, RequestObject) || !RequestObject.IsValid())
+	{
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, TEXT(""), TEXT("INVALID_REQUEST"), TEXT("Request body is not valid JSON")));
+		return true;
+	}
+
+	FString RequestId;
+	RequestObject->TryGetStringField(TEXT("requestId"), RequestId);
+
+	int32 ProtocolVersion = 0;
+	if (!RequestObject->TryGetNumberField(TEXT("protocolVersion"), ProtocolVersion) || ProtocolVersion != 1)
+	{
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("UNSUPPORTED_PROTOCOL_VERSION"), TEXT("protocolVersion must be 1")));
+		return true;
+	}
+
+	FString Method;
+	if (!RequestObject->TryGetStringField(TEXT("method"), Method))
+	{
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'method' field")));
+		return true;
+	}
+
+	// Creative-features gate (public-release safety). These
+	// RPCs have no legitimate in-game equivalent - free item injection,
+	// milestone-achievement re-fire, seasonal-event forcing, and
+	// world/entity manipulation (space station, mantas, map hazards,
+	// vehicle tuning). They're blocked unless the player has turned on
+	// "Allow Creative Features" in AIMod's mod settings (off by default,
+	// AIModConfiguration.cpp). A default install is telemetry +
+	// real-material-cost construction only. Checked here, before dispatch,
+	// so batched sub-ops (which re-enter this handler) are gated too.
+	// spawnCreature / alien-artifact fabrication keep their OWN existing
+	// dedicated toggles (AllowCreatureSpawning / AllowSpawningAlienArtifacts).
+	static const TSet<FString> CreativeMethods = {
+		TEXT("world.addItemsToPlayerInventory"),
+		TEXT("world.addItemsToInventory"),
+		TEXT("world.reprocessMilestone"),
+		TEXT("world.setActiveEvent"),
+		TEXT("world.setProjectAssemblyHeight"),
+		TEXT("world.setProjectAssemblyVisualPhase"),
+		TEXT("world.spawnManta"),
+		TEXT("world.setManta"),
+		TEXT("world.setDamageVolumeEnabled"),
+		TEXT("world.despawnDamageVolume"),
+		TEXT("world.setVehicleEngineParams"),
+	};
+	if (CreativeMethods.Contains(Method)
+		&& !UAIModFunctionLibrary::GetAIModConfigBool(GetGameInstance(), TEXT("AllowCreativeFeatures"), false))
+	{
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::Forbidden, RequestId, TEXT("CREATIVE_DISABLED"),
+			FString::Printf(TEXT("'%s' is a creative/cheat feature disabled by default - enable 'Allow Creative Features' in AIMod's mod settings to use it"), *Method)));
+		return true;
+	}
+
+	// world.batch (docs/build-efficiency-plan.md 2b):
+	// sequential sub-op dispatch through this same handler. Placed
+	// before every other method branch; the loopback/size checks above
+	// already ran for the whole batch request, and each synthesized
+	// sub-request re-runs them with the SAME PeerAddress, so batch
+	// grants nothing a direct call would not.
+	if (Method == TEXT("world.batch"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TArray<TSharedPtr<FJsonValue>>* OpsArray = nullptr;
+		if (!(*ParamsObjectPtr)->TryGetArrayField(TEXT("ops"), OpsArray) || OpsArray->Num() == 0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.ops must be a non-empty array of {method, params} objects")));
+			return true;
+		}
+		if (OpsArray->Num() > 100)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.ops is capped at 100 sub-operations per batch")));
+			return true;
+		}
+
+		TSharedRef<FAIModBatchState> State = MakeShared<FAIModBatchState>();
+		State->bHaltOnError = true;
+		(*ParamsObjectPtr)->TryGetBoolField(TEXT("haltOnError"), State->bHaltOnError);
+		for (const TSharedPtr<FJsonValue>& OpValue : *OpsArray)
+		{
+			const TSharedPtr<FJsonObject>* OpObject = nullptr;
+			FString OpMethod;
+			if (!OpValue.IsValid() || !OpValue->TryGetObject(OpObject) || !(*OpObject)->TryGetStringField(TEXT("method"), OpMethod) || OpMethod.IsEmpty())
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("every params.ops entry must be an object with a non-empty 'method' string")));
+				return true;
+			}
+			// No batch-in-batch: prevents unbounded recursion and keeps
+			// the 100-op cap meaningful.
+			if (OpMethod == TEXT("world.batch"))
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("nested world.batch is not allowed")));
+				return true;
+			}
+			State->Ops.Add(*OpObject);
+		}
+
+		UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server: world.batch %s starting %d sub-op(s), haltOnError=%s"),
+			*RequestId, State->Ops.Num(), State->bHaltOnError ? TEXT("true") : TEXT("false"));
+		RunBatchStep(State, Request, OnComplete, RequestId);
+		return true;
+	}
+
+	// PLAN.md Phase 12 write methods take a "params" object. Handled
+	// first and returns directly - they don't share the read methods'
+	// "wrap a Log*AsJson string as the result" shape below.
+	if (Method == TEXT("world.setClockSpeed") || Method == TEXT("world.setRecipe"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		// GetGameInstance(), not `this` - UGameInstanceSubsystem itself
+		// does not implement GetWorld(); UGameInstance does.
+		if (Method == TEXT("world.setClockSpeed"))
+		{
+			double ClockSpeedPercent = 0.0;
+			if (!ParamsObject->TryGetNumberField(TEXT("clockSpeedPercent"), ClockSpeedPercent))
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.clockSpeedPercent must be a number")));
+				return true;
+			}
+
+			const FAIModOperationResult Result = UAIModFunctionLibrary::SetManufacturerClockSpeed(GetGameInstance(), BuildableId, static_cast<float>(ClockSpeedPercent));
+			OnComplete(MakeOperationResponse(Result, RequestId));
+			return true;
+		}
+		else
+		{
+			FString RecipeClassPath;
+			if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+				return true;
+			}
+
+			const FAIModOperationResult Result = UAIModFunctionLibrary::SetManufacturerRecipe(GetGameInstance(), BuildableId, RecipeClassPath);
+			OnComplete(MakeOperationResponse(Result, RequestId));
+			return true;
+		}
+	}
+
+	if (Method == TEXT("world.installPowerShard"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		double Count = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("count"), Count) || Count < 1.0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.count must be a positive integer")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::InstallPowerShard(GetGameInstance(), BuildableId, static_cast<int32>(Count));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// The dismantle itself is synchronous (no build gun/hologram
+	// involved, unlike construction), but the RESPONSE is deferred - see
+	// the comment at the response site below. Lets callers clean up stray
+	// test buildables instead of accumulating them - see
+	// DismantleBuildable's doc comment.
+	if (Method == TEXT("world.deleteBuilding"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::DismantleBuildable(GetGameInstance(), BuildableId);
+
+		// Deferred response: the delete read-after-write fix. A new
+		// attachment placed immediately after a delete otherwise stacks on
+		// the deleted buildable's corpse. Root cause: splitter/merger-class
+		// buildables carry their traceable collision in FactoryGame's
+		// instanced-mesh system (AbstractInstanceManager), which actor-level
+		// calls cannot touch, and that instanced-collision cleanup is far
+		// slower than actor destruction (~250-400ms measured; a place at
+		// ~250ms still stacks, ~400ms+ lands clean at floor height). During
+		// the intermediate window the corpse can also corrupt the ground
+		// trace into a spurious "Surface is too uneven!" failure instead of
+		// a stack. So hold the response on a real-time 0.75s timer (measured
+		// threshold ~250-400ms, plus margin for cleanup-queue jitter) - the
+		// caller's next request can then only run after the corpse, actor
+		// AND instanced collision, is genuinely gone. The slower
+		// world.deleteBuilding response is this fix working as intended.
+		// Failures respond immediately (nothing was dismantled, nothing
+		// to wait for).
+		//
+		// BATCH FAST PATH: at 0.75s/op a large teardown is very slow, so
+		// sub-ops synthesized by world.batch carry "batched":true; those
+		// skip the per-op hold and
+		// RunBatchStep instead applies ONE 0.75s settle at the END of the
+		// whole batch. The timer's purpose is protecting the caller's NEXT
+		// request from the corpse's lingering instanced collision - within
+		// a batch the "next request" is the batch's own subsequent op, and
+		// consecutive deletes don't place anything, so one hold at the end
+		// gives the same guarantee ~100x faster. (A direct caller passing
+		// "batched" only forfeits its own settle protection - loopback-only
+		// API, self-inflicted, and the batch path re-adds the hold.)
+		bool bBatchedSubOp = false;
+		RequestObject->TryGetBoolField(TEXT("batched"), bBatchedSubOp);
+		UWorld* DeleteWorld = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
+		if (!Result.bSuccess || !DeleteWorld || bBatchedSubOp)
+		{
+			OnComplete(MakeOperationResponse(Result, RequestId));
+			return true;
+		}
+		FTimerHandle DeleteResponseTimerHandle;
+		DeleteWorld->GetTimerManager().SetTimer(DeleteResponseTimerHandle, FTimerDelegate::CreateLambda([OnComplete, Result, RequestId]()
+		{
+			OnComplete(MakeOperationResponse(Result, RequestId));
+		}), 0.75f, false);
+		return true;
+	}
+
+	if (Method == TEXT("world.setBuildableRotation"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		double Yaw = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("yaw"), Yaw))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.yaw must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetBuildableRotation(GetGameInstance(), BuildableId, static_cast<float>(Yaw));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.setBuildableColor"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		double PrimaryR = 0.0, PrimaryG = 0.0, PrimaryB = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("primaryR"), PrimaryR)
+			|| !ParamsObject->TryGetNumberField(TEXT("primaryG"), PrimaryG)
+			|| !ParamsObject->TryGetNumberField(TEXT("primaryB"), PrimaryB))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.primaryR/primaryG/primaryB must all be numbers in [0,1]")));
+			return true;
+		}
+		// secondary is optional - defaults to matching primary (see
+		// SetBuildableColor's own doc comment for why) if any of the
+		// three fields is missing.
+		double SecondaryR = 0.0, SecondaryG = 0.0, SecondaryB = 0.0;
+		const bool bHasSecondaryColor = ParamsObject->TryGetNumberField(TEXT("secondaryR"), SecondaryR)
+			&& ParamsObject->TryGetNumberField(TEXT("secondaryG"), SecondaryG)
+			&& ParamsObject->TryGetNumberField(TEXT("secondaryB"), SecondaryB);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetBuildableColor(GetGameInstance(), BuildableId,
+			static_cast<float>(PrimaryR), static_cast<float>(PrimaryG), static_cast<float>(PrimaryB),
+			static_cast<float>(SecondaryR), static_cast<float>(SecondaryG), static_cast<float>(SecondaryB), bHasSecondaryColor);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// world.setPowerSwitchOn/world.setPriorityPowerSwitchPriority - see
+	// SetPowerSwitchOn's/SetPriorityPowerSwitchPriority's doc comments.
+	// Configures and controls priority power switches.
+	if (Method == TEXT("world.setPowerSwitchOn"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		bool bSwitchOn = false;
+		if (!ParamsObject->TryGetBoolField(TEXT("switchOn"), bSwitchOn))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.switchOn must be a boolean")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetPowerSwitchOn(GetGameInstance(), BuildableId, bSwitchOn);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+	if (Method == TEXT("world.setPriorityPowerSwitchPriority"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		double Priority = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("priority"), Priority))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.priority must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetPriorityPowerSwitchPriority(GetGameInstance(), BuildableId, static_cast<int32>(Priority));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// world.setSplitterSortRules - see SetSplitterSortRules's doc
+	// comment. Configures smart splitters and programmable splitters.
+	if (Method == TEXT("world.setSplitterSortRules"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		const TArray<TSharedPtr<FJsonValue>>* RulesArrayPtr = nullptr;
+		if (!ParamsObject->TryGetArrayField(TEXT("rules"), RulesArrayPtr) || !RulesArrayPtr)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.rules must be a JSON array")));
+			return true;
+		}
+
+		// Same re-serialize-the-array-to-a-string convention as
+		// world.setTrainTimetable's "stops" - see that dispatch entry's
+		// comment.
+		FString RulesJson;
+		const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> RulesWriter =
+			TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&RulesJson);
+		FJsonSerializer::Serialize(*RulesArrayPtr, RulesWriter);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetSplitterSortRules(GetGameInstance(), BuildableId, RulesJson);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Synchronous - direct AActor::TeleportTo() call, no build gun/hologram
+	// involved. Moves the player position, mostly for building purposes -
+	// see TeleportPlayer's doc comment for the real TeleportTo/
+	// StopMovementImmediately sourcing.
+	if (Method == TEXT("world.teleportPlayer"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0, Y = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		// Same -1000000 "not provided" sentinel as world.placeBuilding's z.
+		double Z = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), Z);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		double TargetYawDegrees = 0.0;
+		const bool bHasTargetYaw = ParamsObject->TryGetNumberField(TEXT("yaw"), TargetYawDegrees);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::TeleportPlayer(GetGameInstance(),
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z),
+			bIgnoreGroundTrace, bHasTargetYaw, static_cast<float>(TargetYawDegrees));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Two "MethodResultJson"-style read entries for map markers
+	// (world.mapMarkerIcons/world.mapMarkers) live further down in this
+	// function, alongside world.player/world.timeOfDay etc. - the
+	// MethodResultJson local isn't declared until later in this same
+	// function, so a read-only query here would use it before
+	// declaration. The two write operations below don't need it (same
+	// explicit-params-then-return-true shape as world.teleportPlayer
+	// just above).
+	if (Method == TEXT("world.placeMapMarker"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0, Y = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		double IconId = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("iconId"), IconId))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.iconId must be a number - see world.mapMarkerIcons for real, valid values")));
+			return true;
+		}
+
+		// Same -1000000 "not provided" sentinel as world.placeBuilding's z.
+		double Z = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), Z);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		FString Name;
+		ParamsObject->TryGetStringField(TEXT("name"), Name);
+
+		double ColorR = 0.0, ColorG = 0.0, ColorB = 0.0;
+		const bool bHasColor = ParamsObject->TryGetNumberField(TEXT("colorR"), ColorR)
+			&& ParamsObject->TryGetNumberField(TEXT("colorG"), ColorG)
+			&& ParamsObject->TryGetNumberField(TEXT("colorB"), ColorB);
+
+		double Scale = 1.0;
+		ParamsObject->TryGetNumberField(TEXT("scale"), Scale);
+
+		FString CompassViewDistance = TEXT("Off");
+		ParamsObject->TryGetStringField(TEXT("compassViewDistance"), CompassViewDistance);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::PlaceMapMarker(GetGameInstance(),
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z), bIgnoreGroundTrace,
+			static_cast<int32>(IconId), Name, bHasColor, static_cast<float>(ColorR), static_cast<float>(ColorG), static_cast<float>(ColorB),
+			static_cast<float>(Scale), CompassViewDistance);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+	else if (Method == TEXT("world.removeMapMarker"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString MarkerId;
+		if (!ParamsObject->TryGetStringField(TEXT("markerId"), MarkerId) || MarkerId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.markerId must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::RemoveMapMarker(GetGameInstance(), MarkerId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Synchronous - direct AFGTimeOfDaySubsystem::SetDaySeconds() call, no
+	// build gun/hologram involved. Lets testing/observation not be blocked
+	// by the day/night cycle going dark - see SetTimeOfDay's doc comment for
+	// why this doesn't go through UFGCheatManager.
+	if (Method == TEXT("world.setTimeOfDay"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		int32 Hour = 0;
+		if (!ParamsObject->TryGetNumberField(TEXT("hour"), Hour))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.hour must be an integer")));
+			return true;
+		}
+
+		int32 Minute = 0;
+		ParamsObject->TryGetNumberField(TEXT("minute"), Minute);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetTimeOfDay(GetGameInstance(), Hour, Minute);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Synchronous - AFGChatManager::AddChatMessageToReceived(), no build
+	// gun/hologram involved. Optional two-way chat with the player - see
+	// SendChatMessage's doc comment for why this doesn't use
+	// BroadcastChatMessage's NetMulticast RPC.
+	if (Method == TEXT("world.sendChatMessage"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString Message;
+		if (!ParamsObject->TryGetStringField(TEXT("message"), Message) || Message.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.message must be a non-empty string")));
+			return true;
+		}
+
+		// Optional, defaults to "AIMod AI" - see SendChatMessage's doc comment.
+		FString Sender;
+		ParamsObject->TryGetStringField(TEXT("sender"), Sender);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SendChatMessage(GetGameInstance(), Message, Sender);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Synchronous, unlike the placement/power methods below - DebugCheckConveyorSnap
+	// never polls, it's a single-call experiment (see its own doc comment).
+	if (Method == TEXT("world.testConveyorSnap"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::DebugCheckConveyorSnap(GetGameInstance(), SourceBuildableId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// PLAN.md Phase 13/14: genuinely asynchronous - ConstructBuildingAtPosition's
+	// OnComplete may fire well after this function returns (real-tick
+	// polling, typically 1 tick but up to a ~2s safety cap). Per
+	// FHttpRequestHandler's own contract (HttpRequestHandler.h: "returning
+	// true means the delegate itself will (now or later) invoke
+	// OnComplete"), returning true here without having called OnComplete
+	// yet is correct - the HTTP response stays open until the copied
+	// OnComplete is eventually invoked from the deferred poll.
+	if (Method == TEXT("world.placeBuilding"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		double X = 0.0;
+		double Y = 0.0;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		// Optional, defaults to 0 (no rotation, prior behavior) - see
+		// ConstructBuildingAtPosition's doc comment on why this is a raw,
+		// uncalibrated Scroll() delta rather than a degrees value.
+		double RotationScrollDelta = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("rotationScrollDelta"), RotationScrollDelta);
+
+		// Optional, defaults to 100 (1m) - snap-to-grid by default, so
+		// callers get tidy coordinates without having to opt in every time.
+		// Pass 0 explicitly to disable.
+		double GridSnapSize = 100.0;
+		ParamsObject->TryGetNumberField(TEXT("gridSnapSize"), GridSnapSize);
+
+		// Optional - anchors the ground-trace search to this Z instead
+		// of the player's current Z. See ConstructBuildingAtPosition's
+		// doc comment on ReferenceZ for why this matters for reliable,
+		// player-position-independent placement (e.g. building on
+		// foundations step by step) - sentinel -1000000 means "not
+		// provided, use player Z" (the prior behavior).
+		double ReferenceZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), ReferenceZ);
+
+		// Optional, default false - skips the ground trace entirely and
+		// places at the literal (x, y, z) given. See
+		// ConstructBuildingAtPosition's doc comment on bIgnoreGroundTrace.
+		// Requires "z" to be provided; fails MISSING_REFERENCE_Z otherwise.
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		// Optional, all default false (today's strict behavior) - see
+		// ConstructBuildingAtPosition's doc comment. Named, scoped
+		// bypasses of specific UX-only disqualifiers that don't scale for
+		// large autonomous layouts; the caller accepts the resulting
+		// collision risk.
+		bool bIgnoreAimLocation = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreAimLocation"), bIgnoreAimLocation);
+		bool bIgnorePlayerEncroachment = false;
+		ParamsObject->TryGetBoolField(TEXT("ignorePlayerEncroachment"), bIgnorePlayerEncroachment);
+		bool bIgnoreClearance = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreClearance"), bIgnoreClearance);
+		bool bIgnoreInvalidFloor = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreInvalidFloor"), bIgnoreInvalidFloor);
+
+		// Optional - an exact absolute world yaw in degrees. Takes priority
+		// over rotationScrollDelta entirely when present (see
+		// ConstructBuildingAtPosition's doc comment: Scroll() called
+		// repeatedly is non-linear for |N|>1, so this bypasses it for
+		// callers that need a specific, reliable orientation - which is
+		// every multi-building layout).
+		double TargetYawDegrees = 0.0;
+		const bool bHasTargetYaw = ParamsObject->TryGetNumberField(TEXT("yaw"), TargetYawDegrees);
+
+		// Optional - resolves an existing buildable's real position and
+		// computes yaw automatically, instead of requiring the caller to
+		// fetch it and do the vector math themselves. Takes priority over
+		// "yaw" if both are given. See ConstructBuildingAtPosition's doc
+		// comment on FaceBuildableId.
+		FString FaceBuildableId;
+		ParamsObject->TryGetStringField(TEXT("faceBuildableId"), FaceBuildableId);
+
+		// FHttpResultCallback is a TFunction, safe to copy - captured by
+		// value so it stays alive until the deferred poll actually calls it.
+		UAIModFunctionLibrary::ConstructBuildingAtPosition(GetGameInstance(), RecipeClassPath, static_cast<float>(X), static_cast<float>(Y), static_cast<int32>(RotationScrollDelta), static_cast<float>(GridSnapSize), static_cast<float>(ReferenceZ),
+			bIgnoreGroundTrace, bIgnoreAimLocation, bIgnorePlayerEncroachment, bIgnoreClearance, bIgnoreInvalidFloor,
+			bHasTargetYaw, static_cast<float>(TargetYawDegrees), FaceBuildableId,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// Genuinely asynchronous, same shape as "world.placeBuilding" above -
+	// see that method's comment.
+	if (Method == TEXT("world.placeExtractor"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString NodeId;
+		if (!ParamsObject->TryGetStringField(TEXT("nodeId"), NodeId) || NodeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.nodeId must be a non-empty string")));
+			return true;
+		}
+
+		// Optional, defaults to Mk1 - any extractor recipe works
+		// (Resource Well Pressurizers/Extractors included):
+		// Recipe_MinerMk1..Mk3, Recipe_OilPump, Recipe_FrackingSmasher,
+		// Recipe_FrackingExtractor - see ConstructExtractorOnNode's doc
+		// comment for the node-type gating (Pressurizer needs a Fracking
+		// Core node, Extractor needs an ACTIVATED Fracking Satellite
+		// node). Recipe_WaterPump is NOT supported here:
+		// ConstructExtractorOnNode only searches AFGResourceNodeBase, and a
+		// water body is an AFGWaterVolume (APhysicsVolume), not an
+		// AFGResourceNodeBase - there is no "node" for a water pump to
+		// target via this method at all. Use
+		// world.constructWaterPumpNearReference instead - see its doc
+		// comment for the real reason this needs a different mechanism.
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_MinerMk1.Recipe_MinerMk1_C");
+		}
+
+		UAIModFunctionLibrary::ConstructExtractorOnNode(GetGameInstance(), NodeId, RecipeClassPath,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.constructWaterPumpNearReference - see
+	// ConstructWaterPumpNearReference's doc comment. Places additional
+	// pumps next to a player-placed reference pump.
+	if (Method == TEXT("world.constructWaterPumpNearReference"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ReferenceBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("referenceBuildableId"), ReferenceBuildableId) || ReferenceBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.referenceBuildableId must be a non-empty string")));
+			return true;
+		}
+
+		double OffsetX = 0.0, OffsetY = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("offsetX"), OffsetX) || !ParamsObject->TryGetNumberField(TEXT("offsetY"), OffsetY))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.offsetX and params.offsetY must both be numbers")));
+			return true;
+		}
+
+		// Optional, defaults to 0 - same height as the reference pump.
+		// See ConstructWaterPumpNearReference's doc comment on why this
+		// deliberately does NOT re-ground-trace.
+		double OffsetZ = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("offsetZ"), OffsetZ);
+
+		// Optional, defaults to Recipe_WaterPump (the only real tier).
+		FString RecipeClassPath;
+		ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath);
+
+		UAIModFunctionLibrary::ConstructWaterPumpNearReference(GetGameInstance(), ReferenceBuildableId,
+			static_cast<float>(OffsetX), static_cast<float>(OffsetY), static_cast<float>(OffsetZ), RecipeClassPath,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.constructWaterPumpAtPosition - see
+	// ConstructWaterPumpAtPosition's doc comment. The from-scratch
+	// counterpart for seeding the first pump in a field.
+	if (Method == TEXT("world.constructWaterPumpAtPosition"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0, Y = 0.0, Z = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y) || !ParamsObject->TryGetNumberField(TEXT("z"), Z))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x, params.y, and params.z must all be numbers")));
+			return true;
+		}
+
+		FString RecipeClassPath;
+		ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath);
+
+		UAIModFunctionLibrary::ConstructWaterPumpAtPosition(GetGameInstance(),
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z), RecipeClassPath,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// Drones/wheeled vehicles - see ConstructVehicle's doc comment.
+	// Hologram-driven like every other Construct* method above, NOT the
+	// Portable Miner's equipment-dispenser mechanism below.
+	if (Method == TEXT("world.constructVehicle"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		// Required for a drone recipe (snaps to this Drone Station),
+		// ignored for a wheeled vehicle recipe (free placement via x/y/z
+		// below instead) - see ConstructVehicle's doc comment.
+		FString DroneStationId;
+		ParamsObject->TryGetStringField(TEXT("droneStationId"), DroneStationId);
+
+		double X = 0.0;
+		double Y = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("x"), X);
+		ParamsObject->TryGetNumberField(TEXT("y"), Y);
+
+		double Z = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), Z);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		double TargetYawDegrees = 0.0;
+		const bool bHasTargetYaw = ParamsObject->TryGetNumberField(TEXT("yaw"), TargetYawDegrees);
+
+		UAIModFunctionLibrary::ConstructVehicle(GetGameInstance(), RecipeClassPath, DroneStationId,
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z), bIgnoreGroundTrace,
+			bHasTargetYaw, static_cast<float>(TargetYawDegrees),
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// Genuinely asynchronous, unrelated mechanism to every other
+	// construction method above - the Portable Miner is equipment, not a
+	// buildable/hologram. See ConstructPortableMinerOnNode's doc comment
+	// for the full flow (real hotbar-equip path + reflection-invoked
+	// protected Server RPC).
+	if (Method == TEXT("world.placePortableMiner"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString NodeId;
+		if (!ParamsObject->TryGetStringField(TEXT("nodeId"), NodeId) || NodeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.nodeId must be a non-empty string")));
+			return true;
+		}
+
+		// Optional - defaults to the real BP_ItemDescriptorPortableMiner
+		// path. See ConstructPortableMinerOnNode's doc comment.
+		FString ItemClassPath;
+		ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClassPath);
+
+		UAIModFunctionLibrary::ConstructPortableMinerOnNode(GetGameInstance(), NodeId, ItemClassPath,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// Synchronous - see RetrievePortableMinerInventory's doc comment.
+	if (Method == TEXT("world.retrievePortableMinerInventory"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString PortableMinerId;
+		if (!ParamsObject->TryGetStringField(TEXT("portableMinerId"), PortableMinerId) || PortableMinerId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.portableMinerId must be a non-empty string")));
+			return true;
+		}
+
+		UAIModFunctionLibrary::RetrievePortableMinerInventory(GetGameInstance(), PortableMinerId,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	if (Method == TEXT("world.movePortableMinerToInventory"))
+	{
+		const FAIModOperationResult Result = UAIModFunctionLibrary::MovePortableMinerToInventory(GetGameInstance());
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.simulatedCraft"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SimulatedCraft(GetGameInstance(), RecipeClassPath);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.payMilestone"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		// Optional - empty means "target GetActiveSchematic()", see
+		// PayOffMilestone's doc comment.
+		FString SchematicClassPath;
+		ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath);
+
+		bool bDryRun = false;
+		ParamsObject->TryGetBoolField(TEXT("dryRun"), bDryRun);
+
+		// fromDepot: auto-withdraw the shortfall from the Dimensional Depot
+		// before paying (produce->upload->pay in one call).
+		bool bFromDepot = false;
+		ParamsObject->TryGetBoolField(TEXT("fromDepot"), bFromDepot);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::PayOffMilestone(GetGameInstance(), SchematicClassPath, bDryRun, bFromDepot);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Re-fire milestone achievements by reprocessing already-purchased
+	// schematics. See ReprocessMilestone doc.
+	if (Method == TEXT("world.reprocessMilestone"))
+	{
+		FString SchematicClassPath;
+		double Tier = -1.0;
+		bool bAllTiers = false;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetStringField(TEXT("schematicClass"), SchematicClassPath);
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("tier"), Tier);
+			(*ParamsObjectPtr)->TryGetBoolField(TEXT("allTiers"), bAllTiers);
+		}
+		if (SchematicClassPath.IsEmpty() && Tier < 0.0 && !bAllTiers)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Provide params.schematicClass, params.tier (>=0), or params.allTiers=true")));
+			return true;
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::ReprocessMilestone(GetGameInstance(), SchematicClassPath, static_cast<int32>(Tier), bAllTiers);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.startMamResearch"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SchematicClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath) || SchematicClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.schematicClass must be a non-empty string")));
+			return true;
+		}
+		FString ResearchTreeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("researchTreeClass"), ResearchTreeClassPath) || ResearchTreeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.researchTreeClass must be a non-empty string")));
+			return true;
+		}
+		bool bDryRun = false;
+		ParamsObject->TryGetBoolField(TEXT("dryRun"), bDryRun);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::StartMamResearch(GetGameInstance(), SchematicClassPath, ResearchTreeClassPath, bDryRun);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.claimMamResearch"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SchematicClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath) || SchematicClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.schematicClass must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::ClaimMamResearch(GetGameInstance(), SchematicClassPath);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.claimMamHardDriveReward"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SchematicClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath) || SchematicClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.schematicClass must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::ClaimMamHardDriveReward(GetGameInstance(), SchematicClassPath);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.rerollMamHardDrive"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SchematicClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("schematicClass"), SchematicClassPath) || SchematicClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.schematicClass must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::RerollMamHardDrive(GetGameInstance(), SchematicClassPath);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.setTrainTimetable"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString TrainId;
+		if (!ParamsObject->TryGetStringField(TEXT("trainId"), TrainId) || TrainId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.trainId must be a non-empty string")));
+			return true;
+		}
+		const TArray<TSharedPtr<FJsonValue>>* StopsArrayPtr = nullptr;
+		if (!ParamsObject->TryGetArrayField(TEXT("stops"), StopsArrayPtr) || !StopsArrayPtr)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.stops must be a JSON array")));
+			return true;
+		}
+
+		// Re-serialize just the stops array to a compact string - the
+		// simplest way to hand a variable-length, nested-struct list
+		// across the UFUNCTION boundary without a custom USTRUCT per stop.
+		FString StopsJson;
+		const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> StopsWriter =
+			TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&StopsJson);
+		FJsonSerializer::Serialize(*StopsArrayPtr, StopsWriter);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetTrainTimetable(GetGameInstance(), TrainId, StopsJson);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.setTrainSelfDriving"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString TrainId;
+		if (!ParamsObject->TryGetStringField(TEXT("trainId"), TrainId) || TrainId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.trainId must be a non-empty string")));
+			return true;
+		}
+		bool bEnabled = false;
+		if (!ParamsObject->TryGetBoolField(TEXT("enabled"), bEnabled))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.enabled must be a boolean")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetTrainSelfDriving(GetGameInstance(), TrainId, bEnabled);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// world.addItemsToInventory - explicit item injection into a specific
+	// buildable inventory; see AddItemsToInventory's doc comment.
+	// world.addItemsToPlayerInventory - creative item injection into the local
+	// player's inventory; see AddItemsToPlayerInventory's doc comment.
+	if (Method == TEXT("world.addItemsToPlayerInventory"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ItemClass;
+		if (!ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClass) || ItemClass.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.itemClass must be a non-empty string")));
+			return true;
+		}
+		double AmountNum = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("amount"), AmountNum))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.amount must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::AddItemsToPlayerInventory(GetGameInstance(), ItemClass, static_cast<int32>(AmountNum));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.addItemsToInventory"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId, ItemClass;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		if (!ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClass) || ItemClass.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.itemClass must be a non-empty string")));
+			return true;
+		}
+		FString InventoryRole;
+		ParamsObject->TryGetStringField(TEXT("inventoryRole"), InventoryRole);
+		double AmountNum = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("amount"), AmountNum))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.amount must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::AddItemsToInventory(GetGameInstance(), BuildableId, InventoryRole, ItemClass, static_cast<int32>(AmountNum));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// world.removeItemsFromInventory - counterpart of addItemsToInventory; see
+	// RemoveItemsFromInventory's doc comment.
+	if (Method == TEXT("world.removeItemsFromInventory"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId, ItemClass;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+		if (!ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClass) || ItemClass.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.itemClass must be a non-empty string")));
+			return true;
+		}
+		FString InventoryRole;
+		ParamsObject->TryGetStringField(TEXT("inventoryRole"), InventoryRole);
+		double AmountNum = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("amount"), AmountNum))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.amount must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::RemoveItemsFromInventory(GetGameInstance(), BuildableId, InventoryRole, ItemClass, static_cast<int32>(AmountNum));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// world.mergeVehiclePathNodes - wire a docking node into a hand-built loop;
+	// see MergeVehiclePathNodes' doc comment.
+	if (Method == TEXT("world.mergeVehiclePathNodes"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceNodeId, DestNodeId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceNodeId"), SourceNodeId) || SourceNodeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceNodeId must be a non-empty string")));
+			return true;
+		}
+		if (!ParamsObject->TryGetStringField(TEXT("destNodeId"), DestNodeId) || DestNodeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.destNodeId must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::MergeVehiclePathNodes(GetGameInstance(), SourceNodeId, DestNodeId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// world.setTruckAutopilot - road-vehicle autopilot; see SetTruckAutopilot's
+	// doc comment. params: vehicleId (str), enabled (bool), stationIds
+	// (optional JSON array of docking-station buildable ids = the route stops).
+	if (Method == TEXT("world.setTruckAutopilot"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString VehicleId;
+		if (!ParamsObject->TryGetStringField(TEXT("vehicleId"), VehicleId) || VehicleId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.vehicleId must be a non-empty string")));
+			return true;
+		}
+		bool bEnabled = false;
+		if (!ParamsObject->TryGetBoolField(TEXT("enabled"), bEnabled))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.enabled must be a boolean")));
+			return true;
+		}
+
+		// stationIds is optional; when present it overwrites the route.
+		// Re-serialize it to a compact string for the UFUNCTION boundary,
+		// same technique as setTrainTimetable's stops.
+		FString StationIdsJson;
+		const TArray<TSharedPtr<FJsonValue>>* StationIdsArrayPtr = nullptr;
+		if (ParamsObject->TryGetArrayField(TEXT("stationIds"), StationIdsArrayPtr) && StationIdsArrayPtr)
+		{
+			const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> StationIdsWriter =
+				TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&StationIdsJson);
+			FJsonSerializer::Serialize(*StationIdsArrayPtr, StationIdsWriter);
+		}
+
+		// Optional fuel loading: fuelItemClass (item descriptor path) + fuelAmount.
+		FString FuelItemClass;
+		ParamsObject->TryGetStringField(TEXT("fuelItemClass"), FuelItemClass);
+		int32 FuelAmount = 0;
+		double FuelAmountNum = 0.0;
+		if (ParamsObject->TryGetNumberField(TEXT("fuelAmount"), FuelAmountNum))
+		{
+			FuelAmount = static_cast<int32>(FuelAmountNum);
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetTruckAutopilot(GetGameInstance(), VehicleId, bEnabled, StationIdsJson, FuelItemClass, FuelAmount);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.pairDroneStations"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString StationBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("stationBuildableId"), StationBuildableId) || StationBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.stationBuildableId must be a non-empty string")));
+			return true;
+		}
+		// Optional - empty/omitted means unpair, see PairDroneStations' doc comment.
+		FString TargetStationBuildableId;
+		ParamsObject->TryGetStringField(TEXT("targetStationBuildableId"), TargetStationBuildableId);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::PairDroneStations(GetGameInstance(), StationBuildableId, TargetStationBuildableId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.withdrawFromCentralStorage"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ItemClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClassPath) || ItemClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.itemClass must be a non-empty string")));
+			return true;
+		}
+		double Amount = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("amount"), Amount) || Amount <= 0.0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.amount must be a positive number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::WithdrawFromCentralStorage(GetGameInstance(), ItemClassPath, static_cast<int32>(Amount));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// world.uploadToCentralStorage - player inventory -> Dimensional Depot (the
+	// reverse of withdraw); see UploadToCentralStorage's doc comment.
+	if (Method == TEXT("world.uploadToCentralStorage"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ItemClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("itemClass"), ItemClassPath) || ItemClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.itemClass must be a non-empty string")));
+			return true;
+		}
+		double Amount = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("amount"), Amount) || Amount <= 0.0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.amount must be a positive number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::UploadToCentralStorage(GetGameInstance(), ItemClassPath, static_cast<int32>(Amount));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Synchronous, unlike the buildable-placement RPCs above -
+	// UAIModFunctionLibrary::SpawnCreatureNearPlayer calls
+	// AFGCreatureSubsystem::BeginSpawningCreature directly (a plain C++
+	// function, not a hologram/RPC dispatch), so the result is known
+	// immediately. Off by default - see the "AllowCreatureSpawning" mod
+	// setting; a disabled request comes back as CREATURE_SPAWNING_DISABLED.
+	if (Method == TEXT("world.spawnCreature"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString CreatureClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("creatureClass"), CreatureClassPath) || CreatureClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.creatureClass must be a non-empty string")));
+			return true;
+		}
+
+		// Optional, defaults to 800 (see SpawnCreatureNearPlayer, which
+		// also clamps to [100, 5000] regardless of what's passed here).
+		double DistanceFromPlayer = 800.0;
+		ParamsObject->TryGetNumberField(TEXT("distanceFromPlayer"), DistanceFromPlayer);
+
+		// Optional, defaults to 1.0 (normal size) - see SpawnCreatureNearPlayer,
+		// which clamps to [0.05, 20.0] regardless of what's passed here.
+		double Scale = 1.0;
+		ParamsObject->TryGetNumberField(TEXT("scale"), Scale);
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SpawnCreatureNearPlayer(GetGameInstance(), CreatureClassPath, static_cast<float>(DistanceFromPlayer), static_cast<float>(Scale));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.despawnCreature"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString CreatureId;
+		if (!ParamsObject->TryGetStringField(TEXT("creatureId"), CreatureId) || CreatureId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.creatureId must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::DespawnCreature(GetGameInstance(), CreatureId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Hazard controls: reversible on/off and session-only
+	// despawn of AFGDamageOverTimeVolume actors (map-edge kill zones, gas).
+	// Ids come from world.damageVolumes; both validate the id resolves to
+	// that class specifically - not a generic actor operation. Two separate
+	// handlers (not a shared aliased one) so gen_rpc_catalog.py doesn't
+	// attribute 'enabled' to despawnDamageVolume.
+	if (Method == TEXT("world.setDamageVolumeEnabled"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString VolumeId;
+		if (!ParamsObject->TryGetStringField(TEXT("volumeId"), VolumeId) || VolumeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.volumeId must be a non-empty string")));
+			return true;
+		}
+
+		bool bEnabled = false;
+		if (!ParamsObject->TryGetBoolField(TEXT("enabled"), bEnabled))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.enabled must be a bool")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetDamageVolumeEnabled(GetGameInstance(), VolumeId, bEnabled);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.despawnDamageVolume"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString VolumeId;
+		if (!ParamsObject->TryGetStringField(TEXT("volumeId"), VolumeId) || VolumeId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.volumeId must be a non-empty string")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::DespawnDamageVolume(GetGameInstance(), VolumeId);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Visual-only override of the orbital space station's build phase.
+	// Real progression is never touched - see
+	// SetProjectAssemblyVisualPhase's doc comment.
+	if (Method == TEXT("world.setProjectAssemblyVisualPhase"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double PhaseIndexValue = -1.0;
+		FString PhaseAssetPath;
+		const bool bHasIndex = ParamsObject->TryGetNumberField(TEXT("phaseIndex"), PhaseIndexValue);
+		const bool bHasPath = ParamsObject->TryGetStringField(TEXT("phaseAssetPath"), PhaseAssetPath) && !PhaseAssetPath.IsEmpty();
+		if (!bHasIndex && !bHasPath)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Provide params.phaseIndex (number) or params.phaseAssetPath (string) - see world.projectAssembly allPhases")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetProjectAssemblyVisualPhase(GetGameInstance(),
+			bHasIndex ? static_cast<int32>(PhaseIndexValue) : -1, bHasPath ? PhaseAssetPath : FString());
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Lower/raise the orbital station to a survivable altitude.
+	// Session-only; see SetProjectAssemblyHeight's doc comment.
+	if (Method == TEXT("world.setProjectAssemblyHeight"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		double NewHeight = 0.0;
+		if (!(*ParamsObjectPtr)->TryGetNumberField(TEXT("z"), NewHeight))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.z (world height) must be a number")));
+			return true;
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetProjectAssemblyHeight(GetGameInstance(), static_cast<float>(NewHeight));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Raise a manually-driven wheeled vehicle's top speed.
+	// See SetVehicleEngineParams' doc comment. Negative = leave unchanged.
+	if (Method == TEXT("world.setVehicleEngineParams"))
+	{
+		FString VehicleId;
+		double MaxEngineTorque = -1.0;
+		double DragCoefficient = -1.0;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetStringField(TEXT("vehicleId"), VehicleId);
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("maxEngineTorque"), MaxEngineTorque);
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("dragCoefficient"), DragCoefficient);
+		}
+		if (MaxEngineTorque < 0.0 && DragCoefficient < 0.0)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Provide params.maxEngineTorque and/or params.dragCoefficient (>=0)")));
+			return true;
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetVehicleEngineParams(GetGameInstance(), VehicleId,
+			static_cast<float>(MaxEngineTorque), static_cast<float>(DragCoefficient));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Giant Flying Manta control. See SetManta/SpawnManta docs.
+	if (Method == TEXT("world.setManta"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+		FString MantaId;
+		if (!ParamsObject->TryGetStringField(TEXT("mantaId"), MantaId) || MantaId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.mantaId must be a non-empty string (from world.mantas)")));
+			return true;
+		}
+		bool bDespawn = false;
+		ParamsObject->TryGetBoolField(TEXT("despawn"), bDespawn);
+		bool bFreeze = false;
+		const bool bHasFreeze = ParamsObject->TryGetBoolField(TEXT("freeze"), bFreeze);
+		double SecondsPerLoop = -1.0, CurrentTime = -1.0;
+		ParamsObject->TryGetNumberField(TEXT("secondsPerLoop"), SecondsPerLoop);
+		ParamsObject->TryGetNumberField(TEXT("currentTime"), CurrentTime);
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetManta(GetGameInstance(), MantaId,
+			bDespawn, bHasFreeze, bFreeze, static_cast<float>(SecondsPerLoop), static_cast<float>(CurrentTime));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	if (Method == TEXT("world.spawnManta"))
+	{
+		FString SourceMantaId;
+		double TimeOffsetSeconds = 0.0;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetStringField(TEXT("sourceMantaId"), SourceMantaId);
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("timeOffsetSeconds"), TimeOffsetSeconds);
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SpawnManta(GetGameInstance(), SourceMantaId, static_cast<float>(TimeOffsetSeconds));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Force a seasonal event on/off-calendar. See SetActiveEvent doc.
+	if (Method == TEXT("world.setActiveEvent"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		FString EventValue;
+		if (!(*ParamsObjectPtr)->TryGetStringField(TEXT("event"), EventValue) || EventValue.IsEmpty())
+		{
+			// Allow a numeric index passed as a number too.
+			double EventIdx = -1.0;
+			if ((*ParamsObjectPtr)->TryGetNumberField(TEXT("event"), EventIdx))
+			{
+				EventValue = FString::FromInt(static_cast<int32>(EventIdx));
+			}
+			else
+			{
+				OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.event must be an event name (Christmas/Anniversary/CSSBirthday/FirstOfApril/None) or index 0-4")));
+				return true;
+			}
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetActiveEvent(GetGameInstance(), EventValue);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// Genuinely asynchronous, same shape as "world.placeBuilding" above.
+	// "world.testPowerConnection" (dry run, never touches the save) and
+	// "world.connectPower" (real - see
+	// docs/conveyor-power-connection-research.md's pole-vs-daisy-chain
+	// note before assuming a failure here is a bug) both take the same
+	// params and share UAIModFunctionLibrary::ConstructPowerConnection,
+	// differing only in the bDryRun argument.
+	if (Method == TEXT("world.testPowerConnection") || Method == TEXT("world.connectPower"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableIdA;
+		FString BuildableIdB;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableIdA"), BuildableIdA) || BuildableIdA.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("buildableIdB"), BuildableIdB) || BuildableIdB.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableIdA and params.buildableIdB must both be non-empty strings")));
+			return true;
+		}
+
+		// Optional, both default false - see ConstructPowerConnection's
+		// doc comment on the live-diagnosed disqualifier flakiness
+		// (UFGCDWireSnap/UFGCDInvalidAimLocation) these bypass.
+		bool bIgnoreAimLocation = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreAimLocation"), bIgnoreAimLocation);
+		bool bIgnoreWireSnap = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreWireSnap"), bIgnoreWireSnap);
+		// Optional, default false - opts out of UFGCDWireTooLong (the wire
+		// mMaxLength cap, see world.powerLineLimits). A build-time-only gate;
+		// power still flows past the cap. Lets one wire span any distance.
+		bool bIgnoreWireLength = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreWireLength"), bIgnoreWireLength);
+
+		// Optional connector pins - {"x","y","z"} objects,
+		// same shape/semantics as connectConveyor's
+		// sourceConnectorPosition/destConnectorPosition: deterministic
+		// per-port selection (Power Tower dual connectors etc).
+		auto ParsePinField = [&ParamsObject](const TCHAR* FieldName) -> TOptional<FVector>
+		{
+			const TSharedPtr<FJsonObject>* VectorObject = nullptr;
+			double PX = 0.0, PY = 0.0, PZ = 0.0;
+			if (ParamsObject->TryGetObjectField(FieldName, VectorObject) && VectorObject && VectorObject->IsValid()
+				&& (*VectorObject)->TryGetNumberField(TEXT("x"), PX)
+				&& (*VectorObject)->TryGetNumberField(TEXT("y"), PY)
+				&& (*VectorObject)->TryGetNumberField(TEXT("z"), PZ))
+			{
+				return TOptional<FVector>(FVector(PX, PY, PZ));
+			}
+			return TOptional<FVector>();
+		};
+		const TOptional<FVector> ConnectorPositionA = ParsePinField(TEXT("connectorPositionA"));
+		const TOptional<FVector> ConnectorPositionB = ParsePinField(TEXT("connectorPositionB"));
+
+		const bool bDryRun = Method == TEXT("world.testPowerConnection");
+		UAIModFunctionLibrary::ConstructPowerConnection(GetGameInstance(), BuildableIdA, BuildableIdB, bDryRun, bIgnoreAimLocation, bIgnoreWireSnap, bIgnoreWireLength,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			},
+			ConnectorPositionA, ConnectorPositionB);
+		return true;
+	}
+
+	// Genuinely asynchronous, same shape as "world.testPowerConnection"/
+	// "world.connectPower" above. "world.testConveyorBelt" (dry run) and
+	// "world.connectConveyor" (real) share UAIModFunctionLibrary::
+	// ConstructConveyorBelt, differing only in the bDryRun argument. Params
+	// use sourceBuildableId/destBuildableId (not A/B) to match the belt's
+	// directional Output->Input semantics - see ConstructConveyorBelt's doc
+	// comment for the two-click TrySnapToActor/DoMultiStepPlacement
+	// mechanism this drives.
+	if (Method == TEXT("world.testConveyorBelt") || Method == TEXT("world.connectConveyor"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			return true;
+		}
+
+		// Optional, defaults to Mk1 (the prior hardcoded-only behavior) -
+		// see ConstructConveyorBelt's doc comment. Any of
+		// Recipe_ConveyorBeltMk1..Mk6 - see world.conveyorBeltTiers for
+		// each tier's real queried GetSpeed().
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C");
+		}
+
+		// Optional, defaults empty (hologram's own default mode, prior
+		// behavior unchanged) - "Straight"/"Curve"/"Auto", see
+		// ConstructConveyorBelt's doc comment.
+		FString RouteMode;
+		ParamsObject->TryGetStringField(TEXT("routeMode"), RouteMode);
+
+		// Optional, defaults "RealCharacter" (the only strategy that clears
+		// UFGCDInitializing - see ConstructConveyorBelt's doc comment and
+		// KL-1 in docs/known-limitations.md). "AIController"/"PlayerController"/
+		// "LocalPlayer" remain reachable by explicit opt-in but permanently
+		// fail on Initializing; they were an experiment, not a usable default.
+		FString InstigatorStrategy;
+		ParamsObject->TryGetStringField(TEXT("instigatorStrategy"), InstigatorStrategy);
+
+		// Optional {"x","y","z"} objects - see
+		// ConstructConveyorBelt's doc comment. Lets the caller target one
+		// specific connector by its real world position (e.g. read from a
+		// prior world.connections call) instead of "the first free one of
+		// the right direction" - required for deterministic per-port
+		// selection on a multi-output buildable like a splitter.
+		auto ParseOptionalVector = [](const TSharedPtr<FJsonObject>& Params, const TCHAR* FieldName) -> TOptional<FVector>
+		{
+			const TSharedPtr<FJsonObject>* VectorObjectPtr = nullptr;
+			if (!Params->TryGetObjectField(FieldName, VectorObjectPtr) || !VectorObjectPtr || !VectorObjectPtr->IsValid())
+			{
+				return TOptional<FVector>();
+			}
+			double X = 0.0, Y = 0.0, Z = 0.0;
+			if (!(*VectorObjectPtr)->TryGetNumberField(TEXT("x"), X) || !(*VectorObjectPtr)->TryGetNumberField(TEXT("y"), Y) || !(*VectorObjectPtr)->TryGetNumberField(TEXT("z"), Z))
+			{
+				return TOptional<FVector>();
+			}
+			return FVector(X, Y, Z);
+		};
+		const TOptional<FVector> SourceConnectorPosition = ParseOptionalVector(ParamsObject, TEXT("sourceConnectorPosition"));
+		const TOptional<FVector> DestConnectorPosition = ParseOptionalVector(ParamsObject, TEXT("destConnectorPosition"));
+
+		const bool bDryRun = Method == TEXT("world.testConveyorBelt");
+		UAIModFunctionLibrary::ConstructConveyorBelt(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, RouteMode, InstigatorStrategy, SourceConnectorPosition, DestConnectorPosition, bDryRun,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// Genuinely asynchronous, same shape as "world.testConveyorBelt"/
+	// "world.connectConveyor" above. "world.testConveyorLift" (dry run)
+	// and "world.connectConveyorLift" (real) share UAIModFunctionLibrary::
+	// ConstructConveyorLift, differing only in the bDryRun argument.
+	// Vertical conveyor groundwork - not yet verified at runtime, see
+	// ConstructConveyorLift's doc comment.
+	if (Method == TEXT("world.testConveyorLift") || Method == TEXT("world.connectConveyorLift"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			return true;
+		}
+
+		// Optional, defaults to Mk1. Any of Recipe_ConveyorLiftMk1..Mk6 -
+		// see world.conveyorLiftTiers for each tier's real queried speed.
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorLiftMk1.Recipe_ConveyorLiftMk1_C");
+		}
+
+		// Optional, defaults to 0 (no rotation requested) - number of
+		// 90-degree ScrollRotate() steps to apply to the free end before
+		// the final click, see ConstructConveyorLift's doc comment.
+		int32 FreeEndRotationSteps = 0;
+		double FreeEndRotationStepsRaw = 0.0;
+		if (ParamsObject->TryGetNumberField(TEXT("freeEndRotationSteps"), FreeEndRotationStepsRaw))
+		{
+			FreeEndRotationSteps = static_cast<int32>(FreeEndRotationStepsRaw);
+		}
+
+		// Optional connector pinning, same shape and purpose
+		// as world.connectConveyor's - forces the specific output/input
+		// connectors so a stacked-attachment riser gets a clean vertical
+		// lift instead of "first free" picking non-coaxial side connectors.
+		auto ParseOptionalVector = [](const TSharedPtr<FJsonObject>& Params, const TCHAR* FieldName) -> TOptional<FVector>
+		{
+			const TSharedPtr<FJsonObject>* VectorObjectPtr = nullptr;
+			if (!Params->TryGetObjectField(FieldName, VectorObjectPtr) || !VectorObjectPtr || !VectorObjectPtr->IsValid())
+			{
+				return TOptional<FVector>();
+			}
+			double X = 0.0, Y = 0.0, Z = 0.0;
+			if (!(*VectorObjectPtr)->TryGetNumberField(TEXT("x"), X) || !(*VectorObjectPtr)->TryGetNumberField(TEXT("y"), Y) || !(*VectorObjectPtr)->TryGetNumberField(TEXT("z"), Z))
+			{
+				return TOptional<FVector>();
+			}
+			return FVector(X, Y, Z);
+		};
+		const TOptional<FVector> SourceConnectorPosition = ParseOptionalVector(ParamsObject, TEXT("sourceConnectorPosition"));
+		const TOptional<FVector> DestConnectorPosition = ParseOptionalVector(ParamsObject, TEXT("destConnectorPosition"));
+
+		const bool bDryRun = Method == TEXT("world.testConveyorLift");
+		UAIModFunctionLibrary::ConstructConveyorLift(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, FreeEndRotationSteps, SourceConnectorPosition, DestConnectorPosition, bDryRun,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// Genuinely asynchronous, same shape as "world.testConveyorBelt"/
+	// "world.connectConveyor" above. "world.testPipe" (dry run) and
+	// "world.connectPipe" (real) share UAIModFunctionLibrary::
+	// ConstructPipe, differing only in the bDryRun argument. Pipe
+	// groundwork - not yet verified at runtime, see ConstructPipe's
+	// doc comment for the open questions (no GetAnyConnectedBuildables()
+	// on the shared hologram base, no standalone pole recipe found on
+	// disk).
+	if (Method == TEXT("world.testPipe") || Method == TEXT("world.connectPipe"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			return true;
+		}
+
+		// Optional, defaults to Mk1. Recipe_Pipeline or
+		// Recipe_PipelineMK2 - see world.pipelineTiers for each tier's
+		// real queried flowLimit/maxSplineLength/bendRadius/minBendRadius.
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			RecipeClassPath = TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_Pipeline.Recipe_Pipeline_C");
+		}
+
+		const bool bDryRun = Method == TEXT("world.testPipe");
+		UAIModFunctionLibrary::ConstructPipe(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRun,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// "world.testHypertube" (dry run) and "world.connectHypertube" (real)
+	// share UAIModFunctionLibrary::ConstructHypertube, differing only in
+	// bDryRun - same shape as world.testPipe/world.connectPipe above, but
+	// no recipeClass param (Recipe_PipeHyper is hardcoded - see
+	// ConstructHypertube's doc comment).
+	if (Method == TEXT("world.testHypertube") || Method == TEXT("world.connectHypertube"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty()
+			|| !ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId) || DestBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId and params.destBuildableId must both be non-empty strings")));
+			return true;
+		}
+
+		const bool bDryRunHyper = Method == TEXT("world.testHypertube");
+		UAIModFunctionLibrary::ConstructHypertube(GetGameInstance(), SourceBuildableId, DestBuildableId, bDryRunHyper,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// "world.testRailroadTrack" (dry run) and "world.constructRailroadTrack"
+	// (real) share UAIModFunctionLibrary::ConstructRailroadTrack, same
+	// shape as world.testPipe/world.connectPipe above. See
+	// ConstructRailroadTrack's doc comment - not yet verified at runtime.
+	if (Method == TEXT("world.testRailroadTrack") || Method == TEXT("world.constructRailroadTrack"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString SourceBuildableId;
+		FString DestBuildableId;
+		// sourceBuildableId is always required. destBuildableId is OPTIONAL: an
+		// empty/absent dest means a FREE-END build (build to destConnectorPosition,
+		// a landing point over a foundation) - the enabler for track-to-track
+		// chaining of long runs. ConstructRailroadTrack validates that mode
+		// (requires destConnectorPosition).
+		if (!ParamsObject->TryGetStringField(TEXT("sourceBuildableId"), SourceBuildableId) || SourceBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.sourceBuildableId must be a non-empty string")));
+			return true;
+		}
+		ParamsObject->TryGetStringField(TEXT("destBuildableId"), DestBuildableId);
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string - no confirmed default track recipe path, query world.recipeCatalog first")));
+			return true;
+		}
+
+		const bool bDryRunTrack = Method == TEXT("world.testRailroadTrack");
+
+		// Optional: pick WHICH end of each buildable's railroad track to join,
+		// by nearest world position (needed to close a loop with matching-side
+		// curves rather than whatever "first free" returns).
+		auto ParseConnPos = [&ParamsObject](const TCHAR* Field, FVector& Out) -> bool
+		{
+			const TSharedPtr<FJsonObject>* PosObj = nullptr;
+			if (ParamsObject->TryGetObjectField(Field, PosObj) && PosObj && PosObj->IsValid())
+			{
+				double PX = 0.0, PY = 0.0, PZ = 0.0;
+				if ((*PosObj)->TryGetNumberField(TEXT("x"), PX) && (*PosObj)->TryGetNumberField(TEXT("y"), PY) && (*PosObj)->TryGetNumberField(TEXT("z"), PZ))
+				{
+					Out = FVector(PX, PY, PZ);
+					return true;
+				}
+			}
+			return false;
+		};
+		FVector SrcConnPos = FVector::ZeroVector;
+		FVector DstConnPos = FVector::ZeroVector;
+		const bool bHasSrcConnPos = ParseConnPos(TEXT("sourceConnectorPosition"), SrcConnPos);
+		const bool bHasDstConnPos = ParseConnPos(TEXT("destConnectorPosition"), DstConnPos);
+
+		// Optional (docs/train-drivable-joint-research.md experiment
+		// 2): drive the engine's real build-gun PrimaryFire path instead of the
+		// manual DoMultiStepPlacement + InternalConstructHologram, so the joint is
+		// actually drivable (default false = the proven straight-build path).
+		bool bUsePrimaryFire = false;
+		ParamsObject->TryGetBoolField(TEXT("usePrimaryFire"), bUsePrimaryFire);
+
+		UAIModFunctionLibrary::ConstructRailroadTrack(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRunTrack,
+			SrcConnPos, bHasSrcConnPos, DstConnPos, bHasDstConnPos, bUsePrimaryFire,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// "world.testTrainPlatform" (dry run) and "world.constructTrainPlatform"
+	// (real) share UAIModFunctionLibrary::ConstructTrainPlatform - drive the
+	// real platform snap onto a station/platform's free connection (NOT a
+	// placement bypass). See ConstructTrainPlatform's doc comment.
+	if (Method == TEXT("world.testTrainPlatform") || Method == TEXT("world.constructTrainPlatform"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString TargetBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("targetBuildableId"), TargetBuildableId) || TargetBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.targetBuildableId must be a non-empty string (the station or platform to attach to)")));
+			return true;
+		}
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string - e.g. Recipe_TrainDockingStation_C; query world.recipeCatalog")));
+			return true;
+		}
+
+		const bool bDryRunPlatform = Method == TEXT("world.testTrainPlatform");
+
+		// Optional: pick WHICH free platform connection to attach to, by nearest
+		// world position (needed when chaining several platforms off one station).
+		FVector ConnPos = FVector::ZeroVector;
+		bool bHasConnPos = false;
+		const TSharedPtr<FJsonObject>* PosObj = nullptr;
+		if (ParamsObject->TryGetObjectField(TEXT("connectorPosition"), PosObj) && PosObj && PosObj->IsValid())
+		{
+			double PX = 0.0, PY = 0.0, PZ = 0.0;
+			if ((*PosObj)->TryGetNumberField(TEXT("x"), PX) && (*PosObj)->TryGetNumberField(TEXT("y"), PY) && (*PosObj)->TryGetNumberField(TEXT("z"), PZ))
+			{
+				ConnPos = FVector(PX, PY, PZ);
+				bHasConnPos = true;
+			}
+		}
+
+		UAIModFunctionLibrary::ConstructTrainPlatform(GetGameInstance(), TargetBuildableId, RecipeClassPath, bDryRunPlatform,
+			ConnPos, bHasConnPos,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.constructVehiclePathSegment - see ConstructVehiclePathSegment's
+	// doc comment. Not yet verified at runtime.
+	if (Method == TEXT("world.constructVehiclePathSegment"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		double StartX = 0.0, StartY = 0.0, EndX = 0.0, EndY = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("startX"), StartX) || !ParamsObject->TryGetNumberField(TEXT("startY"), StartY)
+			|| !ParamsObject->TryGetNumberField(TEXT("endX"), EndX) || !ParamsObject->TryGetNumberField(TEXT("endY"), EndY))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.startX/startY/endX/endY must all be numbers")));
+			return true;
+		}
+
+		double StartZ = -1000000.0;
+		double EndZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("startZ"), StartZ);
+		ParamsObject->TryGetNumberField(TEXT("endZ"), EndZ);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		UAIModFunctionLibrary::ConstructVehiclePathSegment(GetGameInstance(), RecipeClassPath,
+			static_cast<float>(StartX), static_cast<float>(StartY), static_cast<float>(StartZ),
+			static_cast<float>(EndX), static_cast<float>(EndY), static_cast<float>(EndZ), bIgnoreGroundTrace,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.constructBeam - see ConstructBeam's doc comment. Not yet
+	// verified at runtime.
+	if (Method == TEXT("world.constructBeam"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		double StartX = 0.0, StartY = 0.0, EndX = 0.0, EndY = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("startX"), StartX) || !ParamsObject->TryGetNumberField(TEXT("startY"), StartY)
+			|| !ParamsObject->TryGetNumberField(TEXT("endX"), EndX) || !ParamsObject->TryGetNumberField(TEXT("endY"), EndY))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.startX/startY/endX/endY must all be numbers")));
+			return true;
+		}
+
+		double StartZ = -1000000.0;
+		double EndZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("startZ"), StartZ);
+		ParamsObject->TryGetNumberField(TEXT("endZ"), EndZ);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		bool bFreeformMode = false;
+		ParamsObject->TryGetBoolField(TEXT("freeformMode"), bFreeformMode);
+
+		double RotationScrollSteps = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("rotationScrollSteps"), RotationScrollSteps);
+
+		UAIModFunctionLibrary::ConstructBeam(GetGameInstance(), RecipeClassPath,
+			static_cast<float>(StartX), static_cast<float>(StartY), static_cast<float>(StartZ),
+			static_cast<float>(EndX), static_cast<float>(EndY), static_cast<float>(EndZ),
+			bIgnoreGroundTrace, bFreeformMode, static_cast<int32>(RotationScrollSteps),
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.constructStackableSupport - see ConstructStackableSupport's
+	// doc comment. Stackables provide a dense way to bring back multiple
+	// pipes.
+	if (Method == TEXT("world.constructStackableSupport"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		double X = 0.0, Y = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		// Same -1000000 "not provided" sentinel as world.placeBuilding's z.
+		double Z = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), Z);
+
+		bool bIgnoreGroundTrace = false;
+		ParamsObject->TryGetBoolField(TEXT("ignoreGroundTrace"), bIgnoreGroundTrace);
+
+		double StackCount = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("stackCount"), StackCount);
+
+		UAIModFunctionLibrary::ConstructStackableSupport(GetGameInstance(), RecipeClassPath,
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z),
+			static_cast<int32>(StackCount), bIgnoreGroundTrace,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.constructStackableSupportOnTop - see
+	// ConstructStackableSupportOnTop's doc comment. Mixed pipe+belt dense
+	// routing is normally built as separate stacked attachments.
+	if (Method == TEXT("world.constructStackableSupportOnTop"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString ReferenceBuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("referenceBuildableId"), ReferenceBuildableId) || ReferenceBuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.referenceBuildableId must be a non-empty string")));
+			return true;
+		}
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		UAIModFunctionLibrary::ConstructStackableSupportOnTop(GetGameInstance(), ReferenceBuildableId, RecipeClassPath,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+
+	// world.setBeamLength - see SetBeamLength's doc comment. Not yet
+	// verified at runtime.
+	if (Method == TEXT("world.setBeamLength"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		double NewLength = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("newLength"), NewLength))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.newLength must be a number")));
+			return true;
+		}
+
+		const FAIModOperationResult Result = UAIModFunctionLibrary::SetBeamLength(GetGameInstance(), BuildableId, static_cast<float>(NewLength));
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
+	// GetGameInstance(), not `this` - UGameInstanceSubsystem itself does
+	// not implement GetWorld(); UGameInstance does.
+	// world.help - runtime self-description. Returns the generated RPC catalog
+	// (every method + params + summary) so an agent WITHOUT the mod source can
+	// discover the whole interface. Catalog is generated from this dispatcher by
+	// controller/tools/gen_rpc_catalog.py into AIModRpcCatalog.gen.cpp.
+	extern const TCHAR* GAIModRpcCatalogJson;
+	FString MethodResultJson;
+	if (Method == TEXT("world.help"))
+	{
+		MethodResultJson = FString(GAIModRpcCatalogJson);
+	}
+	else if (Method == TEXT("world.resourceNodes"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogResourceNodesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.waterVolumes"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogWaterVolumesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.damageVolumes"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogDamageVolumesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.projectAssembly"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogProjectAssemblyAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.mantas"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMantasAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.probeHazard"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0, Y = 0.0, Z = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y)
+			|| !ParamsObject->TryGetNumberField(TEXT("z"), Z))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x, y, and z must all be numbers")));
+			return true;
+		}
+
+		MethodResultJson = UAIModFunctionLibrary::ProbeHazardAsJson(GetGameInstance(),
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z));
+	}
+	else if (Method == TEXT("world.buildables") || Method == TEXT("world.connections"))
+	{
+		// Optional filters (docs/build-efficiency-plan.md 2a):
+		// params.ids = array of id substrings (OR), params.minX/minY/
+		// maxX/maxY (+ optional minZ/maxZ) = position box (AND with ids).
+		// No params = the unfiltered full dump.
+		TArray<FString> IdSubstrings;
+		bool bBoundsSet = false;
+		FVector BoundsMin = FVector::ZeroVector;
+		FVector BoundsMax = FVector::ZeroVector;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		TSharedPtr<FJsonObject> ParamsObject;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			ParamsObject = *ParamsObjectPtr;
+		}
+		if (ParamsObject.IsValid())
+		{
+			const TArray<TSharedPtr<FJsonValue>>* IdsArray = nullptr;
+			if (ParamsObject->TryGetArrayField(TEXT("ids"), IdsArray))
+			{
+				for (const TSharedPtr<FJsonValue>& Value : *IdsArray)
+				{
+					FString Id;
+					if (Value.IsValid() && Value->TryGetString(Id) && !Id.IsEmpty())
+					{
+						IdSubstrings.Add(Id);
+					}
+				}
+			}
+			double MinX = 0.0, MinY = 0.0, MaxX = 0.0, MaxY = 0.0;
+			if (ParamsObject->TryGetNumberField(TEXT("minX"), MinX) &&
+				ParamsObject->TryGetNumberField(TEXT("minY"), MinY) &&
+				ParamsObject->TryGetNumberField(TEXT("maxX"), MaxX) &&
+				ParamsObject->TryGetNumberField(TEXT("maxY"), MaxY))
+			{
+				bBoundsSet = true;
+				double MinZ = 0.0, MaxZ = 0.0;
+				ParamsObject->TryGetNumberField(TEXT("minZ"), MinZ);
+				ParamsObject->TryGetNumberField(TEXT("maxZ"), MaxZ);
+				BoundsMin = FVector(MinX, MinY, MinZ);
+				BoundsMax = FVector(MaxX, MaxY, MaxZ);
+			}
+		}
+		if (Method == TEXT("world.buildables"))
+		{
+			MethodResultJson = UAIModFunctionLibrary::LogBuildablesAsJsonFiltered(GetGameInstance(), IdSubstrings, bBoundsSet, BoundsMin, BoundsMax);
+		}
+		else
+		{
+			MethodResultJson = UAIModFunctionLibrary::LogFactoryConnectionsAsJsonFiltered(GetGameInstance(), IdSubstrings, bBoundsSet, BoundsMin, BoundsMax);
+		}
+	}
+	else if (Method == TEXT("world.vehicles"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogVehiclesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.vehiclePathNodes"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogVehiclePathNodesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.creatures"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogCreaturesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.milestoneProgress"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMilestoneProgressAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.mamStatus"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMamStatusAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.trainStations"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogTrainStationsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.trains"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogTrainsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.droneStations"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogDroneStationsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.manufacturers"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogManufacturersAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.connectorLayout"))
+	{
+		// Class-defaults connector layout (docs/build-efficiency-plan.md
+		// 2c) - params.buildableClass is the Build_*_C class path
+		// (from world.buildables rows or world.buildableCatalog).
+		const TSharedPtr<FJsonObject>* LayoutParamsPtr = nullptr;
+		FString BuildableClassPath;
+		if (RequestObject->TryGetObjectField(TEXT("params"), LayoutParamsPtr) && LayoutParamsPtr && LayoutParamsPtr->IsValid())
+		{
+			(*LayoutParamsPtr)->TryGetStringField(TEXT("buildableClass"), BuildableClassPath);
+		}
+		if (BuildableClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableClass must be a non-empty class path")));
+			return true;
+		}
+		MethodResultJson = UAIModFunctionLibrary::LogConnectorLayoutAsJson(GetGameInstance(), BuildableClassPath);
+	}
+	else if (Method == TEXT("world.pipeConnections"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPipeConnectionsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.splineGeometry"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString BuildableId;
+		if (!ParamsObject->TryGetStringField(TEXT("buildableId"), BuildableId) || BuildableId.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.buildableId must be a non-empty string")));
+			return true;
+		}
+
+		MethodResultJson = UAIModFunctionLibrary::LogSplineGeometryAsJson(GetGameInstance(), BuildableId);
+	}
+	else if (Method == TEXT("world.conveyorBeltTiers"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogConveyorBeltTiersAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.powerLineLimits"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPowerLineLimitsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.powerPoles"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPowerPolesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.priorityPowerSwitches"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPriorityPowerSwitchesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.pipelineTiers"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPipelineTiersAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.pipelinePumpTiers"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPipelinePumpTiersAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.pipeFluidBoxes"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPipeFluidBoxesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.pipeReservoirTiers"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPipeReservoirTiersAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.trainCargoPlatforms"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogTrainCargoPlatformsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.truckStations"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogTruckStationsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.conveyorAttachments"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogConveyorAttachmentCatalogAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.splitterSortRules"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogSplitterSortRulesAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.conveyorLiftTiers"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogConveyorLiftTiersAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.recipeCatalog"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogRecipeCatalogAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.itemCatalog"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogItemCatalogAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.buildableCatalog"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogBuildableCatalogAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.activeEvents"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogActiveEventsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.constructionCost"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		FString RecipeClassPath;
+		if (!ParamsObject->TryGetStringField(TEXT("recipeClass"), RecipeClassPath) || RecipeClassPath.IsEmpty())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.recipeClass must be a non-empty string")));
+			return true;
+		}
+
+		// Validated here, not inside LogConstructionCostAsJson - see
+		// LogGroundHeightAsJson's dispatch entry for why: every Log*AsJson
+		// function's result is unconditionally wrapped success:true, so a
+		// real INVALID_RECIPE error can only be surfaced by checking before
+		// calling it, same as world.groundHeight's params.
+		UClass* ResolvedRecipeClass = LoadObject<UClass>(nullptr, *RecipeClassPath);
+		if (!ResolvedRecipeClass || !ResolvedRecipeClass->IsChildOf(UFGRecipe::StaticClass()))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_RECIPE"),
+				FString::Printf(TEXT("'%s' did not resolve to a UFGRecipe subclass"), *RecipeClassPath)));
+			return true;
+		}
+
+		MethodResultJson = UAIModFunctionLibrary::LogConstructionCostAsJson(GetGameInstance(), RecipeClassPath);
+	}
+	else if (Method == TEXT("world.targetedManufacturer"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogTargetedManufacturerAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.player"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPlayerAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.timeOfDay"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogTimeOfDayAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.mapMarkerIcons"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMapMarkerIconsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.mapMarkers"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogMapMarkersAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.chatHistory"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogChatHistoryAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.portableMiners"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPortableMinersAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.centralStorage"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogCentralStorageAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.playerInventory"))
+	{
+		MethodResultJson = UAIModFunctionLibrary::LogPlayerInventoryAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.saveGame"))
+	{
+		// Genuinely asynchronous - see UAIModFunctionLibrary::SaveGame's
+		// doc comment. `params` and `params.saveName` are both optional
+		// (unlike other params-object RPCs above) - an empty/missing
+		// saveName falls back to the current session's name inside
+		// SaveGame itself, so a bare {"method":"world.saveGame"} call
+		// overwrites the active save slot like a normal quicksave.
+		FString SaveName;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetStringField(TEXT("saveName"), SaveName);
+		}
+
+		UAIModFunctionLibrary::SaveGame(GetGameInstance(), SaveName,
+			[OnComplete, RequestId](const FAIModOperationResult& Result)
+			{
+				OnComplete(MakeOperationResponse(Result, RequestId));
+			});
+		return true;
+	}
+	else if (Method == TEXT("world.cleanupOrphanedFlowIndicators"))
+	{
+		// A real write operation (deletes actors) but takes no params, so
+		// it fits this simple dispatch shape rather than the params-object
+		// one. See CleanupOrphanedFlowIndicatorsAsJson's doc comment.
+		MethodResultJson = UAIModFunctionLibrary::CleanupOrphanedFlowIndicatorsAsJson(GetGameInstance());
+	}
+	else if (Method == TEXT("world.groundHeight"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double X = 0.0;
+		double Y = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x and params.y must both be numbers")));
+			return true;
+		}
+
+		// Optional - same ReferenceZ semantics as world.placeBuilding's
+		// "z" param (search-center anchor, defaults to player Z). See
+		// LogGroundHeightAsJson's doc comment.
+		double ReferenceZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), ReferenceZ);
+
+		MethodResultJson = UAIModFunctionLibrary::LogGroundHeightAsJson(GetGameInstance(), static_cast<float>(X), static_cast<float>(Y), static_cast<float>(ReferenceZ));
+	}
+	else if (Method == TEXT("world.terrainHeightGrid"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+
+		double MinX = 0.0, MinY = 0.0, MaxX = 0.0, MaxY = 0.0, StepSize = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("minX"), MinX) || !ParamsObject->TryGetNumberField(TEXT("minY"), MinY)
+			|| !ParamsObject->TryGetNumberField(TEXT("maxX"), MaxX) || !ParamsObject->TryGetNumberField(TEXT("maxY"), MaxY)
+			|| !ParamsObject->TryGetNumberField(TEXT("stepSize"), StepSize))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"),
+				TEXT("params.minX, minY, maxX, maxY, and stepSize must all be numbers")));
+			return true;
+		}
+
+		// Optional - same ReferenceZ semantics as world.groundHeight's "z".
+		double ReferenceZ = -1000000.0;
+		ParamsObject->TryGetNumberField(TEXT("z"), ReferenceZ);
+
+		MethodResultJson = UAIModFunctionLibrary::LogTerrainHeightGridAsJson(GetGameInstance(),
+			static_cast<float>(MinX), static_cast<float>(MinY), static_cast<float>(MaxX), static_cast<float>(MaxY),
+			static_cast<float>(StepSize), static_cast<float>(ReferenceZ));
+	}
+	else
+	{
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::NotFound, RequestId, TEXT("UNKNOWN_METHOD"), FString::Printf(TEXT("Unknown method '%s'"), *Method)));
+		return true;
+	}
+
+	TSharedPtr<FJsonObject> ResultObject;
+	const TSharedRef<TJsonReader<>> ResultReader = TJsonReaderFactory<>::Create(MethodResultJson);
+	FJsonSerializer::Deserialize(ResultReader, ResultObject);
+
+	const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+	Root->SetNumberField(TEXT("protocolVersion"), 1);
+	Root->SetStringField(TEXT("requestId"), RequestId);
+	Root->SetBoolField(TEXT("success"), true);
+	if (ResultObject.IsValid())
+	{
+		Root->SetObjectField(TEXT("result"), ResultObject.ToSharedRef());
+	}
+	else
+	{
+		// Should not happen - LogResourceNodesAsJson always emits valid JSON -
+		// but never silently return "success" with no result if it somehow did.
+		OnComplete(MakeErrorResponse(EHttpServerResponseCodes::ServerError, RequestId, TEXT("INTERNAL_ERROR"), TEXT("Failed to build result payload")));
+		return true;
+	}
+
+	OnComplete(MakeJsonResponse(EHttpServerResponseCodes::Ok, Root));
+	return true;
+}
+
+void UAIModHttpServerSubsystem::RunBatchStep(TSharedRef<FAIModBatchState> State, FHttpServerRequest BaseRequest, FHttpResultCallback ParentComplete, FString ParentRequestId)
+{
+	// Finished (all ops done, or halted on a failure)?
+	const bool bHalted = State->bHaltOnError && State->bAnyFailed;
+	if (State->Index >= State->Ops.Num() || bHalted)
+	{
+		const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+		Root->SetNumberField(TEXT("protocolVersion"), 1);
+		Root->SetStringField(TEXT("requestId"), ParentRequestId);
+		// The batch call itself succeeded if it DISPATCHED as requested -
+		// per-op outcomes live in results[]. allSucceeded is the quick
+		// aggregate a caller usually wants.
+		Root->SetBoolField(TEXT("success"), true);
+		const TSharedRef<FJsonObject> ResultObject = MakeShared<FJsonObject>();
+		ResultObject->SetArrayField(TEXT("results"), State->Results);
+		ResultObject->SetNumberField(TEXT("completed"), State->Results.Num());
+		ResultObject->SetNumberField(TEXT("total"), State->Ops.Num());
+		ResultObject->SetNumberField(TEXT("succeeded"), State->SucceededCount);
+		ResultObject->SetBoolField(TEXT("allSucceeded"), !State->bAnyFailed && State->Results.Num() == State->Ops.Num());
+		ResultObject->SetBoolField(TEXT("halted"), bHalted);
+		Root->SetObjectField(TEXT("result"), ResultObject);
+		UE_LOG(LogAIModAI, Display, TEXT("AIMod HTTP server: world.batch %s finished - %d/%d succeeded%s"),
+			*ParentRequestId, State->SucceededCount, State->Ops.Num(), bHalted ? TEXT(" (halted on first failure)") : TEXT(""));
+		// Batch fast path's other half: sub-op deletes skipped their per-op
+		// corpse-settle hold, so apply the SINGLE 0.75s hold here (also on
+		// the halted path - the caller may place right after either way).
+		// No world for the timer -> respond immediately; that only drops
+		// the settle margin, never the results.
+		UWorld* SettleWorld = (State->bUnsettledDelete && GetGameInstance()) ? GetGameInstance()->GetWorld() : nullptr;
+		if (SettleWorld)
+		{
+			TSharedRef<FJsonObject> RootRef = Root;
+			FHttpResultCallback Complete = ParentComplete;
+			FTimerHandle SettleTimerHandle;
+			SettleWorld->GetTimerManager().SetTimer(SettleTimerHandle, FTimerDelegate::CreateLambda([Complete, RootRef]()
+			{
+				Complete(MakeJsonResponse(EHttpServerResponseCodes::Ok, RootRef));
+			}), 0.75f, false);
+			return;
+		}
+		ParentComplete(MakeJsonResponse(EHttpServerResponseCodes::Ok, Root));
+		return;
+	}
+
+	const int32 OpIndex = State->Index;
+	const TSharedPtr<FJsonObject> Op = State->Ops[OpIndex];
+	FString OpMethod;
+	Op->TryGetStringField(TEXT("method"), OpMethod);
+
+	// Mid-batch settle gate: a non-delete op right after an unsettled
+	// delete must wait out the corpse (the delete-then-place stacking
+	// hazard the per-op hold used to cover). Re-enter this same step
+	// after 0.75s with the flag cleared; delete-after-delete skips this.
+	if (State->bUnsettledDelete && OpMethod != TEXT("world.deleteBuilding"))
+	{
+		State->bUnsettledDelete = false;
+		UWorld* GateWorld = GetGameInstance() ? GetGameInstance()->GetWorld() : nullptr;
+		if (GateWorld)
+		{
+			TWeakObjectPtr<UAIModHttpServerSubsystem> WeakGate(this);
+			FTimerHandle GateTimerHandle;
+			GateWorld->GetTimerManager().SetTimer(GateTimerHandle, FTimerDelegate::CreateLambda(
+				[WeakGate, State, BaseRequest, ParentComplete, ParentRequestId]() mutable
+			{
+				if (UAIModHttpServerSubsystem* Subsystem = WeakGate.Get())
+				{
+					Subsystem->RunBatchStep(State, BaseRequest, ParentComplete, ParentRequestId);
+				}
+			}), 0.75f, false);
+			return;
+		}
+		// No world for a timer: fall through and run the op immediately -
+		// same "drop the margin, never the work" posture as the finalizer.
+	}
+
+	// Synthesize the sub-request: the normal envelope around this op,
+	// re-serialized into a copy of the parent request so PeerAddress -
+	// and therefore the loopback/remote policy - carries over unchanged.
+	const TSharedRef<FJsonObject> SubEnvelope = MakeShared<FJsonObject>();
+	SubEnvelope->SetNumberField(TEXT("protocolVersion"), 1);
+	SubEnvelope->SetStringField(TEXT("requestId"), FString::Printf(TEXT("%s-%d"), *ParentRequestId, OpIndex));
+	SubEnvelope->SetStringField(TEXT("method"), OpMethod);
+	// Marks this as a batch sub-op: deleteBuilding then skips its per-op
+	// corpse-settle hold and the finalizer below settles once instead.
+	SubEnvelope->SetBoolField(TEXT("batched"), true);
+	const TSharedPtr<FJsonObject>* OpParams = nullptr;
+	if (Op->TryGetObjectField(TEXT("params"), OpParams) && OpParams && OpParams->IsValid())
+	{
+		SubEnvelope->SetObjectField(TEXT("params"), *OpParams);
+	}
+	FString SubBody;
+	const TSharedRef<TJsonWriter<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&SubBody);
+	FJsonSerializer::Serialize(SubEnvelope, Writer);
+	FTCHARToUTF8 Utf8(*SubBody);
+	BaseRequest.Body.SetNum(Utf8.Length());
+	FMemory::Memcpy(BaseRequest.Body.GetData(), Utf8.Get(), Utf8.Length());
+
+	// Chain: the sub-op's completion (immediate for sync methods, a
+	// deferred poll for construction) records its parsed envelope and
+	// re-enters RunBatchStep for the next op. No retain cycle: the
+	// callback captures only copyable state and a weak subsystem ptr.
+	TWeakObjectPtr<UAIModHttpServerSubsystem> WeakThis(this);
+	const FHttpResultCallback SubComplete =
+		[State, WeakThis, BaseRequest, ParentComplete, ParentRequestId, OpIndex, OpMethod](TUniquePtr<FHttpServerResponse>&& SubResponse) mutable
+	{
+		const TSharedRef<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetNumberField(TEXT("index"), OpIndex);
+		Row->SetStringField(TEXT("method"), OpMethod);
+		bool bOpSuccess = false;
+		if (SubResponse.IsValid() && SubResponse->Body.Num() > 0)
+		{
+			const auto Converted = StringCast<TCHAR>(reinterpret_cast<const UTF8CHAR*>(SubResponse->Body.GetData()), SubResponse->Body.Num());
+			const FString SubBodyString(Converted.Length(), Converted.Get());
+			TSharedPtr<FJsonObject> SubObject;
+			const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(SubBodyString);
+			if (FJsonSerializer::Deserialize(Reader, SubObject) && SubObject.IsValid())
+			{
+				SubObject->TryGetBoolField(TEXT("success"), bOpSuccess);
+				const TSharedPtr<FJsonObject>* SubResult = nullptr;
+				if (SubObject->TryGetObjectField(TEXT("result"), SubResult) && SubResult && SubResult->IsValid())
+				{
+					Row->SetObjectField(TEXT("result"), *SubResult);
+				}
+				const TSharedPtr<FJsonObject>* SubError = nullptr;
+				if (SubObject->TryGetObjectField(TEXT("error"), SubError) && SubError && SubError->IsValid())
+				{
+					Row->SetObjectField(TEXT("error"), *SubError);
+				}
+			}
+		}
+		Row->SetBoolField(TEXT("success"), bOpSuccess);
+		State->Results.Add(MakeShared<FJsonValueObject>(Row));
+		if (bOpSuccess)
+		{
+			State->SucceededCount++;
+			if (OpMethod == TEXT("world.deleteBuilding"))
+			{
+				State->bUnsettledDelete = true;
+			}
+		}
+		else
+		{
+			State->bAnyFailed = true;
+		}
+		State->Index++;
+		if (UAIModHttpServerSubsystem* Subsystem = WeakThis.Get())
+		{
+			Subsystem->RunBatchStep(State, BaseRequest, ParentComplete, ParentRequestId);
+		}
+		else
+		{
+			// Subsystem torn down mid-batch (world unload) - report what
+			// completed rather than leaving the HTTP request hanging.
+			const TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+			Root->SetNumberField(TEXT("protocolVersion"), 1);
+			Root->SetStringField(TEXT("requestId"), ParentRequestId);
+			Root->SetBoolField(TEXT("success"), false);
+			const TSharedRef<FJsonObject> ErrorObject = MakeShared<FJsonObject>();
+			ErrorObject->SetStringField(TEXT("code"), TEXT("BATCH_ABORTED"));
+			ErrorObject->SetStringField(TEXT("message"), FString::Printf(TEXT("Subsystem shut down after %d of %d sub-op(s)"), State->Results.Num(), State->Ops.Num()));
+			Root->SetObjectField(TEXT("error"), ErrorObject);
+			const TSharedRef<FJsonObject> PartialResult = MakeShared<FJsonObject>();
+			PartialResult->SetArrayField(TEXT("results"), State->Results);
+			Root->SetObjectField(TEXT("result"), PartialResult);
+			ParentComplete(MakeJsonResponse(EHttpServerResponseCodes::ServerError, Root));
+		}
+	};
+
+	HandleRpcRequest(BaseRequest, SubComplete);
+}

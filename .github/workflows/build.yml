@@ -150,6 +150,14 @@ jobs:
         with:
           path: SML
 
+      # Fail fast (before the expensive UE build) if the AIMod world.help
+      # catalog / docs/rpc-catalog.md are stale relative to the dispatcher,
+      # or a world.* method lacks a summary. Keeps the self-describing
+      # interface honest. Stdlib-only Python; no deps to install.
+      - name: Check AIMod RPC catalog freshness
+        run: python3 controller/tools/gen_rpc_catalog.py --check
+        working-directory: SML
+
       - name: Move SML to /tmp
         run: |
           mkdir -p /tmp/work
