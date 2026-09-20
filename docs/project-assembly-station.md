@@ -60,8 +60,21 @@ reliable method is **putting the player on its surface and reading the pawn posi
   (13,148 below the upper top). So the station's rim is a sculpted descending disc, not a
   sheer edge. Radial profile so far (EAST): flat top z=1,008,044 out to the opaque ring
   r~955k → upper edge r~990k → lower tier z~1,004,458 → sloping ramps (r~999k, z~994,896)
-  → visible outer ring (further out, lower). **Measurement in progress** — still descending
-  toward the outer ring; true outer radius not yet reached.
+  → visible outer ring (further out, lower).
+
+  **OUTER EDGE REACHED (2026-09-19):** the visible edge is at radial **r ≈ 1,229,138
+  units (12.29 km)**, z=**765,448** — the rim slopes down **242,596 units** from the top
+  (1,008,044) over the outer descent (~41° average slope; steep enough to slide, needs
+  bracing). So, station dimensions (EAST radius; assumed roughly radial):
+  - **Outer radius ≈ 1,229,138 (12.29 km); diameter ≈ 2.46M units (~24.6 km)** — ~3.3× the
+    play area's ~750k width.
+  - **Height ≈ 958,044 above origin (~9.6 km)**; collision top flat at 1,008,044 (with
+    origin at 50,000).
+  Full radial profile (from center, east): flat top z=1,008,044 out to opaque ring r~955k
+  → upper edge r~990k → lower tier z~1,004,458 → steep sloped rim (ramp waypoint r~999k
+  z~994,896) descending to the visible outer edge r~1,229,138 z~765,448.
+  A genuine small-moon-scale sculpted disc. (Only the EAST radius was walked/driven;
+  symmetry assumed but not verified on other headings.)
 
 ## Gotchas
 
