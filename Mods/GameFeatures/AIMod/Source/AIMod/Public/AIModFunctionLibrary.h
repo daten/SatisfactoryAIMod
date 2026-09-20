@@ -3241,6 +3241,30 @@ public:
 	static FAIModOperationResult PayOffMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, bool bDryRun);
 
 	/**
+	 * world.reprocessMilestone (added 2026-09-20, explicit user request:
+	 * re-fire Steam milestone achievements for milestones completed before
+	 * achievements existed - confirmed live that firing genuine game
+	 * unlock events reaches Steam in this modded session, via the space
+	 * station phase test). Re-runs the unlock/completion flow for
+	 * already-purchased HUB schematics so its inline
+	 * AFGSchematicManager::CheckSchematicAchievement() re-fires.
+	 *
+	 * Mechanism (both public UFUNCTIONs): ResetPurchasedSchematics() -
+	 * whose own comment says it "Will not revoke any unlocks!", so recipes
+	 * are KEPT - then GiveAccessToSchematics() to re-process. Target one
+	 * schematic (schematicClass), a whole Tier (>=0), or all tiers
+	 * (bAllTiers). Only purchased schematics are touched.
+	 *
+	 * Session-effect: re-runs completions (may replay the freighter/ship
+	 * return + purchase notifications). NOT-LIVE-TESTED: the .cpp is a stub
+	 * here so it's UNCONFIRMED that GiveAccessToSchematics actually
+	 * re-invokes CheckSchematicAchievement - test ONE tier and watch for
+	 * the Steam pop before sweeping all.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult ReprocessMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, int32 Tier, bool bAllTiers);
+
+	/**
 	 * world.mamStatus (2026-08-29) - full M.A.M. (research) status:
 	 * AFGResearchManager's current/ongoing research (with time left - a
 	 * reflective read of the protected mOngoingResearch array, no public

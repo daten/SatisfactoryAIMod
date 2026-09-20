@@ -74,6 +74,7 @@ SUMMARIES = {
  "world.activeEvents":"Active world/seasonal events.",
  "world.milestoneProgress":"HUB milestone/tech-tier progress.",
  "world.payMilestone":"Pay a milestone (pure bookkeeping; HUB has no inventory).",
+ "world.reprocessMilestone":"Re-fire milestone achievements: reset+re-give already-purchased HUB schematics (keeps unlocks) so the unlock flow re-runs. Target schematicClass, tier (>=0), or allTiers. Session-only; test one tier first.",
  "world.mamStatus":"M.A.M. research status (ongoing/completed/hard drives).",
  "world.startMamResearch":"Start a M.A.M. research node.",
  "world.claimMamResearch":"Claim a completed M.A.M. research.",

@@ -15919,6 +15919,96 @@ namespace
 	}
 }
 
+FAIModOperationResult UAIModFunctionLibrary::ReprocessMilestone(UObject* WorldContextObject, const FString& SchematicClassPath, int32 Tier, bool bAllTiers)
+{
+	FAIModOperationResult Result;
+	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
+	if (!World)
+	{
+		Result.ErrorCode = TEXT("NO_WORLD");
+		Result.ErrorMessage = TEXT("No valid world context");
+		return Result;
+	}
+	AFGSchematicManager* SchematicManager = AFGSchematicManager::Get(World);
+	if (!SchematicManager)
+	{
+		Result.ErrorCode = TEXT("INTERNAL_ERROR");
+		Result.ErrorMessage = TEXT("AFGSchematicManager::Get returned null");
+		return Result;
+	}
+
+	// Build the target list: one explicit schematic, a whole tier, or all
+	// tiers' HUB milestone/tutorial schematics.
+	TArray<TSubclassOf<UFGSchematic>> Targets;
+	if (!SchematicClassPath.IsEmpty())
+	{
+		UClass* Resolved = LoadObject<UClass>(nullptr, *SchematicClassPath);
+		if (!Resolved || !Resolved->IsChildOf(UFGSchematic::StaticClass()))
+		{
+			Result.ErrorCode = TEXT("INVALID_SCHEMATIC");
+			Result.ErrorMessage = FString::Printf(TEXT("'%s' did not resolve to a UFGSchematic subclass"), *SchematicClassPath);
+			return Result;
+		}
+		Targets.Add(Resolved);
+	}
+	else if (bAllTiers)
+	{
+		const int32 MaxTier = SchematicManager->GetHighestAvailableTechTier();
+		for (int32 T = 0; T <= MaxTier; ++T)
+		{
+			TArray<TSubclassOf<UFGSchematic>> TierSchematics;
+			SchematicManager->GetHubSchematicsForTier(T, TierSchematics);
+			Targets.Append(TierSchematics);
+		}
+	}
+	else if (Tier >= 0)
+	{
+		SchematicManager->GetHubSchematicsForTier(Tier, Targets);
+	}
+	else
+	{
+		Result.ErrorCode = TEXT("INVALID_REQUEST");
+		Result.ErrorMessage = TEXT("Provide schematicClass, tier (>=0), or allTiers=true");
+		return Result;
+	}
+
+	// Only reprocess schematics that are actually purchased (reprocessing
+	// re-runs the unlock/completion flow to re-fire achievements). Reset
+	// does NOT revoke unlocks (per the API comment), so recipes are kept.
+	TArray<TSubclassOf<UFGSchematic>> Purchased;
+	for (const TSubclassOf<UFGSchematic>& S : Targets)
+	{
+		if (S && SchematicManager->IsSchematicPurchased(S))
+		{
+			Purchased.Add(S);
+		}
+	}
+	if (Purchased.Num() == 0)
+	{
+		Result.ErrorCode = TEXT("NOTHING_TO_DO");
+		Result.ErrorMessage = TEXT("No purchased schematics matched the request");
+		return Result;
+	}
+
+	// Reset the purchased bookkeeping (keeps unlocks) then re-give access,
+	// which re-runs the completion flow (and its inline achievement check).
+	SchematicManager->ResetPurchasedSchematics(Purchased);
+	SchematicManager->GiveAccessToSchematics(Purchased, nullptr, ESchematicUnlockFlags::None);
+
+	const TSharedRef<FJsonObject> Detail = MakeShared<FJsonObject>();
+	Detail->SetNumberField(TEXT("reprocessed"), Purchased.Num());
+	TArray<TSharedPtr<FJsonValue>> Names;
+	for (const TSubclassOf<UFGSchematic>& S : Purchased)
+	{
+		Names.Add(MakeShared<FJsonValueString>(S->GetPathName()));
+	}
+	Detail->SetArrayField(TEXT("schematics"), Names);
+	Result.ResultDetailJson = WriteCondensedJson(Detail);
+	UE_LOG(LogAIModAI, Display, TEXT("ReprocessMilestone: reset+re-gave %d schematic(s) to re-fire achievements"), Purchased.Num());
+	Result.bSuccess = true;
+	return Result;
+}
+
 FString UAIModFunctionLibrary::LogMamStatusAsJson(UObject* WorldContextObject)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;

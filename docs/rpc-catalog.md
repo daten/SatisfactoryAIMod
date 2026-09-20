@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **121 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **122 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -196,6 +196,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `buildableId:string, itemClass:string, inventoryRole:string?, amount:number`
 - **`world.removeMapMarker`** — Remove a map marker by id.  
   params: `markerId:string`
+- **`world.reprocessMilestone`** — Re-fire milestone achievements: reset+re-give already-purchased HUB schematics (keeps unlocks) so the unlock flow re-runs. Target schematicClass, tier (>=0), or allTiers. Session-only; test one tier first.  
+  params: `(none)`
 - **`world.rerollMamHardDrive`** — Reroll a hard-drive's offered rewards.  
   params: `schematicClass:string`
 - **`world.retrievePortableMinerInventory`** — Empty a portable miner's output inventory.  

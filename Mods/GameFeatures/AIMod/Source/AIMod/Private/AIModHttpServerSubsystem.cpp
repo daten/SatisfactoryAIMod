@@ -1444,6 +1444,30 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Re-fire milestone achievements by reprocessing already-purchased
+	// schematics (2026-09-20). See ReprocessMilestone doc.
+	if (Method == TEXT("world.reprocessMilestone"))
+	{
+		FString SchematicClassPath;
+		double Tier = -1.0;
+		bool bAllTiers = false;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetStringField(TEXT("schematicClass"), SchematicClassPath);
+			(*ParamsObjectPtr)->TryGetNumberField(TEXT("tier"), Tier);
+			(*ParamsObjectPtr)->TryGetBoolField(TEXT("allTiers"), bAllTiers);
+		}
+		if (SchematicClassPath.IsEmpty() && Tier < 0.0 && !bAllTiers)
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Provide params.schematicClass, params.tier (>=0), or params.allTiers=true")));
+			return true;
+		}
+		const FAIModOperationResult Result = UAIModFunctionLibrary::ReprocessMilestone(GetGameInstance(), SchematicClassPath, static_cast<int32>(Tier), bAllTiers);
+		OnComplete(MakeOperationResponse(Result, RequestId));
+		return true;
+	}
+
 	if (Method == TEXT("world.startMamResearch"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
