@@ -37,10 +37,13 @@ form, cargo platform flow rates).
   upgradeSpaceElevator path covered the experiment). Test when a
   skip-ahead is actually wanted; verify tier gating follows and visuals/
   narrative behave.
-- [ ] **NEW `world.setShipReturnTime`** (creative-gated) — deployed, needs
-  an IN-FLIGHT freighter to test: launch any milestone, call with
-  secondsFromNow=0, confirm the terminal becomes usable immediately
-  (tick-vs-timer unknown flagged in its doc comment).
+- [x] **NEW `world.setShipReturnTime`** — **DONE 2026-09-20, PASS**: on
+  an in-flight freighter (Coal Power launch), timeUntilShipReturn
+  480s → 0.0s immediately after the call — the timestamp write IS what
+  the return logic reads (tick-compare, not a one-shot timer), so the
+  terminal frees up without the wait. Also proven implicitly: the
+  9-milestone Tier 3-4 sweep ran back-to-back launches with no
+  terminal-gating failures.
 
 - [x] **NEW `world.setActiveMilestone` + `world.launchShip`** — **DONE
   2026-09-20, ALL PASS after redeploy.** NOT_PAID_OFF guard fired
