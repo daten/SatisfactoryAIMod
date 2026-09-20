@@ -230,10 +230,10 @@ public:
 	 * unlike the AABBs above), plus belowKillZ and inside-2D-world-bounds
 	 * checks. Reports containing volume ids and the distance to the
 	 * nearest non-containing volume so a controller can bisect the true
-	 * boundary surface. Caveat flagged for live test: FG overrides
-	 * `EncompassesPoint` for the post-process interface and the .cpp is
-	 * a stub here - if the real implementation ever diverges from brush
-	 * containment this needs a fallback through the brush body instance.
+	 * boundary surface. Live-verified 2026-09-19 against the map-edge
+	 * volumes: FG's `EncompassesPoint` override (stub .cpp) does track
+	 * real brush containment, so no fallback through the brush body
+	 * instance is needed.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FString ProbeHazardAsJson(UObject* WorldContextObject, float X, float Y, float Z);
@@ -305,10 +305,9 @@ public:
 	 * order reported by world.projectAssembly; pass -1 for unused) or by
 	 * PhaseAssetPath (exact asset path from the same report).
 	 *
-	 * FLAGGED UNKNOWN for live test: the BP implementation is opaque
-	 * from source - if it re-reads the phase manager instead of trusting
-	 * the event parameter, this no-ops (returns success but nothing
-	 * visibly changes; that outcome = the finding, not a code bug).
+	 * Resolved live 2026-09-19: the BP honors the event parameter - the
+	 * station visuals rebuild for the requested phase (walk PhaseIndex
+	 * 0..5 in order to watch the ship assemble).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult SetProjectAssemblyVisualPhase(UObject* WorldContextObject, int32 PhaseIndex, const FString& PhaseAssetPath);
@@ -337,10 +336,8 @@ public:
 	 * SaveGame), so this never persists and cannot corrupt a save - a
 	 * reload restores the vanilla 2,350,000.
 	 *
-	 * FLAGGED UNKNOWN for the live test: if the BP subclass's Event Tick
-	 * re-derives location every frame from something other than
-	 * mProjectAssemblyHeight, the station may snap back; the returned
-	 * position (and a follow-up world.projectAssembly) will show it.
+	 * Resolved live 2026-09-19: the station holds the new height (no
+	 * per-tick snap-back), and its XY keeps tracking the Space Elevator.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult SetProjectAssemblyHeight(UObject* WorldContextObject, float NewHeight);
@@ -409,10 +406,9 @@ public:
 	 * carries the mesh) via deferred spawn so mSplinePath is set BEFORE
 	 * BeginPlay caches the spline, copies mSecondsPerLoop, and offsets
 	 * mCurrentTime by TimeOffsetSeconds so it trails/leads the original.
-	 * EXPERIMENTAL / not yet verified at runtime: BeginPlay/UpdateManta are
-	 * BP-driven (C++ stubs here), so whether a deferred-spawned copy
-	 * correctly caches the shared spline and flies needs runtime
-	 * verification. Spawning
+	 * Live-verified 2026-09-19: a deferred-spawned copy correctly caches
+	 * the shared spline and flies the route (flock-on-one-path confirmed;
+	 * BeginPlay/UpdateManta are BP-driven, C++ stubs here). Spawning
 	 * on a brand-new path is NOT supported (would need creating an
 	 * AFGSplinePath). Session-only.
 	 */
@@ -512,7 +508,7 @@ public:
 	 * resolution as the add. Clamps to what is actually present and reports the
 	 * exact itemsRemoved (delta-measured). NOTE: the items are DESTROYED from
 	 * that inventory (not moved to the player) - to move to the player use
-	 * withdrawFromCentralStorage (Depot) or a belt. Not yet verified at runtime.
+	 * withdrawFromCentralStorage (Depot) or a belt. Live-verified 2026-09-08.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult RemoveItemsFromInventory(UObject* WorldContextObject, const FString& BuildableId, const FString& InventoryRole, const FString& ItemClassPath, int32 Amount);
@@ -526,7 +522,7 @@ public:
 	 * hand-loading fuel/ammo. Respects slot/stack limits (a full inventory
 	 * returns a partial or zero add, reported in detail.itemsAdded, not an
 	 * error). Single-player / loopback creative capability, same posture as the
-	 * buildable-inventory injection. Not yet verified at runtime.
+	 * buildable-inventory injection. Live-verified 2026-09-08.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult AddItemsToPlayerInventory(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);
@@ -1785,7 +1781,7 @@ public:
 	 * the player actually holds AND the Depot's remaining capacity for that item
 	 * (GetCentralStorageItemLimit). Reports itemsUploaded (may be < Amount when
 	 * the remaining need is smaller than the smallest matching stack, or the
-	 * Depot is near full) - a soft shortfall, not a loss. Not yet verified at runtime.
+	 * Depot is near full) - a soft shortfall, not a loss. Live-verified 2026-09-08.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult UploadToCentralStorage(UObject* WorldContextObject, const FString& ItemClassPath, int32 Amount);
@@ -1875,8 +1871,8 @@ public:
 	 * world.conveyorBeltTiers and controller/satisfactory_ai/conveyors.py.
 	 * Source/dest are not required to be machines - any AFGBuildable
 	 * with a free UFGFactoryConnectionComponent works, including belts
-	 * themselves, so chaining calls should build multi-segment routes
-	 * (not live-tested beyond single machine-to-machine segments).
+	 * themselves, so chaining calls builds multi-segment routes
+	 * (live-proven at scale in the copper/HMF factory builds).
 	 *
 	 * RouteMode: one of Straight/Curve/Auto (case-insensitive, empty
 	 * leaves the hologram default). Added because the basic click
@@ -2349,8 +2345,8 @@ public:
 	 * (FindFreePowerConnection searches any AFGBuildable, not hardcoded
 	 * to machines), so a real power pole should work as an intermediate
 	 * relay for a connection exceeding mMaxLength by chaining
-	 * world.connectPower calls - untested live so far, every power
-	 * connection built has been one direct machine-to-machine segment.
+	 * world.connectPower calls - live-proven since in the copper/HMF
+	 * factory builds (pole-relay chains carry whole factory sections).
 	 * See docs/conveyor-power-connection-research.md: a machine's
 	 * default single power slot may require routing through a pole even
 	 * for a short connection if the daisy-chain unlock is not active in
@@ -2767,9 +2763,9 @@ public:
 	 * segment; UFGCDTrackTooLong/TooShort/TooSteep/TrunToSharp (sic, real
 	 * name typo in FGConstructDisqualifier.h) are never bypassed.
 	 *
-	 * Not yet verified at runtime - implemented from header research only
-	 * (FGRailroadTrackHologram.cpp is a stub, real construct-path
-	 * behavior unconfirmed).
+	 * Live-verified 2026-09-18: a full RPC-built circular track (4 arcs,
+	 * station-integrated ends and free ends) runs a self-driving train
+	 * loop - see docs/vehicle-placement-guide.md.
 	 */
 	static void ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
@@ -3344,7 +3340,8 @@ public:
 	 * "verify after every write" discipline as everything else in this
 	 * file).
 	 *
-	 * Not yet verified at runtime.
+	 * Live-verified 2026-09-18 (the self-driving train loop's timetable
+	 * was built with this).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult SetTrainTimetable(UObject* WorldContextObject, const FString& TrainId, const FString& StopsJson);
@@ -3360,7 +3357,8 @@ public:
 	 * to check against). Only fails if IsSelfDrivingEnabled() doesn't match
 	 * the requested value at all afterward.
 	 *
-	 * Not yet verified at runtime.
+	 * Live-verified 2026-09-18 (drives the RPC-built train loop at
+	 * NoError).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult SetTrainSelfDriving(UObject* WorldContextObject, const FString& TrainId, bool bEnabled);
@@ -3390,8 +3388,8 @@ public:
 	 * for the caller to act on. Only fails on bad input / target not found /
 	 * the enable flag not sticking.
 	 *
-	 * Server-authority (single-player local host is the server). Not yet
-	 * verified at runtime.
+	 * Server-authority (single-player local host is the server).
+	 * Live-verified 2026-09-19.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
 	static FAIModOperationResult SetTruckAutopilot(UObject* WorldContextObject, const FString& VehicleId, bool bEnabled, const FString& StationIdsJson, const FString& FuelItemClass, int32 FuelAmount);

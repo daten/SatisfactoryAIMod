@@ -2657,9 +2657,8 @@ void UAIModFunctionLibrary::ConstructConveyorLift(UObject* WorldContextObject, c
 // every belt fix up front rather than rediscovering them -
 // UpdateHologramPlacement() before TrySnapToActor() at each click, and the
 // connector's REAL GetConnectorNormal() (not a placeholder UpVector) in the
-// synthetic hit. Not yet verified at runtime - unlike ConstructConveyorBelt,
-// none of this has been run against a real game session. Two known
-// pipe-specific unknowns going in: (1) AFGSplineHologram (the shared
+// synthetic hit. Live-verified since on real pump/tank/machine pipe runs.
+// Two pipe-specific caveats that remain true: (1) AFGSplineHologram (the shared
 // base) has no GetAnyConnectedBuildables() - only
 // AFGConveyorBeltHologram declares that method - so this uses
 // IsConnectionSnapped(false) instead for the post-end-click diagnostic,

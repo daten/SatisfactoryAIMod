@@ -2358,8 +2358,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	// "world.connectConveyor" above. "world.testConveyorLift" (dry run)
 	// and "world.connectConveyorLift" (real) share UAIModFunctionLibrary::
 	// ConstructConveyorLift, differing only in the bDryRun argument.
-	// Vertical conveyor groundwork - not yet verified at runtime, see
-	// ConstructConveyorLift's doc comment.
+	// Vertical conveyor support - live-verified (lifts are VERTICAL-only;
+	// see ConstructConveyorLift's doc comment).
 	if (Method == TEXT("world.testConveyorLift") || Method == TEXT("world.connectConveyorLift"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2431,10 +2431,8 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	// "world.connectConveyor" above. "world.testPipe" (dry run) and
 	// "world.connectPipe" (real) share UAIModFunctionLibrary::
 	// ConstructPipe, differing only in the bDryRun argument. Pipe
-	// groundwork - not yet verified at runtime, see ConstructPipe's
-	// doc comment for the open questions (no GetAnyConnectedBuildables()
-	// on the shared hologram base, no standalone pole recipe found on
-	// disk).
+	// support - live-verified (real pump/tank/machine runs); see
+	// ConstructPipe's doc comment.
 	if (Method == TEXT("world.testPipe") || Method == TEXT("world.connectPipe"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2508,7 +2506,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	// "world.testRailroadTrack" (dry run) and "world.constructRailroadTrack"
 	// (real) share UAIModFunctionLibrary::ConstructRailroadTrack, same
 	// shape as world.testPipe/world.connectPipe above. See
-	// ConstructRailroadTrack's doc comment - not yet verified at runtime.
+	// ConstructRailroadTrack's doc comment - live-verified 2026-09-18.
 	if (Method == TEXT("world.testRailroadTrack") || Method == TEXT("world.constructRailroadTrack"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
@@ -2635,7 +2633,7 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	}
 
 	// world.constructVehiclePathSegment - see ConstructVehiclePathSegment's
-	// doc comment. Not yet verified at runtime.
+	// doc comment. Live-verified 2026-09-19.
 	if (Method == TEXT("world.constructVehiclePathSegment"))
 	{
 		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
