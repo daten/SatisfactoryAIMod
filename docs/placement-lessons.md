@@ -33,7 +33,15 @@ faces, platform rings, spire; ~52 m + spire in ~14 s) via
 - Parametric recipe that reads well: define horizontal "rings" up the height with
   a tapering half-width (Eiffel inward curve `hw=HB*(1-f)^1.6`), then connect
   corners vertically (legs), around (frame/platforms) and diagonally between rings
-  (X-braces), plus a spire to an apex. Beams are lightweight (`Build_Beam_C|N`).
+  (X-braces), the signature base arches (a parabolic beam chain per face), platform
+  decks, and a spire. Beams are lightweight (`Build_Beam_C|N`). ~276 beams, ~185 m.
+- Place the base ABOVE local terrain (`EIF_BASE_Z`) - a base at ground z can end up
+  partially inside a rock formation / slope and read as "underground".
+- **Floating-foundation perches only catch the pawn when placed WELL CLEAR above
+  local terrain.** A perch whose top is at z600 over a rock formation let the pawn
+  fall THROUGH it to the rock (consistently); the same perch at z3000 (clear of the
+  rock) caught it first try. So raise a viewing/build perch clear of local terrain
+  AND rocks, not just clear of the nominal ground.
 
 ## Hypertube cannon — chained entrance/exit pairs (2026-09-21) — found live
 
