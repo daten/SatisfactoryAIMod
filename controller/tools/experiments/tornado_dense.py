@@ -1,11 +1,14 @@
-"""Dense belt tornado v2 - tight layer spacing (user: gap should be ~10% of
-the 624/rev original). Parametrized helix built from scratch; total height
-stays under ~7600 so NO perches are needed - ground teleports only.
+"""Machine-free belt helix ("tornado"). Parametrized helix built from scratch.
+Keep total height under ~7600 so NO perches are needed - ground teleports only
+(reach also self-corrects where terrain rises with radius).
 
 Usage: py tornado_dense.py <wp_start> <wp_end_exclusive> <dz_per_rev>
-Waypoint 0 = first pole. Same center as before.
+Waypoint 0 = first pole. Center and revolution count can be overridden with the
+TORNADO_CX / TORNADO_CY / TORNADO_REVS env vars (default = the original site).
+DZ (vertical rise per revolution) is the density knob: ~100 = pole-height-tight
+(hits a ~5-9% clearance-overlap gap floor); ~150+ builds essentially gap-free.
 """
-import math, sys, time
+import math, os, sys, time
 sys.path.insert(0, r"F:\Claude\SatisfactoryModLoader\controller")
 from satisfactory_ai.rpc_client import RpcClient, RpcError
 
@@ -15,10 +18,11 @@ POLE = '/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorPole.Recipe_ConveyorP
 BELT = '/Game/FactoryGame/Recipes/Buildings/Recipe_ConveyorBeltMk1.Recipe_ConveyorBeltMk1_C'
 FLAGS = {'ignoreGroundTrace': True, 'ignoreInvalidFloor': True, 'ignoreAimLocation': True,
          'ignorePlayerEncroachment': True, 'gridSnapSize': 0}
-CX, CY = 27200.0, 280000.0
+CX = float(os.environ.get('TORNADO_CX', 27200.0))
+CY = float(os.environ.get('TORNADO_CY', 280000.0))
 R0, Z0 = 1400.0, 400.0
 DR = 100.0        # radius growth per revolution
-REVS = 72
+REVS = int(os.environ.get('TORNADO_REVS', 72))
 CHORD = 2400.0
 
 def rev_points(n):
@@ -63,14 +67,62 @@ def find_pole_at(i):
             return r['id']
     return None
 
-def tp_under(i):
-    x, y, _ = xyz(i)
+# Safe teleport. A hardcoded fallback z is a player-killer: teleporting far
+# ABOVE local ground drops the pawn to its death (fatal fall), and far BELOW
+# ground kills it underground - both leave NO_PLAYER with no RPC to respawn.
+# So: prefer live groundHeight (valid once the player is local), else the last
+# confirmed landing z, else the player's CURRENT z (a no-drop move). Only ever
+# land ~150 above the reference. Read back to keep the ground estimate current
+# as terrain changes with radius.
+_last_gz = {'z': None}
+
+def _player_pos():
     try:
-        g = c.call('world.groundHeight', {'x': x, 'y': y, 'z': 100})
-        gz = g['z'] if g.get('found') else 80.0
-        c.call('world.teleportPlayer', {'x': x, 'y': y, 'z': gz + 150})
+        p = c.call('world.player').get('position', {})
+        if p and (p.get('x'), p.get('y'), p.get('z')) != (0, 0, 0):
+            return p
     except RpcError:
         pass
+    return None
+
+def _safe_tp(x, y):
+    g = None
+    try:
+        g = c.call('world.groundHeight', {'x': x, 'y': y, 'z': 100})
+    except RpcError:
+        pass
+    if g and g.get('found'):
+        gz = g['z']
+    elif _last_gz['z'] is not None:
+        gz = _last_gz['z']
+    else:
+        cur = _player_pos()
+        gz = (cur['z'] - 150.0) if cur else 80.0   # gz+150 == current z: no drop
+    try:
+        c.call('world.teleportPlayer', {'x': x, 'y': y, 'z': gz + 150})
+    except RpcError:
+        return
+    time.sleep(0.4)
+    p = _player_pos()
+    if p:
+        _last_gz['z'] = p['z']
+
+def walk_in(tx, ty, hop=2500.0):
+    """Hop the player to (tx,ty) in small steps so groundHeight stays valid and
+    every teleport is a short, survivable move - avoids the fatal first-teleport
+    fall when the build site is far from where the player currently stands."""
+    p = _player_pos()
+    if not p:
+        return
+    px, py = p['x'], p['y']
+    dist = math.hypot(tx - px, ty - py)
+    steps = max(1, int(dist // hop))
+    for s in range(1, steps + 1):
+        _safe_tp(px + (tx - px) * s / steps, py + (ty - py) * s / steps)
+
+def tp_under(i):
+    x, y, _ = xyz(i)
+    _safe_tp(x, y)
 
 def belt(src, dst):
     try:
@@ -84,6 +136,14 @@ prev_id = find_pole_at(WP_A - 1) if WP_A > 0 else None
 if WP_A > 0 and not prev_id:
     raise SystemExit(f'cannot resolve previous pole at wp {WP_A-1}')
 print(f'dense build: wp {WP_A}..{end_i-1} of {TOTAL}, dz/rev={DZ}', flush=True)
+
+# Bail loudly if there is no live player - every placeBuilding/teleport would
+# just NO_PLAYER, and there is no RPC to respawn (a manual respawn/reload is
+# required). Then walk the player safely to the first waypoint.
+if _player_pos() is None:
+    raise SystemExit('NO_PLAYER: respawn or reload a save before building')
+_fx, _fy, _ = xyz(WP_A)
+walk_in(_fx, _fy)
 
 pending = []
 t0 = time.time()
