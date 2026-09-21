@@ -79,7 +79,12 @@ def find_pole_at(i):
 # Waypoints are <2000 apart with gradual terrain, so the reference stays within a
 # small, survivable delta of local ground; read-back keeps it current.
 _last_gz = {'z': None}
-_STEP = 120.0   # how far above the tracked ground to aim (tiny, survivable fall)
+# Aim BELOW the tracked ground so the pawn pops UP to the surface (zero fall
+# damage) instead of falling. Repeated small falls accumulate - with no HP regen
+# between teleports they eventually kill the player over uneven terrain. A pop-up
+# only costs fall damage on a genuine downward terrain step, which read-back then
+# tracks. Shallow (-250) so the underground pop is never a "deep teleport" death.
+_STEP = -250.0
 
 def _player_pos():
     try:
@@ -164,6 +169,9 @@ for i in range(WP_A, end_i):
         pid = call_retry('world.placeBuilding', {'recipeClass': POLE, **dict(zip(('x','y','z'), xyz(i))),
                                                  'yaw': yaw_back(i), **FLAGS})['buildableId']
     except RpcError as e:
+        if 'NO_PLAYER' in str(e):
+            raise SystemExit(f'ABORT at wp{i}: player died (NO_PLAYER) - respawn/'
+                             f'reload and restart from this waypoint. Built {i-WP_A} poles.')
         print(f'  POLE FAIL wp{i}: {str(e)[:90]}', flush=True)
         prev_id = None
         continue
