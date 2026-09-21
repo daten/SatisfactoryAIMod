@@ -10,7 +10,7 @@ DZ (vertical rise per revolution) is the density knob: ~100 = pole-height-tight
 """
 import math, os, sys, time
 sys.path.insert(0, r"F:\Claude\SatisfactoryModLoader\controller")
-from satisfactory_ai.rpc_client import RpcClient, RpcError
+from satisfactory_ai.rpc_client import RpcClient, RpcError, RpcTransportError
 
 WP_A, WP_B, DZ = int(sys.argv[1]), int(sys.argv[2]), float(sys.argv[3])
 c = RpcClient()
@@ -50,11 +50,14 @@ def yaw_back(i):
     return math.degrees(math.atan2(py - y, px - x))
 
 def call_retry(method, params, tries=4, pause=0.6):
+    # Catch transport errors too: a single connection blip (WinError 10054 - the
+    # game HTTP server dropping the socket during a frame hitch) must not kill a
+    # long build. Back off and retry; the server usually recovers.
     last = None
     for _ in range(tries):
         try:
             return c.call(method, params)
-        except RpcError as e:
+        except (RpcError, RpcTransportError) as e:
             last = e
             time.sleep(pause)
     raise last
@@ -67,45 +70,42 @@ def find_pole_at(i):
             return r['id']
     return None
 
-# Safe teleport. A hardcoded fallback z is a player-killer: teleporting far
-# ABOVE local ground drops the pawn to its death (fatal fall), and far BELOW
-# ground kills it underground - both leave NO_PLAYER with no RPC to respawn.
-# So: prefer live groundHeight (valid once the player is local), else the last
-# confirmed landing z, else the player's CURRENT z (a no-drop move). Only ever
-# land ~150 above the reference. Read back to keep the ground estimate current
-# as terrain changes with radius.
+# Safe teleport. Teleporting far ABOVE local ground drops the pawn to its death
+# (fatal fall) and far BELOW ground kills it underground - both leave NO_PLAYER
+# with no RPC to respawn. groundHeight's z is NOT trustworthy (observed returning
+# ~2929 at a site whose real ground was ~200 - trusting it teleported the player
+# thousands of units up, a fatal fall). So we NEVER use groundHeight's z: we
+# track the player's ACTUAL landed z and only ever step a small amount from it.
+# Waypoints are <2000 apart with gradual terrain, so the reference stays within a
+# small, survivable delta of local ground; read-back keeps it current.
 _last_gz = {'z': None}
+_STEP = 120.0   # how far above the tracked ground to aim (tiny, survivable fall)
 
 def _player_pos():
     try:
         p = c.call('world.player').get('position', {})
         if p and (p.get('x'), p.get('y'), p.get('z')) != (0, 0, 0):
             return p
-    except RpcError:
+    except (RpcError, RpcTransportError):
         pass
     return None
 
 def _safe_tp(x, y):
-    g = None
-    try:
-        g = c.call('world.groundHeight', {'x': x, 'y': y, 'z': 100})
-    except RpcError:
-        pass
-    if g and g.get('found'):
-        gz = g['z']
-    elif _last_gz['z'] is not None:
-        gz = _last_gz['z']
-    else:
+    ref = _last_gz['z']
+    if ref is None:                 # first move: the live player's z IS valid ground
         cur = _player_pos()
-        gz = (cur['z'] - 150.0) if cur else 80.0   # gz+150 == current z: no drop
+        if cur is None:
+            return
+        ref = cur['z']
+        _last_gz['z'] = ref
     try:
-        c.call('world.teleportPlayer', {'x': x, 'y': y, 'z': gz + 150})
-    except RpcError:
+        c.call('world.teleportPlayer', {'x': x, 'y': y, 'z': ref + _STEP})
+    except (RpcError, RpcTransportError):
         return
     time.sleep(0.4)
     p = _player_pos()
     if p:
-        _last_gz['z'] = p['z']
+        _last_gz['z'] = p['z']       # trust only where the pawn actually settled
 
 def walk_in(tx, ty, hop=2500.0):
     """Hop the player to (tx,ty) in small steps so groundHeight stays valid and
@@ -128,8 +128,8 @@ def belt(src, dst):
     try:
         c.call('world.connectConveyor', {'recipeClass': BELT, 'sourceBuildableId': src, 'destBuildableId': dst})
         return True
-    except RpcError as e:
-        return str(e)
+    except (RpcError, RpcTransportError) as e:
+        return str(e)   # transport blip -> treated as a gap, retried in the fixer
 
 end_i = min(WP_B, TOTAL)
 prev_id = find_pole_at(WP_A - 1) if WP_A > 0 else None
@@ -185,12 +185,7 @@ still = []
 for i, s, d, err in pending:
     x, y, z = xyz(i); px, py, pz = xyz(i-1)
     mx, my = (x+px)/2, (y+py)/2
-    try:
-        g = c.call('world.groundHeight', {'x': mx, 'y': my, 'z': 100})
-        gz = g['z'] if g.get('found') else 80.0
-        c.call('world.teleportPlayer', {'x': mx, 'y': my, 'z': gz+150})
-    except RpcError:
-        pass
+    _safe_tp(mx, my)
     ok = False
     for _ in range(3):
         time.sleep(1.0)
