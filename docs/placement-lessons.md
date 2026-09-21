@@ -14,6 +14,31 @@ full investigation if one exists.
 > counterparts live in `controller/satisfactory_ai/` (composites, router,
 > connector_db, conveyors, splitters, layout, vehicles).
 
+## Woven belt grid ("basket weave") — over/under mechanics (2026-09-21) — found live
+
+A 20x20 woven grid (20 E/W belts crossed with 20 N/S belts, alternating
+over/under at every crossing) built high in the air on platform-perches
+(`controller/tools/experiments/belt_weave.py`). Result: 800 poles, 688 belts
+(91%), a clearly woven mesh. Live findings:
+
+- **A real basket weave needs RAMPING strands.** Straight constant-height belts
+  can't weave; each strand must undulate - up-and-over at one crossing,
+  down-and-under at the next. So a pole sits at every crossing at the strand's
+  alternating height (HIGH if (row+col) even else LOW, opposite for the crossing
+  strand) and short belts ramp between them.
+- **Co-located poles fail to belt-connect.** The E/W pole and the N/S pole at a
+  crossing want the same (x,y) at different z; the second's clearance overlaps
+  and belts onto them fail. Offset the two pole grids (~90 units) so no two poles
+  share an (x,y).
+- **Steep ramp belts fail, especially uphill and mid-chain.** At ~67% slope
+  (delta 200 over pitch 300) roughly half the segments fail ("too steep", and an
+  uphill belt out of a pole that already holds the downhill belt is the worst
+  case). A gentle **~25% slope (pitch 400, delta 100)** connects reliably (8/8,
+  and a 3x3 weave came out 12/12). Keep weave ramps shallow.
+- Belt connection is still flaky in bulk (~9% gaps at 20x20 even at 25% slope,
+  vs 0% at 3x3), same order as the tornado's gap rate - retry, and heal later.
+- The whole grid is built terrain-free on moving platform-perches (see below).
+
 ## Dense machine-free belt helix ("tornado") — density floor & reach (2026-09-21) — found live
 
 Built a tight machine-free conveyor helix (`Recipe_ConveyorPole` +
