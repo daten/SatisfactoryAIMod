@@ -70,21 +70,20 @@ def find_pole_at(i):
             return r['id']
     return None
 
-# Safe teleport. Teleporting far ABOVE local ground drops the pawn to its death
-# (fatal fall) and far BELOW ground kills it underground - both leave NO_PLAYER
-# with no RPC to respawn. groundHeight's z is NOT trustworthy (observed returning
-# ~2929 at a site whose real ground was ~200 - trusting it teleported the player
-# thousands of units up, a fatal fall). So we NEVER use groundHeight's z: we
-# track the player's ACTUAL landed z and only ever step a small amount from it.
-# Waypoints are <2000 apart with gradual terrain, so the reference stays within a
-# small, survivable delta of local ground; read-back keeps it current.
-_last_gz = {'z': None}
-# Aim BELOW the tracked ground so the pawn pops UP to the surface (zero fall
-# damage) instead of falling. Repeated small falls accumulate - with no HP regen
-# between teleports they eventually kill the player over uneven terrain. A pop-up
-# only costs fall damage on a genuine downward terrain step, which read-back then
-# tracks. Shallow (-250) so the underground pop is never a "deep teleport" death.
-_STEP = -250.0
+# Safe teleport via a FLOATING PLATFORM. Landing the player on raw terrain is a
+# player-killer: over uneven/deep ground the pawn falls to its death or dies
+# underground (both leave NO_PLAYER, and there is no respawn RPC), and terrain
+# reads are unreliable to boot. Instead we float an 8x1 foundation at a chosen
+# altitude and stand the player on IT - terrain below becomes irrelevant. The
+# perch moves with the work (place the new one, land on it, THEN delete the old,
+# so the player always has ground). Calibrated live: foundation top = placement
+# z + 50; teleporting to top+170 lands the pawn stably (no fall-through).
+FND = '/Game/FactoryGame/Recipes/Buildings/Foundations/Recipe_Foundation_8x1_01.Recipe_Foundation_8x1_01_C'
+PERCH_FLAGS = dict(FLAGS, ignoreClearance=True)
+PERCH_DROP = 550.0   # place the perch this far BELOW the belt plane so its
+                     # clearance never interferes with belt validation
+FND_HALF = 50.0      # 8x1 foundation half-thickness (top = placement z + FND_HALF)
+_perch = {'id': None}
 
 def _player_pos():
     try:
@@ -95,39 +94,57 @@ def _player_pos():
         pass
     return None
 
-def _safe_tp(x, y):
-    ref = _last_gz['z']
-    if ref is None:                 # first move: the live player's z IS valid ground
-        cur = _player_pos()
-        if cur is None:
-            return
-        ref = cur['z']
-        _last_gz['z'] = ref
+def _perch_at(x, y, z):
+    """Float a foundation whose top sits at ~z and stand the player on it."""
+    pz = z - FND_HALF
     try:
-        c.call('world.teleportPlayer', {'x': x, 'y': y, 'z': ref + _STEP})
+        new_id = call_retry('world.placeBuilding',
+                            {'recipeClass': FND, 'x': x, 'y': y, 'z': pz, 'yaw': 0, **PERCH_FLAGS})['buildableId']
     except (RpcError, RpcTransportError):
-        return
+        return False
+    try:
+        c.call('world.teleportPlayer', {'x': x, 'y': y, 'z': pz + FND_HALF + 170})
+    except (RpcError, RpcTransportError):
+        pass
     time.sleep(0.4)
-    p = _player_pos()
-    if p:
-        _last_gz['z'] = p['z']       # trust only where the pawn actually settled
+    old = _perch['id']
+    _perch['id'] = new_id
+    if old:                      # delete the previous perch only after the player is on the new one
+        try:
+            c.call('world.deleteBuilding', {'buildableId': old})
+        except (RpcError, RpcTransportError):
+            pass
+    return True
 
-def walk_in(tx, ty, hop=2500.0):
-    """Hop the player to (tx,ty) in small steps so groundHeight stays valid and
-    every teleport is a short, survivable move - avoids the fatal first-teleport
-    fall when the build site is far from where the player currently stands."""
+def _safe_tp(x, y, z):
+    # perch a bit below the work: clear of the belt plane, player still within reach
+    _perch_at(x, y, z - PERCH_DROP)
+
+def walk_in(tx, ty, tz, hop=3000.0):
+    """Hop the player to (tx,ty) on floating perches at a fixed high altitude
+    (above any terrain, incl. canyons) so crossing to a far site never risks a
+    terrain death; the final perch drops to the build altitude."""
     p = _player_pos()
     if not p:
         return
     px, py = p['x'], p['y']
+    alt = max(p['z'] + 300.0, 3000.0)   # cruising altitude, clear of terrain
     dist = math.hypot(tx - px, ty - py)
     steps = max(1, int(dist // hop))
     for s in range(1, steps + 1):
-        _safe_tp(px + (tx - px) * s / steps, py + (ty - py) * s / steps)
+        _perch_at(px + (tx - px) * s / steps, py + (ty - py) * s / steps, alt)
 
 def tp_under(i):
-    x, y, _ = xyz(i)
-    _safe_tp(x, y)
+    x, y, z = xyz(i)
+    _safe_tp(x, y, z)
+
+def cleanup_perch():
+    if _perch['id']:
+        try:
+            c.call('world.deleteBuilding', {'buildableId': _perch['id']})
+        except (RpcError, RpcTransportError):
+            pass
+        _perch['id'] = None
 
 def belt(src, dst):
     try:
@@ -147,8 +164,8 @@ print(f'dense build: wp {WP_A}..{end_i-1} of {TOTAL}, dz/rev={DZ}', flush=True)
 # required). Then walk the player safely to the first waypoint.
 if _player_pos() is None:
     raise SystemExit('NO_PLAYER: respawn or reload a save before building')
-_fx, _fy, _ = xyz(WP_A)
-walk_in(_fx, _fy)
+_fx, _fy, _fz = xyz(WP_A)
+walk_in(_fx, _fy, _fz)
 
 pending = []
 t0 = time.time()
@@ -193,7 +210,7 @@ still = []
 for i, s, d, err in pending:
     x, y, z = xyz(i); px, py, pz = xyz(i-1)
     mx, my = (x+px)/2, (y+py)/2
-    _safe_tp(mx, my)
+    _safe_tp(mx, my, (z+pz)/2)
     ok = False
     for _ in range(3):
         time.sleep(1.0)
@@ -209,3 +226,7 @@ print(f'CHUNK DONE {time.time()-t0:.0f}s, wp {WP_A}..{end_i-1}, '
       f'gaps: {gaps}/{span} ({100*gaps/span:.0f}%)', flush=True)
 if still:
     print('  gap wps:', [i for i, _ in still], flush=True)
+# Leave the player standing on the final perch (deleting it would drop the pawn).
+# The single leftover foundation is cleaned up separately once the player has been
+# moved to safe ground.
+print(f'final perch id (player is standing on it): {_perch["id"]}', flush=True)
