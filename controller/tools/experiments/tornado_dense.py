@@ -87,11 +87,17 @@ print(f'dense build: wp {WP_A}..{end_i-1} of {TOTAL}, dz/rev={DZ}', flush=True)
 
 pending = []
 t0 = time.time()
-last_tp = -999
+# Re-position by DISTANCE, not waypoint count: conveyor validation fails when the
+# player is beyond ~5000 units of the connection, and at large radius a fixed
+# waypoint stride spans a whole loop (>5000 across). Teleport whenever the work
+# moves TP_DIST horizontally so the player stays close the entire climb.
+last_txy = None
+TP_DIST = 2000.0
 for i in range(WP_A, end_i):
-    if i - last_tp >= 24:            # re-position player every ~2 revolutions
+    x_i, y_i, _ = xyz(i)
+    if last_txy is None or math.hypot(x_i - last_txy[0], y_i - last_txy[1]) > TP_DIST:
         tp_under(i)
-        last_tp = i
+        last_txy = (x_i, y_i)
         print(f'wp {i}: r={WAYPTS[i][1]:.0f} z={WAYPTS[i][2]:.0f} pending={len(pending)} '
               f'[{time.time()-t0:.0f}s]', flush=True)
     try:
@@ -109,11 +115,16 @@ for i in range(WP_A, end_i):
                 pending.append((i, prev_id, pid, str(r)[:80]))
     prev_id = pid
 
+# Lean healer: re-teleport ON TOP of the gap and retry both directions a few
+# times (belt validation sometimes needs a settle tick). No mid-segment helper
+# poles - subdivision left clutter and half-built belts. A miss is a clean gap
+# between two real poles, which reads fine in a dense mass and is trivial to
+# sweep later.
 print(f'fixer pass: {len(pending)}', flush=True)
 still = []
 for i, s, d, err in pending:
     x, y, z = xyz(i); px, py, pz = xyz(i-1)
-    mx, my, mz = (x+px)/2, (y+py)/2, (z+pz)/2
+    mx, my = (x+px)/2, (y+py)/2
     try:
         g = c.call('world.groundHeight', {'x': mx, 'y': my, 'z': 100})
         gz = g['z'] if g.get('found') else 80.0
@@ -121,23 +132,17 @@ for i, s, d, err in pending:
     except RpcError:
         pass
     ok = False
-    for _ in range(5):
-        time.sleep(1.5)
+    for _ in range(3):
+        time.sleep(1.0)
         if belt(s, d) is True or belt(d, s) is True:
             ok = True; break
     if ok:
         print(f'  wp{i} healed', flush=True)
     else:
-        try:
-            hyaw = math.degrees(math.atan2(py-my, px-mx))
-            h = call_retry('world.placeBuilding', {'recipeClass': POLE, 'x': mx, 'y': my, 'z': mz,
-                                                   'yaw': hyaw, **FLAGS})['buildableId']
-            time.sleep(0.5)
-            r1 = belt(s, h); time.sleep(0.5); r2 = belt(h, d)
-            if r1 is True and r2 is True:
-                print(f'  wp{i} healed via subdivide', flush=True)
-            else:
-                still.append((i, err, str(r1)[:60], str(r2)[:60]))
-        except RpcError as e:
-            still.append((i, err, 'helper-fail', str(e)[:60]))
-print(f'CHUNK DONE {time.time()-t0:.0f}s, wp {WP_A}..{end_i-1}, unresolved: {still}', flush=True)
+        still.append((i, str(err)[:70]))
+gaps = len(still)
+span = max(1, end_i - WP_A)
+print(f'CHUNK DONE {time.time()-t0:.0f}s, wp {WP_A}..{end_i-1}, '
+      f'gaps: {gaps}/{span} ({100*gaps/span:.0f}%)', flush=True)
+if still:
+    print('  gap wps:', [i for i, _ in still], flush=True)

@@ -14,6 +14,41 @@ full investigation if one exists.
 > counterparts live in `controller/satisfactory_ai/` (composites, router,
 > connector_db, conveyors, splitters, layout, vehicles).
 
+## Dense machine-free belt helix ("tornado") — density floor & reach (2026-09-21) — found live
+
+Built a tight machine-free conveyor helix (`Recipe_ConveyorPole` +
+`Recipe_ConveyorBeltMk1`, all with `ignoreGroundTrace/ignoreInvalidFloor/`
+`ignoreAimLocation/ignorePlayerEncroachment`). Script:
+`controller/tools/experiments/tornado_dense.py`. Result at the tightest usable
+spacing: 1084 poles / 1027 belts, 7200 units tall, 17.2 km crest diameter,
+**~95% of segments belted**.
+
+- **Conveyor-pole belt connector = pole base + 100 units** (measured live:
+  poles placed at z400 reported connectors at z500 via `world.connections`).
+  So "one pole height" of vertical spacing is `DZ = 100` per revolution — the
+  maximum density knob for a stacked helix.
+- **Density floor: at `DZ=100` roughly 5–9% of belts are permanently
+  rejected** — `Overlapping another object's clearance`, `Invalid Conveyor
+  Belt shape!`, `Conveyor Belt is too steep!`. Adjacent loops are only 100
+  units apart, so their belt **clearance volumes overlap**; no amount of
+  retry, re-teleport, or mid-pole **subdivide** closes these (subdivide only
+  helps the few shape-limited ones, not the overlap-limited majority). This is
+  a physical limit of the requested density, not a bug. Looser `DZ` (≈150+)
+  builds essentially gap-free.
+- **Re-teleport by DISTANCE, not waypoint count.** Belt validation fails when
+  the player is beyond ~5000 units of the connection. A fixed waypoint stride
+  spans a whole loop at large radius (>5000 across), so belts fail mid-build;
+  teleport whenever the work moves ~2000 units horizontally instead.
+- **Reach can hold to great heights without perches when terrain rises with
+  radius.** `tp_under` drops the player at local ground under each waypoint; at
+  this site terrain climbed with radius, so the player followed up and stayed
+  within reach all the way to z7600. On flat terrain, layers more than ~5000
+  above the player's footing would need perches (which risk a fall death if the
+  player is teleported high or onto a floating foundation).
+- **Heal cleanly, never leave partials.** The subdivide healer deletes its
+  mid-pole (dropping any half-belt) whenever a half fails, so a miss stays a
+  clean single-segment gap in the mass rather than a dangling stub.
+
 ## Item-granting RPCs must never destroy overflow (2026-09-02) — found live
 
 A **full player inventory** silently destroyed items in two RPCs that
