@@ -14,6 +14,35 @@ full investigation if one exists.
 > counterparts live in `controller/satisfactory_ai/` (composites, router,
 > connector_db, conveyors, splitters, layout, vehicles).
 
+## Hypertube cannon — chained entrance/exit pairs (2026-09-21) — found live
+
+A "hypertube cannon" = a dense row of hypertube entrance->short tube->exit pairs
+that re-accelerate the player. Built 8 pairs via RPC
+(`controller/tools/experiments/hypertube_cannon.py`).
+
+- Recipes: entrance/exit = `Recipe_PipeHyperStart_C` (one hyper connection each,
+  serves as both entrance and exit); tube = built by `world.connectHypertube`
+  (hardcoded `Recipe_PipeHyper`, no recipeClass param). A "pair" = 2 PipeHyperStart
+  + 1 tube.
+- **`connectHypertube` is flaky like belts, and dense packing breaks it.** Placing
+  all entrances first, then connecting, gave 0/8 tubes: `FindFreeHyperPipeConnection`
+  grabs a neighbouring entrance's connector when pairs are ~200 units apart.
+  Fix: **interleave** - place a pair and connect its tube BEFORE the next pair
+  exists (no adjacent connector to grab). That gave 8/8. Also retry (flaky:
+  600-unit spacing succeeds/fails run-to-run).
+- **Entrances DO take power.** `AFGPipeHyperStart : AFGBuildableFactory` (has a
+  power connection + a `CanProduce` gate, and `mInitialMinSpeedFactor` boost).
+  `connectPower` works on them **only with `ignoreAimLocation:true` +
+  `ignoreWireLength:true`** (a bare connectPower fails "Invalid aim location").
+  A `Recipe_PowerTower` near the cannon, energized from the base grid over a
+  long no-length-limit wire, powers them; entrances have ONE power slot each so
+  distribute across several poles (pole/tower slots are limited).
+- **Siting matters more than the build.** A cannon is a long horizontal row that
+  needs FLAT, SOLID, CLEAR ground. Over the void it is a player-killer; on a
+  terrain bowl (like the tornado site) a flat run either buries into rising
+  terrain or floats over drop-offs. Pick genuinely flat solid ground, and keep
+  the player on it (or on a platform-perch with a fall-catch loop).
+
 ## Woven belt grid ("basket weave") — over/under mechanics (2026-09-21) — found live
 
 A 20x20 woven grid (20 E/W belts crossed with 20 N/S belts, alternating
