@@ -25,6 +25,12 @@ faces, platform rings, spire; ~52 m + spire in ~14 s) via
   `Recipe_Beam_C` (plain I-beam; also `_H`,`_Cross`,`_Painted`,`_Concrete`,
   `_Support`,`_Cable`). `rotationScrollSteps` rolls the cross-section;
   `world.setBeamLength(buildableId,newLength)` trims a placed beam.
+- **Beams max out at 4000 units (40 m); `constructBeam` CLAMPS a longer span to
+  a 4000 stub** (no error), leaving gaps - a big wide structure then looks like
+  disconnected stubs. SUBDIVIDE every member into <=3800-unit segments (chain
+  beams) so it actually spans. `world.setBeamLength` reports the beam's real
+  length + `maxLength` (4000); the `world.buildables` bounds for a beam are a
+  fixed ~400-unit clearance box, NOT its true length - don't measure spans by it.
 - **Beams need NO player proximity** - one built 6000 units from the player
   placed fine. This is the big one for architecture: compute the whole structure
   and place every member at exact coords while the player stays safe on the
