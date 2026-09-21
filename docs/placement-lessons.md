@@ -74,8 +74,9 @@ Built a tight machine-free conveyor helix (`Recipe_ConveyorPole` +
 `Recipe_ConveyorBeltMk1`, all with `ignoreGroundTrace/ignoreInvalidFloor/`
 `ignoreAimLocation/ignorePlayerEncroachment`). Script:
 `controller/tools/experiments/tornado_dense.py`. Result at the tightest usable
-spacing: 1084 poles / 1027 belts, 7200 units tall, 17.2 km crest diameter,
-**~95% of segments belted**.
+spacing: 1084 poles / 1027 belts, 7200 units (72 m) tall, 17200-unit (172 m)
+crest diameter, **~95% of segments belted**. (Reminder: 1 unit = 1 cm, so
+100 units = 1 m; the map is only ~7 km across.)
 
 - **Conveyor-pole belt connector = pole base + 100 units** (measured live:
   poles placed at z400 reported connectors at z500 via `world.connections`).
