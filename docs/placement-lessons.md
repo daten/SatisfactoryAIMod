@@ -14,6 +14,27 @@ full investigation if one exists.
 > counterparts live in `controller/satisfactory_ai/` (composites, router,
 > connector_db, conveyors, splitters, layout, vehicles).
 
+## Architectural builds with beams — free-angle lattice (2026-09-21) — found live
+
+Built an Eiffel Tower approximation (150 I-beams: curved splayed legs, X-braced
+faces, platform rings, spire; ~52 m + spire in ~14 s) via
+`controller/tools/experiments/eiffel.py`. Beams are the tool for architecture:
+
+- **`world.constructBeam` takes two 3D endpoints** (`startX/Y/Z`,`endX/Y/Z`), so a
+  beam is any length at any angle - no separate rotation/length needed. Recipe
+  `Recipe_Beam_C` (plain I-beam; also `_H`,`_Cross`,`_Painted`,`_Concrete`,
+  `_Support`,`_Cable`). `rotationScrollSteps` rolls the cross-section;
+  `world.setBeamLength(buildableId,newLength)` trims a placed beam.
+- **Beams need NO player proximity** - one built 6000 units from the player
+  placed fine. This is the big one for architecture: compute the whole structure
+  and place every member at exact coords while the player stays safe on the
+  ground. No perches, no reach limit, no terrain interaction (beams float with
+  `ignoreGroundTrace`). ~150 beams in 14 s.
+- Parametric recipe that reads well: define horizontal "rings" up the height with
+  a tapering half-width (Eiffel inward curve `hw=HB*(1-f)^1.6`), then connect
+  corners vertically (legs), around (frame/platforms) and diagonally between rings
+  (X-braces), plus a spire to an apex. Beams are lightweight (`Build_Beam_C|N`).
+
 ## Hypertube cannon — chained entrance/exit pairs (2026-09-21) — found live
 
 A "hypertube cannon" = a dense row of hypertube entrance->short tube->exit pairs
