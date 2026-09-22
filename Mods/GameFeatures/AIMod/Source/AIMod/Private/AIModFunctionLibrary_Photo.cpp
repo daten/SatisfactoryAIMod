@@ -2,6 +2,7 @@
 
 #include "AIModFunctionLibraryInternal.h"
 #include "FGPhotoModeComponent.h"
+#include "FGPlayerState.h"           // AFGPlayerState::GetPhotoModeComponent (canonical owner)
 #include "UnrealClient.h"            // FScreenshotRequest
 #include "HAL/FileManager.h"
 #include "Misc/Paths.h"
@@ -25,20 +26,26 @@ namespace
 			.Replace(TEXT("\\"), TEXT("/"));
 	}
 
+	// The photo-mode component is OWNED BY THE PLAYER STATE (AFGPlayerState::
+	// mPhotoModeComponent); the character's GetCachedPhotoModeComponent() is a
+	// lazily-populated cache that is null until photo mode is first opened, so we
+	// prefer the player state, then the static getter, then the cache.
 	UFGPhotoModeComponent* AIModGetPhotoComp(UWorld* World, FString& OutError)
 	{
+		APlayerController* PC = World ? UGameplayStatics::GetPlayerController(World, 0) : nullptr;
 		AFGCharacterPlayer* Character = World ? Cast<AFGCharacterPlayer>(UGameplayStatics::GetPlayerPawn(World, 0)) : nullptr;
-		if (!Character)
+		if (!PC && !Character)
 		{
 			OutError = TEXT("NO_PLAYER");
 			return nullptr;
 		}
-		UFGPhotoModeComponent* Comp = Character->GetCachedPhotoModeComponent();
-		if (!Comp)
-		{
-			OutError = TEXT("NO_PHOTO_COMPONENT");
-		}
-		return Comp;
+		AFGPlayerState* PS = PC ? PC->GetPlayerState<AFGPlayerState>() : nullptr;
+		if (!PS && Character) { PS = Character->GetPlayerState<AFGPlayerState>(); }
+		if (PS && PS->GetPhotoModeComponent()) { return PS->GetPhotoModeComponent(); }
+		if (PC) { if (UFGPhotoModeComponent* Comp = UFGPhotoModeComponent::GetUFGPhotoModeComponent(PC)) { return Comp; } }
+		if (Character && Character->GetCachedPhotoModeComponent()) { return Character->GetCachedPhotoModeComponent(); }
+		OutError = TEXT("NO_PHOTO_COMPONENT");
+		return nullptr;
 	}
 }
 
