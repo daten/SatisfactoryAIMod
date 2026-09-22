@@ -35,10 +35,13 @@ rings=[[corner(k,f) for k in range(4)] for f in FR]
 
 n=[0]; fail=[0]; t0=time.time()
 def _beam(a,b):
+    # freeformMode=True is REQUIRED: the default (diagonal) build mode snaps beams
+    # into the X-Z plane, so north-south members come out east-west and the tower
+    # collapses to flat layers. Freeform follows the exact start->end vector in 3D.
     for _ in range(3):
         try:
             c.call('world.constructBeam',{'recipeClass':BEAM,'startX':a[0],'startY':a[1],'startZ':a[2],
-                                          'endX':b[0],'endY':b[1],'endZ':b[2],'ignoreGroundTrace':True})
+                                          'endX':b[0],'endY':b[1],'endZ':b[2],'ignoreGroundTrace':True,'freeformMode':True})
             n[0]+=1; return
         except (RpcError,RpcTransportError): time.sleep(0.25)
     n[0]+=1; fail[0]+=1

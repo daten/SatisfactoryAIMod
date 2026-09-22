@@ -25,6 +25,11 @@ faces, platform rings, spire; ~52 m + spire in ~14 s) via
   `Recipe_Beam_C` (plain I-beam; also `_H`,`_Cross`,`_Painted`,`_Concrete`,
   `_Support`,`_Cable`). `rotationScrollSteps` rolls the cross-section;
   `world.setBeamLength(buildableId,newLength)` trims a placed beam.
+- **Pass `freeformMode:true` on constructBeam for arbitrary 3D angles.** The
+  default (diagonal) build mode SNAPS beams into the X-Z plane, so a
+  north-south (Y) member comes out east-west and a whole tower collapses to
+  flat east-west layers. Freeform follows the exact start->end vector (verified:
+  freeform EAST->x, NORTH->y, UP->z, DIAG->true 3D; diagonal put NORTH on x).
 - **Beams max out at 4000 units (40 m); `constructBeam` CLAMPS a longer span to
   a 4000 stub** (no error), leaving gaps - a big wide structure then looks like
   disconnected stubs. SUBDIVIDE every member into <=3800-unit segments (chain
