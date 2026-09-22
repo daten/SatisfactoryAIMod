@@ -926,6 +926,55 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		return true;
 	}
 
+	// Photo mode / screenshots (AIModFunctionLibrary_Photo.cpp). All benign
+	// view-only operations, so not creative-gated. Sync (return an
+	// FAIModOperationResult); the actual image render lands next frame.
+	if (Method == TEXT("world.captureScreenshot"))
+	{
+		bool bShowUI = false;
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) && ParamsObjectPtr && ParamsObjectPtr->IsValid())
+		{
+			(*ParamsObjectPtr)->TryGetBoolField(TEXT("showUI"), bShowUI);
+		}
+		OnComplete(MakeOperationResponse(UAIModFunctionLibrary::CaptureScreenshot(GetGameInstance(), bShowUI), RequestId));
+		return true;
+	}
+	if (Method == TEXT("world.enterPhotoMode") || Method == TEXT("world.exitPhotoMode"))
+	{
+		const bool bEnable = (Method == TEXT("world.enterPhotoMode"));
+		OnComplete(MakeOperationResponse(UAIModFunctionLibrary::SetPhotoModeEnabled(GetGameInstance(), bEnable), RequestId));
+		return true;
+	}
+	if (Method == TEXT("world.takePhoto"))
+	{
+		OnComplete(MakeOperationResponse(UAIModFunctionLibrary::TakePhoto(GetGameInstance()), RequestId));
+		return true;
+	}
+	if (Method == TEXT("world.setPhotoCamera"))
+	{
+		const TSharedPtr<FJsonObject>* ParamsObjectPtr = nullptr;
+		if (!RequestObject->TryGetObjectField(TEXT("params"), ParamsObjectPtr) || !ParamsObjectPtr || !ParamsObjectPtr->IsValid())
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("Missing required 'params' object")));
+			return true;
+		}
+		const TSharedPtr<FJsonObject> ParamsObject = *ParamsObjectPtr;
+		double X = 0.0, Y = 0.0, Z = 0.0;
+		if (!ParamsObject->TryGetNumberField(TEXT("x"), X) || !ParamsObject->TryGetNumberField(TEXT("y"), Y) || !ParamsObject->TryGetNumberField(TEXT("z"), Z))
+		{
+			OnComplete(MakeErrorResponse(EHttpServerResponseCodes::BadRequest, RequestId, TEXT("INVALID_REQUEST"), TEXT("params.x, y and z must all be numbers")));
+			return true;
+		}
+		double Pitch = 0.0, Yaw = 0.0;
+		ParamsObject->TryGetNumberField(TEXT("pitch"), Pitch);
+		ParamsObject->TryGetNumberField(TEXT("yaw"), Yaw);
+		OnComplete(MakeOperationResponse(UAIModFunctionLibrary::SetPhotoCamera(GetGameInstance(),
+			static_cast<float>(X), static_cast<float>(Y), static_cast<float>(Z),
+			static_cast<float>(Pitch), static_cast<float>(Yaw)), RequestId));
+		return true;
+	}
+
 	// Two "MethodResultJson"-style read entries for map markers
 	// (world.mapMarkerIcons/world.mapMarkers) live further down in this
 	// function, alongside world.player/world.timeOfDay etc. - the

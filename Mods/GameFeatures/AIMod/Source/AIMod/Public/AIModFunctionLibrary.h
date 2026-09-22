@@ -699,6 +699,40 @@ public:
 	static FAIModOperationResult TeleportPlayer(UObject* WorldContextObject, float X, float Y, float Z, bool bIgnoreGroundTrace, bool bHasTargetYaw, float TargetYawDegrees);
 
 	/**
+	 * world.captureScreenshot - request an engine screenshot to disk via
+	 * FScreenshotRequest (rendered on the next frame, so the file appears a
+	 * moment after this returns). Returns the absolute file path in
+	 * result.detail.path. bShowUI keeps the HUD in the shot when true.
+	 * Implemented in AIModFunctionLibrary_Photo.cpp.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult CaptureScreenshot(UObject* WorldContextObject, bool bShowUI);
+
+	/**
+	 * world.enterPhotoMode / world.exitPhotoMode - toggle FactoryGame's photo
+	 * mode via UFGPhotoModeComponent (AFGCharacterPlayer::GetCachedPhotoModeComponent).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetPhotoModeEnabled(UObject* WorldContextObject, bool bEnabled);
+
+	/**
+	 * world.setPhotoCamera - enter photo mode + decoupled free-camera mode and
+	 * place the AFGPhotoModeCamera pawn at (X,Y,Z) looking (Pitch,Yaw). Raises
+	 * the component's decoupled move/cutoff distance limits so the camera can
+	 * frame a large build far from the player.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult SetPhotoCamera(UObject* WorldContextObject, float X, float Y, float Z, float Pitch, float Yaw);
+
+	/**
+	 * world.takePhoto - FactoryGame photo-mode high-res capture
+	 * (UFGPhotoModeComponent::TakePhoto). Saves to the game's Screenshots dir;
+	 * returns that directory in result.detail.dir (newest file is the photo).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AIMod|AI Interface", meta = (WorldContext = "WorldContextObject"))
+	static FAIModOperationResult TakePhoto(UObject* WorldContextObject);
+
+	/**
 	 * world.mapMarkerIcons - lists the real, current set of
 	 * icons the in-game map UI itself offers for manually-placed markers
 	 * - `AFGIconDatabaseSubsystem::GetAllIconDataForType(EIconType::

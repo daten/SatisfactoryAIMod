@@ -1,6 +1,6 @@
 # AIMod RPC catalog (generated)
 
-Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **127 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
+Auto-generated from the dispatcher by `controller/tools/gen_rpc_catalog.py` — the always-current, complete list of **132 methods** with params + one-line summaries. The running mod serves this same catalog live via the `world.help` RPC. Param *types* can also be confirmed at runtime from structured errors like `params.buildableId must be a non-empty string`.
 
 For richer, hand-written detail (examples, a Connecting section, per-method notes) see `RPC_REFERENCE.md` in the repo root — but it is maintained by hand and can lag; trust `world.help` / this file on any conflict. Deep placement guidance: `docs/factory-placement-guide.md`, `docs/vehicle-placement-guide.md`.
 
@@ -172,6 +172,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.buildables`** — List placed buildables (id, class, position, bounds); optional id/box filter.  
   params: `(none)`
+- **`world.captureScreenshot`** — Request an engine screenshot to disk (rendered next frame); returns the file path in result.detail.path. showUI keeps the HUD.  
+  params: `(none)`
 - **`world.claimMamHardDriveReward`** — Claim a hard-drive alternate-recipe reward.  
   params: `schematicClass:string`
 - **`world.claimMamResearch`** — Claim a completed M.A.M. research.  
@@ -184,6 +186,10 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `creatureId:string`
 - **`world.despawnDamageVolume`** — Destroy a damage volume actor (also removes its boundary post-process; session-only, returns on save load). [creative: requires the 'Allow Creative Features' mod setting]  
   params: `volumeId:string`
+- **`world.enterPhotoMode`** — Enter FactoryGame photo mode (UFGPhotoModeComponent).  
+  params: `(none)`
+- **`world.exitPhotoMode`** — Exit FactoryGame photo mode.  
+  params: `(none)`
 - **`world.installPowerShard`** — Install power shard(s) into a machine to raise its clock cap.  
   params: `buildableId:string, count:number`
 - **`world.launchShip`** — Press the HUB launch button for the fully-paid ACTIVE milestone (NOT_PAID_OFF otherwise). The milestone's purchased flag flips at/near launch; the freighter return wait only gates the terminal UI.  
@@ -226,6 +232,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.setManta`** — Manipulate a manta by id: despawn, freeze (stop on its path), secondsPerLoop (lap speed), or currentTime (scrub along route). Session-only. [creative: requires the 'Allow Creative Features' mod setting]  
   params: `mantaId:string, despawn:bool?, freeze:bool?, secondsPerLoop:number?, currentTime:number?`
+- **`world.setPhotoCamera`** — Enter photo mode + decoupled free camera and place it at (x,y,z) looking (pitch,yaw); raises the camera distance limits to frame large builds.  
+  params: `x:number, y:number, z:number, pitch:number?, yaw:number?`
 - **`world.setPowerSwitchOn`** — Turn a power switch on/off.  
   params: `buildableId:string, switchOn:bool`
 - **`world.setPriorityPowerSwitchPriority`** — Set a priority power switch's priority group.  
@@ -258,6 +266,8 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.startMamResearch`** — Start a M.A.M. research node.  
   params: `schematicClass:string, researchTreeClass:string, dryRun:bool?`
+- **`world.takePhoto`** — FactoryGame photo-mode high-res capture to the game's Screenshots dir (returned in result.detail.dir; newest file is the photo).  
+  params: `(none)`
 - **`world.teleportPlayer`** — Teleport the local player to (x,y,z) (+optional yaw). Use to satisfy camera-distance-sensitive connect/place calls.  
   params: `x:number, y:number, z:number?, ignoreGroundTrace:bool?, yaw:number?`
 - **`world.upgradeSpaceElevator`** — Pay the Space Elevator's next phase cost from the PLAYER's carried inventory (the widget's own PayOffFromInventory path - direct inventory seeding is filter-refused) and press the upgrade button once ready. payOnly=true deposits without pressing. The real phase-advance path.  

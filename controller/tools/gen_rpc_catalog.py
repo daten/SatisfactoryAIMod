@@ -152,6 +152,11 @@ SUMMARIES = {
  "world.help":"This catalog: every RPC method with params + a one-line summary (runtime self-description).",
  "world.splineGeometry":"Spline geometry (points/length) for a belt/pipe/hypertube/track buildable.",
  "world.teleportPlayer":"Teleport the local player to (x,y,z) (+optional yaw). Use to satisfy camera-distance-sensitive connect/place calls.",
+ "world.captureScreenshot":"Request an engine screenshot to disk (rendered next frame); returns the file path in result.detail.path. showUI keeps the HUD.",
+ "world.enterPhotoMode":"Enter FactoryGame photo mode (UFGPhotoModeComponent).",
+ "world.exitPhotoMode":"Exit FactoryGame photo mode.",
+ "world.setPhotoCamera":"Enter photo mode + decoupled free camera and place it at (x,y,z) looking (pitch,yaw); raises the camera distance limits to frame large builds.",
+ "world.takePhoto":"FactoryGame photo-mode high-res capture to the game's Screenshots dir (returned in result.detail.dir; newest file is the photo).",
 }
 
 def parse():
