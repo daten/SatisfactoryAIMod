@@ -3716,26 +3716,6 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		return;
 	}
 
-	// EXPERIMENTAL far-end rotation: between the start and end clicks the
-	// interactive player scrolls to rotate the FAR END's connection tangent in
-	// anticipation of the next segment - this is what lets a straight/gentle span
-	// route cleanly instead of AutoRouteSpline ballooning it. ScrollRotate is the
-	// public override the build gun's Scroll() drives; apply EndRotationSteps of
-	// it (sign = direction) at the hologram's own rotation step. Characterize the
-	// exact effect (degrees/step, which end) with the rail test course.
-	if (EndRotationSteps != 0)
-	{
-		const int32 RotStep = TrackHologram->GetRotationStep();
-		const int32 Dir = EndRotationSteps > 0 ? 1 : -1;
-		const int32 Count = FMath::Abs(EndRotationSteps);
-		for (int32 s = 0; s < Count; ++s)
-		{
-			TrackHologram->ScrollRotate(Dir, RotStep);
-		}
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: applied %d ScrollRotate step(s) (dir=%d, rotationStep=%d) to the far end"),
-			Count, Dir, RotStep);
-	}
-
 	// ---- END click ----
 	// Free-end: the second click lands on a foundation surface at the given XY
 	// (trace the ground like ConstructBuildingAtPosition), so the hologram's end
@@ -3758,6 +3738,25 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 	}
 	TrackHologram->SetHologramLocationAndRotation(EndHit);
 	TrackHologram->UpdateHologramPlacement(EndHit);
+	// EXPERIMENTAL far-end rotation: the interactive player, AFTER aiming the end,
+	// scrolls to rotate the FAR END's connection tangent in anticipation of the
+	// next segment - this is what lets a straight/gentle span route cleanly instead
+	// of AutoRouteSpline ballooning it. Must be applied HERE (after the end aim,
+	// before finalizing) or SetHologramLocationAndRotation above overwrites it.
+	// Re-run UpdateHologramPlacement after each scroll so the spline re-routes.
+	if (EndRotationSteps != 0)
+	{
+		const int32 RotStep = TrackHologram->GetRotationStep();
+		const int32 Dir = EndRotationSteps > 0 ? 1 : -1;
+		const int32 Count = FMath::Abs(EndRotationSteps);
+		for (int32 s = 0; s < Count; ++s)
+		{
+			TrackHologram->ScrollRotate(Dir, RotStep);
+			TrackHologram->UpdateHologramPlacement(EndHit);
+		}
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: applied %d ScrollRotate step(s) (dir=%d, rotationStep=%d) after end aim; disq now=[%s]"),
+			Count, Dir, RotStep, *SummarizeDisqualifiers(TrackHologram));
+	}
 	const bool bSnapEnd = TrackHologram->TrySnapToActor(EndHit);
 	const bool bCanStepEnd = TrackHologram->CanTakeNextBuildStep();
 	bool bEndStepComplete = TrackHologram->DoMultiStepPlacement(true);
