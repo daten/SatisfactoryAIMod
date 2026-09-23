@@ -2713,9 +2713,25 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 				EndRotationSteps = FMath::RoundToInt(EndRotStepsNum);
 			}
 		}
+		// endTangent: the full 3D far-end tangent (pitch + yaw) to drive
+		// mUseCustomEndRotation + mHitTangent. Accept {x,y,z}.
+		FVector EndTangent = FVector::ZeroVector;
+		bool bHasEndTangent = false;
+		{
+			const TSharedPtr<FJsonObject>* TanObj = nullptr;
+			if (ParamsObject->TryGetObjectField(TEXT("endTangent"), TanObj) && TanObj && TanObj->IsValid())
+			{
+				double TX = 0.0, TY = 0.0, TZ = 0.0;
+				(*TanObj)->TryGetNumberField(TEXT("x"), TX);
+				(*TanObj)->TryGetNumberField(TEXT("y"), TY);
+				(*TanObj)->TryGetNumberField(TEXT("z"), TZ);
+				EndTangent = FVector(TX, TY, TZ);
+				bHasEndTangent = !EndTangent.IsNearlyZero();
+			}
+		}
 
 		UAIModFunctionLibrary::ConstructRailroadTrack(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRunTrack,
-			SrcConnPos, bHasSrcConnPos, DstConnPos, bHasDstConnPos, bUsePrimaryFire, bStraightMode, EndRotationSteps,
+			SrcConnPos, bHasSrcConnPos, DstConnPos, bHasDstConnPos, bUsePrimaryFire, bStraightMode, EndRotationSteps, EndTangent, bHasEndTangent,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

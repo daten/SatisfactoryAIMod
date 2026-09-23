@@ -120,7 +120,7 @@ SUMMARIES = {
  "world.testHypertube":"Dry-run a hypertube connection.",
  "world.connectPower":"Connect a power line A<->B (pin connectorPositionA/B; no length limit).",
  "world.testPowerConnection":"Dry-run a power connection.",
- "world.constructRailroadTrack":"Build rail track between two rail buildables, or (empty destBuildableId + destConnectorPosition) to a free end landing on a foundation for track-to-track chaining. Optional experimental route controls: straightMode (bool), endRotationSteps (int, ScrollRotate the far end).",
+ "world.constructRailroadTrack":"Build rail track between two rail buildables, or (empty destBuildableId + destConnectorPosition) to a free end landing on a foundation for track-to-track chaining. Optional experimental route controls (applied post-init): straightMode (bool), endRotationSteps (int, yaw ScrollRotate), endTangent {x,y,z} (full 3D far-end tangent = pitch+yaw).",
  "world.testRailroadTrack":"Dry-run a rail track build.",
  "world.constructTrainPlatform":"Attach a freight/empty train platform to a station or platform via the real platform snap.",
  "world.testTrainPlatform":"Dry-run a train-platform attach (reports whether it would snap).",

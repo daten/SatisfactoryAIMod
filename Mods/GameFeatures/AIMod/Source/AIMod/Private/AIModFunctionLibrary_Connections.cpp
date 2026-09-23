@@ -3312,7 +3312,34 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 // this only builds a single point-to-point segment between two existing
 // connector-bearing buildables (e.g. two Train Station platforms, or an
 // existing track's open end).
-void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, bool bStraightMode, int32 EndRotationSteps, TFunction<void(const FAIModOperationResult&)> OnComplete)
+// Reflection setters for the rail hologram's PRIVATE UPROPERTYs
+// (mUseCustomEndRotation, mHitTangent, mStraightMode). They are private in
+// FGRailroadTrackHologram but UPROPERTY(CustomSerialization), so reflectable.
+// This is how we drive the interactive player's far-end route controls (the
+// far-end tangent = pitch + yaw) that our headless build otherwise never sets.
+static void AIModSetHologramBoolProp(UObject* Obj, const TCHAR* Name, bool Value)
+{
+	if (!Obj) { return; }
+	if (FBoolProperty* Prop = FindFProperty<FBoolProperty>(Obj->GetClass(), Name))
+	{
+		Prop->SetPropertyValue_InContainer(Obj, Value);
+	}
+}
+static bool AIModSetHologramVectorProp(UObject* Obj, const TCHAR* Name, const FVector& Value)
+{
+	if (!Obj) { return false; }
+	if (FProperty* Prop = FindFProperty<FProperty>(Obj->GetClass(), Name))
+	{
+		if (FVector* Ptr = Prop->ContainerPtrToValuePtr<FVector>(Obj))
+		{
+			*Ptr = Value;
+			return true;
+		}
+	}
+	return false;
+}
+
+void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, bool bStraightMode, int32 EndRotationSteps, const FVector& EndTangent, bool bHasEndTangent, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -3738,25 +3765,9 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 	}
 	TrackHologram->SetHologramLocationAndRotation(EndHit);
 	TrackHologram->UpdateHologramPlacement(EndHit);
-	// EXPERIMENTAL far-end rotation: the interactive player, AFTER aiming the end,
-	// scrolls to rotate the FAR END's connection tangent in anticipation of the
-	// next segment - this is what lets a straight/gentle span route cleanly instead
-	// of AutoRouteSpline ballooning it. Must be applied HERE (after the end aim,
-	// before finalizing) or SetHologramLocationAndRotation above overwrites it.
-	// Re-run UpdateHologramPlacement after each scroll so the spline re-routes.
-	if (EndRotationSteps != 0)
-	{
-		const int32 RotStep = TrackHologram->GetRotationStep();
-		const int32 Dir = EndRotationSteps > 0 ? 1 : -1;
-		const int32 Count = FMath::Abs(EndRotationSteps);
-		for (int32 s = 0; s < Count; ++s)
-		{
-			TrackHologram->ScrollRotate(Dir, RotStep);
-			TrackHologram->UpdateHologramPlacement(EndHit);
-		}
-		UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: applied %d ScrollRotate step(s) (dir=%d, rotationStep=%d) after end aim; disq now=[%s]"),
-			Count, Dir, RotStep, *SummarizeDisqualifiers(TrackHologram));
-	}
+	// (Far-end route controls - ScrollRotate / mHitTangent - are applied in the
+	// poll loop AFTER the hologram finishes "Initializing"; applying them here
+	// during init is a no-op, which is why the earlier attempt had no effect.)
 	const bool bSnapEnd = TrackHologram->TrySnapToActor(EndHit);
 	const bool bCanStepEnd = TrackHologram->CanTakeNextBuildStep();
 	bool bEndStepComplete = TrackHologram->DoMultiStepPlacement(true);
@@ -3809,6 +3820,14 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		// RemoveTrack/AddTrack graph surgery must be SKIPPED (it only graph-
 		// merges and would fight the engine's own setup).
 		bool bBothSnapped = false;
+		// EXPERIMENTAL far-end route controls, applied ONCE after the hologram
+		// finishes "Initializing" (the correct moment; applying during init is a
+		// no-op). EndRotationSteps -> ScrollRotate (yaw); EndTangent (if set) ->
+		// mUseCustomEndRotation + mHitTangent (full 3D far-end tangent = pitch+yaw).
+		int32 EndRotationSteps = 0;
+		FVector EndTangent = FVector::ZeroVector;
+		bool bHasEndTangent = false;
+		bool bRouteControlsApplied = false;
 		int32 AttemptsRemaining = 120;
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -3825,6 +3844,9 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 	PollState->SourceConn = SourceConnection;
 	PollState->DestConn = DestConnection;
 	PollState->bBothSnapped = bBothConnectorsSnapped;
+	PollState->EndRotationSteps = EndRotationSteps;
+	PollState->EndTangent = EndTangent;
+	PollState->bHasEndTangent = bHasEndTangent;
 	PollState->OnComplete = MoveTemp(OnComplete);
 
 	const TSharedRef<TFunction<void()>> PollFn = MakeShared<TFunction<void()>>();
@@ -3865,6 +3887,51 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		{
 			PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
 			return;
+		}
+
+		// EXPERIMENTAL far-end route controls, applied ONCE now that the hologram
+		// has finished initializing (this is the correct moment - the interactive
+		// player scrolls/aims the far end here, after the end click, before
+		// construct). ScrollRotate = the yaw scroll; mUseCustomEndRotation +
+		// mHitTangent = the full 3D far-end tangent (pitch + yaw). Then re-route
+		// (UpdateHologramPlacement re-runs AutoRouteSpline) and re-fetch
+		// disqualifiers so the check below reflects the re-routed spline.
+		if (!PollState->bRouteControlsApplied && (PollState->EndRotationSteps != 0 || PollState->bHasEndTangent))
+		{
+			PollState->bRouteControlsApplied = true;
+			if (PollState->EndRotationSteps != 0)
+			{
+				const int32 RotStep = PollHologram->GetRotationStep();
+				const int32 Dir = PollState->EndRotationSteps > 0 ? 1 : -1;
+				for (int32 s = 0; s < FMath::Abs(PollState->EndRotationSteps); ++s)
+				{
+					PollHologram->ScrollRotate(Dir, RotStep);
+				}
+			}
+			if (PollState->bHasEndTangent)
+			{
+				AIModSetHologramBoolProp(PollHologram, TEXT("mUseCustomEndRotation"), true);
+				AIModSetHologramVectorProp(PollHologram, TEXT("mHitTangent"), PollState->EndTangent);
+			}
+			// Re-route with the new controls; re-set the tangent after in case
+			// UpdateHologramPlacement recomputed mHitTangent from the hit.
+			PollHologram->UpdateHologramPlacement(PollState->EndHit);
+			if (PollState->bHasEndTangent)
+			{
+				AIModSetHologramBoolProp(PollHologram, TEXT("mUseCustomEndRotation"), true);
+				AIModSetHologramVectorProp(PollHologram, TEXT("mHitTangent"), PollState->EndTangent);
+				PollHologram->UpdateHologramPlacement(PollState->EndHit);
+			}
+			Disqualifiers.Reset();
+			PollHologram->GetConstructDisqualifiers(Disqualifiers);
+			TArray<FString> AppliedDisq;
+			for (const TSubclassOf<UFGConstructDisqualifier>& D : Disqualifiers)
+			{
+				AppliedDisq.Add(UFGConstructDisqualifier::GetDisqualifyingText(D).ToString());
+			}
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: post-init route controls applied (rotSteps=%d, hasTangent=%d tangent=%s); disq now=[%s]"),
+				PollState->EndRotationSteps, PollState->bHasEndTangent ? 1 : 0, *PollState->EndTangent.ToString(),
+				AppliedDisq.IsEmpty() ? TEXT("<none>") : *FString::Join(AppliedDisq, TEXT("; ")));
 		}
 
 		// No bIgnore* bypass flags here, deliberately - UFGCDTrackTooLong/
