@@ -52,6 +52,16 @@ This was **not a regression** — the mod only ever used `ECC_Visibility`; the
 - After the rebuild, `world.groundHeight` / `world.terrainHeightGrid` scan the
   real landscape, restoring whole-section terrain surveys for clean-area finding.
 
+**✅ VERIFIED LIVE (2026-09-23):** once the fixed build actually loaded (see the
+deploy gotcha below), every probe returns real terrain — `world.groundHeight`
+reports `traceMethod: "ObjectType:WorldStatic/Dynamic"` (the object-type query is
+what sees the landscape; the channel fallbacks aren't needed), and
+`world.terrainHeightGrid` returned 81/81 points over a 40 km area with ~478 m of
+relief (a clear plateau→valley boundary), matching the independent IDW estimate.
+Caveat: the wide ±100 km window returns the TOPMOST WorldStatic, so over a
+floating build (rail/tower) it reports that surface, not the ground beneath —
+fine for clean-area finding; bias `z`/reference for terrain under structures.
+
 Compile + link **verified** via `tools/build-editor.ps1` (FactoryEditor,
 Development, `-WarningsAsErrors`): `UnrealEditor-AIMod.dll` built clean. Note: the
 adaptive non-unity path of that script trips an IWYU lint ("Expected
