@@ -52,6 +52,15 @@ This was **not a regression** — the mod only ever used `ECC_Visibility`; the
 - After the rebuild, `world.groundHeight` / `world.terrainHeightGrid` scan the
   real landscape, restoring whole-section terrain surveys for clean-area finding.
 
+Compile + link **verified** via `tools/build-editor.ps1` (FactoryEditor,
+Development, `-WarningsAsErrors`): `UnrealEditor-AIMod.dll` built clean. Note: the
+adaptive non-unity path of that script trips an IWYU lint ("Expected
+AIModFunctionLibrary.h to be first header included") because the domain-split
+`.cpp` files include the internal header first — a UNITY build (Alpakit) never
+applies that rule, so it is not a problem for packaging and the split does NOT
+need reverting. A full-module (unity) editor build is clean; live activation
+still needs the game closed + relaunched on the new Alpakit build.
+
 **Workaround used DURING this test** (running build had the bug, no rebuild
 available): a terrain-elevation model from objects that DO sit on the real ground
 — `world.resourceNodes` (640 nodes, map-wide) + base buildables at low z (~22k
