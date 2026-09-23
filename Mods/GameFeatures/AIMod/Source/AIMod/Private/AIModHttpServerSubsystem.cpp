@@ -2699,8 +2699,23 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 		bool bUsePrimaryFire = false;
 		ParamsObject->TryGetBoolField(TEXT("usePrimaryFire"), bUsePrimaryFire);
 
+		// EXPERIMENTAL route controls (see ConstructRailroadTrack): straightMode
+		// sets the hologram's mStraightMode; endRotationSteps applies that many
+		// ScrollRotate steps to the far-end connection before the end click (the
+		// player's "pre-rotate the far end" input). Both default off/0.
+		bool bStraightMode = false;
+		ParamsObject->TryGetBoolField(TEXT("straightMode"), bStraightMode);
+		int32 EndRotationSteps = 0;
+		{
+			double EndRotStepsNum = 0.0;
+			if (ParamsObject->TryGetNumberField(TEXT("endRotationSteps"), EndRotStepsNum))
+			{
+				EndRotationSteps = FMath::RoundToInt(EndRotStepsNum);
+			}
+		}
+
 		UAIModFunctionLibrary::ConstructRailroadTrack(GetGameInstance(), SourceBuildableId, DestBuildableId, RecipeClassPath, bDryRunTrack,
-			SrcConnPos, bHasSrcConnPos, DstConnPos, bHasDstConnPos, bUsePrimaryFire,
+			SrcConnPos, bHasSrcConnPos, DstConnPos, bHasDstConnPos, bUsePrimaryFire, bStraightMode, EndRotationSteps,
 			[OnComplete, RequestId](const FAIModOperationResult& Result)
 			{
 				OnComplete(MakeOperationResponse(Result, RequestId));

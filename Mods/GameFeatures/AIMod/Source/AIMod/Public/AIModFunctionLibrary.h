@@ -2801,7 +2801,7 @@ public:
 	 * station-integrated ends and free ends) runs a self-driving train
 	 * loop - see docs/vehicle-placement-guide.md.
 	 */
-	static void ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, TFunction<void(const FAIModOperationResult&)> OnComplete);
+	static void ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, bool bStraightMode, int32 EndRotationSteps, TFunction<void(const FAIModOperationResult&)> OnComplete);
 
 	/**
 	 * world.constructTrainPlatform / world.testTrainPlatform -

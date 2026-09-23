@@ -3312,7 +3312,7 @@ void UAIModFunctionLibrary::ConstructHypertube(UObject* WorldContextObject, cons
 // this only builds a single point-to-point segment between two existing
 // connector-bearing buildables (e.g. two Train Station platforms, or an
 // existing track's open end).
-void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, TFunction<void(const FAIModOperationResult&)> OnComplete)
+void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, const FString& SourceBuildableId, const FString& DestBuildableId, const FString& RecipeClassPath, bool bDryRun, const FVector& SourceConnectorPos, bool bHasSourceConnectorPos, const FVector& DestConnectorPos, bool bHasDestConnectorPos, bool bUsePrimaryFire, bool bStraightMode, int32 EndRotationSteps, TFunction<void(const FAIModOperationResult&)> OnComplete)
 {
 	UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::LogAndReturnNull) : nullptr;
 	if (!World)
@@ -3415,6 +3415,28 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 			FString::Printf(TEXT("HotKeyRecipe(%s) did not result in an AFGRailroadTrackHologram (got %s)"),
 				*RecipeClassPath, Hologram ? *Hologram->GetClass()->GetName() : TEXT("null"))));
 		return;
+	}
+
+	// EXPERIMENTAL far-end/route controls (the interactive player has these; our
+	// headless build never set them, which is why AutoRouteSpline balloons a
+	// straight/gentle span into a "too long"/"too steep" spline). mStraightMode
+	// and mUseCustomEndRotation are private UPROPERTYs on the hologram, set here
+	// via reflection; ScrollRotate (the player's "rotate the far end" scroll) is
+	// a public override applied between the start and end clicks below.
+	// NOTE: "straight mode" MAY mean "auto 90-degree bends" rather than "straight
+	// line" (as it does for conveyors/pipes) - treat as experimental, characterize
+	// with the rail test course before relying on it.
+	if (bStraightMode)
+	{
+		if (FBoolProperty* StraightProp = FindFProperty<FBoolProperty>(TrackHologram->GetClass(), TEXT("mStraightMode")))
+		{
+			StraightProp->SetPropertyValue_InContainer(TrackHologram, true);
+			UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: set mStraightMode=true (experimental)"));
+		}
+		else
+		{
+			UE_LOG(LogAIModAI, Warning, TEXT("ConstructRailroadTrack: mStraightMode property not found - straightMode ignored"));
+		}
 	}
 
 	auto MakeHitAt = [](AFGBuildable* Buildable, UFGRailroadTrackConnectionComponent* Connection) -> FHitResult
@@ -3692,6 +3714,26 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		OnComplete(FAIModOperationResult::Failure(TEXT("UNEXPECTED_STEP_COMPLETE"),
 			FString::Printf(TEXT("placement completed after only the start click - %s"), *Diag)));
 		return;
+	}
+
+	// EXPERIMENTAL far-end rotation: between the start and end clicks the
+	// interactive player scrolls to rotate the FAR END's connection tangent in
+	// anticipation of the next segment - this is what lets a straight/gentle span
+	// route cleanly instead of AutoRouteSpline ballooning it. ScrollRotate is the
+	// public override the build gun's Scroll() drives; apply EndRotationSteps of
+	// it (sign = direction) at the hologram's own rotation step. Characterize the
+	// exact effect (degrees/step, which end) with the rail test course.
+	if (EndRotationSteps != 0)
+	{
+		const int32 RotStep = TrackHologram->GetRotationStep();
+		const int32 Dir = EndRotationSteps > 0 ? 1 : -1;
+		const int32 Count = FMath::Abs(EndRotationSteps);
+		for (int32 s = 0; s < Count; ++s)
+		{
+			TrackHologram->ScrollRotate(Dir, RotStep);
+		}
+		UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: applied %d ScrollRotate step(s) (dir=%d, rotationStep=%d) to the far end"),
+			Count, Dir, RotStep);
 	}
 
 	// ---- END click ----

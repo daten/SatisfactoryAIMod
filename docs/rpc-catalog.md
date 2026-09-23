@@ -119,7 +119,7 @@ For richer, hand-written detail (examples, a Connecting section, per-method note
   params: `(none)`
 - **`world.constructBeam`** — Build a beam between two points.  
   params: `recipeClass:string, startX:number, startY:number, endX:number, endY:number, startZ:number?, endZ:number?, ignoreGroundTrace:bool?, freeformMode:bool?, rotationScrollSteps:number?`
-- **`world.constructRailroadTrack`** — Build rail track between two rail buildables, or (empty destBuildableId + destConnectorPosition) to a free end landing on a foundation for track-to-track chaining.  
+- **`world.constructRailroadTrack`** — Build rail track between two rail buildables, or (empty destBuildableId + destConnectorPosition) to a free end landing on a foundation for track-to-track chaining. Optional experimental route controls: straightMode (bool), endRotationSteps (int, ScrollRotate the far end).  
   params: `(none)`
 - **`world.constructStackableSupport`** — Build a stackable support at a position.  
   params: `recipeClass:string, x:number, y:number, z:number?, ignoreGroundTrace:bool?, stackCount:number?`
