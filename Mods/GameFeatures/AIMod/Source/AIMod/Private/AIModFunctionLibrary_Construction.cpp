@@ -659,7 +659,11 @@ FAIModOperationResult UAIModFunctionLibrary::ConstructBuildingNearPlayer(UObject
 	const FVector TraceEnd(CandidateXY.X, CandidateXY.Y, PlayerLocation.Z - 1000.0f);
 
 	FHitResult GroundHit;
-	const bool bFoundGround = World->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
+	// TC_BuildGun (not ECC_Visibility): the landscape blocks the build-gun
+	// channel but ignores Visibility, so a Visibility trace here found only
+	// placed buildables, never the real terrain in front of the player. See
+	// FindGroundAtXY in AIModFunctionLibraryInternal.h for the full rationale.
+	const bool bFoundGround = World->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, TC_BuildGun, QueryParams);
 
 	FHitResult SyntheticHit;
 	if (bFoundGround)

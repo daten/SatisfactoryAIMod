@@ -1298,7 +1298,7 @@ public:
 	 * algorithm (explicit scope decision - see docs/manual-verification.md).
 	 * A candidate X/Y is chosen 800 units in front of the player (their
 	 * actor forward vector, horizontal only); a single vertical line
-	 * trace (ECC_Visibility, player ignored) at that X/Y finds real
+	 * trace (TC_BuildGun, player ignored) at that X/Y finds real
 	 * ground and its actual hit result is used directly. If nothing is
 	 * hit (e.g. no ground within 1000 units either way), falls back to a
 	 * synthetic hit result at the player's own Z with an assumed

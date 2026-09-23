@@ -6,6 +6,7 @@
 
 #include "AIModFunctionLibrary.h"
 #include "AIMod.h"
+#include "FactoryGame.h"   // TC_BuildGun (the trace channel the landscape blocks)
 #include "EngineUtils.h"
 #include "Engine/Engine.h"
 #include "Resources/FGResourceNode.h"
@@ -217,10 +218,23 @@ namespace AIModInternal
 		{
 			QueryParams.AddIgnoredActor(IgnoreActor);
 		}
-		const FVector TraceStart(X, Y, ZSearchCenter + 1000.0f);
-		const FVector TraceEnd(X, Y, ZSearchCenter - 1000.0f);
+		// Trace on the BuildGun channel, NOT ECC_Visibility. The Satisfactory
+		// LANDSCAPE blocks TC_BuildGun (that is how the build gun snaps
+		// foundations to the ground) but IGNORES ECC_Visibility - so the old
+		// Visibility trace only ever hit placed buildables and never the natural
+		// terrain, which is why world.groundHeight / world.terrainHeightGrid
+		// "couldn't see terrain" (2026-09-23). Also use a WIDE vertical window:
+		// the old +/-1000 window only worked if the caller already knew the
+		// ground height, which is impossible when SCANNING unknown terrain for
+		// clean build areas. +/-100 km covers all real terrain (the space
+		// elevator / project-assembly station sit far above that) while a
+		// caller can still bias the window via ZSearchCenter.
+		const float TraceUpSpan = 100000.0f;
+		const float TraceDownSpan = 100000.0f;
+		const FVector TraceStart(X, Y, ZSearchCenter + TraceUpSpan);
+		const FVector TraceEnd(X, Y, ZSearchCenter - TraceDownSpan);
 
-		Result.bFound = World->LineTraceSingleByChannel(Result.Hit, TraceStart, TraceEnd, ECC_Visibility, QueryParams);
+		Result.bFound = World->LineTraceSingleByChannel(Result.Hit, TraceStart, TraceEnd, TC_BuildGun, QueryParams);
 		if (!Result.bFound)
 		{
 			// Same fallback ConstructBuildingAtPosition always used: the

@@ -24,29 +24,38 @@ irregular blob ringed by 15 damage-over-time volumes:
   `insideWorldBounds2D`, `belowKillZ`, and nearest-volume distance — the
   authoritative "is this point safe/over land" test for route planning.
 
-## ⚠️ MAJOR FINDING: terrain scan can't see natural landscape
+## MAJOR FINDING → ROOT-CAUSED & FIXED: terrain scan used the wrong trace channel
 
-`world.groundHeight` / `world.terrainHeightGrid` use `FindGroundAtXY`, a
-**±1000-unit `ECC_Visibility` line trace** around a reference z
-(`AIModFunctionLibraryInternal.h`). In this build that channel is **only blocked
-by placed buildables, not the Satisfactory landscape** — so both methods return
-`found:false` everywhere except directly over existing buildings/foundations.
-`world.placeBuilding`'s own ground trace has the same blind spot (a trace-place
-with no explicit z can't find the ground either; with an explicit z it just
-places at that z).
+`world.groundHeight` / `world.terrainHeightGrid` use `FindGroundAtXY`, which
+traced a **±1000-unit `ECC_Visibility` line** around a reference z
+(`AIModFunctionLibraryInternal.h`). **Root cause:** the Satisfactory **landscape
+ignores `ECC_Visibility`** — it blocks the game's custom **`BuildGun` trace
+channel** (`TC_BuildGun` = `ECC_GameTraceChannel5`; that is how the build gun
+snaps foundations to the ground; see `Config/DefaultEngine.ini` channel
+definitions). So the Visibility trace only ever hit placed buildables, never the
+terrain. Two compounding bugs: (1) wrong channel, and (2) the ±1000 window
+required already knowing the ground height — impossible when *scanning* unknown
+terrain (I fed reference z far from the ground, which also returned nothing).
+`world.placeBuilding`'s literal-`z` path never traced at all (it places at the
+given z), which masked the issue.
 
-**Consequence:** the running build effectively **cannot scan natural terrain
-height**. (Candidate fix for a later branch: trace `ECC_WorldStatic` /
-`ECC_GameTraceChannel` for the landscape, or a multi-channel trace, and/or widen
-the trace window. Not applicable to this test — no rebuild.)
+This was **not a regression** — the mod only ever used `ECC_Visibility`; the
+"scan sections for clean build areas" intent was simply never hitting terrain.
 
-**Workaround used here:** build a terrain-elevation model from objects that DO
-sit on the real ground — `world.resourceNodes` (640 nodes, spread map-wide) plus
-the user's base buildables at low z (~22k points). Interpolate (nearest / IDW)
-to estimate terrain height along the route, floating each foundation pad at
-`terrain_est + offset` via `ignoreGroundTrace`. Rail stays near the ground where
-samples exist; where samples are sparse we hold the previous elevation (gentle
-grade) — a documented limitation, not a sky-rail-by-choice.
+**FIX (this branch, commit below; needs one Alpakit rebuild to activate):**
+- `FindGroundAtXY` now traces `TC_BuildGun` with a **wide ±100 km window** (so it
+  finds ground without the caller knowing the height). `#include "FactoryGame.h"`
+  for `TC_BuildGun`.
+- The near-player ground trace in `AIModFunctionLibrary_Construction.cpp` switched
+  to `TC_BuildGun` too (same blind spot).
+- After the rebuild, `world.groundHeight` / `world.terrainHeightGrid` scan the
+  real landscape, restoring whole-section terrain surveys for clean-area finding.
+
+**Workaround used DURING this test** (running build had the bug, no rebuild
+available): a terrain-elevation model from objects that DO sit on the real ground
+— `world.resourceNodes` (640 nodes, map-wide) + base buildables at low z (~22k
+points), IDW-interpolated. Once the fix is deployed this workaround is no longer
+needed — scan the terrain directly.
 
 Sampled elevations span roughly **-95 m to +465 m** across the interior — plenty
 of variation to exercise grades/ramps.
