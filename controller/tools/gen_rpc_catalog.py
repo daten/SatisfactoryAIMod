@@ -150,6 +150,7 @@ SUMMARIES = {
  "world.cleanupOrphanedFlowIndicators":"Remove orphaned pipe flow indicators near a position.",
  "world.batch":"Run up to 100 ops in one call (per-op results; proximity still applies).",
  "world.help":"This catalog: every RPC method with params + a one-line summary (runtime self-description).",
+ "world.version":"Build identity: modVersion, buildStamp (compile time), buildConfig (Shipping/Development). Query to confirm exactly which binary is running.",
  "world.splineGeometry":"Spline geometry (points/length) for a belt/pipe/hypertube/track buildable.",
  "world.teleportPlayer":"Teleport the local player to (x,y,z) (+optional yaw). Use to satisfy camera-distance-sensitive connect/place calls.",
  "world.captureScreenshot":"Request an engine screenshot to disk (rendered next frame); returns the file path in result.detail.path. showUI keeps the HUD.",

@@ -2984,6 +2984,22 @@ bool UAIModHttpServerSubsystem::HandleRpcRequest(const FHttpServerRequest& Reque
 	{
 		MethodResultJson = FString(GAIModRpcCatalogJson);
 	}
+	else if (Method == TEXT("world.version"))
+	{
+		// Build identity so an agent can confirm EXACTLY which binary is running
+		// (which target/config, and whether a fresh rebuild actually loaded).
+		// buildStamp = compile time of THIS dispatcher TU (changes every build).
+#if UE_BUILD_SHIPPING
+		const TCHAR* BuildConfig = TEXT("Shipping");
+#elif UE_BUILD_TEST
+		const TCHAR* BuildConfig = TEXT("Test");
+#else
+		const TCHAR* BuildConfig = TEXT("Development");
+#endif
+		MethodResultJson = FString::Printf(
+			TEXT("{\"protocolVersion\":1,\"modVersion\":\"%s\",\"buildStamp\":\"%s\",\"buildConfig\":\"%s\"}"),
+			ANSI_TO_TCHAR(AIMOD_MOD_VERSION), ANSI_TO_TCHAR(AIMOD_BUILD_STAMP), BuildConfig);
+	}
 	else if (Method == TEXT("world.resourceNodes"))
 	{
 		MethodResultJson = UAIModFunctionLibrary::LogResourceNodesAsJson(GetGameInstance());

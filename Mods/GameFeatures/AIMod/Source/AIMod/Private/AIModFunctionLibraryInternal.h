@@ -199,6 +199,10 @@ namespace AIModInternal
 		// (Component, Distance, HitObjectHandle, etc.), not just the two
 		// values world.groundHeight cares about.
 		FHitResult Hit;
+		// Which trace method produced the hit (diagnostic; surfaced by
+		// world.groundHeight as "traceMethod"). Lets us confirm WHICH collision
+		// path actually sees the landscape on this build, instead of guessing.
+		FString HitMethod;
 	};
 
 	// Bounds a single world.terrainHeightGrid call's cost - every point
@@ -217,38 +221,72 @@ namespace AIModInternal
 		{
 			QueryParams.AddIgnoredActor(IgnoreActor);
 		}
-		// Trace on the BuildGun channel, NOT ECC_Visibility. The Satisfactory
-		// LANDSCAPE blocks the build-gun channel (that is how the build gun snaps
-		// foundations to the ground) but IGNORES ECC_Visibility - so the old
-		// Visibility trace only ever hit placed buildables and never the natural
-		// terrain, which is why world.groundHeight / world.terrainHeightGrid
-		// "couldn't see terrain" (2026-09-23).
-		// ECC_GameTraceChannel5 == "BuildGun" per Config/DefaultEngine.ini
-		// (DefaultChannelResponses). We reference the enum directly rather than
-		// FactoryGame's TC_BuildGun constant, which is declared FACTORYGAME_API
-		// but NOT exported by the CSS FactoryGame binary (link error LNK2019).
-		// Also use a WIDE vertical window: the old +/-1000 window only worked if
-		// the caller already knew the ground height, which is impossible when
-		// SCANNING unknown terrain for clean build areas. +/-100 km covers all
-		// real terrain (the space elevator / project-assembly station sit far
-		// above that) while a caller can still bias the window via ZSearchCenter.
-		const ECollisionChannel BuildGunChannel = ECC_GameTraceChannel5;
+		// The Satisfactory LANDSCAPE ignores ECC_Visibility (that is why the old
+		// Visibility trace only ever hit placed buildables, never the natural
+		// terrain - world.groundHeight / world.terrainHeightGrid "couldn't see
+		// terrain", 2026-09-23). Rather than guess a single replacement channel
+		// (each guess costs a full mod rebuild to test), try the paths most
+		// likely to hit the real ground, in order, and RECORD which one worked
+		// (Result.HitMethod, surfaced as world.groundHeight "traceMethod"):
+		//   1) object-type query for WorldStatic/WorldDynamic - the landscape is
+		//      a WorldStatic object, so this should hit it directly regardless of
+		//      per-channel response quirks;
+		//   2) the BuildGun channel (ECC_GameTraceChannel5 == "BuildGun" per
+		//      Config/DefaultEngine.ini) - the build gun's own ground trace, how
+		//      foundations snap to the ground;
+		//   3) MapGeneration (ECC_GameTraceChannel12) - terrain-generation trace;
+		//   4) ECC_Visibility - legacy; hits placed buildables (kept last so a
+		//      building is still reported when nothing else blocks).
+		// We use the raw ECC_GameTraceChannelN enums, not FactoryGame's TC_BuildGun
+		// constant, which is declared FACTORYGAME_API but NOT exported by the CSS
+		// FactoryGame binary (link error LNK2019). WIDE +/-100 km window so
+		// SCANNING works without the caller already knowing the ground height (the
+		// old +/-1000 window required a near-correct ZSearchCenter); +/-100 km
+		// covers all real terrain, well below the space elevator / project
+		// assembly station.
 		const float TraceUpSpan = 100000.0f;
 		const float TraceDownSpan = 100000.0f;
 		const FVector TraceStart(X, Y, ZSearchCenter + TraceUpSpan);
 		const FVector TraceEnd(X, Y, ZSearchCenter - TraceDownSpan);
 
-		Result.bFound = World->LineTraceSingleByChannel(Result.Hit, TraceStart, TraceEnd, BuildGunChannel, QueryParams);
-		if (!Result.bFound)
+		// (1) object-type query
 		{
-			// Same fallback ConstructBuildingAtPosition always used: the
-			// literal search-center point, facing straight up.
-			Result.Hit.Location = FVector(X, Y, ZSearchCenter);
-			Result.Hit.ImpactPoint = Result.Hit.Location;
-			Result.Hit.Normal = FVector::UpVector;
-			Result.Hit.ImpactNormal = FVector::UpVector;
-			Result.Hit.bBlockingHit = true;
+			FCollisionObjectQueryParams ObjParams;
+			ObjParams.AddObjectTypesToQuery(ECC_WorldStatic);
+			ObjParams.AddObjectTypesToQuery(ECC_WorldDynamic);
+			if (World->LineTraceSingleByObjectType(Result.Hit, TraceStart, TraceEnd, ObjParams, QueryParams))
+			{
+				Result.bFound = true;
+				Result.HitMethod = TEXT("ObjectType:WorldStatic/Dynamic");
+				return Result;
+			}
 		}
+
+		// (2)-(4) channel traces, first hit wins
+		struct FTraceChan { ECollisionChannel Channel; const TCHAR* Name; };
+		const FTraceChan TraceChans[] = {
+			{ ECC_GameTraceChannel5,  TEXT("BuildGun") },
+			{ ECC_GameTraceChannel12, TEXT("MapGeneration") },
+			{ ECC_Visibility,         TEXT("Visibility") },
+		};
+		for (const FTraceChan& TC : TraceChans)
+		{
+			if (World->LineTraceSingleByChannel(Result.Hit, TraceStart, TraceEnd, TC.Channel, QueryParams))
+			{
+				Result.bFound = true;
+				Result.HitMethod = TC.Name;
+				return Result;
+			}
+		}
+
+		// Fallback ConstructBuildingAtPosition always used: the literal
+		// search-center point, facing straight up.
+		Result.Hit.Location = FVector(X, Y, ZSearchCenter);
+		Result.Hit.ImpactPoint = Result.Hit.Location;
+		Result.Hit.Normal = FVector::UpVector;
+		Result.Hit.ImpactNormal = FVector::UpVector;
+		Result.Hit.bBlockingHit = true;
+		Result.HitMethod = TEXT("none");
 		return Result;
 	}
 

@@ -655,16 +655,19 @@ FAIModOperationResult UAIModFunctionLibrary::ConstructBuildingNearPlayer(UObject
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(AIModConstructBuildingNearPlayer), false);
 	QueryParams.AddIgnoredActor(Character);
-	const FVector TraceStart(CandidateXY.X, CandidateXY.Y, PlayerLocation.Z + 1000.0f);
-	const FVector TraceEnd(CandidateXY.X, CandidateXY.Y, PlayerLocation.Z - 1000.0f);
+	const FVector TraceStart(CandidateXY.X, CandidateXY.Y, PlayerLocation.Z + 100000.0f);
+	const FVector TraceEnd(CandidateXY.X, CandidateXY.Y, PlayerLocation.Z - 100000.0f);
 
 	FHitResult GroundHit;
-	// BuildGun channel (ECC_GameTraceChannel5, not ECC_Visibility): the landscape
-	// blocks the build-gun channel but ignores Visibility, so a Visibility trace
-	// here found only placed buildables, never the real terrain in front of the
-	// player. See FindGroundAtXY in AIModFunctionLibraryInternal.h for the full
-	// rationale (and why we use the enum, not FactoryGame's unexported TC_BuildGun).
-	const bool bFoundGround = World->LineTraceSingleByChannel(GroundHit, TraceStart, TraceEnd, ECC_GameTraceChannel5, QueryParams);
+	// Object-type query (WorldStatic/Dynamic), NOT ECC_Visibility: the landscape
+	// ignores Visibility (a Visibility trace here found only placed buildables,
+	// never real terrain). Same rationale/approach as FindGroundAtXY in
+	// AIModFunctionLibraryInternal.h - the landscape is a WorldStatic object, so
+	// an object-type trace hits it directly. Wide +/-100km window.
+	FCollisionObjectQueryParams GroundObjParams;
+	GroundObjParams.AddObjectTypesToQuery(ECC_WorldStatic);
+	GroundObjParams.AddObjectTypesToQuery(ECC_WorldDynamic);
+	const bool bFoundGround = World->LineTraceSingleByObjectType(GroundHit, TraceStart, TraceEnd, GroundObjParams, QueryParams);
 
 	FHitResult SyntheticHit;
 	if (bFoundGround)

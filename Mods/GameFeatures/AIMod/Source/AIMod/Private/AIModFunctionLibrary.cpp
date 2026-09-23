@@ -68,6 +68,10 @@ FString UAIModFunctionLibrary::LogGroundHeightAsJson(UObject* WorldContextObject
 	RootObject->SetNumberField(TEXT("y"), Y);
 	RootObject->SetNumberField(TEXT("z"), GroundTrace.Hit.Location.Z);
 	RootObject->SetObjectField(TEXT("normal"), NormalObject);
+	// Which collision path actually saw the ground (diagnostic - see
+	// FindGroundAtXY): "ObjectType:WorldStatic/Dynamic", "BuildGun",
+	// "MapGeneration", "Visibility", or "none".
+	RootObject->SetStringField(TEXT("traceMethod"), GroundTrace.HitMethod);
 
 	const FString JsonString = WriteCondensedJson(RootObject);
 

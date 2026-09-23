@@ -7,6 +7,13 @@
 
 DECLARE_LOG_CATEGORY_EXTERN(LogAIModAI, Log, All);
 
+// AIMod build identity, surfaced by the world.version RPC so an agent can confirm
+// EXACTLY which binary is running (no more "did Alpakit build the right target?"
+// ambiguity). Bump AIMOD_MOD_VERSION on meaningful changes; AIMOD_BUILD_STAMP
+// (__DATE__ " " __TIME__) changes on every recompile of the dispatcher TU.
+#define AIMOD_MOD_VERSION "0.2.0"
+#define AIMOD_BUILD_STAMP (__DATE__ " " __TIME__)
+
 struct FActorsInitializedParams;
 struct IConsoleCommand;
 
