@@ -206,6 +206,23 @@ map-marked (N/S/centre), saved as `perimeter-railway-2026-09-23`. Small (~160 m)
 — the largest *reliably drivable* pure-RPC loop, given the tight-arc + joint
 limits.
 
+## ⚠️ Deploy gotcha: Alpakit copy fails silently while the game runs
+
+The running game loads AIMod from the **Steam install**, not the workspace:
+`D:\Steam\steamapps\common\Satisfactory\FactoryGame\Mods\GameFeatures\AIMod\Binaries\Win64\`.
+Alpakit builds the DLL in the workspace (`F:\...`) then copies it there — but if the
+**game is running, that DLL is locked** and the copy **fails silently**, so the game
+keeps loading the stale binary. This is why the terrain-scan fix appeared to "not
+work" for multiple relaunches: it was compiled correctly (the workspace DLL
+contains it — verified by grepping the DLL) but never copied into the running
+install.
+
+**Deploy recipe:** fully CLOSE the game → run Alpakit (or manually copy the
+workspace DLL to the Steam Mods path) → launch → query **`world.version`**
+(`modVersion` / `buildStamp` / `buildConfig`) to confirm the fresh binary loaded.
+`world.groundHeight` now also returns **`traceMethod`** = which collision path saw
+the ground, so the terrain fix is self-verifying once deployed.
+
 ## Verdict on the objective
 
 A continuous **map-perimeter railway loop near terrain is not achievable** in the
