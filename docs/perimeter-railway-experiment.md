@@ -43,9 +43,10 @@ This was **not a regression** — the mod only ever used `ECC_Visibility`; the
 "scan sections for clean build areas" intent was simply never hitting terrain.
 
 **FIX (this branch, commit below; needs one Alpakit rebuild to activate):**
-- `FindGroundAtXY` now traces `TC_BuildGun` with a **wide ±100 km window** (so it
-  finds ground without the caller knowing the height). `#include "FactoryGame.h"`
-  for `TC_BuildGun`.
+- `FindGroundAtXY` now traces the BuildGun channel with a **wide ±100 km window**
+  (so it finds ground without the caller knowing the height). It uses the enum
+  `ECC_GameTraceChannel5` directly — FactoryGame's `TC_BuildGun` constant is
+  declared `FACTORYGAME_API` but **not exported** by the CSS binary (LNK2019).
 - The near-player ground trace in `AIModFunctionLibrary_Construction.cpp` switched
   to `TC_BuildGun` too (same blind spot).
 - After the rebuild, `world.groundHeight` / `world.terrainHeightGrid` scan the
