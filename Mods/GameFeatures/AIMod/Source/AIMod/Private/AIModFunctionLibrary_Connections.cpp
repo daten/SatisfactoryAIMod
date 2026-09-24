@@ -3828,6 +3828,12 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		FVector EndTangent = FVector::ZeroVector;
 		bool bHasEndTangent = false;
 		bool bRouteControlsApplied = false;
+		// AUTO-STRAIGHTEN: AutoRouteSpline can balloon a straight/gentle span into a
+		// spurious TooLong/TooSteep/TooSharp spline (see comment above). When that
+		// happens and the caller did not supply a tangent, we set the far-end tangent
+		// to the straight source->end direction (pitch-limited) and re-route once. This
+		// is the deterministic fix for the flaky "too steep on a flat segment" failures.
+		bool bAutoStraightened = false;
 		int32 AttemptsRemaining = 120;
 		int32 AttemptsTaken = 0;
 		TFunction<void(const FAIModOperationResult&)> OnComplete;
@@ -3971,6 +3977,42 @@ void UAIModFunctionLibrary::ConstructRailroadTrack(UObject* WorldContextObject, 
 		UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack (deferred, resolved after %d real tick(s)): source=%s dest=%s dryRun=%s canConstruct=%s disqualifiers=[%s]"),
 			PollState->AttemptsTaken, *PollState->SourceBuildableId, *PollState->DestBuildableId, PollState->bDryRun ? TEXT("true") : TEXT("false"),
 			bCanConstruct ? TEXT("true") : TEXT("false"), *DisqualifierSummary);
+
+		// AUTO-STRAIGHTEN retry: a geometry disqualifier (too long/steep/sharp/short)
+		// on an otherwise-valid span is almost always AutoRouteSpline ballooning the
+		// spline. Force the far-end tangent to the straight source->end direction
+		// (horizontal pitch capped) and re-route once, then re-evaluate next tick.
+		if (!bCanConstruct && !PollState->bAutoStraightened && !PollState->bHasEndTangent)
+		{
+			const bool bGeom = DisqualifierSummary.Contains(TEXT("too long")) || DisqualifierSummary.Contains(TEXT("too steep"))
+				|| DisqualifierSummary.Contains(TEXT("too sharp")) || DisqualifierSummary.Contains(TEXT("sharply"))
+				|| DisqualifierSummary.Contains(TEXT("too short"));
+			if (bGeom)
+			{
+				PollState->bAutoStraightened = true;
+				UFGRailroadTrackConnectionComponent* SC = PollState->SourceConn.Get();
+				const FVector StartLoc = SC ? SC->GetConnectorLocation() : PollState->EndHit.TraceStart;
+				FVector EndLoc = PollState->EndHit.ImpactPoint;
+				if (EndLoc.IsNearlyZero()) { EndLoc = PollState->EndHit.Location; }
+				FVector Tangent = EndLoc - StartLoc;
+				const float Horiz = Tangent.Size2D();
+				Tangent.Z = FMath::Clamp(Tangent.Z, -Horiz * 0.12f, Horiz * 0.12f); // cap pitch ~12%
+				Tangent = Tangent.GetSafeNormal();
+				if (!Tangent.IsNearlyZero())
+				{
+					AIModSetHologramBoolProp(PollHologram, TEXT("mUseCustomEndRotation"), true);
+					AIModSetHologramVectorProp(PollHologram, TEXT("mHitTangent"), Tangent);
+					PollHologram->UpdateHologramPlacement(PollState->EndHit);
+					AIModSetHologramBoolProp(PollHologram, TEXT("mUseCustomEndRotation"), true);
+					AIModSetHologramVectorProp(PollHologram, TEXT("mHitTangent"), Tangent);
+					PollHologram->UpdateHologramPlacement(PollState->EndHit);
+					UE_LOG(LogAIModAI, Display, TEXT("ConstructRailroadTrack: AUTO-STRAIGHTEN applied (tangent=%s) after disq=[%s]; re-routing"),
+						*Tangent.ToString(), *DisqualifierSummary);
+					PollWorld->GetTimerManager().SetTimerForNextTick(FTimerDelegate::CreateLambda([PollFn]() { (*PollFn)(); }));
+					return;
+				}
+			}
+		}
 
 		if (!bCanConstruct)
 		{
