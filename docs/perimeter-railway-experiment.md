@@ -135,6 +135,11 @@ total) or must be many short segments.
 
 ### ⚠️ MAJOR FINDING: RPC rail can only build TIGHT arcs
 
+> **SUPERSEDED 2026-09-23 pm — this section is WRONG. Straights and gentle curves
+> DO build; see "VERDICT CORRECTED" below. Kept as a record of the mistaken path
+> (the failures here were void-corner placement + session degradation, not a hard
+> limit).**
+
 Extensive sweeps against the running build (dry-run AND real construct):
 
 - **Straight / colinear track cannot be built at all** via `constructRailroadTrack`
@@ -233,21 +238,47 @@ workspace DLL to the Steam Mods path) → launch → query **`world.version`**
 `world.groundHeight` now also returns **`traceMethod`** = which collision path saw
 the ground, so the terrain fix is self-verifying once deployed.
 
-## Verdict on the objective
+## ⚠️ VERDICT CORRECTED (2026-09-23 pm) — the perimeter IS feasible
 
-A continuous **map-perimeter railway loop near terrain is not achievable** in the
-running build, blocked by three independent hard limits, each documented above:
-1. **No terrain scan** — can't read natural landscape height (elevation is only
-   an estimate from a ground-truth point cloud).
-2. **No straight / gentle-curve track** — only tight arcs (R ≲ 9k) build; a
-   large-radius perimeter is impossible; long distance needs a wiggly serpentine.
-3. **Drivable-joint reliability** — large loops (many joints) report
-   StationUnreachable; only small loops drive reliably.
+The earlier verdict below ("straights impossible / only tight arcs / not
+achievable") was **WRONG**. It was an artifact of (a) testing over the void
+corner, (b) not driving the interactive far-end route controls, and (c)
+session-state degradation. Re-tested properly:
 
-What IS delivered: a full map survey, a terrain-estimate model, a **drivable**
-4-station loop over terrain, and a long **terrain-following serpentine corridor**
-(below) demonstrating large-scale placement, curvature, elevation change,
-continuity, and failure-recovery — the stress-test's learning objectives.
+- **Terrain scan: FIXED** (trace the BuildGun/object-type channel, not
+  Visibility — commit in this branch, verified live).
+- **Straights DO build** — a 12/12 free-end straight chain, straightness 1.00,
+  72k units. Grades build. **Gentle curves build** via `endRotationSteps` (the
+  far-end yaw ScrollRotate, applied POST-INIT — v0.3.2), rot 0→straight,
+  ±8→gentle bend. So straight edges + curved corners = a real perimeter loop.
+- **Drivable joints** were always fine for a properly-set-up loop (the 4-station
+  square drove); the octagon's StationUnreachable was a build-completeness issue
+  (4/8 arcs), not a joint wall.
+
+**The real remaining obstacle is build RELIABILITY, not capability:** rail builds
+**degrade within a long session** (identical straights that build 12/12 right
+after a fresh launch fail later with mutating errors — too long / overlapping /
+invalid placement). Build in a FRESH session, in batches, deleting each landing
+pad after its track, keeping the rail ≥~4k above local terrain, and using single
+sharp-arc corners. A candidate mod hardening: reset/unequip the build gun at the
+start of each `constructRailroadTrack` so state can't accumulate.
+
+`world.version` (modVersion/buildStamp/buildConfig) now lets us confirm the exact
+running binary after any Alpakit (which must be done with the game CLOSED — see
+the deploy gotcha). Next step (tomorrow, fresh session): build a drivable proof
+loop (straight edges + arc corners), then the real perimeter.
+
+### (superseded) earlier verdict
+
+A continuous map-perimeter railway loop near terrain was thought NOT achievable,
+blocked by three "hard limits" — all since disproven (see the correction above):
+1. No terrain scan → FIXED. 2. No straight/gentle track → straights & gentle
+curves DO build. 3. Drivable-joint reliability → fine for complete loops.
+
+What was delivered in the first pass: a full map survey, a terrain-estimate model,
+a **drivable** 4-station loop over terrain, and a long **terrain-following
+serpentine corridor** (below) demonstrating large-scale placement, curvature,
+elevation change, continuity, and failure-recovery.
 
 ### Delivered serpentine corridor (large-scale placement)
 
