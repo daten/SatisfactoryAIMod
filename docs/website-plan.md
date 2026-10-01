@@ -45,6 +45,10 @@ tutorials. No server-side code, no database.
   (agentic coding tools: Claude Code, Codex, Gemini CLI, Cursor, Copilot agent
   mode, Cline…). **Chat-only websites (chatgpt.com, claude.ai, gemini.google.com)
   cannot reach your game** — the site must say this plainly, early.
+  **Decision (2026-10-01): build an MCP bridge before launch** —
+  [mcp-bridge-plan.md](mcp-bridge-plan.md). It lets Claude Desktop connect via a
+  one-click extension and gives Codex typed tools; launch-tested clients are
+  **Claude Desktop** and **OpenAI Codex (local)** on Windows.
 - **Safety defaults** to communicate: loopback-only; *Allow Creative Features*
   off (item injection, achievement re-fire, phase skip, hazards/manta/event
   tools, vehicle speed); *Allow Remote Connections* off; real material cost;
@@ -68,11 +72,10 @@ tutorials. No server-side code, no database.
 /showcase/             Gallery: real agent-built factories, trains, art
 /install/              Install the mod (Mod Manager path + manual/pre-release path)
 /agents/               Choose your AI agent (comparison + "what's an agent?")
-  /agents/claude-code/     Golden-path guide (fully screenshotted)
-  /agents/codex/           Alternate guide
-  /agents/gemini-cli/      Alternate guide
-  /agents/cursor/          Alternate guide (IDE users)
-  /agents/other/           "Any agent that can run commands" generic guide
+  /agents/claude-desktop/  Golden path: Claude Desktop + one-click extension (fully screenshotted)
+  /agents/codex/           Tested alternate: OpenAI Codex (local) + bridge config
+  /agents/coding-agents/   Advanced: coding agents + starter kit for big automated builds
+  /agents/other/           Other MCP apps / any agent that can run commands (untested, best effort)
 /starter-kit/          Download + copy-paste agent instructions & first prompts
 /first-conversation/   Your first 10 minutes with the agent (guided)
 /tutorials/            Tutorial index (filter: Simple / Medium / Complex)
@@ -188,13 +191,19 @@ Python client, contributing, issue tracker. This is where "RPC/JSON" words live.
 
 ## 6. "Get started with AI agents" strategy
 
-- **One golden path, fully screenshotted:** recommend **Claude Code** (desktop app)
-  as the first-timer path — it's the agent this mod was developed and tested with,
-  has a GUI (no terminal required), and handles local requests out of the box.
-  Every click of this path gets a screenshot.
-- **Alternates (lighter guides, same template):** OpenAI Codex, Google Gemini CLI,
-  Cursor (agent mode), and a generic "any agent that can run commands" page.
-  Each must be **re-verified at writing time** and given a "last tested" date.
+- **One golden path, fully screenshotted:** **Claude Desktop + the bridge
+  extension** — install the app, install the extension (one click), chat. No
+  terminal, folders, or files. Every click gets a screenshot.
+- **Tested alternate:** **OpenAI Codex (local)** — CLI, IDE extension or desktop app
+  with the bridge added via one documented config step. Must call out that **Codex
+  cloud tasks can't reach your PC**, and the Windows-vs-WSL networking caveat.
+- **Advanced:** coding agents (Claude Code, Codex, etc.) + the starter kit, for
+  large automated builds where the agent writes and runs its own scripts.
+- **Other apps:** best-effort page; untested ones clearly labelled.
+- Each guide is **re-verified at writing time** and given a "last tested" date
+  (fed by the bridge's client test matrix).
+- **If the bridge slips past launch:** ship with the coding-agent + starter-kit path
+  as the golden path and swap in Claude Desktop when the bridge lands.
 - **Starter kit is the real onboarding product.** Because the mod self-describes
   (`world.help`), the agent only needs: where to connect, how to send a request,
   and our safety/working rules. One instructions file, many filenames.
@@ -202,11 +211,10 @@ Python client, contributing, issue tracker. This is where "RPC/JSON" words live.
   styled transcript component (crisp, accessible, editable, identical across
   agents). Use real app screenshots only where UI clicks matter (install, sign-in,
   permission prompts).
-- **Biggest lever for non-technical users — consider an MCP connector** (separate
-  engineering project, §15): a small MCP server wrapping the local API would let
-  chat-style apps with MCP support connect, and some (e.g. Claude Desktop) support
-  one-click extension installs. That would turn "install a coding agent" into
-  "install an extension." Plan the site so an "MCP" path can slot into /agents later.
+- **MCP bridge** (decided — [mcp-bridge-plan.md](mcp-bridge-plan.md)): turns
+  "install a coding agent" into "install an extension" for Claude Desktop, and
+  carries the starter-kit rules inside the server. The starter kit remains for the
+  coding-agent path.
 
 ## 7. Tutorials
 
@@ -397,14 +405,13 @@ no player load until clicked).
 
 ## 15. Open decisions
 
-1. **MCP connector?** Building one would make the site's "never installed agent
-   software" story far simpler (and widen agent support). It's a separate
-   engineering project — do we want it before launch, after, or never?
+1. ~~**MCP connector?**~~ **Decided 2026-10-01:** build the bridge before launch
+   (in parallel, non-blocking) — see [mcp-bridge-plan.md](mcp-bridge-plan.md).
 2. **Static site generator:** Astro + Starlight (recommended) vs plain HTML/CSS/JS.
 3. **Where the site lives:** `website/` in this repo (recommended, single-source
    docs) vs a separate repo.
-4. **Golden-path agent:** Claude Code (recommended, it's what the mod is tested
-   with) — and which 2–3 alternates we commit to testing and maintaining.
+4. ~~**Golden-path agent?**~~ **Decided 2026-10-01:** Claude Desktop + extension
+   (golden path) and OpenAI Codex (local) are the launch-tested clients.
 5. **Video hosting:** YouTube embeds vs self-hosted short loops only.
 6. **Domain & name** for the site; whether to include "Satisfactory" in it
    (trademark/fan-policy check).
