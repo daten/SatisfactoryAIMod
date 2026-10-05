@@ -1,0 +1,71 @@
+{
+  "manifest_version": "0.2",
+  "name": "satisfactory-aimod",
+  "display_name": "Satisfactory AI Mod",
+  "version": "0.1.0",
+  "description": "Let your AI app read and act in a running Satisfactory game (survey, build, wire, run trains) via the SatisfactoryAIMod loopback bridge.",
+  "long_description": "Connects an AI app to a running Satisfactory session that has the SatisfactoryAIMod installed. Exposes friendly, game-language tools (find resource nodes, place/connect buildings, power, logistics, save) plus read/action passthroughs for the full mod API. Local only; creative/cheat features stay gated in the mod. Requires Satisfactory running with the mod and a save loaded.",
+  "author": {
+    "name": "Bryan Schneiders",
+    "url": "https://github.com/daten/SatisfactoryAIMod"
+  },
+  "license": "GPL-3.0-or-later",
+  "homepage": "https://github.com/daten/SatisfactoryAIMod",
+  "documentation": "https://github.com/daten/SatisfactoryAIMod/tree/main/mcp-bridge",
+  "server": {
+    "type": "node",
+    "entry_point": "dist/src/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/src/index.js"],
+      "env": {
+        "SATISFACTORY_RPC_URL": "${user_config.rpc_url}",
+        "SATISFACTORY_MCP_READONLY": "${user_config.read_only}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "game_status", "description": "Check the game is connected and a save is loaded." },
+    { "name": "find_resource_nodes", "description": "Find resource nodes, filterable and nearest-first." },
+    { "name": "list_buildings", "description": "List placed buildings in an area." },
+    { "name": "get_machines", "description": "List production machines with recipe, clock, status." },
+    { "name": "get_power", "description": "Power pole powered/unpowered summary." },
+    { "name": "get_logistics", "description": "Trains, stations, vehicles, drones, trucks." },
+    { "name": "get_progression", "description": "Milestones, M.A.M., Dimensional Depot." },
+    { "name": "lookup_catalog", "description": "Find recipe/item/building class ids by name." },
+    { "name": "get_build_cost", "description": "Real material cost of a build." },
+    { "name": "check_location", "description": "Is a spot solid ground / hazard / water?" },
+    { "name": "save_game", "description": "Save and verify the file hit disk." },
+    { "name": "place_building", "description": "Place a building." },
+    { "name": "place_miner", "description": "Place a miner on a node." },
+    { "name": "connect_belt", "description": "Connect a conveyor belt (verified)." },
+    { "name": "connect_power", "description": "Run a power line." },
+    { "name": "configure_machine", "description": "Set recipe / clock / shards." },
+    { "name": "remove_building", "description": "Dismantle a building (destructive)." },
+    { "name": "teleport_player", "description": "Teleport the pioneer (safety-checked)." },
+    { "name": "take_photo", "description": "Frame and take a photo, then leave photo mode." },
+    { "name": "set_train_route", "description": "Set a train timetable + self-driving." },
+    { "name": "list_game_methods", "description": "Search the full low-level method catalog." },
+    { "name": "read_game_data", "description": "Call any read-only method." },
+    { "name": "perform_game_action", "description": "Call any action method (standard mode)." }
+  ],
+  "user_config": {
+    "rpc_url": {
+      "type": "string",
+      "title": "Game endpoint",
+      "description": "The mod's local address. Leave as the default unless you changed the mod's port or enabled remote connections.",
+      "default": "http://127.0.0.1:51902/rpc",
+      "required": false
+    },
+    "read_only": {
+      "type": "string",
+      "title": "Read-only mode",
+      "description": "Set to 'true' to let the AI only LOOK at your game (no building, placing, or deleting). Leave empty for full access.",
+      "default": "",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "runtimes": { "node": ">=18.0.0" }
+  }
+}

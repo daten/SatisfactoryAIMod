@@ -1,0 +1,33 @@
+{
+  "name": "satisfactory-aimod-mcp",
+  "version": "0.1.0",
+  "description": "Local MCP bridge for SatisfactoryAIMod - lets AI apps (Claude Desktop, Codex) read and act in a running Satisfactory game via the mod's loopback API.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "bin": {
+    "satisfactory-aimod-mcp": "dist/src/index.js"
+  },
+  "files": [
+    "dist",
+    "manifest.json",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "gen": "python scripts/extract_catalog.py",
+    "build": "tsc",
+    "start": "node dist/src/index.js",
+    "test": "npm run build && node --test \"dist/test/*.test.js\"",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  }
+}

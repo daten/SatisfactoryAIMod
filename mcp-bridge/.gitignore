@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.mcpb
+*.tgz
+npm-debug.log*
