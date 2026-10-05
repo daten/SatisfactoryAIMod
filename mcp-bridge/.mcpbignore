@@ -1,0 +1,16 @@
+# Only ship what the server needs at runtime: dist/ (minus tests/maps),
+# manifest.json, README, package.json, and production node_modules.
+# NOTE: leading "/" anchors to the bundle root so these don't also match
+# dist/src, dist/test, etc. (bare "src/" would match any "src" dir anywhere).
+/src/
+/test/
+/scripts/
+/tsconfig.json
+/.gitignore
+/.mcpbignore
+/package-lock.json
+/catalog.json
+*.mcpb
+*.tgz
+/dist/test/
+/dist/**/*.map

@@ -25,16 +25,17 @@ saves, safe teleports, serialized calls, and output limits.
 
 ### Claude Desktop (extension) — the simplest path
 
-1. Build the extension bundle (see **Packaging** below) to get a `.mcpb` file.
+1. Build the extension bundle (see **Packaging** below) to get `satisfactory-aimod.mcpb`.
 2. In Claude Desktop → **Settings → Extensions**, install the `.mcpb`.
 3. (Optional) In the extension's settings, set **Read-only mode** to `true` to let
    the AI only look, not build.
 4. Start Satisfactory with the mod, load a save, then chat: *"Are we connected?
    Survey my base."*
 
-> Status: the extension manifest (`manifest.json`) is written to the MCPB/DXT
-> shape but **must be validated with the current `mcpb` packaging CLI** before
-> release — see Packaging. The Codex / command-line path below is fully working.
+> Status: the manifest validates against `mcpb` 2.x and packs to a ~3 MB bundle
+> (verified to contain the entry point + runtime deps, no source/tests). The one
+> step not yet done is a **test-install in a live Claude Desktop** - do that before
+> release. The Codex / command-line path below is fully working.
 
 ### OpenAI Codex (local) — CLI, IDE, or desktop app
 
@@ -103,10 +104,23 @@ npm start       # run the server over stdio (expects the game for tool calls)
 ## Packaging
 
 - **npm:** `npm run build` then `npm pack` (or publish) for the Codex `npx` path.
-- **Claude Desktop `.mcpb`:** install the `mcpb` CLI, run `mcpb pack` in this folder
-  (ships `dist/`, `manifest.json`, `node_modules`). **Verify** the produced bundle
-  installs in the current Claude Desktop before release; the manifest schema here
-  is best-effort and may need updating to the latest spec.
+- **Claude Desktop `.mcpb`:** the `mcpb` CLI is a devDependency. Validate and pack:
+
+  ```bash
+  npm run validate        # mcpb validate manifest.json
+  # lean release bundle (runtime deps only):
+  npm ci                  # clean install (incl. dev, needed to build)
+  npm run build           # tsc -> dist/
+  npm prune --omit=dev    # drop typescript/mcpb/@types from node_modules
+  npx mcpb pack . satisfactory-aimod.mcpb
+  npm install             # restore dev deps for development
+  ```
+
+  `.mcpbignore` keeps the bundle lean (ships `dist/` minus tests/maps, `manifest.json`,
+  `package.json`, `README.md`, and production `node_modules`). **Note:** patterns are
+  gitignore-style - anchor top-level excludes with a leading `/` (e.g. `/src/`), or a
+  bare `src/` will also drop `dist/src/` (the entry point). Produced bundle: ~3 MB.
+  **Remaining before release:** test-install the `.mcpb` in a live Claude Desktop.
 
 ## Safety
 
